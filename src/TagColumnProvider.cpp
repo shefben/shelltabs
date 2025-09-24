@@ -34,7 +34,14 @@ IFACEMETHODIMP_(ULONG) TagColumnProvider::Release() {
     return count;
 }
 
-IFACEMETHODIMP TagColumnProvider::Initialize(LPCSHCOLUMNINIT) { return S_OK; }
+IFACEMETHODIMP TagColumnProvider::Initialize(LPCSHCOLUMNINIT init) {
+    if (init && init->wszFolder[0] != L'\0') {
+        m_folderPath = init->wszFolder;
+    } else {
+        m_folderPath.clear();
+    }
+    return S_OK;
+}
 
 IFACEMETHODIMP TagColumnProvider::GetColumnInfo(DWORD index, SHCOLUMNINFO* info) {
     if (!info) {
@@ -58,26 +65,26 @@ IFACEMETHODIMP TagColumnProvider::GetColumnInfo(DWORD index, SHCOLUMNINFO* info)
 }
 
 namespace {
-std::wstring ResolveParsingName(LPCSHCOLUMNDATA data) {
-    if (!data || !data->psf || !data->pidl) {
+std::wstring CombinePath(const std::wstring& base, LPCWSTR file) {
+    if (!file || file[0] == L'\0') {
         return {};
     }
-
-    STRRET strret{};
-    if (FAILED(data->psf->GetDisplayNameOf(data->pidl, SHGDN_FORPARSING, &strret))) {
+    if (!PathIsRelativeW(file)) {
+        return file;
+    }
+    if (base.empty()) {
         return {};
     }
-
-    PWSTR buffer = nullptr;
-    if (FAILED(StrRetToStrW(&strret, data->pidl, &buffer))) {
-        return {};
+    wchar_t buffer[MAX_PATH];
+    if (PathCombineW(buffer, base.c_str(), file)) {
+        return buffer;
     }
-
-    std::wstring result(buffer ? buffer : L"");
-    if (buffer) {
-        CoTaskMemFree(buffer);
+    std::wstring combined = base;
+    if (!combined.empty() && combined.back() != L'\\' && combined.back() != L'/') {
+        combined += L'\\';
     }
-    return result;
+    combined += file;
+    return combined;
 }
 }  // namespace
 
@@ -92,7 +99,7 @@ IFACEMETHODIMP TagColumnProvider::GetItemData(LPCSHCOLUMNID columnId, LPCSHCOLUM
         return S_FALSE;
     }
 
-    const std::wstring path = ResolveParsingName(data);
+    const std::wstring path = CombinePath(m_folderPath, data->wszFile);
     if (path.empty()) {
         return S_FALSE;
     }

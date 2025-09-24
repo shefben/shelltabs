@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <string>
 
 namespace shelltabs {
 
@@ -23,6 +24,7 @@ public:
 
 private:
     std::atomic<long> m_refCount;
+    std::wstring m_folderPath;
 };
 
 }  // namespace shelltabs

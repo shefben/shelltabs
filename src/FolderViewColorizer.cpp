@@ -82,7 +82,7 @@ bool FolderViewColorizer::ResolveView() {
     }
 
     Microsoft::WRL::ComPtr<IShellView> view;
-    if (FAILED(m_shellBrowser->QueryActiveShellView(IID_PPV_ARGS(&view))) || !view) {
+    if (FAILED(m_shellBrowser->QueryActiveShellView(&view)) || !view) {
         return false;
     }
 
