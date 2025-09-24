@@ -77,12 +77,21 @@ UniquePidl ParseDisplayName(const std::wstring& parsingName) {
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser) {
     if (shellBrowser) {
-        Microsoft::WRL::ComPtr<IShellView> shellView;
-        if (SUCCEEDED(shellBrowser->QueryActiveShellView(&shellView)) && shellView) {
-            Microsoft::WRL::ComPtr<IFolderView> folderView;
-            if (SUCCEEDED(shellView.As(&folderView)) && folderView) {
-                Microsoft::WRL::ComPtr<IPersistFolder2> persist;
-                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&persist))) && persist) {
+        IShellView* rawShellView = nullptr;
+        if (SUCCEEDED(shellBrowser->QueryActiveShellView(&rawShellView)) && rawShellView) {
+            Microsoft::WRL::ComPtr<IShellView> shellView;
+            shellView.Attach(rawShellView);
+
+            IFolderView* rawFolderView = nullptr;
+            if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&rawFolderView))) && rawFolderView) {
+                Microsoft::WRL::ComPtr<IFolderView> folderView;
+                folderView.Attach(rawFolderView);
+
+                IPersistFolder2* rawPersist = nullptr;
+                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&rawPersist))) && rawPersist) {
+                    Microsoft::WRL::ComPtr<IPersistFolder2> persist;
+                    persist.Attach(rawPersist);
+
                     PIDLIST_ABSOLUTE pidl = nullptr;
                     if (SUCCEEDED(persist->GetCurFolder(&pidl)) && pidl) {
                         return UniquePidl(pidl);
