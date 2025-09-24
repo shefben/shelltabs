@@ -23,6 +23,10 @@ add_library(ShellTabs SHARED
     src/resource.rc
 )
 
+if (MSVC)
+    target_sources(ShellTabs PRIVATE ShellTabs.def)
+endif()
+
 target_include_directories(ShellTabs PRIVATE
     include
     ${CMAKE_CURRENT_SOURCE_DIR}

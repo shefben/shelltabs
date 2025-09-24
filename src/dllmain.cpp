@@ -167,12 +167,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     return TRUE;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllCanUnloadNow() {
+STDAPI DllCanUnloadNow(void) {
     return ModuleCanUnload() ? S_OK : S_FALSE;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(REFCLSID rclsid, REFIID riid,
-                                                                      void** object) {
+STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
     }
@@ -188,7 +187,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(REFCLSID rc
     return CLASS_E_CLASSNOTAVAILABLE;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllRegisterServer() {
+STDAPI DllRegisterServer(void) {
     wchar_t modulePath[MAX_PATH] = {};
     if (!GetModuleFileNameW(GetModuleHandleInstance(), modulePath, ARRAYSIZE(modulePath))) {
         return HRESULT_FROM_WIN32(GetLastError());
@@ -225,7 +224,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall DllRegisterServer() {
     return S_OK;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllUnregisterServer() {
+STDAPI DllUnregisterServer(void) {
     const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
     const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
     const std::wstring deskbandKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Deskband\\" + clsidString;
