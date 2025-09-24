@@ -1,5 +1,7 @@
 #include "BrowserEvents.h"
 
+#include <exdispid.h>
+
 #include "TabBand.h"
 
 namespace shelltabs {

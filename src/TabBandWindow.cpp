@@ -343,9 +343,9 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     }
 
     HBRUSH arrowBrush = CreateSolidBrush(textColor);
-    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, arrowBrush));
+    HBRUSH oldArrowBrush = static_cast<HBRUSH>(SelectObject(dc, arrowBrush));
     Polygon(dc, arrow, 3);
-    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldArrowBrush);
     DeleteObject(arrowBrush);
 
     RECT textRect = rect;

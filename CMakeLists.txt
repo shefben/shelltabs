@@ -23,12 +23,16 @@ add_library(ShellTabs SHARED
     src/resource.rc
 )
 
-target_include_directories(ShellTabs PRIVATE include)
+target_include_directories(ShellTabs PRIVATE
+    include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 target_compile_definitions(ShellTabs PRIVATE
     UNICODE
     _UNICODE
     _WIN32_WINNT=0x0A00
+    NOMINMAX
 )
 
 target_compile_options(ShellTabs PRIVATE
