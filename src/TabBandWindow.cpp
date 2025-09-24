@@ -1046,6 +1046,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             self->HandleMouseMove(pt);
             break;
         }
+        case WM_RBUTTONUP: {
+            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            ClientToScreen(hwnd, &pt);
+            self->ShowContextMenu(pt);
+            return 0;
+        }
         case WM_LBUTTONDBLCLK: {
             POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             self->HandleDoubleClick(pt);
