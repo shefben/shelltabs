@@ -29,6 +29,7 @@ target_compile_definitions(ShellTabs PRIVATE
     UNICODE
     _UNICODE
     _WIN32_WINNT=0x0A00
+    NOMINMAX
 )
 
 target_compile_options(ShellTabs PRIVATE

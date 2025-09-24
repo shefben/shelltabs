@@ -12,6 +12,10 @@
 #include <shellapi.h>
 #include <shobjidl_core.h>
 
+#ifndef SBSP_EXPLORE
+#define SBSP_EXPLORE 0x00000004
+#endif
+
 #include "Guids.h"
 #include "Module.h"
 #include "TabBandWindow.h"

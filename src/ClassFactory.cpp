@@ -13,7 +13,7 @@ namespace shelltabs {
 class TabBandClassFactory : public IClassFactory {
 public:
     TabBandClassFactory() : m_refCount(1) { ModuleAddRef(); }
-    ~TabBandClassFactory() override { ModuleRelease(); }
+    ~TabBandClassFactory() { ModuleRelease(); }
 
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
@@ -91,7 +91,7 @@ HRESULT CreateTabBandClassFactory(REFIID riid, void** object) {
 class TagColumnProviderClassFactory : public IClassFactory {
 public:
     TagColumnProviderClassFactory() : m_refCount(1) { ModuleAddRef(); }
-    ~TagColumnProviderClassFactory() override { ModuleRelease(); }
+    ~TagColumnProviderClassFactory() { ModuleRelease(); }
 
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
         if (!object) {
