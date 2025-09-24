@@ -1,0 +1,131 @@
+#pragma once
+
+#include <windows.h>
+
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "TabManager.h"
+
+namespace shelltabs {
+
+class TabBand;
+
+class TabBandWindow {
+public:
+    explicit TabBandWindow(TabBand* owner);
+    ~TabBandWindow();
+
+    HWND Create(HWND parent);
+    void Destroy();
+
+    HWND GetHwnd() const noexcept { return m_hwnd; }
+
+    void Show(bool show);
+    void SetTabs(const std::vector<TabViewItem>& items);
+    bool HasFocus() const;
+    void FocusTab();
+
+private:
+    struct VisualItem {
+        TabViewItem data;
+        RECT bounds{};
+        bool firstInGroup = false;
+        int badgeWidth = 0;
+    };
+
+    struct HitInfo {
+        bool hit = false;
+        size_t itemIndex = 0;
+        TabViewItemType type = TabViewItemType::kGroupHeader;
+        TabLocation location;
+        bool before = false;
+        bool after = false;
+    };
+
+    struct DropTarget {
+        bool active = false;
+        bool outside = false;
+        bool group = false;
+        int groupIndex = -1;
+        int tabIndex = -1;
+        int indicatorX = -1;
+    };
+
+    struct DragState {
+        bool tracking = false;
+        bool dragging = false;
+        HitInfo origin;
+        POINT start{};
+        DropTarget target{};
+        POINT current{};
+        bool hasCurrent = false;
+    };
+
+    HWND m_hwnd = nullptr;
+    HWND m_newTabButton = nullptr;
+    TabBand* m_owner = nullptr;
+
+    RECT m_clientRect{};
+    std::vector<TabViewItem> m_tabData;
+    std::vector<VisualItem> m_items;
+    DragState m_drag;
+    HitInfo m_contextHit;
+    std::vector<std::pair<UINT, TabLocation>> m_hiddenTabCommands;
+
+    void Layout(int width, int height);
+    void RebuildLayout();
+    void Draw(HDC dc) const;
+    void DrawGroupHeader(HDC dc, const VisualItem& item) const;
+    void DrawTab(HDC dc, const VisualItem& item) const;
+    void DrawDropIndicator(HDC dc) const;
+    void DrawDragVisual(HDC dc) const;
+
+    void HandleCommand(WPARAM wParam, LPARAM lParam);
+    void HandleMouseDown(const POINT& pt);
+    void HandleMouseUp(const POINT& pt);
+    void HandleMouseMove(const POINT& pt);
+    void HandleDoubleClick(const POINT& pt);
+    void HandleFileDrop(HDROP drop);
+    void CancelDrag();
+    void UpdateDropTarget(const POINT& pt);
+    void CompleteDrop();
+    void RequestSelection(const HitInfo& hit);
+    HitInfo HitTest(const POINT& pt) const;
+    void ShowContextMenu(const POINT& pt);
+    void PopulateHiddenTabsMenu(HMENU menu, int groupIndex);
+    int GroupCount() const;
+    const VisualItem* FindLastGroupHeader() const;
+    const VisualItem* FindVisualForHit(const HitInfo& hit) const;
+    int MeasureBadgeWidth(const TabViewItem& item, HDC dc) const;
+    std::wstring BuildGitBadgeText(const TabViewItem& item) const;
+    COLORREF ResolveTabBackground(const TabViewItem& item) const;
+    COLORREF ResolveGroupBackground(const TabViewItem& item) const;
+    COLORREF ResolveTextColor(COLORREF background) const;
+
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+};
+
+constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
+
+enum : UINT_PTR {
+    IDC_NEW_TAB = 1001,
+    IDM_CLOSE_TAB = 40001,
+    IDM_HIDE_TAB = 40002,
+    IDM_DETACH_TAB = 40003,
+    IDM_TOGGLE_ISLAND = 40010,
+    IDM_UNHIDE_ALL = 40011,
+    IDM_NEW_ISLAND = 40012,
+    IDM_DETACH_ISLAND = 40013,
+    IDM_TOGGLE_SPLIT = 40014,
+    IDM_SET_SPLIT_SECONDARY = 40015,
+    IDM_CLEAR_SPLIT_SECONDARY = 40016,
+    IDM_SWAP_SPLIT = 40017,
+    IDM_OPEN_TERMINAL = 40018,
+    IDM_OPEN_VSCODE = 40019,
+    IDM_COPY_PATH = 40020,
+    IDM_HIDDEN_TAB_BASE = 41000,
+};
+
+}  // namespace shelltabs
