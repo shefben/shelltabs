@@ -1,0 +1,6 @@
+LIBRARY "ShellTabs"
+EXPORTS
+    DllCanUnloadNow
+    DllGetClassObject
+    DllRegisterServer
+    DllUnregisterServer
