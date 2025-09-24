@@ -1,1 +1,96 @@
-# shelltabs
+# ShellTabs
+
+ShellTabs is a Windows Explorer deskband extension that adds a lightweight tabbed interface to the classic File Explorer window. The deskband hosts a custom tab control that tracks folder navigation and lets you jump between locations with a single click. A dedicated **+** button creates new tabs duplicating the current folder, and you can close tabs from the context menu.
+
+> **Note**
+> Deskband extensions are supported on Windows 10 and earlier. Microsoft removed the legacy toolbar surface from the Windows 11 File Explorer; on Windows 11 the extension must be hosted inside an alternative shell (e.g., [ExplorerPatcher](https://github.com/valinet/ExplorerPatcher)) to be visible.
+
+## Features
+
+- Custom Explorer toolbar (deskband) hosting a Win32 tab control.
+- Automatic tab creation when you navigate to new folders.
+- **+** button to open a new tab that duplicates the currently selected folder.
+- Right-click a tab to close it.
+- Tabs persist for the lifetime of the Explorer window and track the active folder.
+- Session persistence reloads your tabs and islands after Explorer restarts, keeping group collapse state and ordering intact.
+- Dragging tabs or islands shows a translucent preview under the cursor so you can place them precisely before dropping.
+- Optional tagging system that colors file and folder names according to assigned tags.
+- A **Tags** column for Details view that lists tag assignments as a comma-separated string.
+
+## Building
+
+The project is built as an in-process COM DLL using CMake and the Microsoft Visual C++ toolchain.
+
+1. Open a **x64 Native Tools Command Prompt for VS 2022** (or the version that matches your compiler).
+2. Configure and build the project:
+
+   ```powershell
+   cd path\to\shelltabs
+   cmake -B build -S . -G "Visual Studio 17 2022" -A x64
+   cmake --build build --config Release
+   ```
+
+   The compiled `ShellTabs.dll` is generated under `build\bin\Release`.
+
+## Installation
+
+1. Copy `ShellTabs.dll` to a permanent location (for example, `C:\Program Files\ShellTabs`).
+2. Register the deskband from an elevated Developer Command Prompt or PowerShell session:
+
+   ```powershell
+   regsvr32 "C:\Program Files\ShellTabs\ShellTabs.dll"
+   ```
+
+   Registration writes entries to **HKCU**, so administrator rights are not required if you keep the DLL under your user profile. Use `/u` to unregister later:
+
+   ```powershell
+   regsvr32 /u "C:\Program Files\ShellTabs\ShellTabs.dll"
+   ```
+
+3. Restart Windows Explorer (e.g., from Task Manager) if the toolbar menu does not refresh automatically.
+4. In File Explorer, right-click the toolbar area and enable **Shell Tabs** from the **Toolbars** menu. The tab strip appears docked at the top of the Explorer window.
+
+## Architecture Overview
+
+- **Deskband (`TabBand`)** – Implements `IDeskBand2`, `IObjectWithSite`, and related COM interfaces. It is responsible for creating the UI window, tracking Explorer navigation events, and keeping the tab model in sync with the current folder.
+- **Tab model (`TabManager`)** – Maintains the list of open tabs, their display names, and associated PIDLs. The manager owns the shell item identifiers, ensuring proper lifetime management.
+- **UI host (`TabBandWindow`)** – Creates a Win32 child window composed of a `SysTabControl32` instance and a push button for the “new tab” action. It routes user interactions back to the band.
+- **Browser event sink (`BrowserEvents`)** – Subscribes to `DWebBrowserEvents2` emitted by Explorer’s `IWebBrowser2` object so the deskband can react to navigation changes and window teardown.
+- **Utilities** – Helper functions for cloning PIDLs, resolving display names, and querying the active folder via `IShellBrowser`/`IWebBrowser2`.
+- **Folder view colorizer** – Subclasses the Explorer folder view to apply tag-based colors during custom draw events.
+- **Tag column provider** – Implements `IColumnProvider` so the Explorer Details view can display the tags associated with each item.
+
+## Tagging System
+
+ShellTabs reads tag assignments from `%APPDATA%\ShellTabs\tags.db`. The file is encoded as UTF-8 and stores one entry per line
+using the following format:
+
+```
+<full-path>|<tag1>,<tag2>,...
+```
+
+- Paths are matched case-insensitively and should use backslashes.
+- Tags are trimmed of whitespace and can contain spaces; they are separated with either commas or semicolons.
+- During rendering, file and folder names are tinted using a palette derived from the assigned tags. Multiple tags blend their
+  palette colors for a stable, deterministic result.
+- The **Tags** column surfaces the comma-separated list exactly as stored so you can sort or group items directly inside Explorer.
+
+## Development Tips
+
+- Building the project in **Debug** mode under Visual Studio loads the extension into the Explorer process. Use the “Restart Explorer” gesture cautiously; any unhandled exception will terminate Explorer.
+- To simplify iterative development, keep a separate PowerShell window with the following aliases:
+
+  ```powershell
+  function Register-ShellTabs { regsvr32 /s "C:\Path\To\Build\bin\Debug\ShellTabs.dll" }
+  function Unregister-ShellTabs { regsvr32 /s /u "C:\Path\To\Build\bin\Debug\ShellTabs.dll" }
+  ```
+
+  Run `Unregister-ShellTabs` before rebuilding if the module is loaded by Explorer.
+- The deskband stores data only in memory. You can extend `TabManager` to persist sessions or implement advanced behaviors such as dragging tabs, reordering, or opening new folders in background tabs.
+
+## Troubleshooting
+
+- If `regsvr32` reports that the DLL is in use, ensure Explorer is not holding on to an older build. Kill and restart `explorer.exe`, unregister, then register the new version.
+- When the toolbar does not appear in the Explorer toolbar menu, confirm that **Classic toolbars** are enabled (they are hidden by default on Windows 10 with ribbon mode). Enable “Show title bar” from Folder Options or use a shell such as [OldNewExplorer](https://www.msfn.org/board/topic/170375-oldnewexplorer-119/).
+- Use the **Event Viewer** or tools like [DebugView](https://learn.microsoft.com/sysinternals/downloads/debugview) to trace diagnostics added to the project if you extend it with logging.
+
