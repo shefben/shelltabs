@@ -36,6 +36,10 @@ struct TabGroup {
     bool splitView = false;
     int splitPrimary = -1;
     int splitSecondary = -1;
+    bool headerVisible = true;
+    std::wstring savedGroupId;
+    bool hasCustomOutline = false;
+    COLORREF outlineColor = RGB(0, 120, 215);
 };
 
 struct TabViewItem {
@@ -43,6 +47,7 @@ struct TabViewItem {
     TabLocation location;
     std::wstring name;
     std::wstring tooltip;
+    PCIDLIST_ABSOLUTE pidl = nullptr;
     bool selected = false;
     bool collapsed = false;
     size_t totalTabs = 0;
@@ -59,6 +64,10 @@ struct TabViewItem {
     bool splitAvailable = false;
     bool splitEnabled = false;
     std::wstring path;
+    bool hasCustomOutline = false;
+    COLORREF outlineColor = 0;
+    std::wstring savedGroupId;
+    bool isSavedGroup = false;
 };
 
 class TabManager {
@@ -93,9 +102,12 @@ public:
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
     size_t HiddenCount(int groupIndex) const;
 
-    int CreateGroupAfter(int groupIndex, std::wstring name = {});
+    int CreateGroupAfter(int groupIndex, std::wstring name = {}, bool headerVisible = true);
     void MoveTab(TabLocation from, TabLocation to);
     void MoveGroup(int fromGroup, int toGroup);
+    TabLocation MoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible);
+    void SetGroupHeaderVisible(int groupIndex, bool visible);
+    bool IsGroupHeaderVisible(int groupIndex) const;
 
     void ToggleSplitView(int groupIndex);
     void SetSplitSecondary(TabLocation location);

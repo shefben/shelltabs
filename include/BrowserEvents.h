@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <string>
 
 #include <exdisp.h>
 #include <ocidl.h>
@@ -30,6 +31,8 @@ public:
     void Disconnect();
 
 private:
+    bool HandleNewWindowEvent(DISPID dispIdMember, DISPPARAMS* params);
+
     std::atomic<long> m_refCount;
     TabBand* m_owner;
     Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;

@@ -4,9 +4,11 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <limits>
 
 #include <windowsx.h>
 #include <shellapi.h>
+#include <ShlObj.h>
 
 #include "Module.h"
 #include "TabBand.h"
@@ -28,6 +30,13 @@ constexpr int kBadgePaddingY = 2;
 constexpr int kBadgeHeight = 18;
 constexpr int kSplitIndicatorWidth = 14;
 constexpr double kTagLightenFactor = 0.35;
+constexpr int kTabCornerRadius = 8;
+constexpr int kGroupCornerRadius = 10;
+constexpr int kGroupOutlineThickness = 2;
+constexpr int kIconGap = 6;
+constexpr int kIslandIndicatorWidth = 3;
+constexpr int kIndicatorHitPadding = 6;
+constexpr int kCollapsedIndicatorPadding = 10;
 
 COLORREF GetGroupColor(bool selected) {
     return selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE);
@@ -46,6 +55,14 @@ COLORREF LightenColor(COLORREF color, double factor) {
     const int r = static_cast<int>(GetRValue(color) + (255 - GetRValue(color)) * factor);
     const int g = static_cast<int>(GetGValue(color) + (255 - GetGValue(color)) * factor);
     const int b = static_cast<int>(GetBValue(color) + (255 - GetBValue(color)) * factor);
+    return RGB(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
+}
+
+COLORREF DarkenColor(COLORREF color, double factor) {
+    factor = std::clamp(factor, 0.0, 1.0);
+    const int r = static_cast<int>(GetRValue(color) * (1.0 - factor));
+    const int g = static_cast<int>(GetGValue(color) * (1.0 - factor));
+    const int b = static_cast<int>(GetBValue(color) * (1.0 - factor));
     return RGB(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
 }
 
@@ -91,6 +108,8 @@ HWND TabBandWindow::Create(HWND parent) {
 
 void TabBandWindow::Destroy() {
     CancelDrag();
+    ClearExplorerContext();
+    ClearVisualItems();
 
     if (m_newTabButton) {
         DestroyWindow(m_newTabButton);
@@ -100,7 +119,6 @@ void TabBandWindow::Destroy() {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
-    m_items.clear();
     m_tabData.clear();
 }
 
@@ -114,6 +132,7 @@ void TabBandWindow::Show(bool show) {
 void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_tabData = items;
     m_contextHit = {};
+    ClearExplorerContext();
     RebuildLayout();
     if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, TRUE);
@@ -150,7 +169,7 @@ void TabBandWindow::Layout(int width, int height) {
 }
 
 void TabBandWindow::RebuildLayout() {
-    m_items.clear();
+    ClearVisualItems();
     if (!m_hwnd) {
         return;
     }
@@ -170,22 +189,75 @@ void TabBandWindow::RebuildLayout() {
 
     const int top = bounds.top + 2;
     const int bottom = bounds.bottom - 2;
+    const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
+    const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
     int x = bounds.left + 4;
     int currentGroup = -1;
+    TabViewItem currentHeader{};
+    bool hasHeader = false;
+    bool expectFirstTab = false;
 
     for (const auto& item : m_tabData) {
-        VisualItem visual;
-        visual.data = item;
-        const bool isGroup = item.type == TabViewItemType::kGroupHeader;
+        if (item.type == TabViewItemType::kGroupHeader) {
+            VisualItem visual;
+            visual.data = item;
+            visual.firstInGroup = true;
+            visual.collapsedPlaceholder = item.collapsed || item.visibleTabs == 0;
 
-        if (isGroup) {
             if (currentGroup >= 0) {
                 x += kGroupGap;
             }
+
+            SIZE textSize{0, 0};
+            if (!item.name.empty()) {
+                GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
+            }
+
+            int width = kIslandIndicatorWidth;
+            if (visual.collapsedPlaceholder) {
+                const int padding = kGroupPaddingX;
+                width = textSize.cx + padding * 2;
+                width = std::max(width, kGroupMinWidth);
+            }
+
+            const int remaining = bounds.right - x;
+            if (remaining <= 0) {
+                break;
+            }
+            width = std::min(width, remaining);
+
+            visual.bounds = {x, top, x + width, bottom};
+            m_items.emplace_back(std::move(visual));
+
             currentGroup = item.location.groupIndex;
-            visual.firstInGroup = true;
-        } else {
+            currentHeader = item;
+            hasHeader = true;
+            expectFirstTab = true;
+            x += width;
+            continue;
+        }
+
+        VisualItem visual;
+        visual.data = item;
+
+        if (currentGroup != item.location.groupIndex) {
+            currentGroup = item.location.groupIndex;
+            hasHeader = false;
+            expectFirstTab = true;
+            if (!m_items.empty()) {
+                x += kGroupGap;
+            }
+        } else if (!expectFirstTab) {
             x += kTabGap;
+        }
+
+        if (expectFirstTab) {
+            visual.firstInGroup = true;
+            expectFirstTab = false;
+        }
+        visual.hasGroupHeader = hasHeader;
+        if (hasHeader) {
+            visual.groupHeader = currentHeader;
         }
 
         SIZE textSize{0, 0};
@@ -193,13 +265,41 @@ void TabBandWindow::RebuildLayout() {
             GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
         }
 
-        const int padding = isGroup ? kGroupPaddingX : kPaddingX;
-        int width = textSize.cx + padding * 2;
-        width = std::max(width, isGroup ? kGroupMinWidth : kItemMinWidth);
+        int width = textSize.cx + kPaddingX * 2;
+        width = std::max(width, kItemMinWidth);
 
-        if (!isGroup) {
-            visual.badgeWidth = MeasureBadgeWidth(item, dc);
-            width += visual.badgeWidth;
+        visual.badgeWidth = MeasureBadgeWidth(item, dc);
+        width += visual.badgeWidth;
+        visual.icon = LoadItemIcon(item);
+        if (visual.icon) {
+            visual.iconWidth = baseIconWidth;
+            visual.iconHeight = baseIconHeight;
+            ICONINFO iconInfo{};
+            if (GetIconInfo(visual.icon, &iconInfo)) {
+                BITMAP bitmap{};
+                if (iconInfo.hbmColor &&
+                    GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                    visual.iconWidth = bitmap.bmWidth;
+                    visual.iconHeight = bitmap.bmHeight;
+                } else if (iconInfo.hbmMask &&
+                           GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                    visual.iconWidth = bitmap.bmWidth;
+                    visual.iconHeight = bitmap.bmHeight / 2;
+                }
+                if (iconInfo.hbmColor) {
+                    DeleteObject(iconInfo.hbmColor);
+                }
+                if (iconInfo.hbmMask) {
+                    DeleteObject(iconInfo.hbmMask);
+                }
+            }
+            if (visual.iconWidth <= 0) {
+                visual.iconWidth = baseIconWidth;
+            }
+            if (visual.iconHeight <= 0) {
+                visual.iconHeight = baseIconHeight;
+            }
+            width += visual.iconWidth + kIconGap;
         }
 
         const int remaining = bounds.right - x;
@@ -255,6 +355,9 @@ COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
     if (item.selected) {
         return GetTabColor(true);
     }
+    if (item.hasCustomOutline) {
+        return LightenColor(item.outlineColor, 0.55);
+    }
     if (item.hasTagColor) {
         return LightenColor(item.tagColor, kTagLightenFactor);
     }
@@ -264,6 +367,9 @@ COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
 COLORREF TabBandWindow::ResolveGroupBackground(const TabViewItem& item) const {
     if (item.selected) {
         return GetGroupColor(true);
+    }
+    if (item.hasCustomOutline) {
+        return LightenColor(item.outlineColor, 0.45);
     }
     if (item.hasTagColor) {
         return LightenColor(item.tagColor, kTagLightenFactor);
@@ -313,85 +419,57 @@ int TabBandWindow::MeasureBadgeWidth(const TabViewItem& item, HDC dc) const {
 
 void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
+    if (!item.collapsedPlaceholder) {
+        RECT indicator = rect;
+        indicator.right = indicator.left + kIslandIndicatorWidth;
+        COLORREF indicatorColor = item.data.hasCustomOutline
+                                      ? item.data.outlineColor
+                                      : (item.data.hasTagColor ? item.data.tagColor : GetSysColor(COLOR_HOTLIGHT));
+        if (item.data.selected) {
+            indicatorColor = DarkenColor(indicatorColor, 0.2);
+        }
+        HBRUSH brush = CreateSolidBrush(indicatorColor);
+        if (brush) {
+            FillRect(dc, &indicator, brush);
+            DeleteObject(brush);
+        }
+        return;
+    }
+
     const bool selected = item.data.selected;
     COLORREF backgroundColor = ResolveGroupBackground(item.data);
     COLORREF textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
+    COLORREF outlineColor = item.data.hasCustomOutline
+                                ? (selected ? DarkenColor(item.data.outlineColor, 0.25) : item.data.outlineColor)
+                                : (item.data.hasTagColor ? DarkenColor(item.data.tagColor, 0.25)
+                                                         : (selected ? DarkenColor(GetGroupColor(true), 0.2)
+                                                                     : GetSysColor(COLOR_HOTLIGHT)));
 
     HBRUSH brush = CreateSolidBrush(backgroundColor);
     FillRect(dc, &rect, brush);
     DeleteObject(brush);
 
-    HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
-    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-    Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
-    SelectObject(dc, oldBrush);
-    SelectObject(dc, oldPen);
-    DeleteObject(pen);
-
-    int indicatorLeft = rect.left + 8;
-    int indicatorCenterY = (rect.top + rect.bottom) / 2;
-    POINT arrow[3]{};
-    if (item.data.collapsed) {
-        arrow[0] = {indicatorLeft, indicatorCenterY - 5};
-        arrow[1] = {indicatorLeft, indicatorCenterY + 5};
-        arrow[2] = {indicatorLeft + 6, indicatorCenterY};
-    } else {
-        arrow[0] = {indicatorLeft - 3, indicatorCenterY - 2};
-        arrow[1] = {indicatorLeft + 3, indicatorCenterY - 2};
-        arrow[2] = {indicatorLeft, indicatorCenterY + 4};
+    RECT outline = rect;
+    InflateRect(&outline, -1, -1);
+    if (outline.right > outline.left && outline.bottom > outline.top) {
+        HPEN pen = CreatePen(PS_SOLID, kGroupOutlineThickness, outlineColor);
+        if (pen) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+            HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+            RoundRect(dc, outline.left, outline.top, outline.right, outline.bottom, kGroupCornerRadius,
+                      kGroupCornerRadius);
+            SelectObject(dc, oldBrush);
+            SelectObject(dc, oldPen);
+            DeleteObject(pen);
+        }
     }
 
-    HBRUSH arrowBrush = CreateSolidBrush(textColor);
-    HBRUSH oldArrowBrush = static_cast<HBRUSH>(SelectObject(dc, arrowBrush));
-    Polygon(dc, arrow, 3);
-    SelectObject(dc, oldArrowBrush);
-    DeleteObject(arrowBrush);
-
     RECT textRect = rect;
-    textRect.left = indicatorLeft + 10;
-    textRect.right -= item.data.splitActive ? 20 : 10;
-
+    textRect.left += kCollapsedIndicatorPadding;
+    textRect.right -= kCollapsedIndicatorPadding;
     SetTextColor(dc, textColor);
     DrawTextW(dc, item.data.name.c_str(), static_cast<int>(item.data.name.size()), &textRect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
-
-    if (item.data.splitActive) {
-        RECT icon = rect;
-        icon.right -= 6;
-        icon.left = icon.right - 12;
-        icon.top += 6;
-        icon.bottom -= 6;
-        HPEN pen = CreatePen(PS_SOLID, 1, textColor);
-        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-        MoveToEx(dc, icon.left, icon.top, nullptr);
-        LineTo(dc, icon.left, icon.bottom);
-        MoveToEx(dc, icon.right, icon.top, nullptr);
-        LineTo(dc, icon.right, icon.bottom);
-        MoveToEx(dc, (icon.left + icon.right) / 2, icon.top, nullptr);
-        LineTo(dc, (icon.left + icon.right) / 2, icon.bottom);
-        SelectObject(dc, oldPen);
-        DeleteObject(pen);
-    }
-
-    if (item.data.hiddenTabs > 0) {
-        const int bubbleDiameter = 16;
-        RECT bubble = {rect.right - bubbleDiameter - 6, rect.top + 4, rect.right - 6, rect.top + 4 + bubbleDiameter};
-        HBRUSH bubbleBrush = CreateSolidBrush(RGB(200, 50, 50));
-        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, GetStockObject(NULL_PEN)));
-        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, bubbleBrush));
-        Ellipse(dc, bubble.left, bubble.top, bubble.right, bubble.bottom);
-        SelectObject(dc, oldPen);
-        SelectObject(dc, oldBrush);
-        DeleteObject(bubbleBrush);
-
-        RECT bubbleText = bubble;
-        std::wstring count = std::to_wstring(item.data.hiddenTabs);
-        SetTextColor(dc, RGB(255, 255, 255));
-        DrawTextW(dc, count.c_str(), static_cast<int>(count.size()), &bubbleText,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-        SetTextColor(dc, textColor);
-    }
 }
 
 void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
@@ -399,24 +477,66 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     const bool selected = item.data.selected;
     COLORREF backgroundColor = ResolveTabBackground(item.data);
     COLORREF textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
+    COLORREF borderColor = selected ? GetSysColor(COLOR_WINDOWFRAME) : GetSysColor(COLOR_3DSHADOW);
 
-    HBRUSH brush = CreateSolidBrush(backgroundColor);
-    FillRect(dc, &rect, brush);
-    DeleteObject(brush);
+    RECT shapeRect = rect;
+    if (!selected) {
+        shapeRect.bottom -= 1;
+    }
 
-    HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
-    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-    Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
-    SelectObject(dc, oldBrush);
-    SelectObject(dc, oldPen);
-    DeleteObject(pen);
+    const int radius = kTabCornerRadius;
+    POINT points[] = {{shapeRect.left, shapeRect.bottom},
+                      {shapeRect.left, shapeRect.top + radius},
+                      {shapeRect.left + radius, shapeRect.top},
+                      {shapeRect.right - radius, shapeRect.top},
+                      {shapeRect.right, shapeRect.top + radius},
+                      {shapeRect.right, shapeRect.bottom}};
+
+    HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
+    if (region) {
+        HBRUSH brush = CreateSolidBrush(backgroundColor);
+        if (brush) {
+            FillRgn(dc, region, brush);
+            DeleteObject(brush);
+        }
+        HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
+        if (pen) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+            HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+            Polygon(dc, points, ARRAYSIZE(points));
+            SelectObject(dc, oldBrush);
+            SelectObject(dc, oldPen);
+            DeleteObject(pen);
+        }
+        DeleteObject(region);
+    }
+
+    COLORREF bottomLineColor = selected ? backgroundColor : GetSysColor(COLOR_3DLIGHT);
+    HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
+    if (bottomPen) {
+        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
+        MoveToEx(dc, rect.left + 1, rect.bottom - 1, nullptr);
+        LineTo(dc, rect.right - 1, rect.bottom - 1);
+        SelectObject(dc, oldPen);
+        DeleteObject(bottomPen);
+    }
 
     const int indicatorWidth = (item.data.splitSecondary || item.data.splitPrimary) ? kSplitIndicatorWidth : 0;
     const int badgeWidth = item.badgeWidth - indicatorWidth;
 
+    int textLeft = rect.left + kPaddingX;
+    if (item.icon) {
+        const int availableHeight = rect.bottom - rect.top;
+        const int iconHeight = std::min(item.iconHeight, availableHeight - 4);
+        const int iconWidth = item.iconWidth;
+        const int iconY = rect.top + (availableHeight - iconHeight) / 2;
+        DrawIconEx(dc, textLeft, iconY, item.icon, iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
+        textLeft += iconWidth + kIconGap;
+    }
+
     RECT textRect = rect;
-    textRect.left += kPaddingX;
+    textRect.left = textLeft;
+    textRect.top += 3;
     textRect.right -= (item.badgeWidth > 0 ? item.badgeWidth : kPaddingX);
 
     SetTextColor(dc, textColor);
@@ -427,25 +547,28 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         RECT badgeRect = rect;
         badgeRect.left = rect.right - indicatorWidth - badgeWidth + kBadgePaddingX;
         badgeRect.right = rect.right - indicatorWidth - kBadgePaddingX;
-        badgeRect.top = rect.top + (rect.bottom - rect.top - kBadgeHeight) / 2;
+        badgeRect.top = rect.top + 4;
         badgeRect.bottom = badgeRect.top + kBadgeHeight;
         COLORREF badgeColor = item.data.gitStatus.hasChanges ? RGB(200, 130, 60) : RGB(90, 150, 90);
         HBRUSH badgeBrush = CreateSolidBrush(LightenColor(badgeColor, 0.15));
-        RECT badgeFill = badgeRect;
-        badgeFill.left -= kBadgePaddingX;
-        badgeFill.right += kBadgePaddingX;
-        FillRect(dc, &badgeFill, badgeBrush);
-        DeleteObject(badgeBrush);
-        HPEN badgePen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
-        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, badgePen));
-        MoveToEx(dc, badgeFill.left, badgeFill.top, nullptr);
-        LineTo(dc, badgeFill.right, badgeFill.top);
-        LineTo(dc, badgeFill.right, badgeFill.bottom);
-        LineTo(dc, badgeFill.left, badgeFill.bottom);
-        LineTo(dc, badgeFill.left, badgeFill.top);
-        SelectObject(dc, oldPen);
-        DeleteObject(badgePen);
-
+        if (badgeBrush) {
+            RECT badgeFill = badgeRect;
+            badgeFill.left -= kBadgePaddingX;
+            badgeFill.right += kBadgePaddingX;
+            FillRect(dc, &badgeFill, badgeBrush);
+            DeleteObject(badgeBrush);
+            HPEN badgePen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
+            if (badgePen) {
+                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, badgePen));
+                MoveToEx(dc, badgeFill.left, badgeFill.top, nullptr);
+                LineTo(dc, badgeFill.right, badgeFill.top);
+                LineTo(dc, badgeFill.right, badgeFill.bottom);
+                LineTo(dc, badgeFill.left, badgeFill.bottom);
+                LineTo(dc, badgeFill.left, badgeFill.top);
+                SelectObject(dc, oldPen);
+                DeleteObject(badgePen);
+            }
+        }
         SetTextColor(dc, ResolveTextColor(badgeColor));
         const std::wstring badgeText = BuildGitBadgeText(item.data);
         DrawTextW(dc, badgeText.c_str(), static_cast<int>(badgeText.size()), &badgeRect,
@@ -456,10 +579,14 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     if (indicatorWidth > 0) {
         RECT indicator = rect;
         indicator.left = rect.right - indicatorWidth;
+        indicator.top += 4;
+        indicator.bottom -= 2;
         COLORREF indicatorColor = item.data.splitSecondary ? RGB(90, 140, 220) : RGB(120, 120, 120);
         HBRUSH indicatorBrush = CreateSolidBrush(indicatorColor);
-        FillRect(dc, &indicator, indicatorBrush);
-        DeleteObject(indicatorBrush);
+        if (indicatorBrush) {
+            FillRect(dc, &indicator, indicatorBrush);
+            DeleteObject(indicatorBrush);
+        }
         SetTextColor(dc, RGB(255, 255, 255));
         std::wstring marker = item.data.splitSecondary ? L"R" : L"L";
         DrawTextW(dc, marker.c_str(), static_cast<int>(marker.size()), &indicator,
@@ -467,6 +594,7 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         SetTextColor(dc, textColor);
     }
 }
+
 
 void TabBandWindow::DrawDropIndicator(HDC dc) const {
     if (!m_drag.dragging || !m_drag.target.active || m_drag.target.outside || m_drag.target.indicatorX < 0) {
@@ -541,6 +669,56 @@ void TabBandWindow::DrawDragVisual(HDC dc) const {
     DeleteDC(memDC);
 }
 
+void TabBandWindow::ClearVisualItems() {
+    for (auto& visual : m_items) {
+        if (visual.icon) {
+            DestroyIcon(visual.icon);
+            visual.icon = nullptr;
+        }
+    }
+    m_items.clear();
+}
+
+void TabBandWindow::ClearExplorerContext() {
+    m_explorerContext = {};
+}
+
+HICON TabBandWindow::LoadItemIcon(const TabViewItem& item) const {
+    if (item.type != TabViewItemType::kTab) {
+        return nullptr;
+    }
+
+    SHFILEINFOW info{};
+    UINT flags = SHGFI_ICON | SHGFI_SMALLICON | SHGFI_ADDOVERLAYS;
+    if (item.pidl) {
+        if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(item.pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
+            return info.hIcon;
+        }
+    }
+    if (!item.path.empty()) {
+        if (SHGetFileInfoW(item.path.c_str(), 0, &info, sizeof(info), flags)) {
+            return info.hIcon;
+        }
+    }
+    return nullptr;
+}
+
+bool TabBandWindow::HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result) {
+    if (m_explorerContext.menu3) {
+        return SUCCEEDED(m_explorerContext.menu3->HandleMenuMsg2(message, wParam, lParam, result));
+    }
+    if (m_explorerContext.menu2) {
+        HRESULT hr = m_explorerContext.menu2->HandleMenuMsg(message, wParam, lParam);
+        if (SUCCEEDED(hr)) {
+            if (result) {
+                *result = 0;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
     if (!m_owner) {
         return;
@@ -552,7 +730,27 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
         return;
     }
 
+    if (id == IDM_CREATE_SAVED_GROUP) {
+        const int insertAfter = ResolveInsertGroupIndex();
+        m_owner->OnCreateSavedGroup(insertAfter);
+        ClearExplorerContext();
+        return;
+    }
+
+    if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
+        for (const auto& entry : m_savedGroupCommands) {
+            if (entry.first == id) {
+                const int insertAfter = ResolveInsertGroupIndex();
+                m_owner->OnLoadSavedGroup(entry.second, insertAfter);
+                break;
+            }
+        }
+        ClearExplorerContext();
+        return;
+    }
+
     if (!m_contextHit.hit) {
+        ClearExplorerContext();
         return;
     }
 
@@ -568,6 +766,9 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
         m_owner->OnOpenVSCode(m_contextHit.location);
     } else if (id == IDM_COPY_PATH && m_contextHit.location.IsValid()) {
         m_owner->OnCopyPath(m_contextHit.location);
+    } else if (id == IDM_TOGGLE_ISLAND_HEADER && m_contextHit.location.groupIndex >= 0) {
+        const bool visible = m_owner->IsGroupHeaderVisible(m_contextHit.location.groupIndex);
+        m_owner->OnSetGroupHeaderVisible(m_contextHit.location.groupIndex, !visible);
     } else if (id == IDM_SET_SPLIT_SECONDARY && m_contextHit.location.IsValid()) {
         m_owner->OnPromoteSplitSecondary(m_contextHit.location);
     } else if (id == IDM_TOGGLE_ISLAND) {
@@ -591,7 +792,14 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
                 break;
             }
         }
+    } else if (m_explorerContext.menu && id >= m_explorerContext.idFirst &&
+               id <= m_explorerContext.idLast) {
+        m_owner->InvokeExplorerContextCommand(m_explorerContext.location,
+                                              m_explorerContext.menu.Get(), id,
+                                              m_explorerContext.idFirst, m_lastContextPoint);
     }
+
+    ClearExplorerContext();
 }
 
 void TabBandWindow::HandleMouseDown(const POINT& pt) {
@@ -716,20 +924,32 @@ void TabBandWindow::UpdateDropTarget(const POINT& pt) {
 
     HitInfo hit = HitTest(pt);
     if (!hit.hit) {
-        if (!m_items.empty()) {
+        if (m_drag.origin.type == TabViewItemType::kTab && m_owner) {
+            target.group = false;
+            target.newGroup = true;
+            target.floating = true;
+            target.groupIndex = m_owner->GetGroupCount();
+            target.tabIndex = 0;
+            target.indicatorX = m_clientRect.right - 10;
+        } else if (!m_items.empty()) {
             const VisualItem* lastHeader = FindLastGroupHeader();
-            if (!lastHeader) {
-                lastHeader = &m_items.back();
-            }
-            if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
-                target.group = true;
-                target.groupIndex = lastHeader->data.location.groupIndex + 1;
-                target.indicatorX = lastHeader->bounds.right;
+            if (lastHeader) {
+                if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
+                    target.group = true;
+                    target.groupIndex = lastHeader->data.location.groupIndex + 1;
+                    target.indicatorX = lastHeader->bounds.right;
+                } else {
+                    target.group = false;
+                    target.groupIndex = lastHeader->data.location.groupIndex;
+                    target.tabIndex = static_cast<int>(lastHeader->data.totalTabs);
+                    target.indicatorX = lastHeader->bounds.right;
+                }
             } else {
+                const auto& tail = m_items.back();
                 target.group = false;
-                target.groupIndex = lastHeader->data.location.groupIndex;
-                target.tabIndex = static_cast<int>(lastHeader->data.totalTabs);
-                target.indicatorX = lastHeader->bounds.right;
+                target.groupIndex = tail.data.location.groupIndex;
+                target.tabIndex = tail.data.location.tabIndex + 1;
+                target.indicatorX = tail.bounds.right;
             }
         }
         m_drag.target = target;
@@ -779,6 +999,11 @@ void TabBandWindow::CompleteDrop() {
         } else if (origin.location.IsValid()) {
             m_owner->OnDetachTabRequested(origin.location);
         }
+        return;
+    }
+
+    if (target.newGroup && origin.location.IsValid()) {
+        m_owner->OnMoveTabToNewGroup(origin.location, target.groupIndex, !target.floating);
         return;
     }
 
@@ -870,10 +1095,10 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
     POINT pt = clientPt;
     ScreenToClient(m_hwnd, &pt);
     HitInfo hit = HitTest(pt);
-    if (!hit.hit) {
-        return;
-    }
+    ClearExplorerContext();
+    m_savedGroupCommands.clear();
     m_contextHit = hit;
+    m_lastContextPoint = clientPt;
 
     HMENU menu = CreatePopupMenu();
     if (!menu) {
@@ -882,49 +1107,95 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
     m_hiddenTabCommands.clear();
 
-    if (hit.type == TabViewItemType::kTab) {
-        AppendMenuW(menu, MF_STRING, IDM_CLOSE_TAB, L"Close Tab");
-        AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
-        AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, IDM_OPEN_TERMINAL, L"Open Terminal Here");
-        AppendMenuW(menu, MF_STRING, IDM_OPEN_VSCODE, L"Open in VS Code");
-        AppendMenuW(menu, MF_STRING, IDM_COPY_PATH, L"Copy Path");
+    bool hasItemCommands = false;
 
-        const auto& data = m_items[hit.itemIndex].data;
-        if (data.splitAvailable) {
+    if (hit.hit) {
+        if (hit.type == TabViewItemType::kTab) {
+            AppendMenuW(menu, MF_STRING, IDM_CLOSE_TAB, L"Close Tab");
+            AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
+            AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            if (data.splitSecondary) {
-                AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Remove Split Companion");
-            } else {
-                AppendMenuW(menu, MF_STRING, IDM_SET_SPLIT_SECONDARY, data.splitEnabled ? L"Set as Split Companion" : L"Enable Split View with This Tab");
+
+            const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
+            AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND_HEADER,
+                        headerVisible ? L"Hide Island Indicator" : L"Show Island Indicator");
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+            AppendMenuW(menu, MF_STRING, IDM_OPEN_TERMINAL, L"Open Terminal Here");
+            AppendMenuW(menu, MF_STRING, IDM_OPEN_VSCODE, L"Open in VS Code");
+            AppendMenuW(menu, MF_STRING, IDM_COPY_PATH, L"Copy Path");
+
+            HMENU explorerMenu = CreatePopupMenu();
+            bool explorerInserted = false;
+            if (explorerMenu) {
+                Microsoft::WRL::ComPtr<IContextMenu> cmenu;
+                Microsoft::WRL::ComPtr<IContextMenu2> cmenu2;
+                Microsoft::WRL::ComPtr<IContextMenu3> cmenu3;
+                UINT usedLast = 0;
+                if (m_owner->BuildExplorerContextMenu(hit.location, explorerMenu, IDM_EXPLORER_CONTEXT_BASE,
+                                                      IDM_EXPLORER_CONTEXT_LAST, &cmenu, &cmenu2, &cmenu3,
+                                                      &usedLast)) {
+                    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(explorerMenu), L"Explorer Context");
+                    m_explorerContext.menu = std::move(cmenu);
+                    m_explorerContext.menu2 = std::move(cmenu2);
+                    m_explorerContext.menu3 = std::move(cmenu3);
+                    m_explorerContext.idFirst = IDM_EXPLORER_CONTEXT_BASE;
+                    m_explorerContext.idLast = usedLast;
+                    m_explorerContext.location = hit.location;
+                    explorerInserted = true;
+                } else {
+                    DestroyMenu(explorerMenu);
+                }
             }
-        }
-    } else {
-        const auto& item = m_items[hit.itemIndex];
-        const bool collapsed = item.data.collapsed;
-        AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND, collapsed ? L"Show Island" : L"Hide Island");
+            if (!explorerInserted) {
+                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"Explorer Context");
+            }
 
-        AppendMenuW(menu, MF_STRING, IDM_TOGGLE_SPLIT,
-                    item.data.splitEnabled ? L"Disable Split View" : L"Enable Split View");
-        if (item.data.splitEnabled) {
-            AppendMenuW(menu, MF_STRING, IDM_SWAP_SPLIT, L"Swap Split Panes");
-            AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Clear Split Companion");
-        }
-
-        if (item.data.hiddenTabs > 0) {
-            HMENU hiddenMenu = CreatePopupMenu();
-            PopulateHiddenTabsMenu(hiddenMenu, item.data.location.groupIndex);
-            AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(hiddenMenu), L"Hidden Tabs");
-            AppendMenuW(menu, MF_STRING, IDM_UNHIDE_ALL, L"Unhide All Tabs");
+            const auto& data = m_items[hit.itemIndex].data;
+            if (data.splitAvailable) {
+                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                if (data.splitSecondary) {
+                    AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Remove Split Companion");
+                } else {
+                    AppendMenuW(menu, MF_STRING, IDM_SET_SPLIT_SECONDARY,
+                                data.splitEnabled ? L"Set as Split Companion" : L"Enable Split View with This Tab");
+                }
+            }
+            hasItemCommands = true;
         } else {
-            AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_UNHIDE_ALL, L"Unhide All Tabs");
-        }
+            const auto& item = m_items[hit.itemIndex];
+            const bool collapsed = item.data.collapsed;
+            AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND, collapsed ? L"Show Island" : L"Hide Island");
+            const bool headerVisible = m_owner->IsGroupHeaderVisible(item.data.location.groupIndex);
+            AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND_HEADER,
+                        headerVisible ? L"Hide Island Indicator" : L"Show Island Indicator");
 
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, IDM_NEW_ISLAND, L"New Island After");
-        AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
+            AppendMenuW(menu, MF_STRING, IDM_TOGGLE_SPLIT,
+                        item.data.splitEnabled ? L"Disable Split View" : L"Enable Split View");
+            if (item.data.splitEnabled) {
+                AppendMenuW(menu, MF_STRING, IDM_SWAP_SPLIT, L"Swap Split Panes");
+                AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Clear Split Companion");
+            }
+
+            if (item.data.hiddenTabs > 0) {
+                HMENU hiddenMenu = CreatePopupMenu();
+                PopulateHiddenTabsMenu(hiddenMenu, item.data.location.groupIndex);
+                AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(hiddenMenu), L"Hidden Tabs");
+                AppendMenuW(menu, MF_STRING, IDM_UNHIDE_ALL, L"Unhide All Tabs");
+            } else {
+                AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_UNHIDE_ALL, L"Unhide All Tabs");
+            }
+
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, IDM_NEW_ISLAND, L"New Island After");
+            AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
+            hasItemCommands = true;
+        }
     }
+
+    PopulateSavedGroupsMenu(menu, hasItemCommands);
 
     TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, screenPt.x, screenPt.y, 0, m_hwnd, nullptr);
     DestroyMenu(menu);
@@ -955,11 +1226,58 @@ void TabBandWindow::PopulateHiddenTabsMenu(HMENU menu, int groupIndex) {
     }
 }
 
+void TabBandWindow::PopulateSavedGroupsMenu(HMENU parent, bool addSeparator) {
+    if (!parent || !m_owner) {
+        return;
+    }
+
+    HMENU groupsMenu = CreatePopupMenu();
+    if (!groupsMenu) {
+        return;
+    }
+
+    const auto names = m_owner->GetSavedGroupNames();
+    if (names.empty()) {
+        AppendMenuW(groupsMenu, MF_STRING | MF_GRAYED, 0, L"No Saved Groups");
+    } else {
+        UINT command = IDM_LOAD_SAVED_GROUP_BASE;
+        for (const auto& name : names) {
+            if (command > IDM_LOAD_SAVED_GROUP_LAST) {
+                break;
+            }
+            AppendMenuW(groupsMenu, MF_STRING, command, name.c_str());
+            m_savedGroupCommands.emplace_back(command, name);
+            ++command;
+        }
+    }
+
+    if (addSeparator) {
+        AppendMenuW(parent, MF_SEPARATOR, 0, nullptr);
+    }
+    AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(groupsMenu), L"Groups");
+    AppendMenuW(parent, MF_STRING, IDM_CREATE_SAVED_GROUP, L"Create Saved Group...");
+}
+
+int TabBandWindow::ResolveInsertGroupIndex() const {
+    if (!m_owner) {
+        return -1;
+    }
+    if (m_contextHit.hit && m_contextHit.location.groupIndex >= 0) {
+        return m_contextHit.location.groupIndex;
+    }
+    return m_owner->GetGroupCount() - 1;
+}
+
 int TabBandWindow::GroupCount() const {
     int count = 0;
+    int lastGroup = std::numeric_limits<int>::min();
     for (const auto& item : m_tabData) {
-        if (item.type == TabViewItemType::kGroupHeader) {
+        if (item.location.groupIndex < 0) {
+            continue;
+        }
+        if (item.location.groupIndex != lastGroup) {
             ++count;
+            lastGroup = item.location.groupIndex;
         }
     }
     return count;
@@ -1027,6 +1345,22 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             self->Layout(width, height);
             break;
         }
+        case WM_INITMENUPOPUP:
+        case WM_DRAWITEM:
+        case WM_MEASUREITEM: {
+            LRESULT handled = 0;
+            if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
+                return handled;
+            }
+            break;
+        }
+        case WM_MENUCHAR: {
+            LRESULT handled = 0;
+            if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
+                return handled;
+            }
+            break;
+        }
         case WM_COMMAND: {
             self->HandleCommand(wParam, lParam);
             break;
@@ -1071,6 +1405,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             self->ShowContextMenu(screenPt);
             return 0;
         }
+        case WM_SHELLTABS_DEFER_NAVIGATE: {
+            if (self->m_owner) {
+                self->m_owner->OnDeferredNavigate();
+            }
+            return 0;
+        }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC dc = BeginPaint(hwnd, &ps);
@@ -1087,6 +1427,8 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         }
         case WM_DESTROY: {
             DragAcceptFiles(hwnd, FALSE);
+            self->ClearExplorerContext();
+            self->ClearVisualItems();
             self->m_hwnd = nullptr;
             self->m_newTabButton = nullptr;
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);

@@ -22,8 +22,12 @@ bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
 std::wstring GetDisplayName(PCIDLIST_ABSOLUTE pidl);
 std::wstring GetParsingName(PCIDLIST_ABSOLUTE pidl);
 UniquePidl ParseDisplayName(const std::wstring& parsingName);
+UniquePidl ParseExplorerUrl(const std::wstring& url);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
+
+bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value);
+bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value);
 
 }  // namespace shelltabs
 

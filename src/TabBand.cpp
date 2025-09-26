@@ -18,6 +18,7 @@
 #endif
 
 #include "Guids.h"
+#include "GroupStore.h"
 #include "Module.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
@@ -133,8 +134,7 @@ IFACEMETHODIMP TabBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDIN
         pdbi->ptActual.y = 30;
     }
     if (pdbi->dwMask & DBIM_TITLE) {
-        constexpr wchar_t kTitle[] = L"Shell Tabs";
-        lstrcpynW(pdbi->wszTitle, kTitle, ARRAYSIZE(pdbi->wszTitle));
+        pdbi->wszTitle[0] = L'\0';
     }
     if (pdbi->dwMask & DBIM_MODEFLAGS) {
         pdbi->dwModeFlags = DBIMF_VARIABLEHEIGHT | DBIMF_NORMAL;
@@ -318,6 +318,10 @@ void TabBand::OnBrowserQuit() {
     DisconnectSite();
 }
 
+bool TabBand::OnBrowserNewWindow(const std::wstring& targetUrl) {
+    return HandleNewWindowRequest(targetUrl);
+}
+
 void TabBand::OnTabSelected(TabLocation location) {
     const auto current = m_tabs.SelectedLocation();
     if (current.groupIndex == location.groupIndex && current.tabIndex == location.tabIndex) {
@@ -352,6 +356,7 @@ void TabBand::OnNewTabRequested() {
     const int targetGroup = current.groupIndex >= 0 ? current.groupIndex : 0;
     TabLocation location = m_tabs.Add(std::move(pidl), name, name, true, targetGroup);
     UpdateTabsUI();
+    SyncAllSavedGroups();
     if (location.IsValid()) {
         NavigateToTab(location);
     }
@@ -361,6 +366,13 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
     const auto selected = m_tabs.SelectedLocation();
     const bool wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
 
+    std::wstring removedGroupId;
+    if (const auto* group = m_tabs.GetGroup(location.groupIndex)) {
+        if (!group->savedGroupId.empty() && group->tabs.size() == 1) {
+            removedGroupId = group->savedGroupId;
+        }
+    }
+
     m_tabs.Remove(location);
 
     if (m_tabs.TotalTabCount() == 0) {
@@ -368,6 +380,10 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
     }
 
     UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (!removedGroupId.empty()) {
+        GroupStore::Instance().UpdateTabs(removedGroupId, {});
+    }
 
     if (wasSelected) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -399,12 +415,23 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
         return;
     }
 
+    std::wstring removedGroupId;
+    if (const auto* group = m_tabs.GetGroup(location.groupIndex)) {
+        if (!group->savedGroupId.empty() && group->tabs.size() == 1) {
+            removedGroupId = group->savedGroupId;
+        }
+    }
+
     OpenTabInNewWindow(*tab);
     m_tabs.Remove(location);
     if (m_tabs.TotalTabCount() == 0) {
         EnsureTabForCurrentFolder();
     }
     UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (!removedGroupId.empty()) {
+        GroupStore::Instance().UpdateTabs(removedGroupId, {});
+    }
 }
 
 void TabBand::OnToggleGroupCollapsed(int groupIndex) {
@@ -420,6 +447,7 @@ void TabBand::OnUnhideAllInGroup(int groupIndex) {
 void TabBand::OnCreateIslandAfter(int groupIndex) {
     m_tabs.CreateGroupAfter(groupIndex);
     UpdateTabsUI();
+    SyncAllSavedGroups();
 }
 
 void TabBand::OnDetachGroupRequested(int groupIndex) {
@@ -445,15 +473,28 @@ void TabBand::OnDetachGroupRequested(int groupIndex) {
         EnsureTabForCurrentFolder();
     }
     UpdateTabsUI();
+    SyncAllSavedGroups();
 }
 
 void TabBand::OnMoveTabRequested(TabLocation from, TabLocation to) {
     m_tabs.MoveTab(from, to);
     UpdateTabsUI();
+    SyncAllSavedGroups();
 }
 
 void TabBand::OnMoveGroupRequested(int fromGroup, int toGroup) {
     m_tabs.MoveGroup(fromGroup, toGroup);
+    UpdateTabsUI();
+}
+
+void TabBand::OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible) {
+    m_tabs.MoveTabToNewGroup(from, insertIndex, headerVisible);
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+}
+
+void TabBand::OnSetGroupHeaderVisible(int groupIndex, bool visible) {
+    m_tabs.SetGroupHeaderVisible(groupIndex, visible);
     UpdateTabsUI();
 }
 
@@ -590,12 +631,14 @@ void TabBand::DisconnectSite() {
 
     m_tabs.Clear();
     m_internalNavigation = false;
+    m_allowExternalNewWindows = 0;
     m_viewColorizer.reset();
 }
 
 void TabBand::InitializeTabs() {
     m_tabs.Clear();
 
+    GroupStore::Instance().Load();
     EnsureSessionStore();
     const bool restored = RestoreSession();
 
@@ -617,6 +660,8 @@ void TabBand::InitializeTabs() {
             m_restoringSession = previousRestoring;
         }
     }
+
+    SyncAllSavedGroups();
 }
 
 void TabBand::UpdateTabsUI() {
@@ -652,6 +697,10 @@ bool TabBand::RestoreSession() {
         group.splitView = groupData.splitView;
         group.splitPrimary = groupData.splitPrimary;
         group.splitSecondary = groupData.splitSecondary;
+        group.headerVisible = groupData.headerVisible;
+        group.hasCustomOutline = groupData.hasOutline;
+        group.outlineColor = groupData.outlineColor;
+        group.savedGroupId = groupData.savedGroupId;
         for (const auto& tabData : groupData.tabs) {
             UniquePidl pidl = ParseDisplayName(tabData.path);
             if (!pidl) {
@@ -671,7 +720,7 @@ bool TabBand::RestoreSession() {
             tab.path = tabData.path;
             group.tabs.emplace_back(std::move(tab));
         }
-        if (!group.tabs.empty()) {
+        if (!group.tabs.empty() || !group.savedGroupId.empty()) {
             groups.emplace_back(std::move(group));
         }
     }
@@ -715,6 +764,10 @@ void TabBand::SaveSession() {
         storedGroup.splitView = group->splitView;
         storedGroup.splitPrimary = group->splitPrimary;
         storedGroup.splitSecondary = group->splitSecondary;
+        storedGroup.headerVisible = group->headerVisible;
+        storedGroup.hasOutline = group->hasCustomOutline;
+        storedGroup.outlineColor = group->outlineColor;
+        storedGroup.savedGroupId = group->savedGroupId;
 
         for (const auto& tab : group->tabs) {
             SessionTab storedTab;
@@ -728,7 +781,7 @@ void TabBand::SaveSession() {
             storedGroup.tabs.emplace_back(std::move(storedTab));
         }
 
-        if (!storedGroup.tabs.empty()) {
+        if (!storedGroup.tabs.empty() || !storedGroup.savedGroupId.empty()) {
             data.groups.emplace_back(std::move(storedGroup));
         }
     }
@@ -770,39 +823,153 @@ void TabBand::EnsureTabForCurrentFolder() {
         return;
     }
 
-    TabLocation existing = m_tabs.Find(current.get());
     std::wstring name = GetDisplayName(current.get());
     if (name.empty()) {
         name = L"Tab";
     }
 
-    if (existing.IsValid()) {
-        if (auto* tab = m_tabs.Get(existing)) {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    if (selected.IsValid()) {
+        if (auto* tab = m_tabs.Get(selected)) {
+            tab->pidl = ClonePidl(current.get());
             tab->name = name;
             tab->tooltip = name;
             tab->hidden = false;
             tab->path = GetParsingName(tab->pidl.get());
+            m_tabs.SetGroupCollapsed(selected.groupIndex, false);
+            SyncSavedGroup(selected.groupIndex);
+            return;
+        }
+    }
+
+    TabLocation existing = m_tabs.Find(current.get());
+    if (existing.IsValid()) {
+        if (auto* tab = m_tabs.Get(existing)) {
+            tab->hidden = false;
+            tab->name = name;
+            tab->tooltip = name;
+            tab->path = GetParsingName(tab->pidl.get());
         }
         m_tabs.SetGroupCollapsed(existing.groupIndex, false);
         m_tabs.SetSelectedLocation(existing);
-    } else {
-        UniquePidl clone = ClonePidl(current.get());
-        if (!clone) {
-            return;
-        }
-        m_tabs.Add(std::move(clone), name, name, true);
+        SyncSavedGroup(existing.groupIndex);
+        return;
+    }
+
+    UniquePidl clone = ClonePidl(current.get());
+    if (!clone) {
+        return;
+    }
+    TabLocation location = m_tabs.Add(std::move(clone), name, name, true);
+    if (location.IsValid()) {
+        SyncSavedGroup(location.groupIndex);
     }
 }
 
-void TabBand::OpenTabInNewWindow(const TabInfo& tab) const {
+void TabBand::OpenTabInNewWindow(const TabInfo& tab) {
     if (!m_shellBrowser || !tab.pidl) {
         return;
     }
-    m_shellBrowser->BrowseObject(tab.pidl.get(), SBSP_NEWBROWSER | SBSP_EXPLORE | SBSP_ABSOLUTE);
+    ++m_allowExternalNewWindows;
+    const HRESULT hr = m_shellBrowser->BrowseObject(tab.pidl.get(), SBSP_NEWBROWSER | SBSP_EXPLORE | SBSP_ABSOLUTE);
+    if (FAILED(hr) && m_allowExternalNewWindows > 0) {
+        --m_allowExternalNewWindows;
+    }
 }
 
 std::vector<std::pair<TabLocation, std::wstring>> TabBand::GetHiddenTabs(int groupIndex) const {
     return m_tabs.GetHiddenTabs(groupIndex);
+}
+
+int TabBand::GetGroupCount() const noexcept {
+    return m_tabs.GroupCount();
+}
+
+bool TabBand::IsGroupHeaderVisible(int groupIndex) const {
+    return m_tabs.IsGroupHeaderVisible(groupIndex);
+}
+
+bool TabBand::BuildExplorerContextMenu(TabLocation location, HMENU menu, UINT idFirst, UINT idLast,
+                                       Microsoft::WRL::ComPtr<IContextMenu>* menuOut,
+                                       Microsoft::WRL::ComPtr<IContextMenu2>* menu2Out,
+                                       Microsoft::WRL::ComPtr<IContextMenu3>* menu3Out,
+                                       UINT* usedLast) const {
+    if (!menu || !menuOut || !location.IsValid()) {
+        return false;
+    }
+
+    const auto* tab = m_tabs.Get(location);
+    if (!tab || !tab->pidl) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellFolder> parentFolder;
+    PCUITEMID_CHILD child = nullptr;
+    if (FAILED(SHBindToParent(tab->pidl.get(), IID_PPV_ARGS(&parentFolder), &child))) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    if (FAILED(parentFolder->GetUIObjectOf(hwnd, 1, &child, IID_PPV_ARGS(&contextMenu)))) {
+        return false;
+    }
+
+    HRESULT hr = contextMenu->QueryContextMenu(menu, 0, idFirst, idLast, CMF_EXPLORE | CMF_NORMAL);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    const UINT inserted = static_cast<UINT>(HRESULT_CODE(hr));
+    if (inserted == 0) {
+        return false;
+    }
+
+    if (menu3Out) {
+        contextMenu.As(menu3Out);
+    }
+    if (menu2Out) {
+        if (menu3Out && menu3Out->Get()) {
+            (*menu3Out)->QueryInterface(IID_PPV_ARGS(menu2Out));
+        } else {
+            contextMenu.As(menu2Out);
+        }
+    }
+
+    *menuOut = std::move(contextMenu);
+    if (usedLast) {
+        *usedLast = idFirst + inserted - 1;
+    }
+    return true;
+}
+
+bool TabBand::InvokeExplorerContextCommand(TabLocation location, IContextMenu* menu, UINT commandId,
+                                           UINT idFirst, const POINT& ptInvoke) const {
+    if (!menu || !location.IsValid() || commandId < idFirst) {
+        return false;
+    }
+
+    const auto* tab = m_tabs.Get(location);
+    if (!tab) {
+        return false;
+    }
+
+    const UINT verb = commandId - idFirst;
+    std::wstring directory = GetTabPath(location);
+
+    CMINVOKECOMMANDINFOEX info{};
+    info.cbSize = sizeof(info);
+    info.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE;
+    if (!directory.empty()) {
+        info.lpDirectoryW = directory.c_str();
+    }
+    info.hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    info.lpVerb = MAKEINTRESOURCEA(verb);
+    info.lpVerbW = MAKEINTRESOURCEW(verb);
+    info.nShow = SW_SHOWNORMAL;
+    info.ptInvoke = ptInvoke;
+
+    return SUCCEEDED(menu->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info)));
 }
 
 void TabBand::EnsureSplitViewWindows(int groupIndex) {
@@ -816,6 +983,41 @@ void TabBand::EnsureSplitViewWindows(int groupIndex) {
     if (const auto* tab = m_tabs.Get(secondary)) {
         OpenTabInNewWindow(*tab);
     }
+}
+
+bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
+    if (m_allowExternalNewWindows > 0) {
+        --m_allowExternalNewWindows;
+        return false;
+    }
+
+    UniquePidl pidl;
+    if (!targetUrl.empty()) {
+        pidl = ParseExplorerUrl(targetUrl);
+    }
+    if (!pidl) {
+        pidl = QueryCurrentFolder();
+    }
+    if (!pidl) {
+        return false;
+    }
+
+    std::wstring name = GetDisplayName(pidl.get());
+    if (name.empty()) {
+        name = L"Tab";
+    }
+    std::wstring tooltip = GetParsingName(pidl.get());
+    if (tooltip.empty()) {
+        tooltip = name;
+    }
+
+    TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, -1);
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (location.IsValid()) {
+        QueueNavigateTo(location);
+    }
+    return true;
 }
 
 bool TabBand::LaunchShellExecute(const std::wstring& application, const std::wstring& parameters,
@@ -872,6 +1074,158 @@ void TabBand::PerformFileOperation(TabLocation location, const std::vector<std::
     }
 
     operation->PerformOperations();
+}
+
+std::vector<std::wstring> TabBand::GetSavedGroupNames() const {
+    auto& store = GroupStore::Instance();
+    store.Load();
+    return store.GroupNames();
+}
+
+void TabBand::OnCreateSavedGroup(int afterGroup) {
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    std::wstring name = L"New Group";
+    if (!PromptForTextInput(hwnd, L"Create Tab Group", L"Group name:", &name)) {
+        return;
+    }
+    if (name.empty()) {
+        return;
+    }
+
+    auto& store = GroupStore::Instance();
+    store.Load();
+    if (store.Find(name)) {
+        MessageBoxW(hwnd, L"A saved group with that name already exists.", L"ShellTabs", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    COLORREF color = RGB(0, 120, 215);
+    if (!PromptForColor(hwnd, color, &color)) {
+        return;
+    }
+
+    SavedGroup saved;
+    saved.name = name;
+    saved.color = color;
+    store.Upsert(saved);
+
+    const int groupIndex = m_tabs.CreateGroupAfter(afterGroup, name, true);
+    if (auto* group = m_tabs.GetGroup(groupIndex)) {
+        group->savedGroupId = name;
+        group->hasCustomOutline = true;
+        group->outlineColor = color;
+        group->headerVisible = true;
+        group->collapsed = false;
+    }
+    UpdateTabsUI();
+    SyncSavedGroup(groupIndex);
+}
+
+void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
+    auto& store = GroupStore::Instance();
+    store.Load();
+    const SavedGroup* saved = store.Find(name);
+    if (!saved) {
+        return;
+    }
+
+    const int groupIndex = m_tabs.CreateGroupAfter(afterGroup, saved->name, true);
+    auto* group = m_tabs.GetGroup(groupIndex);
+    if (!group) {
+        return;
+    }
+    group->savedGroupId = saved->name;
+    group->hasCustomOutline = true;
+    group->outlineColor = saved->color;
+    group->headerVisible = true;
+    group->collapsed = false;
+
+    bool selectFirst = true;
+    bool addedAny = false;
+    for (const auto& path : saved->tabPaths) {
+        UniquePidl pidl = ParseDisplayName(path);
+        if (!pidl) {
+            continue;
+        }
+        std::wstring tabName = GetDisplayName(pidl.get());
+        if (tabName.empty()) {
+            tabName = path;
+        }
+        TabLocation location = m_tabs.Add(std::move(pidl), tabName, tabName, selectFirst, groupIndex);
+        if (selectFirst) {
+            selectFirst = false;
+        }
+        if (location.IsValid()) {
+            addedAny = true;
+        }
+    }
+
+    UpdateTabsUI();
+    SyncSavedGroup(groupIndex);
+
+    if (addedAny) {
+        TabLocation selection = m_tabs.SelectedLocation();
+        if (!selection.IsValid() || selection.groupIndex != groupIndex) {
+            selection = {groupIndex, 0};
+        }
+        if (selection.IsValid()) {
+            NavigateToTab(selection);
+        }
+    }
+}
+
+void TabBand::OnDeferredNavigate() {
+    m_deferredNavigationPosted = false;
+    TabLocation target = m_pendingNavigation;
+    m_pendingNavigation = {};
+    if (target.IsValid()) {
+        NavigateToTab(target);
+    }
+}
+
+void TabBand::QueueNavigateTo(TabLocation location) {
+    if (!location.IsValid() || !m_window) {
+        return;
+    }
+    m_pendingNavigation = location;
+    if (m_deferredNavigationPosted) {
+        return;
+    }
+    HWND hwnd = m_window->GetHwnd();
+    if (!hwnd) {
+        return;
+    }
+    if (PostMessageW(hwnd, WM_SHELLTABS_DEFER_NAVIGATE, 0, 0)) {
+        m_deferredNavigationPosted = true;
+    }
+}
+
+void TabBand::SyncSavedGroup(int groupIndex) const {
+    const auto* group = m_tabs.GetGroup(groupIndex);
+    if (!group || group->savedGroupId.empty()) {
+        return;
+    }
+    std::vector<std::wstring> paths;
+    paths.reserve(group->tabs.size());
+    for (const auto& tab : group->tabs) {
+        if (!tab.path.empty()) {
+            paths.push_back(tab.path);
+        }
+    }
+    if (!GroupStore::Instance().UpdateTabs(group->savedGroupId, paths)) {
+        SavedGroup saved;
+        saved.name = group->savedGroupId;
+        saved.color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
+        saved.tabPaths = std::move(paths);
+        GroupStore::Instance().Upsert(std::move(saved));
+    }
+}
+
+void TabBand::SyncAllSavedGroups() const {
+    const int groupCount = m_tabs.GroupCount();
+    for (int i = 0; i < groupCount; ++i) {
+        SyncSavedGroup(i);
+    }
 }
 
 }  // namespace shelltabs

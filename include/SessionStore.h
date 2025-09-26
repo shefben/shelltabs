@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windows.h>
+
 #include <string>
 #include <vector>
 
@@ -19,6 +21,10 @@ struct SessionGroup {
     bool splitView = false;
     int splitPrimary = -1;
     int splitSecondary = -1;
+    bool headerVisible = true;
+    bool hasOutline = false;
+    COLORREF outlineColor = RGB(0, 120, 215);
+    std::wstring savedGroupId;
 };
 
 struct SessionData {
