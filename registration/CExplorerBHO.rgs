@@ -1,0 +1,45 @@
+HKCR
+{
+    NoRemove AppID
+    {
+        '{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}' = s 'Shell Tabs'
+        'ShellTabs.dll'
+        {
+            val AppID = s '{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}'
+        }
+    }
+    NoRemove CLSID
+    {
+        ForceRemove '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}' = s 'Shell Tabs Browser Helper'
+        {
+            ProgID = s 'ShellTabs.BrowserHelper.1'
+            VersionIndependentProgID = s 'ShellTabs.BrowserHelper'
+            val AppID = s '{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}'
+            InprocServer32 = s '%MODULE%'
+            {
+                val ThreadingModel = s 'Apartment'
+            }
+        }
+        ForceRemove 'ShellTabs.BrowserHelper' = s 'Shell Tabs Browser Helper'
+        {
+            val CLSID = s '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}'
+            CurVer = s 'ShellTabs.BrowserHelper.1'
+        }
+        ForceRemove 'ShellTabs.BrowserHelper.1' = s 'Shell Tabs Browser Helper'
+        {
+            val CLSID = s '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}'
+        }
+    }
+}
+
+HKLM
+{
+    NoRemove 'Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved'
+    {
+        val '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}' = s 'Shell Tabs Browser Helper'
+    }
+    NoRemove 'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects'
+    {
+        ForceRemove '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}' = s 'Shell Tabs Browser Helper'
+    }
+}
