@@ -10,6 +10,7 @@
 #include <ShlObj.h>
 #include <Shlwapi.h>
 #include <shellapi.h>
+#include <shlguid.h>
 #include <shobjidl_core.h>
 
 #ifndef SBSP_EXPLORE
@@ -172,6 +173,11 @@ IFACEMETHODIMP TabBand::UIActivateIO(BOOL fActivate, LPMSG) {
         if (m_window) {
             m_window->FocusTab();
         }
+        if (m_site) {
+            m_site->OnFocusChangeIS(static_cast<IDockingWindow*>(this), TRUE);
+        }
+    } else if (m_site) {
+        m_site->OnFocusChangeIS(static_cast<IDockingWindow*>(this), FALSE);
     }
     return S_OK;
 }
@@ -206,14 +212,24 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
     hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&serviceProvider));
     if (SUCCEEDED(hr) && serviceProvider) {
         serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
-        serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_webBrowser));
+        if (!m_shellBrowser) {
+            serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
+        }
+        serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&m_webBrowser));
     }
 
     if ((!m_shellBrowser || !m_webBrowser) && site) {
         serviceProvider.Reset();
         if (SUCCEEDED(site.As(&serviceProvider)) && serviceProvider) {
-            serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
-            serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_webBrowser));
+            if (!m_shellBrowser) {
+                serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
+            }
+            if (!m_shellBrowser) {
+                serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
+            }
+            if (!m_webBrowser) {
+                serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&m_webBrowser));
+            }
         }
     }
 
