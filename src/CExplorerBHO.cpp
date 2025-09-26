@@ -238,7 +238,7 @@ HRESULT CExplorerBHO::ConnectEvents() {
     }
 
     DWORD cookie = 0;
-    hr = connectionPoint->Advise(this, &cookie);
+    hr = connectionPoint->Advise(static_cast<IDispatch*>(this), &cookie);
     if (FAILED(hr)) {
         return hr;
     }
