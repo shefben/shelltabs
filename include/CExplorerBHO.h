@@ -39,6 +39,7 @@ private:
     HRESULT EnsureBandVisible();
     HRESULT ConnectEvents();
     void DisconnectEvents();
+    HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;

@@ -4,6 +4,7 @@
 #include <exdispid.h>
 #include <oleauto.h>
 #include <shlobj.h>
+#include <shlguid.h>
 
 #include <string>
 
@@ -26,13 +27,17 @@ IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
     }
-    if (riid == IID_IUnknown || riid == IID_IObjectWithSite || riid == IID_IDispatch) {
+    if (riid == IID_IUnknown || riid == IID_IObjectWithSite) {
         *object = static_cast<IObjectWithSite*>(this);
-        AddRef();
-        return S_OK;
+    } else if (riid == IID_IDispatch) {
+        *object = static_cast<IDispatch*>(this);
+    } else {
+        *object = nullptr;
+        return E_NOINTERFACE;
     }
-    *object = nullptr;
-    return E_NOINTERFACE;
+
+    AddRef();
+    return S_OK;
 }
 
 IFACEMETHODIMP_(ULONG) CExplorerBHO::AddRef() {
@@ -77,14 +82,21 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
 
     Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
     HRESULT hr = m_webBrowser.As(&serviceProvider);
+    if ((!serviceProvider || FAILED(hr)) && m_site) {
+        serviceProvider = nullptr;
+        hr = m_site.As(&serviceProvider);
+    }
     if (FAILED(hr) || !serviceProvider) {
         return hr;
     }
 
     Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
     hr = serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&shellBrowser));
-    if (FAILED(hr) || !shellBrowser) {
-        return hr;
+    if ((FAILED(hr) || !shellBrowser)) {
+        hr = serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&shellBrowser));
+        if (FAILED(hr) || !shellBrowser) {
+            return hr;
+        }
     }
 
     const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
@@ -128,7 +140,7 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
     }
 
     Microsoft::WRL::ComPtr<IWebBrowser2> browser;
-    HRESULT hr = site->QueryInterface(IID_PPV_ARGS(&browser));
+    HRESULT hr = ResolveBrowserFromSite(site, &browser);
     if (FAILED(hr) || !browser) {
         Disconnect();
         return S_OK;
@@ -144,6 +156,57 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
     // reject the call if policy forbids bands or the window is not ready yet.
     EnsureBandVisible();
     return S_OK;
+}
+
+HRESULT CExplorerBHO::ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser) {
+    if (!browser) {
+        return E_POINTER;
+    }
+
+    *browser = nullptr;
+
+    if (!site) {
+        return E_POINTER;
+    }
+
+    Microsoft::WRL::ComPtr<IWebBrowser2> candidate;
+    HRESULT hr = site->QueryInterface(IID_PPV_ARGS(&candidate));
+    if (SUCCEEDED(hr) && candidate) {
+        *browser = candidate.Detach();
+        return S_OK;
+    }
+
+    Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
+    hr = site->QueryInterface(IID_PPV_ARGS(&serviceProvider));
+    if (SUCCEEDED(hr) && serviceProvider) {
+        hr = serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&candidate));
+        if (SUCCEEDED(hr) && candidate) {
+            *browser = candidate.Detach();
+            return S_OK;
+        }
+
+        hr = serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&candidate));
+        if (SUCCEEDED(hr) && candidate) {
+            *browser = candidate.Detach();
+            return S_OK;
+        }
+    }
+
+    Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
+    hr = site->QueryInterface(IID_PPV_ARGS(&shellBrowser));
+    if (SUCCEEDED(hr) && shellBrowser) {
+        serviceProvider = nullptr;
+        hr = shellBrowser.As(&serviceProvider);
+        if (SUCCEEDED(hr) && serviceProvider) {
+            hr = serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&candidate));
+            if (SUCCEEDED(hr) && candidate) {
+                *browser = candidate.Detach();
+                return S_OK;
+            }
+        }
+    }
+
+    return E_NOINTERFACE;
 }
 
 IFACEMETHODIMP CExplorerBHO::GetSite(REFIID riid, void** site) {
