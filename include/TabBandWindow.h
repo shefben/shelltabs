@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include <wrl/client.h>
+
 #include "TabManager.h"
 
 namespace shelltabs {
@@ -33,6 +35,22 @@ private:
         RECT bounds{};
         bool firstInGroup = false;
         int badgeWidth = 0;
+        HICON icon = nullptr;
+        int iconWidth = 0;
+        int iconHeight = 0;
+        bool hasGroupHeader = false;
+        TabViewItem groupHeader{};
+        bool collapsedPlaceholder = false;
+        bool indicatorHandle = false;
+    };
+
+    struct ExplorerContext {
+        Microsoft::WRL::ComPtr<IContextMenu> menu;
+        Microsoft::WRL::ComPtr<IContextMenu2> menu2;
+        Microsoft::WRL::ComPtr<IContextMenu3> menu3;
+        TabLocation location;
+        UINT idFirst = 0;
+        UINT idLast = 0;
     };
 
     struct HitInfo {
@@ -42,6 +60,7 @@ private:
         TabLocation location;
         bool before = false;
         bool after = false;
+        bool indicator = false;
     };
 
     struct DropTarget {
@@ -51,6 +70,8 @@ private:
         int groupIndex = -1;
         int tabIndex = -1;
         int indicatorX = -1;
+        bool newGroup = false;
+        bool floating = false;
     };
 
     struct DragState {
@@ -73,6 +94,9 @@ private:
     DragState m_drag;
     HitInfo m_contextHit;
     std::vector<std::pair<UINT, TabLocation>> m_hiddenTabCommands;
+    std::vector<std::pair<UINT, std::wstring>> m_savedGroupCommands;
+    ExplorerContext m_explorerContext;
+    POINT m_lastContextPoint{};
 
     void Layout(int width, int height);
     void RebuildLayout();
@@ -81,6 +105,10 @@ private:
     void DrawTab(HDC dc, const VisualItem& item) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
+    void ClearVisualItems();
+    void ClearExplorerContext();
+    HICON LoadItemIcon(const TabViewItem& item) const;
+    bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
     void HandleMouseDown(const POINT& pt);
@@ -95,6 +123,8 @@ private:
     HitInfo HitTest(const POINT& pt) const;
     void ShowContextMenu(const POINT& pt);
     void PopulateHiddenTabsMenu(HMENU menu, int groupIndex);
+    void PopulateSavedGroupsMenu(HMENU parent, bool addSeparator);
+    int ResolveInsertGroupIndex() const;
     int GroupCount() const;
     const VisualItem* FindLastGroupHeader() const;
     const VisualItem* FindVisualForHit(const HitInfo& hit) const;
@@ -108,6 +138,7 @@ private:
 };
 
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
+constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
 
 enum : UINT_PTR {
     IDC_NEW_TAB = 1001,
@@ -125,7 +156,13 @@ enum : UINT_PTR {
     IDM_OPEN_TERMINAL = 40018,
     IDM_OPEN_VSCODE = 40019,
     IDM_COPY_PATH = 40020,
+    IDM_TOGGLE_ISLAND_HEADER = 40021,
+    IDM_CREATE_SAVED_GROUP = 40022,
     IDM_HIDDEN_TAB_BASE = 41000,
+    IDM_EXPLORER_CONTEXT_BASE = 42000,
+    IDM_EXPLORER_CONTEXT_LAST = 42999,
+    IDM_LOAD_SAVED_GROUP_BASE = 43000,
+    IDM_LOAD_SAVED_GROUP_LAST = 43999,
 };
 
 }  // namespace shelltabs
