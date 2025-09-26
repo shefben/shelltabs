@@ -911,8 +911,9 @@ bool TabBand::BuildExplorerContextMenu(TabLocation location, HMENU menu, UINT id
 
     Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
-    if (FAILED(parentFolder->GetUIObjectOf(hwnd, 1, &child, IID_IContextMenu, nullptr,
-                                           contextMenu.GetAddressOf()))) {
+    if (FAILED(parentFolder->GetUIObjectOf(
+            hwnd, 1, &child, IID_IContextMenu, nullptr,
+            reinterpret_cast<void**>(contextMenu.ReleaseAndGetAddressOf())))) {
         return false;
     }
 
