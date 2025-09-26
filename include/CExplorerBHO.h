@@ -37,11 +37,17 @@ public:
 private:
     void Disconnect();
     HRESULT EnsureBandVisible();
+    HRESULT ConnectEvents();
+    void DisconnectEvents();
+    HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;
     Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
-    bool m_hasAttemptedEnsure = false;
+    Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
+    DWORD m_connectionCookie = 0;
+    bool m_bandVisible = false;
+    bool m_shouldRetryEnsure = true;
 };
 
 }  // namespace shelltabs
