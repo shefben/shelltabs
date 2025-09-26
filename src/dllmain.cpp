@@ -29,6 +29,11 @@ constexpr wchar_t kColumnProgIdVersion[] = L"ShellTabs.TagColumn.1";
 constexpr wchar_t kBhoProgId[] = L"ShellTabs.BrowserHelper";
 constexpr wchar_t kBhoProgIdVersion[] = L"ShellTabs.BrowserHelper.1";
 
+const GUID kColumnProviderCategory = {0x0BAEC501,
+                                      0xE94C,
+                                      0x11D2,
+                                      {0xB1, 0xEF, 0x00, 0xC0, 0x4F, 0x8E, 0xED, 0xB4}};
+
 struct ScopedRegKey {
     ScopedRegKey() = default;
     explicit ScopedRegKey(HKEY value) : handle(value) {}
@@ -431,7 +436,7 @@ HRESULT UnregisterAppId(const std::wstring& appId, const std::wstring& moduleFil
 HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring& clsidString,
                              const wchar_t* friendlyName, const wchar_t* appId,
                              const wchar_t* currentProgId, const wchar_t* versionIndependentProgId,
-                             std::initializer_list<REFGUID> categories) {
+                             std::initializer_list<GUID> categories) {
     const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
 
     DeleteRegistryKeyForTargets(UserTargets(), baseKey, /*ignoreAccessDenied=*/true);
@@ -492,7 +497,7 @@ HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring&
         return hr;
     }
 
-    for (REFGUID category : categories) {
+    for (const GUID& category : categories) {
         const std::wstring categoryKey = baseKey + L"\\Implemented Categories\\" + GuidToString(category);
         hr = WriteWithMachinePreference(
             [&](const RegistryTarget& target) -> HRESULT {
@@ -805,7 +810,7 @@ STDAPI DllRegisterServer(void) {
 
     const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
     hr = RegisterInprocServer(modulePath, columnClsid, kColumnFriendlyName, appIdString.c_str(), kColumnProgIdVersion,
-                              kColumnProgId, {CATID_ColumnProvider});
+                              kColumnProgId, {kColumnProviderCategory});
     if (FAILED(hr)) {
         return hr;
     }
