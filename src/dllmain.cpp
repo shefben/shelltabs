@@ -1,9 +1,17 @@
 #include <windows.h>
 
 #include <CommCtrl.h>
+#include <ShlGuid.h>
+#include <ShlObj.h>
+#include <cwchar>
+#include <array>
+#include <comcat.h>
+#include <initializer_list>
 #include <string>
+#include <vector>
 
 #include "ClassFactory.h"
+#include "ComUtils.h"
 #include "Guids.h"
 #include "Module.h"
 
@@ -11,152 +19,715 @@ using namespace shelltabs;
 
 namespace {
 
-std::wstring GuidToString(REFGUID guid) {
-    wchar_t buffer[64] = {};
-    const int length = StringFromGUID2(guid, buffer, ARRAYSIZE(buffer));
-    if (length <= 0) {
-        return {};
+constexpr wchar_t kBandFriendlyName[] = L"Shell Tabs";
+constexpr wchar_t kColumnFriendlyName[] = L"Shell Tabs Tags Column";
+constexpr wchar_t kBhoFriendlyName[] = L"Shell Tabs Browser Helper";
+constexpr wchar_t kBandProgId[] = L"ShellTabs.Band";
+constexpr wchar_t kBandProgIdVersion[] = L"ShellTabs.Band.1";
+constexpr wchar_t kColumnProgId[] = L"ShellTabs.TagColumn";
+constexpr wchar_t kColumnProgIdVersion[] = L"ShellTabs.TagColumn.1";
+constexpr wchar_t kBhoProgId[] = L"ShellTabs.BrowserHelper";
+constexpr wchar_t kBhoProgIdVersion[] = L"ShellTabs.BrowserHelper.1";
+
+const GUID kColumnProviderCategory = {0x0BAEC501,
+                                      0xE94C,
+                                      0x11D2,
+                                      {0xB1, 0xEF, 0x00, 0xC0, 0x4F, 0x8E, 0xED, 0xB4}};
+
+struct ScopedRegKey {
+    ScopedRegKey() = default;
+    explicit ScopedRegKey(HKEY value) : handle(value) {}
+    ~ScopedRegKey() {
+        if (handle) {
+            RegCloseKey(handle);
+        }
     }
-    return std::wstring(buffer, buffer + length - 1);
+
+    ScopedRegKey(const ScopedRegKey&) = delete;
+    ScopedRegKey& operator=(const ScopedRegKey&) = delete;
+
+    ScopedRegKey(ScopedRegKey&& other) noexcept : handle(other.handle) {
+        other.handle = nullptr;
+    }
+
+    ScopedRegKey& operator=(ScopedRegKey&& other) noexcept {
+        if (this != &other) {
+            if (handle) {
+                RegCloseKey(handle);
+            }
+            handle = other.handle;
+            other.handle = nullptr;
+        }
+        return *this;
+    }
+
+    HKEY get() const { return handle; }
+    HKEY* put() { return &handle; }
+
+private:
+    HKEY handle = nullptr;
+};
+
+HRESULT WriteRegistryStringValue(HKEY key, const wchar_t* valueName, const wchar_t* value) {
+    const DWORD length = static_cast<DWORD>((wcslen(value) + 1) * sizeof(wchar_t));
+    const LONG status = RegSetValueExW(key, valueName, 0, REG_SZ, reinterpret_cast<const BYTE*>(value), length);
+    return status == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(status);
 }
 
-HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring& clsidString,
-                             const wchar_t* friendlyName, const wchar_t* category) {
-    const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
+struct RegistryTarget {
+    HKEY root;
+    REGSAM viewFlags;
+};
 
-    HKEY key = nullptr;
-    LONG status = RegCreateKeyExW(HKEY_CURRENT_USER, baseKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr);
+bool IsCurrentProcessWow64() {
+    using IsWow64ProcessFn = BOOL(WINAPI*)(HANDLE, PBOOL);
+    HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+    if (!kernel) {
+        return false;
+    }
+    const auto isWow64Process = reinterpret_cast<IsWow64ProcessFn>(GetProcAddress(kernel, "IsWow64Process"));
+    if (!isWow64Process) {
+        return false;
+    }
+
+    BOOL isWow64 = FALSE;
+    if (!isWow64Process(GetCurrentProcess(), &isWow64)) {
+        return false;
+    }
+    return isWow64 != FALSE;
+}
+
+const std::vector<RegistryTarget>& MachineTargets() {
+    static const std::vector<RegistryTarget> targets = [] {
+        std::vector<RegistryTarget> result;
+        result.push_back({HKEY_LOCAL_MACHINE, 0});
+#if defined(KEY_WOW64_64KEY)
+        if (IsCurrentProcessWow64()) {
+            result.push_back({HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY});
+        } else if (sizeof(void*) == 8) {
+#if defined(KEY_WOW64_32KEY)
+            result.push_back({HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY});
+#endif
+        }
+#elif defined(KEY_WOW64_32KEY)
+        if (sizeof(void*) == 8) {
+            result.push_back({HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY});
+        }
+#endif
+        return result;
+    }();
+    return targets;
+}
+
+const std::vector<RegistryTarget>& UserTargets() {
+    static const std::vector<RegistryTarget> targets = {{HKEY_CURRENT_USER, 0}};
+    return targets;
+}
+
+struct RegistryAttemptResult {
+    bool succeeded = false;
+    bool sawAccessDenied = false;
+    HRESULT firstError = S_OK;
+};
+
+template <typename Func>
+RegistryAttemptResult ForEachTarget(const std::vector<RegistryTarget>& targets, Func&& func) {
+    RegistryAttemptResult result;
+    for (const RegistryTarget& target : targets) {
+        const HRESULT hr = func(target);
+        if (SUCCEEDED(hr)) {
+            result.succeeded = true;
+            continue;
+        }
+
+        if (result.firstError == S_OK) {
+            result.firstError = hr;
+        }
+        if (HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
+            result.sawAccessDenied = true;
+        }
+    }
+
+    if (!result.succeeded && result.firstError == S_OK) {
+        result.firstError = E_FAIL;
+    }
+    return result;
+}
+
+HRESULT CreateRegistryKey(const RegistryTarget& target, const std::wstring& path, REGSAM access, ScopedRegKey* key) {
+    HKEY rawKey = nullptr;
+    const LONG status = RegCreateKeyExW(target.root, path.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
+                                        access | target.viewFlags, nullptr, &rawKey, nullptr);
     if (status != ERROR_SUCCESS) {
         return HRESULT_FROM_WIN32(status);
     }
 
-    status = RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(friendlyName),
-                            static_cast<DWORD>((wcslen(friendlyName) + 1) * sizeof(wchar_t)));
-    RegCloseKey(key);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
+    *key = ScopedRegKey(rawKey);
+    return S_OK;
+}
+
+template <typename Func>
+HRESULT WriteWithMachinePreference(Func&& func, bool allowUserFallback = true) {
+    const RegistryAttemptResult machine = ForEachTarget(MachineTargets(), func);
+    if (machine.succeeded) {
+        return S_OK;
     }
 
-    const std::wstring inprocKey = baseKey + L"\\InprocServer32";
-    status = RegCreateKeyExW(HKEY_CURRENT_USER, inprocKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
+    if (allowUserFallback && machine.sawAccessDenied) {
+        const RegistryAttemptResult user = ForEachTarget(UserTargets(), func);
+        if (user.succeeded) {
+            return S_OK;
+        }
+        return user.firstError;
     }
 
-    status = RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(modulePath.c_str()),
-                            static_cast<DWORD>((modulePath.size() + 1) * sizeof(wchar_t)));
-    if (status == ERROR_SUCCESS) {
-        const wchar_t threadingModel[] = L"Apartment";
-        status = RegSetValueExW(key, L"ThreadingModel", 0, REG_SZ, reinterpret_cast<const BYTE*>(threadingModel),
-                                static_cast<DWORD>((wcslen(threadingModel) + 1) * sizeof(wchar_t)));
+    return machine.firstError;
+}
+
+HRESULT DeleteRegistryKeyForTargets(const std::vector<RegistryTarget>& targets, const std::wstring& path,
+                                    bool ignoreAccessDenied) {
+    auto remover = [&](const RegistryTarget& target) -> HRESULT {
+        ScopedRegKey key;
+        const LONG openStatus = RegOpenKeyExW(target.root, path.c_str(), 0,
+                                              (KEY_READ | KEY_WRITE) | target.viewFlags, key.put());
+        if (openStatus == ERROR_FILE_NOT_FOUND) {
+            return S_OK;
+        }
+        if (openStatus == ERROR_ACCESS_DENIED && ignoreAccessDenied) {
+            return S_OK;
+        }
+        if (openStatus != ERROR_SUCCESS) {
+            return HRESULT_FROM_WIN32(openStatus);
+        }
+
+        const LONG deleteStatus = RegDeleteTreeW(key.get(), nullptr);
+        if (deleteStatus == ERROR_SUCCESS || deleteStatus == ERROR_FILE_NOT_FOUND) {
+            return S_OK;
+        }
+        if (deleteStatus == ERROR_ACCESS_DENIED && ignoreAccessDenied) {
+            return S_OK;
+        }
+        return HRESULT_FROM_WIN32(deleteStatus);
+    };
+
+    const RegistryAttemptResult result = ForEachTarget(targets, remover);
+    if (result.succeeded) {
+        return S_OK;
     }
-    RegCloseKey(key);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
+    if (ignoreAccessDenied && result.sawAccessDenied) {
+        return S_OK;
+    }
+    return result.firstError;
+}
+
+HRESULT DeleteRegistryValueForTargets(const std::vector<RegistryTarget>& targets, const std::wstring& path,
+                                      const std::wstring& valueName, bool ignoreAccessDenied) {
+    auto remover = [&](const RegistryTarget& target) -> HRESULT {
+        ScopedRegKey key;
+        const LONG openStatus = RegOpenKeyExW(target.root, path.c_str(), 0, KEY_SET_VALUE | target.viewFlags, key.put());
+        if (openStatus == ERROR_FILE_NOT_FOUND) {
+            return S_OK;
+        }
+        if (openStatus == ERROR_ACCESS_DENIED && ignoreAccessDenied) {
+            return S_OK;
+        }
+        if (openStatus != ERROR_SUCCESS) {
+            return HRESULT_FROM_WIN32(openStatus);
+        }
+
+        const LONG deleteStatus = RegDeleteValueW(key.get(), valueName.empty() ? nullptr : valueName.c_str());
+        if (deleteStatus == ERROR_SUCCESS || deleteStatus == ERROR_FILE_NOT_FOUND) {
+            return S_OK;
+        }
+        if (deleteStatus == ERROR_ACCESS_DENIED && ignoreAccessDenied) {
+            return S_OK;
+        }
+        return HRESULT_FROM_WIN32(deleteStatus);
+    };
+
+    const RegistryAttemptResult result = ForEachTarget(targets, remover);
+    if (result.succeeded) {
+        return S_OK;
+    }
+    if (ignoreAccessDenied && result.sawAccessDenied) {
+        return S_OK;
+    }
+    return result.firstError;
+}
+
+HRESULT DeleteRegistryKeyEverywhere(const std::wstring& path, bool ignoreAccessDenied) {
+    const HRESULT machine = DeleteRegistryKeyForTargets(MachineTargets(), path, ignoreAccessDenied);
+    const HRESULT user = DeleteRegistryKeyForTargets(UserTargets(), path, ignoreAccessDenied);
+    if (FAILED(machine)) {
+        return machine;
+    }
+    if (FAILED(user)) {
+        return user;
+    }
+    return S_OK;
+}
+
+HRESULT DeleteRegistryValueEverywhere(const std::wstring& path, const std::wstring& valueName, bool ignoreAccessDenied) {
+    const HRESULT machine = DeleteRegistryValueForTargets(MachineTargets(), path, valueName, ignoreAccessDenied);
+    const HRESULT user = DeleteRegistryValueForTargets(UserTargets(), path, valueName, ignoreAccessDenied);
+    if (FAILED(machine)) {
+        return machine;
+    }
+    if (FAILED(user)) {
+        return user;
+    }
+    return S_OK;
+}
+
+std::wstring ExtractFileName(const std::wstring& path) {
+    const size_t separator = path.find_last_of(L"\\/");
+    if (separator == std::wstring::npos) {
+        return path;
+    }
+    return path.substr(separator + 1);
+}
+
+HRESULT GetModulePath(std::wstring* modulePath) {
+    if (!modulePath) {
+        return E_POINTER;
     }
 
-    if (category && *category) {
-        const std::wstring categoryKey = baseKey + L"\\Implemented Categories\\" + category;
-        status = RegCreateKeyExW(HKEY_CURRENT_USER, categoryKey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr);
-        if (status == ERROR_SUCCESS) {
-            RegCloseKey(key);
-        } else {
-            return HRESULT_FROM_WIN32(status);
+    wchar_t buffer[MAX_PATH] = {};
+    if (!GetModuleFileNameW(GetModuleHandleInstance(), buffer, ARRAYSIZE(buffer))) {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    *modulePath = buffer;
+    return S_OK;
+}
+
+HRESULT RegisterProgIds(const std::wstring& clsidString, const wchar_t* currentProgId,
+                        const wchar_t* versionIndependentProgId, const wchar_t* friendlyName) {
+    if (!currentProgId || !*currentProgId || !versionIndependentProgId || !*versionIndependentProgId) {
+        return S_OK;
+    }
+
+    const std::wstring currentKey = L"Software\\Classes\\" + std::wstring(currentProgId);
+    const std::wstring versionIndependentKey = L"Software\\Classes\\" + std::wstring(versionIndependentProgId);
+
+    DeleteRegistryKeyForTargets(UserTargets(), currentKey, /*ignoreAccessDenied=*/true);
+    DeleteRegistryKeyForTargets(UserTargets(), versionIndependentKey, /*ignoreAccessDenied=*/true);
+
+    HRESULT hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, versionIndependentKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            inner = WriteRegistryStringValue(key.get(), L"CLSID", clsidString.c_str());
+            if (FAILED(inner)) {
+                return inner;
+            }
+            return WriteRegistryStringValue(key.get(), L"CurVer", currentProgId);
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, currentKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            return WriteRegistryStringValue(key.get(), L"CLSID", clsidString.c_str());
+        });
+}
+
+HRESULT UnregisterProgIds(const wchar_t* currentProgId, const wchar_t* versionIndependentProgId) {
+    if (currentProgId && *currentProgId) {
+        HRESULT hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\" + std::wstring(currentProgId),
+                                                 /*ignoreAccessDenied=*/true);
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+    if (versionIndependentProgId && *versionIndependentProgId) {
+        HRESULT hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\" + std::wstring(versionIndependentProgId),
+                                                 /*ignoreAccessDenied=*/true);
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+    return S_OK;
+}
+
+HRESULT RegisterAppId(const std::wstring& appId, const wchar_t* friendlyName, const std::wstring& moduleFileName) {
+    const std::wstring guidKey = L"Software\\Classes\\AppID\\" + appId;
+    DeleteRegistryKeyForTargets(UserTargets(), guidKey, /*ignoreAccessDenied=*/true);
+
+    HRESULT hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, guidKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            return S_OK;
+        },
+        /*allowUserFallback=*/false);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    if (!moduleFileName.empty()) {
+        const std::wstring moduleKey = L"Software\\Classes\\AppID\\" + moduleFileName;
+        DeleteRegistryKeyForTargets(UserTargets(), moduleKey, /*ignoreAccessDenied=*/true);
+
+        hr = WriteWithMachinePreference(
+            [&](const RegistryTarget& target) -> HRESULT {
+                ScopedRegKey key;
+                HRESULT inner = CreateRegistryKey(target, moduleKey, KEY_READ | KEY_WRITE, &key);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+                return WriteRegistryStringValue(key.get(), L"AppID", appId.c_str());
+            },
+            /*allowUserFallback=*/false);
+        if (FAILED(hr)) {
+            return hr;
         }
     }
 
     return S_OK;
 }
 
-HRESULT RegisterDeskBandKey(const std::wstring& clsidString) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Deskband\\" + clsidString;
-    HKEY key = nullptr;
-    LONG status = RegCreateKeyExW(HKEY_CURRENT_USER, keyPath.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
+HRESULT UnregisterAppId(const std::wstring& appId, const std::wstring& moduleFileName) {
+    HRESULT hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\AppID\\" + appId, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
     }
 
-    const wchar_t friendlyName[] = L"Shell Tabs";
-    status = RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(friendlyName),
-                            static_cast<DWORD>((wcslen(friendlyName) + 1) * sizeof(wchar_t)));
-    RegCloseKey(key);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
+    if (!moduleFileName.empty()) {
+        hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\AppID\\" + moduleFileName, /*ignoreAccessDenied=*/true);
+        if (FAILED(hr)) {
+            return hr;
+        }
     }
 
     return S_OK;
 }
 
-HRESULT UnregisterKeyTree(HKEY root, const std::wstring& path) {
-    const LONG status = RegDeleteTreeW(root, path.c_str());
-    if (status == ERROR_FILE_NOT_FOUND) {
-        return S_OK;
+HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring& clsidString,
+                             const wchar_t* friendlyName, const wchar_t* appId,
+                             const wchar_t* currentProgId, const wchar_t* versionIndependentProgId,
+                             std::initializer_list<GUID> categories) {
+    const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
+
+    DeleteRegistryKeyForTargets(UserTargets(), baseKey, /*ignoreAccessDenied=*/true);
+
+    HRESULT hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, baseKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            if (appId && *appId) {
+                inner = WriteRegistryStringValue(key.get(), L"AppID", appId);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            if (currentProgId && *currentProgId) {
+                inner = WriteRegistryStringValue(key.get(), L"ProgID", currentProgId);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            if (versionIndependentProgId && *versionIndependentProgId) {
+                inner = WriteRegistryStringValue(key.get(), L"VersionIndependentProgID", versionIndependentProgId);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            return S_OK;
+        });
+    if (FAILED(hr)) {
+        return hr;
     }
-    return status == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(status);
+
+    const std::wstring inprocKey = baseKey + L"\\InprocServer32";
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, inprocKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryStringValue(key.get(), nullptr, modulePath.c_str());
+            if (FAILED(inner)) {
+                return inner;
+            }
+            constexpr wchar_t kThreadingModel[] = L"Apartment";
+            return WriteRegistryStringValue(key.get(), L"ThreadingModel", kThreadingModel);
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    for (const GUID& category : categories) {
+        const std::wstring categoryKey = baseKey + L"\\Implemented Categories\\" + GuidToString(category);
+        hr = WriteWithMachinePreference(
+            [&](const RegistryTarget& target) -> HRESULT {
+                ScopedRegKey key;
+                return CreateRegistryKey(target, categoryKey, KEY_READ | KEY_WRITE, &key);
+            });
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    hr = RegisterProgIds(clsidString, currentProgId, versionIndependentProgId, friendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return S_OK;
 }
 
-HRESULT RegisterApprovedExtension(const std::wstring& clsidString, const wchar_t* friendlyName) {
-    const wchar_t* baseKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved";
-    HKEY key = nullptr;
-    LONG status = RegCreateKeyExW(HKEY_CURRENT_USER, baseKey, 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
-    }
+HRESULT RegisterDeskBandKey(const std::wstring& clsidString, const wchar_t* friendlyName) {
+    const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\DeskBand\\" + clsidString;
+    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
 
-    status = RegSetValueExW(key, clsidString.c_str(), 0, REG_SZ, reinterpret_cast<const BYTE*>(friendlyName),
-                            static_cast<DWORD>((wcslen(friendlyName) + 1) * sizeof(wchar_t)));
-    RegCloseKey(key);
-    return status == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(status);
+    return WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            hr = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            hr = WriteRegistryStringValue(key.get(), L"MenuText", friendlyName);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            return WriteRegistryStringValue(key.get(), L"HelpText", friendlyName);
+        });
+}
+
+HRESULT RegisterExplorerBar(const std::wstring& clsidString, const wchar_t* friendlyName) {
+    const std::wstring keyPath = L"Software\\Microsoft\\Internet Explorer\\Explorer Bars\\" + clsidString;
+    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
+
+    return WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            hr = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            hr = WriteRegistryStringValue(key.get(), L"MenuText", friendlyName);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            return WriteRegistryStringValue(key.get(), L"HelpText", friendlyName);
+        },
+        /*allowUserFallback=*/false);
+}
+
+HRESULT RegisterToolbarValue(const std::wstring& clsidString, const wchar_t* friendlyName) {
+    constexpr const wchar_t* kToolbarKey = L"Software\\Microsoft\\Internet Explorer\\Toolbar";
+    constexpr const wchar_t* kShellBrowserKey =
+        L"Software\\Microsoft\\Internet Explorer\\Toolbar\\ShellBrowser";
+
+    DeleteRegistryValueForTargets(UserTargets(), kToolbarKey, clsidString, /*ignoreAccessDenied=*/true);
+    DeleteRegistryValueForTargets(UserTargets(), kShellBrowserKey, clsidString,
+                                  /*ignoreAccessDenied=*/true);
+
+    auto writeValue = [&](const std::wstring& keyPath) -> HRESULT {
+        return WriteWithMachinePreference(
+            [&](const RegistryTarget& target) -> HRESULT {
+                ScopedRegKey key;
+                HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
+                if (FAILED(hr)) {
+                    return hr;
+                }
+                return WriteRegistryStringValue(key.get(), clsidString.c_str(), friendlyName);
+            },
+            /*allowUserFallback=*/false);
+    };
+
+    HRESULT hr = writeValue(kToolbarKey);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    return writeValue(kShellBrowserKey);
+}
+
+HRESULT RegisterBrowserHelper(const std::wstring& clsidString, const wchar_t* friendlyName) {
+    const std::wstring keyPath =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\" + clsidString;
+
+    return WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            if (friendlyName && *friendlyName) {
+                return WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+            }
+            return S_OK;
+        },
+        /*allowUserFallback=*/false);
+}
+
+HRESULT RegisterExplorerApproved(const std::wstring& clsidString, const wchar_t* friendlyName) {
+    constexpr const wchar_t* kApprovedKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved";
+    DeleteRegistryValueForTargets(UserTargets(), kApprovedKey, clsidString, /*ignoreAccessDenied=*/true);
+
+    return WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT hr = CreateRegistryKey(target, kApprovedKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            return WriteRegistryStringValue(key.get(), clsidString.c_str(), friendlyName);
+        },
+        /*allowUserFallback=*/false);
 }
 
 HRESULT RegisterColumnHandler(const std::wstring& clsidString) {
     const std::wstring keyPath =
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ColumnHandlers\\ShellTabsTags";
-    HKEY key = nullptr;
-    LONG status = RegCreateKeyExW(HKEY_CURRENT_USER, keyPath.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr);
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
+    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
+
+    return WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            return WriteRegistryStringValue(key.get(), nullptr, clsidString.c_str());
+        });
+}
+
+HRESULT ClearExplorerBandCache() {
+    constexpr std::array<const wchar_t*, 2> kCacheKeys = {
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Discardable\\PostSetup\\Component Categories\\{00021493-0000-0000-C000-000000000046}\\Enum",
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Discardable\\PostSetup\\Component Categories\\{00021494-0000-0000-C000-000000000046}\\Enum",
+    };
+
+    for (const auto* path : kCacheKeys) {
+        const LONG status = RegDeleteTreeW(HKEY_CURRENT_USER, path);
+        if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) {
+            return HRESULT_FROM_WIN32(status);
+        }
     }
 
-    status = RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(clsidString.c_str()),
-                            static_cast<DWORD>((clsidString.size() + 1) * sizeof(wchar_t)));
-    RegCloseKey(key);
-    return status == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(status);
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    return S_OK;
 }
 
 HRESULT UnregisterApprovedExtension(const std::wstring& clsidString) {
-    const wchar_t* baseKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved";
-    HKEY key = nullptr;
-    LONG status = RegOpenKeyExW(HKEY_CURRENT_USER, baseKey, 0, KEY_WRITE, &key);
-    if (status == ERROR_FILE_NOT_FOUND) {
-        return S_OK;
-    }
-    if (status != ERROR_SUCCESS) {
-        return HRESULT_FROM_WIN32(status);
-    }
+    constexpr const wchar_t* kApprovedKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved";
+    return DeleteRegistryValueEverywhere(kApprovedKey, clsidString, /*ignoreAccessDenied=*/true);
+}
 
-    status = RegDeleteValueW(key, clsidString.c_str());
-    RegCloseKey(key);
-    if (status == ERROR_FILE_NOT_FOUND || status == ERROR_SUCCESS) {
-        return S_OK;
+HRESULT UnregisterToolbarValue(const std::wstring& clsidString) {
+    constexpr const wchar_t* kToolbarKey = L"Software\\Microsoft\\Internet Explorer\\Toolbar";
+    constexpr const wchar_t* kShellBrowserKey =
+        L"Software\\Microsoft\\Internet Explorer\\Toolbar\\ShellBrowser";
+
+    HRESULT hr = DeleteRegistryValueEverywhere(kToolbarKey, clsidString, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
     }
-    return HRESULT_FROM_WIN32(status);
+    return DeleteRegistryValueEverywhere(kShellBrowserKey, clsidString, /*ignoreAccessDenied=*/true);
+}
+
+HRESULT UnregisterBrowserHelper(const std::wstring& clsidString) {
+    const std::wstring keyPath =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\" + clsidString;
+    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
+}
+
+HRESULT UnregisterExplorerBar(const std::wstring& clsidString) {
+    const std::wstring keyPath = L"Software\\Microsoft\\Internet Explorer\\Explorer Bars\\" + clsidString;
+    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
+}
+
+HRESULT UnregisterDeskBandKey(const std::wstring& clsidString) {
+    const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\DeskBand\\" + clsidString;
+    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
 }
 
 HRESULT UnregisterColumnHandler() {
     const std::wstring keyPath =
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ColumnHandlers\\ShellTabsTags";
-    const LONG status = RegDeleteTreeW(HKEY_CURRENT_USER, keyPath.c_str());
-    if (status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND) {
-        return S_OK;
+    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
+}
+
+}  // namespace
+
+namespace {
+
+bool ShouldBlockProcessAttach() {
+    wchar_t path[MAX_PATH] = {};
+    if (!GetModuleFileNameW(nullptr, path, ARRAYSIZE(path))) {
+        return false;
     }
-    return HRESULT_FROM_WIN32(status);
+
+    const wchar_t* fileName = path;
+    for (const wchar_t* current = path; *current; ++current) {
+        if (*current == L'\\' || *current == L'/') {
+            fileName = current + 1;
+        }
+    }
+
+    return _wcsicmp(fileName, L"iexplore.exe") == 0;
 }
 
 }  // namespace
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
+        if (ShouldBlockProcessAttach()) {
+            return FALSE;
+        }
+
         shelltabs::SetModuleHandleInstance(module);
         DisableThreadLibraryCalls(module);
 
@@ -183,35 +754,68 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     if (rclsid == CLSID_ShellTabsTagColumnProvider) {
         return CreateTagColumnProviderClassFactory(riid, object);
     }
+    if (rclsid == CLSID_ShellTabsBrowserHelper) {
+        return CreateBrowserHelperClassFactory(riid, object);
+    }
 
     return CLASS_E_CLASSNOTAVAILABLE;
 }
 
 STDAPI DllRegisterServer(void) {
-    wchar_t modulePath[MAX_PATH] = {};
-    if (!GetModuleFileNameW(GetModuleHandleInstance(), modulePath, ARRAYSIZE(modulePath))) {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-
-    const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
-    constexpr wchar_t kDeskBandCategory[] = L"{00021492-0000-0000-C000-000000000046}";
-    HRESULT hr = RegisterInprocServer(modulePath, clsidString, L"Shell Tabs", kDeskBandCategory);
+    std::wstring modulePath;
+    HRESULT hr = GetModulePath(&modulePath);
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = RegisterDeskBandKey(clsidString);
+    const std::wstring moduleFileName = ExtractFileName(modulePath);
+    const std::wstring appIdString = GuidToString(APPID_ShellTabs);
+
+    hr = RegisterAppId(appIdString, kBandFriendlyName, moduleFileName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
+    hr = RegisterInprocServer(modulePath, bandClsid, kBandFriendlyName, appIdString.c_str(), kBandProgIdVersion,
+                              kBandProgId, {CATID_DeskBand, CATID_InfoBand, CATID_CommBand});
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = RegisterDeskBandKey(bandClsid, kBandFriendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = RegisterExplorerBar(bandClsid, kBandFriendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = RegisterExplorerApproved(bandClsid, kBandFriendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = RegisterToolbarValue(bandClsid, kBandFriendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = ClearExplorerBandCache();
     if (FAILED(hr)) {
         return hr;
     }
 
     const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
-    hr = RegisterInprocServer(modulePath, columnClsid, L"Shell Tabs Tags Column", nullptr);
+    hr = RegisterInprocServer(modulePath, columnClsid, kColumnFriendlyName, appIdString.c_str(), kColumnProgIdVersion,
+                              kColumnProgId, {kColumnProviderCategory});
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = RegisterApprovedExtension(columnClsid, L"Shell Tabs Tags Column");
+    hr = RegisterExplorerApproved(columnClsid, kColumnFriendlyName);
     if (FAILED(hr)) {
         return hr;
     }
@@ -221,28 +825,79 @@ STDAPI DllRegisterServer(void) {
         return hr;
     }
 
-    return S_OK;
-}
-
-STDAPI DllUnregisterServer(void) {
-    const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
-    const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
-    const std::wstring deskbandKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Deskband\\" + clsidString;
-
-    HRESULT hr = UnregisterKeyTree(HKEY_CURRENT_USER, baseKey);
+    const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
+    hr = RegisterInprocServer(modulePath, bhoClsid, kBhoFriendlyName, appIdString.c_str(), kBhoProgIdVersion,
+                              kBhoProgId, {});
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = UnregisterKeyTree(HKEY_CURRENT_USER, deskbandKey);
+    hr = RegisterExplorerApproved(bhoClsid, kBhoFriendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = RegisterBrowserHelper(bhoClsid, kBhoFriendlyName);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return S_OK;
+}
+
+STDAPI DllUnregisterServer(void) {
+    std::wstring modulePath;
+    HRESULT hr = GetModulePath(&modulePath);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring moduleFileName = ExtractFileName(modulePath);
+    const std::wstring appIdString = GuidToString(APPID_ShellTabs);
+
+    const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
+    hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bandClsid, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterProgIds(kBandProgIdVersion, kBandProgId);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterDeskBandKey(bandClsid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterExplorerBar(bandClsid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterApprovedExtension(bandClsid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterToolbarValue(bandClsid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = ClearExplorerBandCache();
     if (FAILED(hr)) {
         return hr;
     }
 
     const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
-    const std::wstring columnBaseKey = L"Software\\Classes\\CLSID\\" + columnClsid;
+    hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + columnClsid, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
+    }
 
-    hr = UnregisterKeyTree(HKEY_CURRENT_USER, columnBaseKey);
+    hr = UnregisterProgIds(kColumnProgIdVersion, kColumnProgId);
     if (FAILED(hr)) {
         return hr;
     }
@@ -253,6 +908,32 @@ STDAPI DllUnregisterServer(void) {
     }
 
     hr = UnregisterColumnHandler();
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
+    hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bhoClsid, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterProgIds(kBhoProgIdVersion, kBhoProgId);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterApprovedExtension(bhoClsid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterBrowserHelper(bhoClsid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = UnregisterAppId(appIdString, moduleFileName);
     if (FAILED(hr)) {
         return hr;
     }
