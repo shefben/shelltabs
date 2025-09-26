@@ -1,6 +1,7 @@
 #include "CExplorerBHO.h"
 
 #include <combaseapi.h>
+#include <exdispid.h>
 #include <oleauto.h>
 #include <shlobj.h>
 
@@ -61,22 +62,18 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
     return E_NOTIMPL;
 }
 
-IFACEMETHODIMP CExplorerBHO::Invoke(DISPID, REFIID, LCID, WORD, DISPPARAMS*, VARIANT*, EXCEPINFO*, UINT*) {
-    return S_OK;
-}
-
 void CExplorerBHO::Disconnect() {
+    DisconnectEvents();
     m_webBrowser.Reset();
     m_site.Reset();
-    m_hasAttemptedEnsure = false;
+    m_bandVisible = false;
+    m_shouldRetryEnsure = true;
 }
 
 HRESULT CExplorerBHO::EnsureBandVisible() {
-    if (m_hasAttemptedEnsure || !m_webBrowser) {
+    if (!m_webBrowser || !m_shouldRetryEnsure) {
         return S_OK;
     }
-
-    m_hasAttemptedEnsure = true;
 
     Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
     HRESULT hr = m_webBrowser.As(&serviceProvider);
@@ -112,6 +109,15 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
 
     VariantClear(&bandId);
     VariantClear(&show);
+
+    if (SUCCEEDED(hr)) {
+        m_bandVisible = true;
+        m_shouldRetryEnsure = false;
+    } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
+        // Avoid repeatedly attempting when policy forbids bands.
+        m_shouldRetryEnsure = false;
+    }
+
     return hr;
 }
 
@@ -130,6 +136,9 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
     m_site = site;
     m_webBrowser = browser;
+    m_shouldRetryEnsure = true;
+
+    ConnectEvents();
 
     // Attempt to surface the deskband for the current window. Ignore failures because Explorer may
     // reject the call if policy forbids bands or the window is not ready yet.
@@ -146,6 +155,63 @@ IFACEMETHODIMP CExplorerBHO::GetSite(REFIID riid, void** site) {
         return E_FAIL;
     }
     return m_site->QueryInterface(riid, site);
+}
+
+HRESULT CExplorerBHO::ConnectEvents() {
+    if (!m_webBrowser || m_connectionCookie != 0) {
+        return S_OK;
+    }
+
+    Microsoft::WRL::ComPtr<IConnectionPointContainer> container;
+    HRESULT hr = m_webBrowser.As(&container);
+    if (FAILED(hr) || !container) {
+        return hr;
+    }
+
+    Microsoft::WRL::ComPtr<IConnectionPoint> connectionPoint;
+    hr = container->FindConnectionPoint(DIID_DWebBrowserEvents2, &connectionPoint);
+    if (FAILED(hr) || !connectionPoint) {
+        return hr;
+    }
+
+    DWORD cookie = 0;
+    hr = connectionPoint->Advise(this, &cookie);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    m_connectionPoint = connectionPoint;
+    m_connectionCookie = cookie;
+    return S_OK;
+}
+
+void CExplorerBHO::DisconnectEvents() {
+    if (m_connectionPoint && m_connectionCookie != 0) {
+        m_connectionPoint->Unadvise(m_connectionCookie);
+    }
+    m_connectionPoint.Reset();
+    m_connectionCookie = 0;
+}
+
+IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS*, VARIANT*, EXCEPINFO*,
+                                    UINT*) {
+    switch (dispIdMember) {
+        case DISPID_DOCUMENTCOMPLETE:
+        case DISPID_NAVIGATECOMPLETE2:
+        case DISPID_ONVISIBLE:
+        case DISPID_WINDOWSTATECHANGED:
+            if (!m_bandVisible) {
+                EnsureBandVisible();
+            }
+            break;
+        case DISPID_ONQUIT:
+            Disconnect();
+            break;
+        default:
+            break;
+    }
+
+    return S_OK;
 }
 
 }  // namespace shelltabs
