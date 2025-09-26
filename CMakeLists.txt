@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(ShellTabs SHARED
     src/dllmain.cpp
     src/ClassFactory.cpp
+    src/CExplorerBHO.cpp
+    src/ComUtils.cpp
     src/TabBand.cpp
     src/TabBandWindow.cpp
     src/TabManager.cpp

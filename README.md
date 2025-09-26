@@ -50,12 +50,15 @@ The project is built as an in-process COM DLL using CMake and the Microsoft Visu
 3. Restart Windows Explorer (e.g., from Task Manager) if the toolbar menu does not refresh automatically.
 4. In File Explorer, right-click the toolbar area and enable **Shell Tabs** from the **Toolbars** menu. The tab strip appears docked at the top of the Explorer window.
 
+An ATL-style registration script lives at `registration/ShellTabs.rgs`. You can feed it to `regsvr32 /c` or integrate it into installer tooling if you prefer declarative registration over the DLL’s self-registration entry points.
+
 ## Architecture Overview
 
 - **Deskband (`TabBand`)** – Implements `IDeskBand2`, `IObjectWithSite`, and related COM interfaces. It is responsible for creating the UI window, tracking Explorer navigation events, and keeping the tab model in sync with the current folder.
 - **Tab model (`TabManager`)** – Maintains the list of open tabs, their display names, and associated PIDLs. The manager owns the shell item identifiers, ensuring proper lifetime management.
 - **UI host (`TabBandWindow`)** – Creates a Win32 child window composed of a `SysTabControl32` instance and a push button for the “new tab” action. It routes user interactions back to the band.
 - **Browser event sink (`BrowserEvents`)** – Subscribes to `DWebBrowserEvents2` emitted by Explorer’s `IWebBrowser2` object so the deskband can react to navigation changes and window teardown.
+- **Browser Helper Object (`CExplorerBHO`)** – A lightweight `IObjectWithSite` implementation that loads alongside Explorer windows and calls `IWebBrowser2::ShowBrowserBar` so the Shell Tabs deskband is surfaced automatically for each process.
 - **Utilities** – Helper functions for cloning PIDLs, resolving display names, and querying the active folder via `IShellBrowser`/`IWebBrowser2`.
 - **Folder view colorizer** – Subclasses the Explorer folder view to apply tag-based colors during custom draw events.
 - **Tag column provider** – Implements `IColumnProvider` so the Explorer Details view can display the tags associated with each item.
