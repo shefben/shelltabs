@@ -316,7 +316,7 @@ bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstri
 
     std::vector<BYTE> dialogTemplate = BuildInputDialogTemplate();
     INT_PTR result = DialogBoxIndirectParamW(GetModuleHandleInstance(),
-                                             reinterpret_cast<DLGTEMPLATEW*>(dialogTemplate.data()), parent,
+                                             reinterpret_cast<DLGTEMPLATE*>(dialogTemplate.data()), parent,
                                              InputDialogProc, reinterpret_cast<LPARAM>(&context));
     if (result == IDOK) {
         *value = context.value;
