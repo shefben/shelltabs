@@ -911,7 +911,9 @@ bool TabBand::BuildExplorerContextMenu(TabLocation location, HMENU menu, UINT id
 
     Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
-    if (FAILED(parentFolder->GetUIObjectOf(hwnd, 1, &child, IID_PPV_ARGS(&contextMenu)))) {
+    if (FAILED(parentFolder->GetUIObjectOf(
+            hwnd, 1, &child, IID_IContextMenu, nullptr,
+            reinterpret_cast<void**>(contextMenu.ReleaseAndGetAddressOf())))) {
         return false;
     }
 
@@ -930,7 +932,7 @@ bool TabBand::BuildExplorerContextMenu(TabLocation location, HMENU menu, UINT id
     }
     if (menu2Out) {
         if (menu3Out && menu3Out->Get()) {
-            (*menu3Out)->QueryInterface(IID_PPV_ARGS(menu2Out));
+            menu3Out->As(menu2Out);
         } else {
             contextMenu.As(menu2Out);
         }
