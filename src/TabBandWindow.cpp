@@ -1234,7 +1234,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
                 }
             }
             hasItemCommands = true;
-        } else {
+        } else if (hit.type == TabViewItemType::kGroupHeader && hit.itemIndex >= 0) {
             const auto& item = m_items[hit.itemIndex];
             const bool collapsed = item.data.collapsed;
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND, collapsed ? L"Show Island" : L"Hide Island");
