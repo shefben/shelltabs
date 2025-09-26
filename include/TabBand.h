@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <ShObjIdl_core.h>
@@ -70,6 +71,7 @@ public:
 
     void OnBrowserNavigate();
     void OnBrowserQuit();
+    bool OnBrowserNewWindow(const std::wstring& targetUrl);
 
     void OnTabSelected(TabLocation location);
     void OnNewTabRequested();
@@ -83,6 +85,8 @@ public:
     void OnDetachGroupRequested(int groupIndex);
     void OnMoveTabRequested(TabLocation from, TabLocation to);
     void OnMoveGroupRequested(int fromGroup, int toGroup);
+    void OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible);
+    void OnSetGroupHeaderVisible(int groupIndex, bool visible);
     void OnToggleSplitView(int groupIndex);
     void OnPromoteSplitSecondary(TabLocation location);
     void OnClearSplitSecondary(int groupIndex);
@@ -93,6 +97,19 @@ public:
     void OnFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
+    int GetGroupCount() const noexcept;
+    bool IsGroupHeaderVisible(int groupIndex) const;
+    bool BuildExplorerContextMenu(TabLocation location, HMENU menu, UINT idFirst, UINT idLast,
+                                  Microsoft::WRL::ComPtr<IContextMenu>* menuOut,
+                                  Microsoft::WRL::ComPtr<IContextMenu2>* menu2Out,
+                                  Microsoft::WRL::ComPtr<IContextMenu3>* menu3Out,
+                                  UINT* usedLast) const;
+    bool InvokeExplorerContextCommand(TabLocation location, IContextMenu* menu, UINT commandId,
+                                      UINT idFirst, const POINT& ptInvoke) const;
+    std::vector<std::wstring> GetSavedGroupNames() const;
+    void OnCreateSavedGroup(int afterGroup);
+    void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
+    void OnDeferredNavigate();
 
 private:
     std::atomic<long> m_refCount;
@@ -113,6 +130,9 @@ private:
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
     bool m_internalNavigation = false;
+    int m_allowExternalNewWindows = 0;
+    TabLocation m_pendingNavigation;
+    bool m_deferredNavigationPosted = false;
 
     void EnsureWindow();
     void DisconnectSite();
@@ -124,12 +144,16 @@ private:
     UniquePidl QueryCurrentFolder() const;
     void NavigateToTab(TabLocation location);
     void EnsureTabForCurrentFolder();
-    void OpenTabInNewWindow(const TabInfo& tab) const;
+    void OpenTabInNewWindow(const TabInfo& tab);
     void EnsureSplitViewWindows(int groupIndex);
     bool LaunchShellExecute(const std::wstring& application, const std::wstring& parameters,
                             const std::wstring& workingDirectory) const;
     std::wstring GetTabPath(TabLocation location) const;
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
+    bool HandleNewWindowRequest(const std::wstring& targetUrl);
+    void QueueNavigateTo(TabLocation location);
+    void SyncSavedGroup(int groupIndex) const;
+    void SyncAllSavedGroups() const;
 };
 
 }  // namespace shelltabs

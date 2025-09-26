@@ -20,6 +20,7 @@ add_library(ShellTabs SHARED
     src/TagColumnProvider.cpp
     src/Tagging.cpp
     src/SessionStore.cpp
+    src/GroupStore.cpp
     src/Utilities.cpp
     src/GitStatus.cpp
     src/resource.rc
@@ -55,6 +56,7 @@ target_link_libraries(ShellTabs PRIVATE
     urlmon
     uuid
     msimg32
+    comdlg32
 )
 
 set_target_properties(ShellTabs PROPERTIES

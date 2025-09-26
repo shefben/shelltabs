@@ -4,6 +4,7 @@
 #include <Shlwapi.h>
 
 #include <algorithm>
+#include <sstream>
 #include <string>
 
 namespace shelltabs {
@@ -71,6 +72,30 @@ bool ParseBool(const std::wstring& token) {
     return token == L"1" || token == L"true" || token == L"TRUE";
 }
 
+COLORREF ParseColor(const std::wstring& token, COLORREF fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+    unsigned int value = 0;
+    std::wistringstream stream(token);
+    if (token.size() > 2 && token[0] == L'0' && (token[1] == L'x' || token[1] == L'X')) {
+        stream.ignore(2);
+        stream >> std::hex >> value;
+    } else if (!token.empty() && token[0] == L'#') {
+        stream.ignore(1);
+        stream >> std::hex >> value;
+    } else {
+        stream >> std::hex >> value;
+    }
+    return RGB((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF);
+}
+
+std::wstring ColorToString(COLORREF color) {
+    wchar_t buffer[16];
+    swprintf_s(buffer, L"%06X", (GetRValue(color) << 16) | (GetGValue(color) << 8) | GetBValue(color));
+    return buffer;
+}
+
 std::wstring ResolveStoragePath() {
     PWSTR knownFolder = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
@@ -131,6 +156,7 @@ bool SessionStore::Load(SessionData& data) const {
     }
 
     bool versionSeen = false;
+    int version = 1;
     SessionGroup* currentGroup = nullptr;
 
     size_t lineStart = 0;
@@ -159,7 +185,11 @@ bool SessionStore::Load(SessionData& data) const {
 
         const std::wstring& header = tokens.front();
         if (header == kVersionToken) {
-            if (tokens.size() < 2 || tokens[1] != L"1") {
+            if (tokens.size() < 2) {
+                return false;
+            }
+            version = std::max(1, _wtoi(tokens[1].c_str()));
+            if (version > 2) {
                 return false;
             }
             versionSeen = true;
@@ -187,6 +217,20 @@ bool SessionStore::Load(SessionData& data) const {
             }
             if (tokens.size() >= 6) {
                 group.splitSecondary = _wtoi(tokens[5].c_str());
+            }
+            if (version >= 2) {
+                if (tokens.size() >= 7) {
+                    group.headerVisible = ParseBool(tokens[6]);
+                }
+                if (tokens.size() >= 8) {
+                    group.hasOutline = ParseBool(tokens[7]);
+                }
+                if (tokens.size() >= 9) {
+                    group.outlineColor = ParseColor(tokens[8], group.outlineColor);
+                }
+                if (tokens.size() >= 10) {
+                    group.savedGroupId = tokens[9];
+                }
             }
             data.groups.emplace_back(std::move(group));
             currentGroup = &data.groups.back();
@@ -221,7 +265,7 @@ bool SessionStore::Save(const SessionData& data) const {
 
     std::wstring content;
     content += kVersionToken;
-    content += L"|1\n";
+    content += L"|2\n";
     content += kSelectedToken;
     content += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     content += kSequenceToken;
@@ -231,7 +275,9 @@ bool SessionStore::Save(const SessionData& data) const {
         content += kGroupToken;
         content += L"|" + group.name + L"|" + (group.collapsed ? L"1" : L"0") + L"|" +
                    (group.splitView ? L"1" : L"0") + L"|" + std::to_wstring(group.splitPrimary) + L"|" +
-                   std::to_wstring(group.splitSecondary) + L"\n";
+                   std::to_wstring(group.splitSecondary) + L"|" + (group.headerVisible ? L"1" : L"0") + L"|" +
+                   (group.hasOutline ? L"1" : L"0") + L"|" + ColorToString(group.outlineColor) + L"|" +
+                   group.savedGroupId + L"\n";
         for (const auto& tab : group.tabs) {
             content += kTabToken;
             content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path + L"\n";

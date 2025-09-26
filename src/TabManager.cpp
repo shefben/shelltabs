@@ -253,29 +253,36 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             }
         }
 
-        TabViewItem header;
-        header.type = TabViewItemType::kGroupHeader;
-        header.location = {static_cast<int>(g), -1};
-        header.name = group.name;
-        header.tooltip = group.name;
-        if (total > 0) {
-            header.tooltip += L" (" + std::to_wstring(visible) + L" visible of " + std::to_wstring(total) + L")";
+        if (group.headerVisible) {
+            TabViewItem header;
+            header.type = TabViewItemType::kGroupHeader;
+            header.location = {static_cast<int>(g), -1};
+            header.name = group.name;
+            header.tooltip = group.name;
+            header.pidl = nullptr;
+            if (total > 0) {
+                header.tooltip += L" (" + std::to_wstring(visible) + L" visible of " + std::to_wstring(total) + L")";
+            }
+            if (hidden > 0) {
+                header.tooltip += L" - " + std::to_wstring(hidden) + L" hidden";
+            }
+            header.selected = (m_selectedGroup == static_cast<int>(g));
+            header.collapsed = group.collapsed;
+            header.totalTabs = total;
+            header.visibleTabs = visible;
+            header.hiddenTabs = hidden;
+            header.hasTagColor = groupHasColor;
+            header.tagColor = groupColor;
+            header.splitActive = group.splitView;
+            header.splitEnabled = group.splitView;
+            header.splitAvailable = visible > 1;
+            header.hasCustomOutline = group.hasCustomOutline;
+            header.outlineColor = group.outlineColor;
+            header.savedGroupId = group.savedGroupId;
+            header.isSavedGroup = !group.savedGroupId.empty();
+            header.headerVisible = true;
+            items.emplace_back(std::move(header));
         }
-        if (hidden > 0) {
-            header.tooltip += L" - " + std::to_wstring(hidden) + L" hidden";
-        }
-        header.selected = (m_selectedGroup == static_cast<int>(g));
-        header.collapsed = group.collapsed;
-        header.totalTabs = total;
-        header.visibleTabs = visible;
-        header.hiddenTabs = hidden;
-        header.hasTagColor = groupHasColor;
-        header.tagColor = groupColor;
-        header.splitActive = group.splitView;
-        header.splitEnabled = group.splitView;
-        header.splitAvailable = visible > 1;
-
-        items.emplace_back(std::move(header));
 
         if (group.collapsed) {
             continue;
@@ -292,6 +299,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.location = {static_cast<int>(g), static_cast<int>(t)};
             item.name = tab.name;
             item.tooltip = tab.tooltip.empty() ? tab.name : tab.tooltip;
+            item.pidl = tab.pidl.get();
             item.selected = (m_selectedGroup == static_cast<int>(g) && m_selectedTab == static_cast<int>(t));
             item.path = tab.path;
             item.splitActive = group.splitView;
@@ -299,6 +307,11 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.splitAvailable = visible > 1;
             item.splitPrimary = group.splitView && static_cast<int>(t) == group.splitPrimary;
             item.splitSecondary = group.splitView && static_cast<int>(t) == group.splitSecondary;
+            item.hasCustomOutline = group.hasCustomOutline;
+            item.outlineColor = group.outlineColor;
+            item.savedGroupId = group.savedGroupId;
+            item.isSavedGroup = !group.savedGroupId.empty();
+            item.headerVisible = group.headerVisible;
 
             COLORREF color = 0;
             std::vector<std::wstring> tags;
@@ -422,7 +435,7 @@ size_t TabManager::HiddenCount(int groupIndex) const {
     }));
 }
 
-int TabManager::CreateGroupAfter(int groupIndex, std::wstring name) {
+int TabManager::CreateGroupAfter(int groupIndex, std::wstring name, bool headerVisible) {
     if (groupIndex < -1 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = static_cast<int>(m_groups.size()) - 1;
     }
@@ -433,6 +446,7 @@ int TabManager::CreateGroupAfter(int groupIndex, std::wstring name) {
     } else {
         group.name = std::move(name);
     }
+    group.headerVisible = headerVisible;
 
     const int insertIndex = groupIndex + 1;
     const auto position = m_groups.begin() + std::clamp(insertIndex, 0, static_cast<int>(m_groups.size()));
@@ -663,11 +677,43 @@ void TabManager::EnsureDefaultGroup() {
 
     TabGroup group;
     group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
+    group.headerVisible = true;
     m_groups.emplace_back(std::move(group));
     if (m_selectedGroup < 0) {
         m_selectedGroup = 0;
         m_selectedTab = -1;
     }
+}
+
+TabLocation TabManager::MoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible) {
+    if (!from.IsValid()) {
+        return {};
+    }
+    const int targetIndex = CreateGroupAfter(insertIndex - 1, {}, headerVisible);
+    MoveTab(from, {targetIndex, 0});
+    return {targetIndex, 0};
+}
+
+void TabManager::SetGroupHeaderVisible(int groupIndex, bool visible) {
+    auto* group = GetGroup(groupIndex);
+    if (!group) {
+        return;
+    }
+    if (group->headerVisible == visible) {
+        return;
+    }
+    group->headerVisible = visible;
+    if (!visible && group->collapsed) {
+        group->collapsed = false;
+    }
+}
+
+bool TabManager::IsGroupHeaderVisible(int groupIndex) const {
+    const auto* group = GetGroup(groupIndex);
+    if (!group) {
+        return false;
+    }
+    return group->headerVisible;
 }
 
 void TabManager::EnsureVisibleSelection() {
