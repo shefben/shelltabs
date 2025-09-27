@@ -32,8 +32,15 @@ namespace shelltabs {
 using Microsoft::WRL::ComPtr;
 
 namespace {
-std::mutex g_windowTokenMutex;
-std::unordered_map<HWND, std::wstring> g_windowTokens;
+struct WindowTokenState {
+    std::mutex mutex;
+    std::unordered_map<HWND, std::wstring> tokens;
+};
+
+WindowTokenState& GetWindowTokenState() {
+    static auto* state = new WindowTokenState();
+    return *state;
+}
 }
 
 TabBand::TabBand() : m_refCount(1) {
@@ -635,9 +642,10 @@ std::wstring TabBand::ResolveWindowToken() {
     }
 
     {
-        std::scoped_lock lock(g_windowTokenMutex);
-        const auto existing = g_windowTokens.find(frame);
-        if (existing != g_windowTokens.end()) {
+        auto& state = GetWindowTokenState();
+        std::scoped_lock lock(state.mutex);
+        const auto existing = state.tokens.find(frame);
+        if (existing != state.tokens.end()) {
             m_windowToken = existing->second;
             return m_windowToken;
         }
@@ -655,7 +663,7 @@ std::wstring TabBand::ResolveWindowToken() {
         if (token.empty()) {
             token = std::to_wstring(reinterpret_cast<uintptr_t>(frame));
         }
-        g_windowTokens.emplace(frame, token);
+        state.tokens.emplace(frame, token);
         m_windowToken = token;
     }
 
@@ -669,8 +677,9 @@ void TabBand::ReleaseWindowToken() {
         return;
     }
 
-    std::scoped_lock lock(g_windowTokenMutex);
-    g_windowTokens.erase(frame);
+    auto& state = GetWindowTokenState();
+    std::scoped_lock lock(state.mutex);
+    state.tokens.erase(frame);
     m_windowToken.clear();
 }
 
