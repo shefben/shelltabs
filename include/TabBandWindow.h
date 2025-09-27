@@ -155,10 +155,10 @@ private:
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
-    void HandleMouseDown(const POINT& pt);
-    void HandleMouseUp(const POINT& pt);
-    void HandleMouseMove(const POINT& pt);
-    void HandleDoubleClick(const POINT& pt);
+    bool HandleMouseDown(const POINT& pt);
+    bool HandleMouseUp(const POINT& pt);
+    bool HandleMouseMove(const POINT& pt);
+    bool HandleDoubleClick(const POINT& pt);
     void HandleFileDrop(HDROP drop);
     void CancelDrag();
     void UpdateDropTarget(const POINT& pt);

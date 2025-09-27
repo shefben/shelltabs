@@ -34,8 +34,6 @@ constexpr int kTabGap = 6;
 constexpr int kPaddingX = 12;
 constexpr int kGroupPaddingX = 16;
 constexpr int kToolbarGripWidth = 14;
-constexpr int kToolbarGripDotSize = 2;
-constexpr int kToolbarGripDotSpacing = 5;
 constexpr int kDragThreshold = 4;
 constexpr int kBadgePaddingX = 8;
 constexpr int kBadgePaddingY = 2;
@@ -46,8 +44,7 @@ constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
 constexpr int kIconGap = 6;
-constexpr int kIslandIndicatorWidth = 2;
-constexpr int kCollapsedIndicatorPadding = 10;
+constexpr int kIslandIndicatorWidth = 5;
 constexpr int kIslandOutlineThickness = 1;
 const wchar_t kThemePreferenceKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
@@ -421,17 +418,7 @@ void TabBandWindow::RebuildLayout() {
                 x += kGroupGap;
             }
 
-            SIZE textSize{0, 0};
-            if (!item.name.empty()) {
-                GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
-            }
-
             int width = kIslandIndicatorWidth;
-            if (visual.collapsedPlaceholder) {
-                const int padding = kGroupPaddingX;
-                width = textSize.cx + padding * 2;
-                width = std::max(width, kGroupMinWidth);
-            }
 
             const int remaining = bounds.right - x;
             if (remaining <= 0) {
@@ -551,117 +538,35 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
         return;
     }
 
-    const int bandWidth = static_cast<int>(bounds.right - bounds.left);
-    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-
-    auto drawManualGrip = [&](const RECT& rect) {
-        if (gripWidth <= 0) {
-            return;
-        }
-        const int gripLeft = static_cast<int>(rect.left);
-        const int gripRight = std::min(static_cast<int>(rect.right), gripLeft + gripWidth);
-        if (gripRight <= gripLeft) {
-            return;
-        }
-
-        const int centerX = (gripLeft + gripRight) / 2;
-        const int centerY = (rect.top + rect.bottom) / 2;
-        const COLORREF gripColor = BlendColors(m_themePalette.borderTop, m_themePalette.rebarBackground,
-                                              m_darkMode ? 0.25 : 0.5);
-        HBRUSH gripBrush = CreateSolidBrush(gripColor);
-        if (gripBrush) {
-            for (int i = -1; i <= 1; ++i) {
-                const int offset = i * kToolbarGripDotSpacing;
-                RECT dot{centerX - kToolbarGripDotSize, centerY + offset - kToolbarGripDotSize,
-                         centerX + kToolbarGripDotSize + 1, centerY + offset + kToolbarGripDotSize + 1};
-                FillRect(dc, &dot, gripBrush);
-            }
-            DeleteObject(gripBrush);
-        }
-
-        const COLORREF separatorColor = BlendColors(gripColor, m_themePalette.rebarBackground, 0.4);
-        HPEN separatorPen = CreatePen(PS_SOLID, 1, separatorColor);
-        if (separatorPen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, separatorPen));
-            MoveToEx(dc, gripRight, rect.top + 1, nullptr);
-            LineTo(dc, gripRight, rect.bottom - 1);
-            SelectObject(dc, oldPen);
-            DeleteObject(separatorPen);
-        }
-    };
-
-    auto drawManualBand = [&]() {
-        RECT fillRect = bounds;
-        HBRUSH background = CreateSolidBrush(m_themePalette.rebarBackground);
-        if (background) {
-            FillRect(dc, &fillRect, background);
-            DeleteObject(background);
-        }
-
-        HPEN pen = CreatePen(PS_SOLID, 1, m_themePalette.borderTop);
-        if (pen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-            MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
-            LineTo(dc, fillRect.right, fillRect.top);
-            SelectObject(dc, oldPen);
-            DeleteObject(pen);
-        }
-
-        pen = CreatePen(PS_SOLID, 1, m_themePalette.borderBottom);
-        if (pen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-            const int bottom = fillRect.bottom - 1;
-            MoveToEx(dc, fillRect.left, bottom, nullptr);
-            LineTo(dc, fillRect.right, bottom);
-            SelectObject(dc, oldPen);
-            DeleteObject(pen);
-        }
-
-        drawManualGrip(fillRect);
-    };
-
-    if (m_rebarTheme) {
-        RECT fillRect = bounds;
-        if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BAND, 0, &fillRect, nullptr))) {
-            if (gripWidth > 0) {
-                RECT gripRect{fillRect.left, fillRect.top, fillRect.left + gripWidth, fillRect.bottom};
-                if (gripRect.right > gripRect.left) {
-                    HRESULT gripResult = DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPER, 0, &gripRect, nullptr);
-                    if (FAILED(gripResult)) {
-                        gripResult = DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPERVERT, 0, &gripRect, nullptr);
-                    }
-                    if (FAILED(gripResult)) {
-                        drawManualGrip(fillRect);
-                    } else {
-                        RECT separatorRect{gripRect.right, gripRect.top + 2,
-                                           std::min(gripRect.right + 1, fillRect.right), fillRect.bottom - 2};
-                        if (separatorRect.bottom <= separatorRect.top) {
-                            separatorRect.top = fillRect.top;
-                            separatorRect.bottom = fillRect.bottom;
-                        }
-                        if (separatorRect.right > separatorRect.left) {
-                            if (FAILED(DrawThemeEdge(m_rebarTheme, dc, RP_BAND, 0, &separatorRect, EDGE_ETCHED,
-                                                     BF_LEFT, nullptr))) {
-                                const COLORREF separatorColor =
-                                    BlendColors(m_themePalette.borderTop, m_themePalette.rebarBackground, 0.4);
-                                HPEN separatorPen = CreatePen(PS_SOLID, 1, separatorColor);
-                                if (separatorPen) {
-                                    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, separatorPen));
-                                    MoveToEx(dc, gripRect.right, fillRect.top + 1, nullptr);
-                                    LineTo(dc, gripRect.right, fillRect.bottom - 1);
-                                    SelectObject(dc, oldPen);
-                                    DeleteObject(separatorPen);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return;
+    bool backgroundDrawn = false;
+    if (m_hwnd) {
+        if (SUCCEEDED(DrawThemeParentBackground(m_hwnd, dc, &bounds))) {
+            backgroundDrawn = true;
         }
     }
 
-    drawManualBand();
+    if (!backgroundDrawn && m_rebarTheme) {
+        RECT fillRect = bounds;
+        if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BAND, 0, &fillRect, nullptr))) {
+            backgroundDrawn = true;
+        }
+    }
+
+    if (!backgroundDrawn) {
+        FillRect(dc, &bounds, GetSysColorBrush(COLOR_BTNFACE));
+    }
+
+    const int bandWidth = static_cast<int>(bounds.right - bounds.left);
+    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
+    if (m_rebarTheme && gripWidth > 0) {
+        RECT gripRect{bounds.left, bounds.top, bounds.left + gripWidth, bounds.bottom};
+        if (gripRect.right > gripRect.left) {
+            HRESULT gripResult = DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPER, 0, &gripRect, nullptr);
+            if (FAILED(gripResult)) {
+                DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPERVERT, 0, &gripRect, nullptr);
+            }
+        }
+    }
 }
 
 void TabBandWindow::Draw(HDC dc) const {
@@ -1118,9 +1023,9 @@ int TabBandWindow::MeasureBadgeWidth(const TabViewItem& item, HDC dc) const {
 
 void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
-    if (!item.collapsedPlaceholder) {
-        RECT indicator = rect;
-        indicator.right = indicator.left + kIslandIndicatorWidth;
+    RECT indicator = rect;
+    indicator.right = std::min(indicator.left + kIslandIndicatorWidth, indicator.right);
+    if (indicator.right > indicator.left) {
         COLORREF indicatorColor = item.data.hasCustomOutline
                                       ? item.data.outlineColor
                                       : (item.data.hasTagColor ? item.data.tagColor : m_accentColor);
@@ -1132,44 +1037,11 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
             FillRect(dc, &indicator, brush);
             DeleteObject(brush);
         }
+    }
+
+    if (!item.collapsedPlaceholder) {
         return;
     }
-
-    const bool selected = item.data.selected;
-    COLORREF backgroundColor = ResolveGroupBackground(item.data);
-    COLORREF textColor = ResolveGroupTextColor(item.data, backgroundColor);
-    COLORREF defaultOutline = m_accentColor;
-    COLORREF outlineColor = item.data.hasCustomOutline
-                                ? (selected ? DarkenColor(item.data.outlineColor, 0.25) : item.data.outlineColor)
-                                : (item.data.hasTagColor ? DarkenColor(item.data.tagColor, 0.25)
-                                                         : (selected ? BlendColors(defaultOutline, RGB(0, 0, 0), 0.2)
-                                                                     : defaultOutline));
-
-    HBRUSH brush = CreateSolidBrush(backgroundColor);
-    FillRect(dc, &rect, brush);
-    DeleteObject(brush);
-
-    RECT outline = rect;
-    InflateRect(&outline, -1, -1);
-    if (outline.right > outline.left && outline.bottom > outline.top) {
-        HPEN pen = CreatePen(PS_SOLID, kGroupOutlineThickness, outlineColor);
-        if (pen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-            HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-            RoundRect(dc, outline.left, outline.top, outline.right, outline.bottom, kGroupCornerRadius,
-                      kGroupCornerRadius);
-            SelectObject(dc, oldBrush);
-            SelectObject(dc, oldPen);
-            DeleteObject(pen);
-        }
-    }
-
-    RECT textRect = rect;
-    textRect.left += kCollapsedIndicatorPadding;
-    textRect.right -= kCollapsedIndicatorPadding;
-    SetTextColor(dc, textColor);
-    DrawTextW(dc, item.data.name.c_str(), static_cast<int>(item.data.name.size()), &textRect,
-              DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
 }
 
 void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
@@ -1561,12 +1433,13 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
     ClearExplorerContext();
 }
 
-void TabBandWindow::HandleMouseDown(const POINT& pt) {
-    SetFocus(m_hwnd);
+bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     HitInfo hit = HitTest(pt);
     if (!hit.hit) {
-        return;
+        return false;
     }
+
+    SetFocus(m_hwnd);
     m_drag = {};
     m_drag.tracking = true;
     m_drag.origin = hit;
@@ -1579,10 +1452,13 @@ void TabBandWindow::HandleMouseDown(const POINT& pt) {
     m_drag.start = pt;
     m_drag.current = pt;
     m_drag.hasCurrent = true;
+    return true;
 }
 
-void TabBandWindow::HandleMouseUp(const POINT& pt) {
+bool TabBandWindow::HandleMouseUp(const POINT& pt) {
+    bool handled = false;
     if (m_drag.dragging) {
+        handled = true;
         m_drag.current = pt;
         m_drag.hasCurrent = true;
         POINT screen = pt;
@@ -1598,24 +1474,28 @@ void TabBandWindow::HandleMouseUp(const POINT& pt) {
         }
         CompleteDrop();
     } else if (m_drag.tracking) {
+        handled = true;
         HitInfo hit = HitTest(pt);
         if (hit.hit) {
             RequestSelection(hit);
         }
     }
     CancelDrag();
+    return handled;
 }
 
-void TabBandWindow::HandleMouseMove(const POINT& pt) {
+bool TabBandWindow::HandleMouseMove(const POINT& pt) {
     if (!m_drag.tracking) {
-        return;
+        return false;
     }
 
+    bool handled = false;
     m_drag.current = pt;
     m_drag.hasCurrent = true;
 
     if (!m_drag.dragging) {
         if (std::abs(pt.x - m_drag.start.x) > kDragThreshold || std::abs(pt.y - m_drag.start.y) > kDragThreshold) {
+            handled = true;
             m_drag.dragging = true;
             SetCapture(m_hwnd);
             auto& state = GetSharedDragState();
@@ -1631,6 +1511,7 @@ void TabBandWindow::HandleMouseMove(const POINT& pt) {
     }
 
     if (m_drag.dragging) {
+        handled = true;
         POINT screen = pt;
         ClientToScreen(m_hwnd, &screen);
         UpdateExternalDrag(screen);
@@ -1644,19 +1525,29 @@ void TabBandWindow::HandleMouseMove(const POINT& pt) {
             RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
         }
     }
+
+    return handled;
 }
 
-void TabBandWindow::HandleDoubleClick(const POINT& pt) {
+bool TabBandWindow::HandleDoubleClick(const POINT& pt) {
+    if (!m_owner) {
+        return false;
+    }
+
     HitInfo hit = HitTest(pt);
-    if (!hit.hit || !m_owner) {
-        return;
+    if (!hit.hit) {
+        return false;
     }
 
     if (hit.type == TabViewItemType::kGroupHeader) {
         m_owner->OnToggleGroupCollapsed(hit.location.groupIndex);
-    } else if (hit.location.IsValid()) {
-        m_owner->OnDetachTabRequested(hit.location);
+        return true;
     }
+    if (hit.location.IsValid()) {
+        m_owner->OnDetachTabRequested(hit.location);
+        return true;
+    }
+    return false;
 }
 
 void TabBandWindow::HandleFileDrop(HDROP drop) {
@@ -2426,18 +2317,24 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_LBUTTONDOWN: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                self->HandleMouseDown(pt);
-                return 0;
+                if (self->HandleMouseDown(pt)) {
+                    return 0;
+                }
+                return fallback();
             }
             case WM_LBUTTONUP: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                self->HandleMouseUp(pt);
-                return 0;
+                if (self->HandleMouseUp(pt)) {
+                    return 0;
+                }
+                return fallback();
             }
             case WM_MOUSEMOVE: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                self->HandleMouseMove(pt);
-                return 0;
+                if (self->HandleMouseMove(pt)) {
+                    return 0;
+                }
+                return fallback();
             }
             case WM_RBUTTONUP: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -2447,8 +2344,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_LBUTTONDBLCLK: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                self->HandleDoubleClick(pt);
-                return 0;
+                if (self->HandleDoubleClick(pt)) {
+                    return 0;
+                }
+                return fallback();
             }
             case WM_DROPFILES: {
                 self->HandleFileDrop(reinterpret_cast<HDROP>(wParam));
