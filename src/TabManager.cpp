@@ -208,6 +208,155 @@ void TabManager::Remove(TabLocation location) {
     EnsureVisibleSelection();
 }
 
+std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
+    if (!location.IsValid()) {
+        return std::nullopt;
+    }
+    if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
+        return std::nullopt;
+    }
+
+    auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
+        return std::nullopt;
+    }
+
+    TabInfo removed = std::move(group.tabs[static_cast<size_t>(location.tabIndex)]);
+
+    if (group.splitPrimary == location.tabIndex) {
+        group.splitPrimary = -1;
+    } else if (group.splitPrimary > location.tabIndex) {
+        --group.splitPrimary;
+    }
+    if (group.splitSecondary == location.tabIndex) {
+        group.splitSecondary = -1;
+    } else if (group.splitSecondary > location.tabIndex) {
+        --group.splitSecondary;
+    }
+
+    const bool wasSelected = (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex);
+
+    group.tabs.erase(group.tabs.begin() + location.tabIndex);
+
+    bool removedGroup = false;
+    if (group.tabs.empty()) {
+        m_groups.erase(m_groups.begin() + location.groupIndex);
+        removedGroup = true;
+        if (m_selectedGroup == location.groupIndex) {
+            m_selectedGroup = -1;
+            m_selectedTab = -1;
+        } else if (m_selectedGroup > location.groupIndex) {
+            --m_selectedGroup;
+        }
+        EnsureDefaultGroup();
+    } else if (m_selectedGroup == location.groupIndex && m_selectedTab > location.tabIndex) {
+        --m_selectedTab;
+    }
+
+    if (wasSelected) {
+        if (!m_groups.empty()) {
+            m_selectedGroup = std::min(std::max(location.groupIndex, 0), static_cast<int>(m_groups.size()) - 1);
+            auto& newGroup = m_groups[static_cast<size_t>(m_selectedGroup)];
+            if (!newGroup.tabs.empty()) {
+                const int newIndex = std::min(location.tabIndex, static_cast<int>(newGroup.tabs.size()) - 1);
+                m_selectedTab = std::max(newIndex, 0);
+            } else {
+                m_selectedTab = -1;
+            }
+        } else {
+            m_selectedGroup = -1;
+            m_selectedTab = -1;
+        }
+    }
+
+    if (!removedGroup) {
+        EnsureSplitIntegrity(location.groupIndex);
+    }
+    EnsureVisibleSelection();
+
+    return removed;
+}
+
+TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, bool select) {
+    EnsureDefaultGroup();
+
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
+        groupIndex = std::clamp(groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
+    }
+    if (m_groups.empty()) {
+        groupIndex = 0;
+    }
+
+    auto& group = m_groups[static_cast<size_t>(groupIndex)];
+    const int insertIndex = std::clamp(tabIndex, 0, static_cast<int>(group.tabs.size()));
+
+    if (group.splitPrimary >= insertIndex && group.splitPrimary >= 0) {
+        ++group.splitPrimary;
+    }
+    if (group.splitSecondary >= insertIndex && group.splitSecondary >= 0) {
+        ++group.splitSecondary;
+    }
+
+    group.tabs.insert(group.tabs.begin() + insertIndex, std::move(tab));
+
+    if (select) {
+        m_selectedGroup = groupIndex;
+        m_selectedTab = insertIndex;
+        group.collapsed = false;
+    } else if (m_selectedGroup == groupIndex && m_selectedTab >= insertIndex) {
+        ++m_selectedTab;
+    }
+
+    EnsureSplitIntegrity(groupIndex);
+    EnsureVisibleSelection();
+
+    return {groupIndex, insertIndex};
+}
+
+std::optional<TabGroup> TabManager::TakeGroup(int groupIndex) {
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
+        return std::nullopt;
+    }
+
+    TabGroup removed = std::move(m_groups[static_cast<size_t>(groupIndex)]);
+    const bool wasSelected = (m_selectedGroup == groupIndex);
+
+    m_groups.erase(m_groups.begin() + groupIndex);
+
+    if (wasSelected) {
+        m_selectedGroup = -1;
+        m_selectedTab = -1;
+    } else if (m_selectedGroup > groupIndex) {
+        --m_selectedGroup;
+    }
+
+    EnsureDefaultGroup();
+    EnsureVisibleSelection();
+
+    return removed;
+}
+
+int TabManager::InsertGroup(TabGroup group, int insertIndex) {
+    EnsureDefaultGroup();
+
+    if (insertIndex < 0) {
+        insertIndex = 0;
+    }
+    if (insertIndex > static_cast<int>(m_groups.size())) {
+        insertIndex = static_cast<int>(m_groups.size());
+    }
+
+    const auto position = m_groups.begin() + insertIndex;
+    m_groups.insert(position, std::move(group));
+
+    if (m_selectedGroup >= insertIndex) {
+        ++m_selectedGroup;
+    }
+
+    EnsureVisibleSelection();
+    return insertIndex;
+}
+
 void TabManager::Clear() {
     m_groups.clear();
     m_selectedGroup = -1;

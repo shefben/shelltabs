@@ -89,6 +89,28 @@ private:
         DropTarget target{};
         POINT current{};
         bool hasCurrent = false;
+        bool originSelected = false;
+    };
+
+    struct ExternalDropState {
+        bool active = false;
+        DropTarget target{};
+        TabBandWindow* source = nullptr;
+    };
+
+    struct ThemePalette {
+        COLORREF rebarBackground = 0;
+        COLORREF borderTop = 0;
+        COLORREF borderBottom = 0;
+        COLORREF tabBase = 0;
+        COLORREF tabSelectedBase = 0;
+        COLORREF tabText = 0;
+        COLORREF tabSelectedText = 0;
+        COLORREF groupBase = 0;
+        COLORREF groupText = 0;
+        bool tabTextValid = false;
+        bool tabSelectedTextValid = false;
+        bool groupTextValid = false;
     };
 
     HWND m_hwnd = nullptr;
@@ -112,10 +134,14 @@ private:
     bool m_windowDarkModeValue = false;
     bool m_buttonDarkModeInitialized = false;
     bool m_buttonDarkModeValue = false;
+    COLORREF m_accentColor = RGB(0, 120, 215);
+    ExternalDropState m_externalDrop;
+    ThemePalette m_themePalette;
 
     void Layout(int width, int height);
     void RebuildLayout();
     void Draw(HDC dc) const;
+    void PaintSurface(HDC dc, const RECT& windowRect) const;
     void DrawBackground(HDC dc, const RECT& bounds) const;
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
@@ -137,6 +163,12 @@ private:
     void CancelDrag();
     void UpdateDropTarget(const POINT& pt);
     void CompleteDrop();
+    DropTarget ComputeDropTarget(const POINT& pt, const HitInfo& origin) const;
+    void UpdateExternalDrag(const POINT& screenPt);
+    bool TryCompleteExternalDrop();
+    void HandleExternalDragUpdate();
+    void HandleExternalDragLeave();
+    void HandleExternalDropExecute();
     void RequestSelection(const HitInfo& hit);
     HitInfo HitTest(const POINT& pt) const;
     void ShowContextMenu(const POINT& pt);
@@ -151,11 +183,16 @@ private:
     COLORREF ResolveTabBackground(const TabViewItem& item) const;
     COLORREF ResolveGroupBackground(const TabViewItem& item) const;
     COLORREF ResolveTextColor(COLORREF background) const;
+    COLORREF ResolveTabTextColor(bool selected, COLORREF background) const;
+    COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
     std::vector<GroupOutline> BuildGroupOutlines() const;
     void RefreshTheme();
     void CloseThemeHandles();
     void UpdateNewTabButtonTheme();
     bool IsSystemDarkMode() const;
+    void UpdateAccentColor();
+    void ResetThemePalette();
+    void UpdateThemePalette();
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };

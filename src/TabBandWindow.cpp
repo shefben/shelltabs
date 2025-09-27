@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -46,6 +49,104 @@ constexpr int kIslandOutlineThickness = 1;
 const wchar_t kThemePreferenceKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
+constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG = WM_APP + 60;
+constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
+constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
+
+struct WindowRegistry {
+    std::mutex mutex;
+    std::unordered_map<HWND, TabBandWindow*> windows;
+};
+
+WindowRegistry& GetWindowRegistry() {
+    static WindowRegistry registry;
+    return registry;
+}
+
+void RegisterWindow(HWND hwnd, TabBandWindow* window) {
+    if (!hwnd || !window) {
+        return;
+    }
+    auto& registry = GetWindowRegistry();
+    std::scoped_lock lock(registry.mutex);
+    registry.windows[hwnd] = window;
+}
+
+void UnregisterWindow(HWND hwnd, TabBandWindow* window) {
+    if (!hwnd) {
+        return;
+    }
+    auto& registry = GetWindowRegistry();
+    std::scoped_lock lock(registry.mutex);
+    auto it = registry.windows.find(hwnd);
+    if (it != registry.windows.end() && (!window || it->second == window)) {
+        registry.windows.erase(it);
+    }
+}
+
+TabBandWindow* LookupWindow(HWND hwnd) {
+    if (!hwnd) {
+        return nullptr;
+    }
+    auto& registry = GetWindowRegistry();
+    std::scoped_lock lock(registry.mutex);
+    auto it = registry.windows.find(hwnd);
+    if (it == registry.windows.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
+TabBandWindow* FindWindowFromPoint(const POINT& screenPt) {
+    HWND target = WindowFromPoint(screenPt);
+    while (target) {
+        if (auto* window = LookupWindow(target)) {
+            return window;
+        }
+        target = GetParent(target);
+    }
+    return nullptr;
+}
+
+void DispatchExternalMessage(HWND hwnd, UINT message) {
+    if (!hwnd) {
+        return;
+    }
+    SendMessageTimeoutW(hwnd, message, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, nullptr);
+}
+
+struct TransferPayload {
+    enum class Type {
+        None,
+        Tab,
+        Group,
+    } type = Type::None;
+    TabBand* source = nullptr;
+    TabBand* target = nullptr;
+    bool select = false;
+    int targetGroupIndex = -1;
+    int targetTabIndex = -1;
+    bool createGroup = false;
+    bool headerVisible = true;
+    TabInfo tab;
+    TabGroup group;
+};
+
+struct SharedDragState {
+    std::mutex mutex;
+    TabBandWindow* source = nullptr;
+    TabBandWindow* hover = nullptr;
+    POINT screen{};
+    TabBandWindow::HitInfo origin;
+    bool targetValid = false;
+    TabBandWindow::DropTarget target;
+    std::unique_ptr<TransferPayload> payload;
+};
+
+SharedDragState& GetSharedDragState() {
+    static SharedDragState state;
+    return state;
+}
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -145,7 +246,7 @@ void ApplyImmersiveDarkMode(HWND hwnd, bool enabled) {
 
 }  // namespace
 
-TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) {}
+TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) { ResetThemePalette(); }
 
 TabBandWindow::~TabBandWindow() { Destroy(); }
 
@@ -169,6 +270,10 @@ HWND TabBandWindow::Create(HWND parent) {
     m_hwnd = CreateWindowExW(0, kWindowClassName, L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_TABSTOP,
                              0, 0, 0, 0, parent, nullptr, GetModuleHandleInstance(), this);
 
+    if (m_hwnd) {
+        RegisterWindow(m_hwnd, this);
+    }
+
     return m_hwnd;
 }
 
@@ -183,12 +288,14 @@ void TabBandWindow::Destroy() {
     m_windowDarkModeValue = false;
     m_buttonDarkModeInitialized = false;
     m_buttonDarkModeValue = false;
+    ResetThemePalette();
 
     if (m_newTabButton) {
         DestroyWindow(m_newTabButton);
         m_newTabButton = nullptr;
     }
     if (m_hwnd) {
+        UnregisterWindow(m_hwnd, this);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
@@ -280,8 +387,9 @@ void TabBandWindow::RebuildLayout() {
             headerMetadata = true;
             expectFirstTab = true;
 
-            const bool collapsedPlaceholder = item.collapsed || item.visibleTabs == 0;
-            if (!item.headerVisible && !collapsedPlaceholder) {
+            const bool collapsed = item.collapsed;
+            const bool hasVisibleTabs = item.visibleTabs > 0;
+            if (!item.headerVisible && !collapsed && hasVisibleTabs) {
                 indicatorHeader = item;
                 pendingIndicator = true;
                 continue;
@@ -290,7 +398,7 @@ void TabBandWindow::RebuildLayout() {
             VisualItem visual;
             visual.data = item;
             visual.firstInGroup = true;
-            visual.collapsedPlaceholder = collapsedPlaceholder;
+            visual.collapsedPlaceholder = item.headerVisible && !collapsed;
 
             if (currentGroup >= 0) {
                 x += kGroupGap;
@@ -435,29 +543,13 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
         }
     }
     if (!themedBackground) {
-        const COLORREF topShade = m_darkMode ? RGB(58, 58, 62) : GetSysColor(COLOR_BTNHILIGHT);
-        const COLORREF baseColor = m_darkMode ? RGB(38, 38, 42) : GetSysColor(COLOR_BTNFACE);
-        const COLORREF bottomShade = m_darkMode ? RGB(30, 30, 34) : GetSysColor(COLOR_BTNSHADOW);
-
-        TRIVERTEX vertices[2] = {{fillRect.left, fillRect.top, static_cast<COLOR16>(GetRValue(topShade) << 8),
-                                   static_cast<COLOR16>(GetGValue(topShade) << 8),
-                                   static_cast<COLOR16>(GetBValue(topShade) << 8), 0},
-                                  {fillRect.right, fillRect.bottom, static_cast<COLOR16>(GetRValue(bottomShade) << 8),
-                                   static_cast<COLOR16>(GetGValue(bottomShade) << 8),
-                                   static_cast<COLOR16>(GetBValue(bottomShade) << 8), 0}};
-        GRADIENT_RECT gradient{0, 1};
-        if (!GradientFill(dc, vertices, 2, &gradient, 1, GRADIENT_FILL_RECT_V)) {
-            HBRUSH background = CreateSolidBrush(baseColor);
-            if (background) {
-                FillRect(dc, &fillRect, background);
-                DeleteObject(background);
-            }
+        HBRUSH background = CreateSolidBrush(m_themePalette.rebarBackground);
+        if (background) {
+            FillRect(dc, &fillRect, background);
+            DeleteObject(background);
         }
 
-        const COLORREF topBorder = m_darkMode ? RGB(70, 70, 76) : GetSysColor(COLOR_3DSHADOW);
-        const COLORREF bottomBorder = m_darkMode ? RGB(24, 24, 28) : GetSysColor(COLOR_3DLIGHT);
-
-        HPEN pen = CreatePen(PS_SOLID, 1, topBorder);
+        HPEN pen = CreatePen(PS_SOLID, 1, m_themePalette.borderTop);
         if (pen) {
             HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
             MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
@@ -466,7 +558,7 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
             DeleteObject(pen);
         }
 
-        pen = CreatePen(PS_SOLID, 1, bottomBorder);
+        pen = CreatePen(PS_SOLID, 1, m_themePalette.borderBottom);
         if (pen) {
             HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
             const int bottom = fillRect.bottom - 1;
@@ -487,6 +579,40 @@ void TabBandWindow::Draw(HDC dc) const {
     if (m_hwnd) {
         GetClientRect(m_hwnd, &windowRect);
     }
+
+    const int width = windowRect.right - windowRect.left;
+    const int height = windowRect.bottom - windowRect.top;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    HDC memDC = CreateCompatibleDC(dc);
+    if (!memDC) {
+        PaintSurface(dc, windowRect);
+        return;
+    }
+
+    HBITMAP buffer = CreateCompatibleBitmap(dc, width, height);
+    if (!buffer) {
+        DeleteDC(memDC);
+        PaintSurface(dc, windowRect);
+        return;
+    }
+
+    HGDIOBJ oldBitmap = SelectObject(memDC, buffer);
+    RECT localRect{0, 0, width, height};
+    PaintSurface(memDC, localRect);
+    BitBlt(dc, windowRect.left, windowRect.top, width, height, memDC, 0, 0, SRCCOPY);
+    SelectObject(memDC, oldBitmap);
+    DeleteObject(buffer);
+    DeleteDC(memDC);
+}
+
+void TabBandWindow::PaintSurface(HDC dc, const RECT& windowRect) const {
+    if (!dc) {
+        return;
+    }
+
     DrawBackground(dc, windowRect);
 
     HFONT font = GetDefaultFont();
@@ -513,41 +639,59 @@ void TabBandWindow::Draw(HDC dc) const {
 }
 
 COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
-    const COLORREF darkBase = RGB(45, 45, 48);
-    const COLORREF darkSelected = RGB(70, 70, 74);
+    COLORREF base = item.selected ? m_themePalette.tabSelectedBase : m_themePalette.tabBase;
     if (item.selected) {
-        return m_darkMode ? darkSelected : GetTabColor(true);
+        base = BlendColors(base, m_accentColor, m_darkMode ? 0.45 : 0.35);
     }
     if (item.hasCustomOutline) {
-        return m_darkMode ? BlendColors(darkBase, item.outlineColor, 0.4)
-                          : LightenColor(item.outlineColor, 0.55);
+        base = BlendColors(base, item.outlineColor, m_darkMode ? 0.35 : 0.25);
+    } else if (item.hasTagColor) {
+        base = BlendColors(base, item.tagColor, m_darkMode ? 0.3 : 0.2);
     }
-    if (item.hasTagColor) {
-        return m_darkMode ? BlendColors(darkBase, item.tagColor, 0.35)
-                          : LightenColor(item.tagColor, kTagLightenFactor);
-    }
-    return m_darkMode ? darkBase : GetTabColor(false);
+    return base;
 }
 
 COLORREF TabBandWindow::ResolveGroupBackground(const TabViewItem& item) const {
-    const COLORREF darkBase = RGB(40, 40, 43);
-    const COLORREF darkSelected = RGB(65, 65, 70);
+    COLORREF base = m_themePalette.groupBase;
     if (item.selected) {
-        return m_darkMode ? darkSelected : GetGroupColor(true);
+        base = BlendColors(base, m_accentColor, m_darkMode ? 0.4 : 0.25);
     }
     if (item.hasCustomOutline) {
-        return m_darkMode ? BlendColors(darkBase, item.outlineColor, 0.45)
-                          : LightenColor(item.outlineColor, 0.45);
+        base = BlendColors(base, item.outlineColor, m_darkMode ? 0.35 : 0.25);
+    } else if (item.hasTagColor) {
+        base = BlendColors(base, item.tagColor, m_darkMode ? 0.3 : 0.2);
     }
-    if (item.hasTagColor) {
-        return m_darkMode ? BlendColors(darkBase, item.tagColor, 0.35)
-                          : LightenColor(item.tagColor, kTagLightenFactor);
-    }
-    return m_darkMode ? darkBase : GetGroupColor(false);
+    return base;
 }
 
 COLORREF TabBandWindow::ResolveTextColor(COLORREF background) const {
     return ComputeLuminance(background) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+}
+
+COLORREF TabBandWindow::ResolveTabTextColor(bool selected, COLORREF background) const {
+    if (selected) {
+        if (m_themePalette.tabSelectedTextValid) {
+            return m_themePalette.tabSelectedText;
+        }
+        return GetSysColor(COLOR_HIGHLIGHTTEXT);
+    }
+    if (m_themePalette.tabTextValid) {
+        return m_themePalette.tabText;
+    }
+    return ResolveTextColor(background);
+}
+
+COLORREF TabBandWindow::ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const {
+    if (item.selected && m_themePalette.tabSelectedTextValid) {
+        return m_themePalette.tabSelectedText;
+    }
+    if (m_themePalette.groupTextValid) {
+        return m_themePalette.groupText;
+    }
+    if (item.selected) {
+        return GetSysColor(COLOR_HIGHLIGHTTEXT);
+    }
+    return ResolveTextColor(background);
 }
 
 std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
@@ -658,6 +802,7 @@ void TabBandWindow::RefreshTheme() {
         m_windowDarkModeValue = false;
         m_buttonDarkModeInitialized = false;
         m_buttonDarkModeValue = false;
+        ResetThemePalette();
         return;
     }
 
@@ -669,9 +814,98 @@ void TabBandWindow::RefreshTheme() {
         m_windowDarkModeValue = darkMode;
     }
     m_darkMode = darkMode;
+    UpdateAccentColor();
+    ResetThemePalette();
     m_tabTheme = OpenThemeData(m_hwnd, L"Tab");
     m_rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
+    UpdateThemePalette();
     UpdateNewTabButtonTheme();
+}
+
+void TabBandWindow::UpdateAccentColor() {
+    DWORD color = 0;
+    BOOL opaque = FALSE;
+    if (SUCCEEDED(DwmGetColorizationColor(&color, &opaque))) {
+        m_accentColor = RGB((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+    } else {
+        m_accentColor = GetSysColor(COLOR_HOTLIGHT);
+    }
+}
+
+void TabBandWindow::ResetThemePalette() {
+    m_themePalette.tabTextValid = false;
+    m_themePalette.tabSelectedTextValid = false;
+    m_themePalette.groupTextValid = false;
+
+    m_themePalette.rebarBackground = GetSysColor(COLOR_BTNFACE);
+    if (m_darkMode) {
+        m_themePalette.rebarBackground = BlendColors(m_themePalette.rebarBackground, RGB(0, 0, 0), 0.18);
+    }
+
+    m_themePalette.borderTop = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(0, 0, 0), 0.5)
+                                          : GetSysColor(COLOR_3DSHADOW);
+    m_themePalette.borderBottom = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(255, 255, 255), 0.25)
+                                             : GetSysColor(COLOR_3DLIGHT);
+
+    m_themePalette.tabBase = GetSysColor(COLOR_WINDOW);
+    if (m_darkMode) {
+        m_themePalette.tabBase = BlendColors(m_themePalette.tabBase, RGB(0, 0, 0), 0.12);
+    }
+    m_themePalette.tabSelectedBase = BlendColors(m_themePalette.tabBase, m_accentColor, m_darkMode ? 0.55 : 0.4);
+    m_themePalette.tabText = GetSysColor(COLOR_WINDOWTEXT);
+    m_themePalette.tabSelectedText = GetSysColor(COLOR_HIGHLIGHTTEXT);
+
+    m_themePalette.groupBase = GetSysColor(COLOR_BTNFACE);
+    if (m_darkMode) {
+        m_themePalette.groupBase = BlendColors(m_themePalette.groupBase, RGB(0, 0, 0), 0.15);
+    }
+    m_themePalette.groupText = GetSysColor(COLOR_WINDOWTEXT);
+}
+
+void TabBandWindow::UpdateThemePalette() {
+    if (m_rebarTheme) {
+        COLORREF color = 0;
+        if (SUCCEEDED(GetThemeColor(m_rebarTheme, RP_BAND, 0, TMT_FILLCOLORHINT, &color))) {
+            m_themePalette.rebarBackground = color;
+        }
+        if (SUCCEEDED(GetThemeColor(m_rebarTheme, RP_BAND, 0, TMT_BORDERCOLORHINT, &color))) {
+            m_themePalette.borderTop = color;
+        }
+        if (SUCCEEDED(GetThemeColor(m_rebarTheme, RP_BAND, 0, TMT_EDGEHIGHLIGHTCOLOR, &color))) {
+            m_themePalette.borderBottom = color;
+        }
+    }
+
+    if (m_tabTheme) {
+        COLORREF color = 0;
+        if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_BODY, 0, TMT_FILLCOLORHINT, &color))) {
+            m_themePalette.tabBase = color;
+            m_themePalette.groupBase = color;
+        }
+        if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_TABITEM, TIS_SELECTED, TMT_FILLCOLORHINT, &color))) {
+            m_themePalette.tabSelectedBase = BlendColors(color, m_accentColor, 0.25);
+        }
+        if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_TABITEM, TIS_SELECTED, TMT_TEXTCOLOR, &color))) {
+            m_themePalette.tabSelectedText = color;
+            m_themePalette.tabSelectedTextValid = true;
+        }
+        if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_TABITEM, TIS_NORMAL, TMT_TEXTCOLOR, &color))) {
+            m_themePalette.tabText = color;
+            m_themePalette.tabTextValid = true;
+        }
+        if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_BODY, 0, TMT_TEXTCOLOR, &color))) {
+            m_themePalette.groupText = color;
+            m_themePalette.groupTextValid = true;
+        }
+        if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_BODY, 0, TMT_BORDERCOLORHINT, &color))) {
+            m_themePalette.borderBottom = color;
+        }
+    }
+
+    if (m_darkMode) {
+        m_themePalette.borderTop = BlendColors(m_themePalette.borderTop, RGB(0, 0, 0), 0.3);
+        m_themePalette.borderBottom = BlendColors(m_themePalette.borderBottom, RGB(255, 255, 255), 0.15);
+    }
 }
 
 void TabBandWindow::CloseThemeHandles() {
@@ -755,9 +989,9 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
         indicator.right = indicator.left + kIslandIndicatorWidth;
         COLORREF indicatorColor = item.data.hasCustomOutline
                                       ? item.data.outlineColor
-                                      : (item.data.hasTagColor ? item.data.tagColor : GetSysColor(COLOR_HOTLIGHT));
+                                      : (item.data.hasTagColor ? item.data.tagColor : m_accentColor);
         if (item.data.selected) {
-            indicatorColor = DarkenColor(indicatorColor, 0.2);
+            indicatorColor = BlendColors(indicatorColor, RGB(0, 0, 0), 0.2);
         }
         HBRUSH brush = CreateSolidBrush(indicatorColor);
         if (brush) {
@@ -769,12 +1003,12 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
 
     const bool selected = item.data.selected;
     COLORREF backgroundColor = ResolveGroupBackground(item.data);
-    COLORREF textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
-    COLORREF defaultOutline = m_darkMode ? RGB(120, 120, 180) : GetSysColor(COLOR_HOTLIGHT);
+    COLORREF textColor = ResolveGroupTextColor(item.data, backgroundColor);
+    COLORREF defaultOutline = m_accentColor;
     COLORREF outlineColor = item.data.hasCustomOutline
                                 ? (selected ? DarkenColor(item.data.outlineColor, 0.25) : item.data.outlineColor)
                                 : (item.data.hasTagColor ? DarkenColor(item.data.tagColor, 0.25)
-                                                         : (selected ? DarkenColor(GetGroupColor(true), 0.2)
+                                                         : (selected ? BlendColors(defaultOutline, RGB(0, 0, 0), 0.2)
                                                                      : defaultOutline));
 
     HBRUSH brush = CreateSolidBrush(backgroundColor);
@@ -810,16 +1044,15 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     const TabViewItem* indicatorSource = item.hasGroupHeader ? &item.groupHeader : nullptr;
     const bool hasAccent = item.data.hasCustomOutline || item.data.hasTagColor ||
                            (indicatorSource && (indicatorSource->hasCustomOutline || indicatorSource->hasTagColor));
-    COLORREF accentColor = hasAccent ? ResolveIndicatorColor(indicatorSource, item.data)
-                                     : GetSysColor(COLOR_HOTLIGHT);
+    COLORREF accentColor = hasAccent ? ResolveIndicatorColor(indicatorSource, item.data) : m_accentColor;
 
     const int islandIndicator = item.indicatorHandle ? kIslandIndicatorWidth : 0;
     RECT tabRect = rect;
     tabRect.left += islandIndicator;
 
     int state = selected ? TIS_SELECTED : TIS_NORMAL;
-    COLORREF textColor = GetSysColor(COLOR_WINDOWTEXT);
     COLORREF computedBackground = ResolveTabBackground(item.data);
+    COLORREF textColor = ResolveTabTextColor(selected, computedBackground);
     bool usedTheme = false;
     if (m_tabTheme) {
         if (SUCCEEDED(DrawThemeBackground(m_tabTheme, dc, TABP_TABITEM, state, &tabRect, nullptr))) {
@@ -827,19 +1060,19 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             COLORREF themeText = 0;
             if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_TABITEM, state, TMT_TEXTCOLOR, &themeText))) {
                 textColor = themeText;
-            } else if (m_darkMode) {
-                textColor = RGB(230, 230, 230);
+            } else {
+                textColor = ResolveTabTextColor(selected, computedBackground);
             }
         }
     }
 
     if (!usedTheme) {
         COLORREF backgroundColor = computedBackground;
-        textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
-        COLORREF defaultBorder = m_darkMode ? (selected ? RGB(120, 120, 130) : RGB(78, 78, 84))
-                                           : (selected ? GetSysColor(COLOR_WINDOWFRAME)
-                                                       : GetSysColor(COLOR_3DSHADOW));
-        COLORREF borderColor = hasAccent ? DarkenColor(accentColor, selected ? 0.35 : 0.2) : defaultBorder;
+        textColor = ResolveTabTextColor(selected, backgroundColor);
+        COLORREF baseBorder = m_darkMode ? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
+                                         : BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
+        COLORREF borderColor = hasAccent ? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
+                                         : baseBorder;
 
         RECT shapeRect = tabRect;
         if (!selected) {
@@ -874,7 +1107,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
 
         COLORREF bottomLineColor = selected ? backgroundColor
-                                            : (m_darkMode ? RGB(48, 48, 52) : GetSysColor(COLOR_3DLIGHT));
+                                            : (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
+                                                          : GetSysColor(COLOR_3DLIGHT));
         HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
         if (bottomPen) {
             HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
@@ -980,13 +1214,21 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
 
 void TabBandWindow::DrawDropIndicator(HDC dc) const {
-    if (!m_drag.dragging || !m_drag.target.active || m_drag.target.outside || m_drag.target.indicatorX < 0) {
+    const DropTarget* indicator = nullptr;
+    if (m_drag.dragging && m_drag.target.active && !m_drag.target.outside && m_drag.target.indicatorX >= 0) {
+        indicator = &m_drag.target;
+    } else if (m_externalDrop.active && m_externalDrop.target.active && !m_externalDrop.target.outside &&
+               m_externalDrop.target.indicatorX >= 0) {
+        indicator = &m_externalDrop.target;
+    }
+
+    if (!indicator) {
         return;
     }
 
-    HPEN pen = CreatePen(PS_SOLID, 2, GetSysColor(COLOR_HIGHLIGHT));
+    HPEN pen = CreatePen(PS_SOLID, 2, m_accentColor);
     HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-    const int x = m_drag.target.indicatorX;
+    const int x = indicator->indicatorX;
     MoveToEx(dc, x, m_clientRect.top + 2, nullptr);
     LineTo(dc, x, m_clientRect.bottom - 2);
     SelectObject(dc, oldPen);
@@ -1064,11 +1306,12 @@ void TabBandWindow::DrawNewTabButton(LPDRAWITEMSTRUCT draw) {
     const bool disabled = (draw->itemState & ODS_DISABLED) != 0;
     const bool focused = (draw->itemState & ODS_FOCUS) != 0;
 
-    COLORREF baseColor = m_darkMode ? RGB(48, 48, 52) : RGB(245, 245, 245);
+    COLORREF baseColor = BlendColors(m_themePalette.rebarBackground, m_themePalette.tabBase, 0.5);
+    if (hot) {
+        baseColor = BlendColors(baseColor, m_accentColor, m_darkMode ? 0.2 : 0.15);
+    }
     if (pressed) {
-        baseColor = m_darkMode ? RGB(60, 60, 64) : RGB(225, 225, 225);
-    } else if (hot) {
-        baseColor = m_darkMode ? RGB(56, 56, 60) : RGB(235, 235, 235);
+        baseColor = BlendColors(baseColor, RGB(0, 0, 0), m_darkMode ? 0.35 : 0.2);
     }
 
     HBRUSH brush = CreateSolidBrush(baseColor);
@@ -1077,10 +1320,7 @@ void TabBandWindow::DrawNewTabButton(LPDRAWITEMSTRUCT draw) {
         DeleteObject(brush);
     }
 
-    COLORREF borderColor = m_darkMode ? RGB(90, 90, 96) : RGB(160, 160, 160);
-    if (pressed) {
-        borderColor = m_darkMode ? RGB(110, 110, 118) : RGB(140, 140, 140);
-    }
+    COLORREF borderColor = BlendColors(baseColor, m_darkMode ? RGB(230, 230, 230) : RGB(0, 0, 0), 0.35);
     HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
     if (borderPen) {
         HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
@@ -1097,7 +1337,7 @@ void TabBandWindow::DrawNewTabButton(LPDRAWITEMSTRUCT draw) {
         const int midX = (rect.left + rect.right) / 2;
         const int midY = (rect.top + rect.bottom) / 2;
         const int glyphPadding = 6;
-        COLORREF glyphColor = m_darkMode ? RGB(235, 235, 235) : RGB(70, 70, 70);
+        COLORREF glyphColor = hot ? m_accentColor : ResolveTabTextColor(false, baseColor);
         HPEN glyphPen = CreatePen(PS_SOLID, 2, glyphColor);
         if (glyphPen) {
             HPEN oldPen = static_cast<HPEN>(SelectObject(dc, glyphPen));
@@ -1258,6 +1498,12 @@ void TabBandWindow::HandleMouseDown(const POINT& pt) {
     m_drag = {};
     m_drag.tracking = true;
     m_drag.origin = hit;
+    if (hit.itemIndex < m_items.size()) {
+        const auto& item = m_items[hit.itemIndex];
+        m_drag.originSelected = item.data.selected;
+    } else {
+        m_drag.originSelected = false;
+    }
     m_drag.start = pt;
     m_drag.current = pt;
     m_drag.hasCurrent = true;
@@ -1267,7 +1513,17 @@ void TabBandWindow::HandleMouseUp(const POINT& pt) {
     if (m_drag.dragging) {
         m_drag.current = pt;
         m_drag.hasCurrent = true;
-        UpdateDropTarget(pt);
+        POINT screen = pt;
+        ClientToScreen(m_hwnd, &screen);
+        UpdateExternalDrag(screen);
+        TabBandWindow* targetWindow = FindWindowFromPoint(screen);
+        if (!targetWindow || targetWindow == this) {
+            UpdateDropTarget(pt);
+        } else {
+            m_drag.target = {};
+            m_drag.target.active = true;
+            m_drag.target.outside = true;
+        }
         CompleteDrop();
     } else if (m_drag.tracking) {
         HitInfo hit = HitTest(pt);
@@ -1290,11 +1546,31 @@ void TabBandWindow::HandleMouseMove(const POINT& pt) {
         if (std::abs(pt.x - m_drag.start.x) > kDragThreshold || std::abs(pt.y - m_drag.start.y) > kDragThreshold) {
             m_drag.dragging = true;
             SetCapture(m_hwnd);
+            auto& state = GetSharedDragState();
+            std::scoped_lock lock(state.mutex);
+            state.source = this;
+            state.origin = m_drag.origin;
+            state.screen = POINT{};
+            state.hover = nullptr;
+            state.targetValid = false;
+            state.target = {};
+            state.payload.reset();
         }
     }
 
     if (m_drag.dragging) {
-        UpdateDropTarget(pt);
+        POINT screen = pt;
+        ClientToScreen(m_hwnd, &screen);
+        UpdateExternalDrag(screen);
+        TabBandWindow* targetWindow = FindWindowFromPoint(screen);
+        if (!targetWindow || targetWindow == this) {
+            UpdateDropTarget(pt);
+        } else {
+            m_drag.target = {};
+            m_drag.target.active = true;
+            m_drag.target.outside = true;
+            RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+        }
     }
 }
 
@@ -1352,26 +1628,45 @@ void TabBandWindow::CancelDrag() {
     if (m_drag.dragging) {
         ReleaseCapture();
     }
+    {
+        auto& state = GetSharedDragState();
+        TabBandWindow* hovered = nullptr;
+        std::scoped_lock lock(state.mutex);
+        if (state.source == this) {
+            hovered = state.hover;
+            state.source = nullptr;
+            state.hover = nullptr;
+            state.targetValid = false;
+            state.target = {};
+            state.payload.reset();
+        } else if (state.hover == this) {
+            state.hover = nullptr;
+            state.targetValid = false;
+            state.target = {};
+        }
+        if (hovered && hovered != this) {
+            DispatchExternalMessage(hovered->GetHwnd(), WM_SHELLTABS_EXTERNAL_DRAG_LEAVE);
+        }
+    }
+    m_externalDrop = {};
     m_drag = {};
     if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, TRUE);
     }
 }
 
-void TabBandWindow::UpdateDropTarget(const POINT& pt) {
+TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, const HitInfo& origin) const {
     DropTarget target{};
     target.active = true;
 
     if (pt.x < m_clientRect.left || pt.x > m_clientRect.right || pt.y < m_clientRect.top || pt.y > m_clientRect.bottom) {
         target.outside = true;
-        m_drag.target = target;
-        InvalidateRect(m_hwnd, nullptr, TRUE);
-        return;
+        return target;
     }
 
     HitInfo hit = HitTest(pt);
     if (!hit.hit) {
-        if (m_drag.origin.type == TabViewItemType::kTab && m_owner) {
+        if (origin.type == TabViewItemType::kTab && m_owner) {
             target.group = false;
             target.newGroup = true;
             target.floating = true;
@@ -1381,7 +1676,7 @@ void TabBandWindow::UpdateDropTarget(const POINT& pt) {
         } else if (!m_items.empty()) {
             const VisualItem* lastHeader = FindLastGroupHeader();
             if (lastHeader) {
-                if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
+                if (origin.type == TabViewItemType::kGroupHeader) {
                     target.group = true;
                     target.groupIndex = lastHeader->data.location.groupIndex + 1;
                     target.indicatorX = lastHeader->bounds.right;
@@ -1399,16 +1694,14 @@ void TabBandWindow::UpdateDropTarget(const POINT& pt) {
                 target.indicatorX = tail.bounds.right;
             }
         }
-        m_drag.target = target;
-        InvalidateRect(m_hwnd, nullptr, TRUE);
-        return;
+        return target;
     }
 
     const VisualItem& visual = m_items[hit.itemIndex];
     const int midX = (visual.bounds.left + visual.bounds.right) / 2;
     const bool leftSide = pt.x < midX;
 
-    if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
+    if (origin.type == TabViewItemType::kGroupHeader) {
         target.group = true;
         target.groupIndex = visual.data.location.groupIndex + (leftSide ? 0 : 1);
         target.indicatorX = leftSide ? visual.bounds.left : visual.bounds.right;
@@ -1424,8 +1717,190 @@ void TabBandWindow::UpdateDropTarget(const POINT& pt) {
         }
     }
 
-    m_drag.target = target;
-    InvalidateRect(m_hwnd, nullptr, TRUE);
+    return target;
+}
+
+void TabBandWindow::UpdateDropTarget(const POINT& pt) {
+    m_drag.target = ComputeDropTarget(pt, m_drag.origin);
+    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+}
+
+void TabBandWindow::UpdateExternalDrag(const POINT& screenPt) {
+    auto& state = GetSharedDragState();
+    TabBandWindow* targetWindow = FindWindowFromPoint(screenPt);
+    TabBandWindow* previousHover = nullptr;
+
+    {
+        std::scoped_lock lock(state.mutex);
+        state.source = this;
+        state.screen = screenPt;
+        state.origin = m_drag.origin;
+        previousHover = state.hover;
+        state.targetValid = false;
+        if (targetWindow == this) {
+            state.hover = nullptr;
+        }
+    }
+
+    if (previousHover && previousHover != targetWindow && previousHover != this) {
+        DispatchExternalMessage(previousHover->GetHwnd(), WM_SHELLTABS_EXTERNAL_DRAG_LEAVE);
+    }
+
+    if (!targetWindow || targetWindow == this) {
+        return;
+    }
+
+    {
+        std::scoped_lock lock(state.mutex);
+        if (state.source == this) {
+            state.hover = targetWindow;
+            state.targetValid = false;
+        }
+    }
+
+    DispatchExternalMessage(targetWindow->GetHwnd(), WM_SHELLTABS_EXTERNAL_DRAG);
+}
+
+bool TabBandWindow::TryCompleteExternalDrop() {
+    auto& state = GetSharedDragState();
+    TabBandWindow* targetWindow = nullptr;
+    DropTarget target{};
+
+    {
+        std::scoped_lock lock(state.mutex);
+        if (state.source != this || !state.hover || state.hover == this || !state.targetValid) {
+            return false;
+        }
+        targetWindow = state.hover;
+        target = state.target;
+    }
+
+    if (!targetWindow || !targetWindow->m_owner || !m_owner || target.outside) {
+        return false;
+    }
+
+    std::unique_ptr<TransferPayload> payload = std::make_unique<TransferPayload>();
+    payload->target = targetWindow->m_owner;
+    payload->targetGroupIndex = target.groupIndex;
+    payload->targetTabIndex = target.tabIndex;
+    payload->createGroup = target.newGroup;
+    payload->headerVisible = !target.floating;
+    payload->select = m_drag.originSelected;
+    payload->source = m_owner;
+
+    if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
+        auto detachedGroup = m_owner->DetachGroupForTransfer(m_drag.origin.location.groupIndex, nullptr);
+        if (!detachedGroup) {
+            return false;
+        }
+        payload->type = TransferPayload::Type::Group;
+        payload->group = std::move(*detachedGroup);
+    } else if (m_drag.origin.location.IsValid()) {
+        auto detachedTab = m_owner->DetachTabForTransfer(m_drag.origin.location, nullptr);
+        if (!detachedTab) {
+            return false;
+        }
+        payload->type = TransferPayload::Type::Tab;
+        payload->tab = std::move(*detachedTab);
+    } else {
+        return false;
+    }
+
+    {
+        std::scoped_lock lock(state.mutex);
+        state.payload = std::move(payload);
+        state.source = nullptr;
+        state.hover = nullptr;
+        state.targetValid = false;
+        state.target = {};
+    }
+
+    DispatchExternalMessage(targetWindow->GetHwnd(), WM_SHELLTABS_EXTERNAL_DROP);
+    return true;
+}
+
+void TabBandWindow::HandleExternalDragUpdate() {
+    auto& state = GetSharedDragState();
+    POINT screen{};
+    TabBandWindow* sourceWindow = nullptr;
+    TabBandWindow::HitInfo origin;
+
+    {
+        std::scoped_lock lock(state.mutex);
+        if (state.hover != this) {
+            return;
+        }
+        screen = state.screen;
+        sourceWindow = state.source;
+        origin = state.origin;
+    }
+
+    if (!sourceWindow) {
+        HandleExternalDragLeave();
+        return;
+    }
+
+    POINT client = screen;
+    ScreenToClient(m_hwnd, &client);
+    DropTarget target = ComputeDropTarget(client, origin);
+
+    {
+        std::scoped_lock lock(state.mutex);
+        if (state.hover == this) {
+            state.target = target;
+            state.targetValid = !target.outside;
+        }
+    }
+
+    if (!target.outside) {
+        m_externalDrop.active = true;
+        m_externalDrop.target = target;
+        m_externalDrop.source = sourceWindow;
+    } else {
+        m_externalDrop = {};
+    }
+
+    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+}
+
+void TabBandWindow::HandleExternalDragLeave() {
+    {
+        auto& state = GetSharedDragState();
+        std::scoped_lock lock(state.mutex);
+        if (state.hover == this) {
+            state.hover = nullptr;
+            state.targetValid = false;
+            state.target = {};
+        }
+    }
+    m_externalDrop = {};
+    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+}
+
+void TabBandWindow::HandleExternalDropExecute() {
+    std::unique_ptr<TransferPayload> payload;
+    {
+        auto& state = GetSharedDragState();
+        std::scoped_lock lock(state.mutex);
+        if (!state.payload || !m_owner || state.payload->target != m_owner) {
+            return;
+        }
+        payload = std::move(state.payload);
+    }
+
+    if (!payload || !m_owner) {
+        return;
+    }
+
+    if (payload->type == TransferPayload::Type::Tab) {
+        m_owner->InsertTransferredTab(std::move(payload->tab), payload->targetGroupIndex, payload->targetTabIndex,
+                                      payload->createGroup, payload->headerVisible, payload->select);
+    } else if (payload->type == TransferPayload::Type::Group) {
+        m_owner->InsertTransferredGroup(std::move(payload->group), payload->targetGroupIndex, payload->select);
+    }
+
+    m_externalDrop = {};
+    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
 
 void TabBandWindow::CompleteDrop() {
@@ -1437,6 +1912,10 @@ void TabBandWindow::CompleteDrop() {
     const auto target = m_drag.target;
 
     if (!target.active) {
+        return;
+    }
+
+    if (TryCompleteExternalDrop()) {
         return;
     }
 
@@ -1948,6 +2427,18 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_EXTERNAL_DRAG: {
+                self->HandleExternalDragUpdate();
+                return 0;
+            }
+            case WM_SHELLTABS_EXTERNAL_DRAG_LEAVE: {
+                self->HandleExternalDragLeave();
+                return 0;
+            }
+            case WM_SHELLTABS_EXTERNAL_DROP: {
+                self->HandleExternalDropExecute();
+                return 0;
+            }
             case WM_PAINT: {
                 PAINTSTRUCT ps;
                 HDC dc = BeginPaint(hwnd, &ps);
@@ -1981,6 +2472,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();
+                UnregisterWindow(hwnd, self);
                 self->m_hwnd = nullptr;
                 self->m_newTabButton = nullptr;
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
