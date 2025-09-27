@@ -61,7 +61,7 @@ void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details) {
     LogUnhandledException(context, wide.c_str());
 }
 
-void PidlDeleter::operator()(ITEMIDLIST* pidl) const noexcept {
+void PidlDeleter::operator()(AbsolutePidl* pidl) const noexcept {
     if (pidl) {
         CoTaskMemFree(pidl);
     }

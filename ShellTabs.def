@@ -1,6 +1,6 @@
 LIBRARY "ShellTabs"
 EXPORTS
-    DllCanUnloadNow
-    DllGetClassObject
-    DllRegisterServer
-    DllUnregisterServer
+    DllCanUnloadNow      PRIVATE
+    DllGetClassObject    PRIVATE
+    DllRegisterServer    PRIVATE
+    DllUnregisterServer  PRIVATE
