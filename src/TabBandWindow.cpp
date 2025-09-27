@@ -13,6 +13,7 @@
 #include <vsstyle.h>
 #include <vssym32.h>
 #include <winreg.h>
+#include <dwmapi.h>
 
 #include "Module.h"
 #include "TabBand.h"
@@ -22,7 +23,7 @@ namespace shelltabs {
 
 namespace {
 const wchar_t kWindowClassName[] = L"ShellTabsBandWindow";
-constexpr int kButtonWidth = 28;
+constexpr int kButtonWidth = 30;
 constexpr int kItemMinWidth = 60;
 constexpr int kGroupMinWidth = 90;
 constexpr int kGroupGap = 16;
@@ -39,13 +40,16 @@ constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
 constexpr int kIconGap = 6;
-constexpr int kIslandIndicatorWidth = 3;
-constexpr int kIndicatorHitPadding = 6;
+constexpr int kIslandIndicatorWidth = 2;
 constexpr int kCollapsedIndicatorPadding = 10;
 constexpr int kIslandOutlineThickness = 1;
 const wchar_t kThemePreferenceKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
 
 COLORREF GetGroupColor(bool selected) {
     return selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE);
@@ -72,6 +76,15 @@ COLORREF DarkenColor(COLORREF color, double factor) {
     const int r = static_cast<int>(GetRValue(color) * (1.0 - factor));
     const int g = static_cast<int>(GetGValue(color) * (1.0 - factor));
     const int b = static_cast<int>(GetBValue(color) * (1.0 - factor));
+    return RGB(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
+}
+
+COLORREF BlendColors(COLORREF base, COLORREF accent, double ratio) {
+    ratio = std::clamp(ratio, 0.0, 1.0);
+    const double inverse = 1.0 - ratio;
+    const int r = static_cast<int>(GetRValue(base) * inverse + GetRValue(accent) * ratio);
+    const int g = static_cast<int>(GetGValue(base) * inverse + GetGValue(accent) * ratio);
+    const int b = static_cast<int>(GetBValue(base) * inverse + GetBValue(accent) * ratio);
     return RGB(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
 }
 
@@ -102,6 +115,15 @@ COLORREF ResolveIndicatorColor(const TabViewItem* header, const TabViewItem& tab
 
 HFONT GetDefaultFont() {
     return static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+}
+
+void ApplyImmersiveDarkMode(HWND hwnd, bool enabled) {
+    if (!hwnd) {
+        return;
+    }
+
+    const BOOL value = enabled ? TRUE : FALSE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
 }
 
 }  // namespace
@@ -391,15 +413,27 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
         }
     }
     if (!themedBackground) {
-        const COLORREF baseColor = m_darkMode ? RGB(45, 45, 48) : GetSysColor(COLOR_BTNFACE);
-        HBRUSH background = CreateSolidBrush(baseColor);
-        if (background) {
-            FillRect(dc, &fillRect, background);
-            DeleteObject(background);
+        const COLORREF topShade = m_darkMode ? RGB(58, 58, 62) : GetSysColor(COLOR_BTNHILIGHT);
+        const COLORREF baseColor = m_darkMode ? RGB(38, 38, 42) : GetSysColor(COLOR_BTNFACE);
+        const COLORREF bottomShade = m_darkMode ? RGB(30, 30, 34) : GetSysColor(COLOR_BTNSHADOW);
+
+        TRIVERTEX vertices[2] = {{fillRect.left, fillRect.top, static_cast<COLOR16>(GetRValue(topShade) << 8),
+                                   static_cast<COLOR16>(GetGValue(topShade) << 8),
+                                   static_cast<COLOR16>(GetBValue(topShade) << 8), 0},
+                                  {fillRect.right, fillRect.bottom, static_cast<COLOR16>(GetRValue(bottomShade) << 8),
+                                   static_cast<COLOR16>(GetGValue(bottomShade) << 8),
+                                   static_cast<COLOR16>(GetBValue(bottomShade) << 8), 0}};
+        GRADIENT_RECT gradient{0, 1};
+        if (!GradientFill(dc, vertices, 2, &gradient, 1, GRADIENT_FILL_RECT_V)) {
+            HBRUSH background = CreateSolidBrush(baseColor);
+            if (background) {
+                FillRect(dc, &fillRect, background);
+                DeleteObject(background);
+            }
         }
 
-        const COLORREF topBorder = m_darkMode ? RGB(65, 65, 70) : GetSysColor(COLOR_3DSHADOW);
-        const COLORREF bottomBorder = m_darkMode ? RGB(30, 30, 32) : GetSysColor(COLOR_3DLIGHT);
+        const COLORREF topBorder = m_darkMode ? RGB(70, 70, 76) : GetSysColor(COLOR_3DSHADOW);
+        const COLORREF bottomBorder = m_darkMode ? RGB(24, 24, 28) : GetSysColor(COLOR_3DLIGHT);
 
         HPEN pen = CreatePen(PS_SOLID, 1, topBorder);
         if (pen) {
@@ -457,33 +491,41 @@ void TabBandWindow::Draw(HDC dc) const {
 }
 
 COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
+    const COLORREF darkBase = RGB(45, 45, 48);
+    const COLORREF darkSelected = RGB(70, 70, 74);
     if (item.selected) {
-        return GetTabColor(true);
+        return m_darkMode ? darkSelected : GetTabColor(true);
     }
     if (item.hasCustomOutline) {
-        return LightenColor(item.outlineColor, 0.55);
+        return m_darkMode ? BlendColors(darkBase, item.outlineColor, 0.4)
+                          : LightenColor(item.outlineColor, 0.55);
     }
     if (item.hasTagColor) {
-        return LightenColor(item.tagColor, kTagLightenFactor);
+        return m_darkMode ? BlendColors(darkBase, item.tagColor, 0.35)
+                          : LightenColor(item.tagColor, kTagLightenFactor);
     }
-    return GetTabColor(false);
+    return m_darkMode ? darkBase : GetTabColor(false);
 }
 
 COLORREF TabBandWindow::ResolveGroupBackground(const TabViewItem& item) const {
+    const COLORREF darkBase = RGB(40, 40, 43);
+    const COLORREF darkSelected = RGB(65, 65, 70);
     if (item.selected) {
-        return GetGroupColor(true);
+        return m_darkMode ? darkSelected : GetGroupColor(true);
     }
     if (item.hasCustomOutline) {
-        return LightenColor(item.outlineColor, 0.45);
+        return m_darkMode ? BlendColors(darkBase, item.outlineColor, 0.45)
+                          : LightenColor(item.outlineColor, 0.45);
     }
     if (item.hasTagColor) {
-        return LightenColor(item.tagColor, kTagLightenFactor);
+        return m_darkMode ? BlendColors(darkBase, item.tagColor, 0.35)
+                          : LightenColor(item.tagColor, kTagLightenFactor);
     }
-    return GetGroupColor(false);
+    return m_darkMode ? darkBase : GetGroupColor(false);
 }
 
 COLORREF TabBandWindow::ResolveTextColor(COLORREF background) const {
-    return ComputeLuminance(background) > 0.6 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    return ComputeLuminance(background) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
 }
 
 std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
@@ -581,6 +623,7 @@ void TabBandWindow::RefreshTheme() {
 
     SetWindowTheme(m_hwnd, L"Explorer", nullptr);
     m_darkMode = IsSystemDarkMode();
+    ApplyImmersiveDarkMode(m_hwnd, m_darkMode);
     m_tabTheme = OpenThemeData(m_hwnd, L"Tab");
     m_rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
     UpdateNewTabButtonTheme();
@@ -602,6 +645,7 @@ void TabBandWindow::UpdateNewTabButtonTheme() {
         return;
     }
     SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
+    ApplyImmersiveDarkMode(m_newTabButton, m_darkMode);
     SendMessageW(m_newTabButton, WM_SETFONT, reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
     InvalidateRect(m_newTabButton, nullptr, TRUE);
 }
@@ -675,11 +719,12 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     const bool selected = item.data.selected;
     COLORREF backgroundColor = ResolveGroupBackground(item.data);
     COLORREF textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
+    COLORREF defaultOutline = m_darkMode ? RGB(120, 120, 180) : GetSysColor(COLOR_HOTLIGHT);
     COLORREF outlineColor = item.data.hasCustomOutline
                                 ? (selected ? DarkenColor(item.data.outlineColor, 0.25) : item.data.outlineColor)
                                 : (item.data.hasTagColor ? DarkenColor(item.data.tagColor, 0.25)
                                                          : (selected ? DarkenColor(GetGroupColor(true), 0.2)
-                                                                     : GetSysColor(COLOR_HOTLIGHT)));
+                                                                     : defaultOutline));
 
     HBRUSH brush = CreateSolidBrush(backgroundColor);
     FillRect(dc, &rect, brush);
@@ -723,6 +768,7 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
     int state = selected ? TIS_SELECTED : TIS_NORMAL;
     COLORREF textColor = GetSysColor(COLOR_WINDOWTEXT);
+    COLORREF computedBackground = ResolveTabBackground(item.data);
     bool usedTheme = false;
     if (m_tabTheme) {
         if (SUCCEEDED(DrawThemeBackground(m_tabTheme, dc, TABP_TABITEM, state, &tabRect, nullptr))) {
@@ -737,10 +783,12 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     }
 
     if (!usedTheme) {
-        COLORREF backgroundColor = ResolveTabBackground(item.data);
+        COLORREF backgroundColor = computedBackground;
         textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
-        COLORREF borderColor = hasAccent ? DarkenColor(accentColor, selected ? 0.35 : 0.2)
-                                         : (selected ? GetSysColor(COLOR_WINDOWFRAME) : GetSysColor(COLOR_3DSHADOW));
+        COLORREF defaultBorder = m_darkMode ? (selected ? RGB(120, 120, 130) : RGB(78, 78, 84))
+                                           : (selected ? GetSysColor(COLOR_WINDOWFRAME)
+                                                       : GetSysColor(COLOR_3DSHADOW));
+        COLORREF borderColor = hasAccent ? DarkenColor(accentColor, selected ? 0.35 : 0.2) : defaultBorder;
 
         RECT shapeRect = tabRect;
         if (!selected) {
@@ -774,7 +822,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             DeleteObject(region);
         }
 
-        COLORREF bottomLineColor = selected ? backgroundColor : GetSysColor(COLOR_3DLIGHT);
+        COLORREF bottomLineColor = selected ? backgroundColor
+                                            : (m_darkMode ? RGB(48, 48, 52) : GetSysColor(COLOR_3DLIGHT));
         HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
         if (bottomPen) {
             HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
@@ -783,12 +832,14 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             SelectObject(dc, oldPen);
             DeleteObject(bottomPen);
         }
+        computedBackground = backgroundColor;
     }
 
     if (item.indicatorHandle) {
         RECT indicatorRect = rect;
         indicatorRect.right = indicatorRect.left + kIslandIndicatorWidth;
-        COLORREF indicatorColor = hasAccent ? accentColor : GetSysColor(COLOR_HOTLIGHT);
+        COLORREF indicatorColor = hasAccent ? accentColor
+                                            : (m_darkMode ? RGB(120, 120, 180) : GetSysColor(COLOR_HOTLIGHT));
         if (selected) {
             indicatorColor = DarkenColor(indicatorColor, 0.2);
         }
@@ -828,15 +879,17 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         badgeRect.top = rect.top + 4;
         badgeRect.bottom = badgeRect.top + kBadgeHeight;
         COLORREF badgeColor = item.data.gitStatus.hasChanges ? RGB(200, 130, 60) : RGB(90, 150, 90);
-        const double badgeLighten = m_darkMode ? 0.35 : 0.15;
-        HBRUSH badgeBrush = CreateSolidBrush(LightenColor(badgeColor, badgeLighten));
+        COLORREF badgeFillColor = m_darkMode ? BlendColors(computedBackground, badgeColor, 0.55)
+                                             : LightenColor(badgeColor, 0.15);
+        HBRUSH badgeBrush = CreateSolidBrush(badgeFillColor);
         if (badgeBrush) {
             RECT badgeFill = badgeRect;
             badgeFill.left -= kBadgePaddingX;
             badgeFill.right += kBadgePaddingX;
             FillRect(dc, &badgeFill, badgeBrush);
             DeleteObject(badgeBrush);
-            HPEN badgePen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
+            COLORREF badgeOutline = m_darkMode ? RGB(70, 70, 74) : GetSysColor(COLOR_3DSHADOW);
+            HPEN badgePen = CreatePen(PS_SOLID, 1, badgeOutline);
             if (badgePen) {
                 HPEN oldPen = static_cast<HPEN>(SelectObject(dc, badgePen));
                 MoveToEx(dc, badgeFill.left, badgeFill.top, nullptr);
@@ -848,7 +901,7 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
                 DeleteObject(badgePen);
             }
         }
-        SetTextColor(dc, ResolveTextColor(badgeColor));
+        SetTextColor(dc, ResolveTextColor(badgeFillColor));
         const std::wstring badgeText = BuildGitBadgeText(item.data);
         DrawTextW(dc, badgeText.c_str(), static_cast<int>(badgeText.size()), &badgeRect,
                   DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
@@ -946,6 +999,70 @@ void TabBandWindow::DrawDragVisual(HDC dc) const {
     SelectObject(memDC, oldBitmap);
     DeleteObject(bitmap);
     DeleteDC(memDC);
+}
+
+void TabBandWindow::DrawNewTabButton(LPDRAWITEMSTRUCT draw) {
+    if (!draw) {
+        return;
+    }
+
+    HDC dc = draw->hDC;
+    RECT rect = draw->rcItem;
+    const bool pressed = (draw->itemState & ODS_SELECTED) != 0;
+    const bool hot = (draw->itemState & ODS_HOTLIGHT) != 0;
+    const bool disabled = (draw->itemState & ODS_DISABLED) != 0;
+    const bool focused = (draw->itemState & ODS_FOCUS) != 0;
+
+    COLORREF baseColor = m_darkMode ? RGB(48, 48, 52) : RGB(245, 245, 245);
+    if (pressed) {
+        baseColor = m_darkMode ? RGB(60, 60, 64) : RGB(225, 225, 225);
+    } else if (hot) {
+        baseColor = m_darkMode ? RGB(56, 56, 60) : RGB(235, 235, 235);
+    }
+
+    HBRUSH brush = CreateSolidBrush(baseColor);
+    if (brush) {
+        FillRect(dc, &rect, brush);
+        DeleteObject(brush);
+    }
+
+    COLORREF borderColor = m_darkMode ? RGB(90, 90, 96) : RGB(160, 160, 160);
+    if (pressed) {
+        borderColor = m_darkMode ? RGB(110, 110, 118) : RGB(140, 140, 140);
+    }
+    HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
+    if (borderPen) {
+        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
+        MoveToEx(dc, rect.left, rect.top, nullptr);
+        LineTo(dc, rect.right - 1, rect.top);
+        LineTo(dc, rect.right - 1, rect.bottom - 1);
+        LineTo(dc, rect.left, rect.bottom - 1);
+        LineTo(dc, rect.left, rect.top);
+        SelectObject(dc, oldPen);
+        DeleteObject(borderPen);
+    }
+
+    if (!disabled) {
+        const int midX = (rect.left + rect.right) / 2;
+        const int midY = (rect.top + rect.bottom) / 2;
+        const int glyphPadding = 6;
+        COLORREF glyphColor = m_darkMode ? RGB(235, 235, 235) : RGB(70, 70, 70);
+        HPEN glyphPen = CreatePen(PS_SOLID, 2, glyphColor);
+        if (glyphPen) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, glyphPen));
+            MoveToEx(dc, rect.left + glyphPadding, midY, nullptr);
+            LineTo(dc, rect.right - glyphPadding, midY);
+            MoveToEx(dc, midX, rect.top + glyphPadding, nullptr);
+            LineTo(dc, midX, rect.bottom - glyphPadding);
+            SelectObject(dc, oldPen);
+            DeleteObject(glyphPen);
+        }
+    }
+
+    if (focused) {
+        InflateRect(&rect, -3, -3);
+        DrawFocusRect(dc, &rect);
+    }
 }
 
 void TabBandWindow::ClearVisualItems() {
@@ -1352,16 +1469,6 @@ TabBandWindow::HitInfo TabBandWindow::HitTest(const POINT& pt) const {
             const int midX = (item.bounds.left + item.bounds.right) / 2;
             info.before = pt.x < midX;
             info.after = !info.before;
-            if (item.data.type == TabViewItemType::kTab && item.indicatorHandle) {
-                const int indicatorEdge = item.bounds.left + kIslandIndicatorWidth + kIndicatorHitPadding;
-                if (pt.x <= indicatorEdge) {
-                    info.type = TabViewItemType::kGroupHeader;
-                    info.location = {item.data.location.groupIndex, -1};
-                    info.before = false;
-                    info.after = false;
-                    info.indicator = true;
-                }
-            }
             return info;
         }
     }
@@ -1675,7 +1782,8 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
     auto dispatch = [&]() -> LRESULT {
         switch (message) {
             case WM_CREATE: {
-                self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+",
+                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_PUSHBUTTON,
                                                        0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
                                                        GetModuleHandleInstance(), nullptr);
                 self->RefreshTheme();
@@ -1688,8 +1796,18 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->Layout(width, height);
                 return 0;
             }
+            case WM_DRAWITEM: {
+                if (wParam == IDC_NEW_TAB) {
+                    self->DrawNewTabButton(reinterpret_cast<LPDRAWITEMSTRUCT>(lParam));
+                    return TRUE;
+                }
+                LRESULT handled = 0;
+                if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
+                    return handled;
+                }
+                return fallback();
+            }
             case WM_INITMENUPOPUP:
-            case WM_DRAWITEM:
             case WM_MEASUREITEM: {
                 LRESULT handled = 0;
                 if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {

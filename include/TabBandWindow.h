@@ -68,7 +68,6 @@ private:
         TabLocation location;
         bool before = false;
         bool after = false;
-        bool indicator = false;
     };
 
     struct DropTarget {
@@ -118,6 +117,7 @@ private:
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
+    void DrawNewTabButton(LPDRAWITEMSTRUCT draw);
     void ClearVisualItems();
     void ClearExplorerContext();
     HICON LoadItemIcon(const TabViewItem& item) const;

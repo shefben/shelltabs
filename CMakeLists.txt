@@ -60,6 +60,7 @@ target_link_libraries(ShellTabs PRIVATE
     msimg32
     comdlg32
     uxtheme
+    dwmapi
     advapi32
     pathcch
 )
