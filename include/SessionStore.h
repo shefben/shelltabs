@@ -37,9 +37,12 @@ struct SessionData {
 class SessionStore {
 public:
     SessionStore();
+    explicit SessionStore(std::wstring storagePath);
 
     bool Load(SessionData& data) const;
     bool Save(const SessionData& data) const;
+
+    static std::wstring BuildPathForToken(const std::wstring& token);
 
 private:
     std::wstring m_storagePath;

@@ -57,6 +57,8 @@ target_link_libraries(ShellTabs PRIVATE
     uuid
     msimg32
     comdlg32
+    uxtheme
+    advapi32
 )
 
 set_target_properties(ShellTabs PROPERTIES

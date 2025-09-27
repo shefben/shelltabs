@@ -2,13 +2,17 @@
 
 #include <algorithm>
 #include <cmath>
-#include <string>
-#include <vector>
 #include <limits>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include <windowsx.h>
 #include <shellapi.h>
 #include <ShlObj.h>
+#include <vsstyle.h>
+#include <vssym32.h>
+#include <winreg.h>
 
 #include "Module.h"
 #include "TabBand.h"
@@ -37,6 +41,10 @@ constexpr int kIconGap = 6;
 constexpr int kIslandIndicatorWidth = 3;
 constexpr int kIndicatorHitPadding = 6;
 constexpr int kCollapsedIndicatorPadding = 10;
+constexpr int kIslandOutlineThickness = 1;
+const wchar_t kThemePreferenceKey[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
 
 COLORREF GetGroupColor(bool selected) {
     return selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE);
@@ -128,6 +136,8 @@ void TabBandWindow::Destroy() {
     CancelDrag();
     ClearExplorerContext();
     ClearVisualItems();
+    CloseThemeHandles();
+    m_darkMode = false;
 
     if (m_newTabButton) {
         DestroyWindow(m_newTabButton);
@@ -364,13 +374,28 @@ void TabBandWindow::RebuildLayout() {
 
 void TabBandWindow::Draw(HDC dc) const {
     RECT fillRect = m_clientRect;
-    HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
-    FillRect(dc, &fillRect, background);
-    DeleteObject(background);
+    bool themedBackground = false;
+    if (m_rebarTheme) {
+        if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BAND, 0, &fillRect, nullptr))) {
+            themedBackground = true;
+        }
+    }
+    if (!themedBackground && m_tabTheme) {
+        if (SUCCEEDED(DrawThemeBackground(m_tabTheme, dc, TABP_BODY, 0, &fillRect, nullptr))) {
+            themedBackground = true;
+        }
+    }
+    if (!themedBackground) {
+        HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
+        FillRect(dc, &fillRect, background);
+        DeleteObject(background);
+    }
 
     HFONT font = GetDefaultFont();
     HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
     SetBkMode(dc, TRANSPARENT);
+
+    const auto outlines = BuildGroupOutlines();
 
     for (const auto& item : m_items) {
         if (item.data.type == TabViewItemType::kGroupHeader) {
@@ -380,6 +405,7 @@ void TabBandWindow::Draw(HDC dc) const {
         }
     }
 
+    DrawGroupOutlines(dc, outlines);
     DrawDropIndicator(dc);
     DrawDragVisual(dc);
 
@@ -416,6 +442,137 @@ COLORREF TabBandWindow::ResolveGroupBackground(const TabViewItem& item) const {
 
 COLORREF TabBandWindow::ResolveTextColor(COLORREF background) const {
     return ComputeLuminance(background) > 0.6 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+}
+
+std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
+    std::unordered_map<int, GroupOutline> outlines;
+    for (const auto& item : m_items) {
+        if (item.data.type != TabViewItemType::kTab) {
+            continue;
+        }
+        if (item.data.location.groupIndex < 0) {
+            continue;
+        }
+
+        RECT rect = item.bounds;
+        if (item.indicatorHandle) {
+            rect.left = std::max(m_clientRect.left, rect.left - kIslandIndicatorWidth);
+        }
+
+        auto& outline = outlines[item.data.location.groupIndex];
+        if (!outline.initialized) {
+            outline.groupIndex = item.data.location.groupIndex;
+            outline.bounds = rect;
+            outline.color = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
+            outline.initialized = true;
+        } else {
+            outline.bounds.left = std::min(outline.bounds.left, rect.left);
+            outline.bounds.top = std::min(outline.bounds.top, rect.top);
+            outline.bounds.right = std::max(outline.bounds.right, rect.right);
+            outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
+            if (item.data.hasCustomOutline || item.data.hasTagColor) {
+                outline.color = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
+            }
+        }
+    }
+
+    std::vector<GroupOutline> result;
+    result.reserve(outlines.size());
+    for (auto& entry : outlines) {
+        if (entry.second.initialized) {
+            result.emplace_back(entry.second);
+        }
+    }
+    std::sort(result.begin(), result.end(), [](const GroupOutline& a, const GroupOutline& b) {
+        return a.bounds.left < b.bounds.left;
+    });
+    return result;
+}
+
+void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const {
+    for (const auto& outline : outlines) {
+        if (!outline.initialized) {
+            continue;
+        }
+        RECT rect = outline.bounds;
+        rect.left = std::max(rect.left, m_clientRect.left);
+        rect.top = std::max(rect.top, m_clientRect.top);
+        rect.right = std::min(rect.right, m_clientRect.right);
+        rect.bottom = std::min(rect.bottom, m_clientRect.bottom);
+        if (rect.right <= rect.left || rect.bottom <= rect.top) {
+            continue;
+        }
+
+        COLORREF outlineColor = outline.color;
+        if (m_darkMode) {
+            outlineColor = LightenColor(outlineColor, 0.4);
+        }
+        HPEN pen = CreatePen(PS_SOLID, kIslandOutlineThickness, outlineColor);
+        if (!pen) {
+            continue;
+        }
+        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+
+        const int left = rect.left;
+        const int right = rect.right - 1;
+        const int top = rect.top;
+        const int bottom = rect.bottom - 1;
+
+        MoveToEx(dc, left, top, nullptr);
+        LineTo(dc, right, top);
+        MoveToEx(dc, left, top, nullptr);
+        LineTo(dc, left, bottom);
+        MoveToEx(dc, left, bottom, nullptr);
+        LineTo(dc, right, bottom);
+
+        SelectObject(dc, oldPen);
+        DeleteObject(pen);
+    }
+}
+
+void TabBandWindow::RefreshTheme() {
+    CloseThemeHandles();
+    if (!m_hwnd) {
+        m_darkMode = false;
+        return;
+    }
+
+    SetWindowTheme(m_hwnd, L"Explorer", nullptr);
+    m_darkMode = IsSystemDarkMode();
+    m_tabTheme = OpenThemeData(m_hwnd, L"Tab");
+    m_rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
+    UpdateNewTabButtonTheme();
+}
+
+void TabBandWindow::CloseThemeHandles() {
+    if (m_tabTheme) {
+        CloseThemeData(m_tabTheme);
+        m_tabTheme = nullptr;
+    }
+    if (m_rebarTheme) {
+        CloseThemeData(m_rebarTheme);
+        m_rebarTheme = nullptr;
+    }
+}
+
+void TabBandWindow::UpdateNewTabButtonTheme() {
+    if (!m_newTabButton) {
+        return;
+    }
+    SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
+    SendMessageW(m_newTabButton, WM_SETFONT, reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
+    InvalidateRect(m_newTabButton, nullptr, TRUE);
+}
+
+bool TabBandWindow::IsSystemDarkMode() const {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, kThemePreferenceKey, kThemePreferenceValue, RRF_RT_DWORD,
+                                        nullptr, &value, &size);
+    if (status != ERROR_SUCCESS) {
+        return false;
+    }
+    return value == 0;
 }
 
 std::wstring TabBandWindow::BuildGitBadgeText(const TabViewItem& item) const {
@@ -512,48 +669,78 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
 void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
     const bool selected = item.data.selected;
-    COLORREF backgroundColor = ResolveTabBackground(item.data);
-    COLORREF textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
     const TabViewItem* indicatorSource = item.hasGroupHeader ? &item.groupHeader : nullptr;
     const bool hasAccent = item.data.hasCustomOutline || item.data.hasTagColor ||
                            (indicatorSource && (indicatorSource->hasCustomOutline || indicatorSource->hasTagColor));
     COLORREF accentColor = hasAccent ? ResolveIndicatorColor(indicatorSource, item.data)
-                                     : GetSysColor(COLOR_WINDOWFRAME);
-    COLORREF borderColor = hasAccent ? DarkenColor(accentColor, selected ? 0.35 : 0.2)
-                                     : (selected ? GetSysColor(COLOR_WINDOWFRAME) : GetSysColor(COLOR_3DSHADOW));
+                                     : GetSysColor(COLOR_HOTLIGHT);
 
     const int islandIndicator = item.indicatorHandle ? kIslandIndicatorWidth : 0;
-    RECT shapeRect = rect;
-    shapeRect.left += islandIndicator;
-    if (!selected) {
-        shapeRect.bottom -= 1;
+    RECT tabRect = rect;
+    tabRect.left += islandIndicator;
+
+    int state = selected ? TIS_SELECTED : TIS_NORMAL;
+    COLORREF textColor = GetSysColor(COLOR_WINDOWTEXT);
+    bool usedTheme = false;
+    if (m_tabTheme) {
+        if (SUCCEEDED(DrawThemeBackground(m_tabTheme, dc, TABP_TABITEM, state, &tabRect, nullptr))) {
+            usedTheme = true;
+            COLORREF themeText = 0;
+            if (SUCCEEDED(GetThemeColor(m_tabTheme, TABP_TABITEM, state, TMT_TEXTCOLOR, &themeText))) {
+                textColor = themeText;
+            } else if (m_darkMode) {
+                textColor = RGB(230, 230, 230);
+            }
+        }
     }
 
-    const int radius = kTabCornerRadius;
-    POINT points[] = {{shapeRect.left, shapeRect.bottom},
-                      {shapeRect.left, shapeRect.top + radius},
-                      {shapeRect.left + radius, shapeRect.top},
-                      {shapeRect.right - radius, shapeRect.top},
-                      {shapeRect.right, shapeRect.top + radius},
-                      {shapeRect.right, shapeRect.bottom}};
+    if (!usedTheme) {
+        COLORREF backgroundColor = ResolveTabBackground(item.data);
+        textColor = selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : ResolveTextColor(backgroundColor);
+        COLORREF borderColor = hasAccent ? DarkenColor(accentColor, selected ? 0.35 : 0.2)
+                                         : (selected ? GetSysColor(COLOR_WINDOWFRAME) : GetSysColor(COLOR_3DSHADOW));
 
-    HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
-    if (region) {
-        HBRUSH brush = CreateSolidBrush(backgroundColor);
-        if (brush) {
-            FillRgn(dc, region, brush);
-            DeleteObject(brush);
+        RECT shapeRect = tabRect;
+        if (!selected) {
+            shapeRect.bottom -= 1;
         }
-        HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-        if (pen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-            HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-            Polygon(dc, points, ARRAYSIZE(points));
-            SelectObject(dc, oldBrush);
+
+        const int radius = kTabCornerRadius;
+        POINT points[] = {{shapeRect.left, shapeRect.bottom},
+                          {shapeRect.left, shapeRect.top + radius},
+                          {shapeRect.left + radius, shapeRect.top},
+                          {shapeRect.right - radius, shapeRect.top},
+                          {shapeRect.right, shapeRect.top + radius},
+                          {shapeRect.right, shapeRect.bottom}};
+
+        HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
+        if (region) {
+            HBRUSH brush = CreateSolidBrush(backgroundColor);
+            if (brush) {
+                FillRgn(dc, region, brush);
+                DeleteObject(brush);
+            }
+            HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
+            if (pen) {
+                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+                HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+                Polygon(dc, points, ARRAYSIZE(points));
+                SelectObject(dc, oldBrush);
+                SelectObject(dc, oldPen);
+                DeleteObject(pen);
+            }
+            DeleteObject(region);
+        }
+
+        COLORREF bottomLineColor = selected ? backgroundColor : GetSysColor(COLOR_3DLIGHT);
+        HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
+        if (bottomPen) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
+            MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
+            LineTo(dc, rect.right - 1, rect.bottom - 1);
             SelectObject(dc, oldPen);
-            DeleteObject(pen);
+            DeleteObject(bottomPen);
         }
-        DeleteObject(region);
     }
 
     if (item.indicatorHandle) {
@@ -568,16 +755,6 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             FillRect(dc, &indicatorRect, indicatorBrush);
             DeleteObject(indicatorBrush);
         }
-    }
-
-    COLORREF bottomLineColor = selected ? backgroundColor : GetSysColor(COLOR_3DLIGHT);
-    HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
-    if (bottomPen) {
-        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
-        MoveToEx(dc, shapeRect.left + 1, rect.bottom - 1, nullptr);
-        LineTo(dc, rect.right - 1, rect.bottom - 1);
-        SelectObject(dc, oldPen);
-        DeleteObject(bottomPen);
     }
 
     const int indicatorWidth = (item.data.splitSecondary || item.data.splitPrimary) ? kSplitIndicatorWidth : 0;
@@ -609,7 +786,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         badgeRect.top = rect.top + 4;
         badgeRect.bottom = badgeRect.top + kBadgeHeight;
         COLORREF badgeColor = item.data.gitStatus.hasChanges ? RGB(200, 130, 60) : RGB(90, 150, 90);
-        HBRUSH badgeBrush = CreateSolidBrush(LightenColor(badgeColor, 0.15));
+        const double badgeLighten = m_darkMode ? 0.35 : 0.15;
+        HBRUSH badgeBrush = CreateSolidBrush(LightenColor(badgeColor, badgeLighten));
         if (badgeBrush) {
             RECT badgeFill = badgeRect;
             badgeFill.left -= kBadgePaddingX;
@@ -1455,6 +1633,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                                                    0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
                                                    GetModuleHandleInstance(), nullptr);
+            self->RefreshTheme();
             DragAcceptFiles(hwnd, TRUE);
             break;
         }
@@ -1514,6 +1693,13 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             self->HandleFileDrop(reinterpret_cast<HDROP>(wParam));
             return 0;
         }
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+        case WM_SYSCOLORCHANGE: {
+            self->RefreshTheme();
+            InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        }
         case WM_CONTEXTMENU: {
             POINT screenPt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (screenPt.x == -1 && screenPt.y == -1) {
@@ -1548,6 +1734,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             DragAcceptFiles(hwnd, FALSE);
             self->ClearExplorerContext();
             self->ClearVisualItems();
+            self->CloseThemeHandles();
             self->m_hwnd = nullptr;
             self->m_newTabButton = nullptr;
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);

@@ -85,15 +85,30 @@ UniquePidl ParseExplorerUrl(const std::wstring& url) {
     }
 
     PIDLIST_ABSOLUTE pidl = nullptr;
-    SFGAOF attributes = SFGAO_FOLDER;
-    if (SUCCEEDED(SHParseDisplayName(url.c_str(), nullptr, &pidl, attributes, nullptr)) && pidl) {
+    const auto tryParse = [&pidl](const wchar_t* source, SFGAOF attributes) -> bool {
+        PIDLIST_ABSOLUTE candidate = nullptr;
+        if (FAILED(SHParseDisplayName(source, nullptr, &candidate, attributes, nullptr)) || !candidate) {
+            return false;
+        }
+        pidl = candidate;
+        return true;
+    };
+
+    if (tryParse(url.c_str(), SFGAO_FOLDER)) {
+        return UniquePidl(pidl);
+    }
+
+    // Some shell URLs (e.g. shell:::{CLSID}) refuse the SFGAO_FOLDER hint but still resolve when
+    // parsed without attribute filtering. Retry without restrictions before falling back to
+    // translating file:// URLs.
+    if (tryParse(url.c_str(), 0)) {
         return UniquePidl(pidl);
     }
 
     wchar_t path[MAX_PATH];
     DWORD pathLength = ARRAYSIZE(path);
     if (SUCCEEDED(PathCreateFromUrlW(url.c_str(), path, &pathLength, 0))) {
-        if (SUCCEEDED(SHParseDisplayName(path, nullptr, &pidl, attributes, nullptr)) && pidl) {
+        if (tryParse(path, SFGAO_FOLDER) || tryParse(path, 0)) {
             return UniquePidl(pidl);
         }
     }
