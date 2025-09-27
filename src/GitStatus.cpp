@@ -29,6 +29,10 @@ constexpr size_t kMaxRootCacheEntries = 256;
 constexpr size_t kMaxQueueDepth = 64;
 constexpr std::chrono::seconds kWorkerRetryDelay(5);
 
+void LogGitCacheStateChange(const wchar_t* message) {
+    LogMessage(LogLevel::Info, L"GitStatusCache %ls", message);
+}
+
 std::wstring QuoteCommandArgument(const std::wstring& argument) {
     std::wstring result;
     result.reserve(argument.size() + 2);
@@ -174,6 +178,10 @@ GitStatusInfo ParseGitStatus(const std::wstring& root, const std::wstring& outpu
 
 }  // namespace
 
+GitStatusCache::GitStatusCache() {
+    LogMessage(LogLevel::Info, L"GitStatusCache constructed (this=%p)", this);
+}
+
 GitStatusCache& GitStatusCache::Instance() {
     static GitStatusCache cache;
     return cache;
@@ -182,6 +190,7 @@ GitStatusCache& GitStatusCache::Instance() {
 GitStatusCache::~GitStatusCache() {
     LogMessage(LogLevel::Info, L"GitStatusCache shutting down (workerRunning=%ls)",
                m_workerRunning.load(std::memory_order_acquire) ? L"true" : L"false");
+    m_enabled.store(false, std::memory_order_release);
     m_stop.store(true, std::memory_order_release);
     {
         std::lock_guard queueLock(m_queueMutex);
@@ -200,10 +209,44 @@ GitStatusCache::~GitStatusCache() {
     LogMessage(LogLevel::Info, L"GitStatusCache shutdown complete");
 }
 
+void GitStatusCache::SetEnabled(bool enabled) {
+    const bool previous = m_enabled.exchange(enabled, std::memory_order_acq_rel);
+    if (previous == enabled) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::SetEnabled no state change (enabled=%ls)",
+                   enabled ? L"true" : L"false");
+        return;
+    }
+
+    if (enabled) {
+        LogGitCacheStateChange(L"enabled");
+        m_workerFailed.store(false, std::memory_order_release);
+        m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
+        m_stop.store(false, std::memory_order_release);
+    } else {
+        LogGitCacheStateChange(L"disabling");
+        m_stop.store(true, std::memory_order_release);
+        m_queueCv.notify_all();
+        ResetPendingWork();
+        JoinWorkerIfNeeded();
+        m_workerFailed.store(false, std::memory_order_release);
+        m_workerRunning.store(false, std::memory_order_release);
+        m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
+        LogGitCacheStateChange(L"disabled");
+    }
+}
+
+bool GitStatusCache::IsEnabled() const noexcept {
+    return m_enabled.load(std::memory_order_acquire);
+}
+
 GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
     return GuardExplorerCall(
         L"GitStatusCache::Query",
         [&]() -> GitStatusInfo {
+            if (!IsEnabled()) {
+                LogMessage(LogLevel::Info, L"GitStatusCache::Query skipped (disabled) for %ls", path.c_str());
+                return {};
+            }
             LogMessage(LogLevel::Info, L"GitStatusCache::Query invoked for %ls", path.c_str());
             if (path.empty()) {
                 return {};
@@ -461,6 +504,10 @@ size_t GitStatusCache::AddListener(std::function<void()> callback) {
     if (!callback) {
         return 0;
     }
+    if (!IsEnabled()) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::AddListener rejected (disabled)");
+        return 0;
+    }
     std::lock_guard lock(m_listenerMutex);
     const size_t id = m_nextListenerId++;
     m_listeners.emplace_back(id, std::move(callback));
@@ -477,6 +524,10 @@ void GitStatusCache::RemoveListener(size_t id) {
 }
 
 void GitStatusCache::EnsureWorker() {
+    if (!IsEnabled()) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::EnsureWorker skipped (disabled)");
+        return;
+    }
     if (m_workerRunning.load(std::memory_order_acquire)) {
         return;
     }

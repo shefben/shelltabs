@@ -112,6 +112,7 @@ public:
     void OnDeferredNavigate();
     void OnColorizerRefresh();
     void OnGitStatusUpdated();
+    void OnEnableGitStatus();
 
 private:
     std::atomic<long> m_refCount;
@@ -138,6 +139,9 @@ private:
     bool m_deferredNavigationPosted = false;
     bool m_colorizerRefreshPosted = false;
     size_t m_gitStatusListenerId = 0;
+    bool m_gitStatusEnablePosted = false;
+    bool m_gitStatusEnablePending = false;
+    bool m_gitStatusActivationAcquired = false;
 
     void EnsureWindow();
     void EnsureGitStatusListener();
@@ -160,6 +164,7 @@ private:
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
     void QueueNavigateTo(TabLocation location);
     void ScheduleColorizerRefresh();
+    void ScheduleGitStatusEnable();
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
     HWND GetFrameWindow() const;

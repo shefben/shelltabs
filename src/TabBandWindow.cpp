@@ -1767,6 +1767,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_ENABLE_GIT_STATUS: {
+                if (self->m_owner) {
+                    self->m_owner->OnEnableGitStatus();
+                }
+                return 0;
+            }
             case WM_SHELLTABS_REFRESH_GIT_STATUS: {
                 if (self->m_owner) {
                     self->m_owner->OnGitStatusUpdated();
