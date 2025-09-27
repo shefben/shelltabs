@@ -43,7 +43,8 @@ target_compile_definitions(ShellTabs PRIVATE
 )
 
 target_compile_options(ShellTabs PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/permissive-/W4>
+    $<$<CXX_COMPILER_ID:MSVC>:/permissive->
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
     $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
 )
 
