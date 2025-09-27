@@ -1117,7 +1117,7 @@ void TabBandWindow::RefreshRebarMetrics() {
 
     RECT borders{0, 0, 0, 0};
     if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex, reinterpret_cast<LPARAM>(&borders))) {
-        const int candidate = std::max(borders.left, 8);
+        const LONG candidate = std::max<LONG>(borders.left, 8L);
         if (candidate > 0) {
             m_toolbarGripWidth = candidate;
         }
@@ -1159,7 +1159,7 @@ void TabBandWindow::UpdateToolbarMetrics() {
     if (m_parentRebar && m_rebarBandIndex >= 0) {
         RECT borders{0, 0, 0, 0};
         if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex, reinterpret_cast<LPARAM>(&borders))) {
-            const int candidate = std::max(borders.left, 8);
+            const LONG candidate = std::max<LONG>(borders.left, 8L);
             if (candidate > 0) {
                 m_toolbarGripWidth = candidate;
                 return;
