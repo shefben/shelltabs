@@ -137,6 +137,7 @@ private:
     COLORREF m_accentColor = RGB(0, 120, 215);
     ExternalDropState m_externalDrop;
     ThemePalette m_themePalette;
+    int m_toolbarGripWidth = 14;
 
     void Layout(int width, int height);
     void RebuildLayout();
@@ -148,7 +149,6 @@ private:
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
-    void DrawNewTabButton(LPDRAWITEMSTRUCT draw);
     void ClearVisualItems();
     void ClearExplorerContext();
     HICON LoadItemIcon(const TabViewItem& item) const;
@@ -193,6 +193,7 @@ private:
     void UpdateAccentColor();
     void ResetThemePalette();
     void UpdateThemePalette();
+    void UpdateToolbarMetrics();
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };
