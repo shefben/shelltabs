@@ -14,6 +14,53 @@
 
 namespace shelltabs {
 
+namespace {
+std::wstring BuildLogPrefix(const wchar_t* context) {
+    std::wstring prefix = L"[ShellTabs] ";
+    if (context && *context) {
+        prefix += context;
+    } else {
+        prefix += L"(unknown context)";
+    }
+    prefix += L": ";
+    return prefix;
+}
+
+std::wstring NarrowToWide(const char* value) {
+    if (!value || !*value) {
+        return {};
+    }
+    int length = MultiByteToWideChar(CP_UTF8, 0, value, -1, nullptr, 0);
+    if (length <= 0) {
+        return {};
+    }
+    std::wstring result;
+    result.resize(static_cast<size_t>(length - 1));
+    MultiByteToWideChar(CP_UTF8, 0, value, -1, result.data(), length);
+    return result;
+}
+}  // namespace
+
+void LogUnhandledException(const wchar_t* context, const wchar_t* details) {
+    std::wstring message = BuildLogPrefix(context);
+    message += L"unhandled exception";
+    if (details && *details) {
+        message += L" - ";
+        message += details;
+    }
+    message += L"\r\n";
+    OutputDebugStringW(message.c_str());
+}
+
+void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details) {
+    const std::wstring wide = NarrowToWide(details);
+    if (wide.empty()) {
+        LogUnhandledException(context, nullptr);
+        return;
+    }
+    LogUnhandledException(context, wide.c_str());
+}
+
 void PidlDeleter::operator()(ITEMIDLIST* pidl) const noexcept {
     if (pidl) {
         CoTaskMemFree(pidl);

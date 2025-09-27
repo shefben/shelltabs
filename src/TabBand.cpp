@@ -96,12 +96,17 @@ IFACEMETHODIMP_(ULONG) TabBand::Release() {
 }
 
 IFACEMETHODIMP TabBand::GetWindow(HWND* phwnd) {
-    if (!phwnd) {
-        return E_POINTER;
-    }
-    EnsureWindow();
-    *phwnd = m_window ? m_window->GetHwnd() : nullptr;
-    return *phwnd ? S_OK : E_FAIL;
+    return GuardExplorerCall(
+        L"TabBand::GetWindow",
+        [&]() -> HRESULT {
+            if (!phwnd) {
+                return E_POINTER;
+            }
+            EnsureWindow();
+            *phwnd = m_window ? m_window->GetHwnd() : nullptr;
+            return *phwnd ? S_OK : E_FAIL;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::ContextSensitiveHelp(BOOL) {
@@ -109,18 +114,28 @@ IFACEMETHODIMP TabBand::ContextSensitiveHelp(BOOL) {
 }
 
 IFACEMETHODIMP TabBand::ShowDW(BOOL fShow) {
-    EnsureWindow();
-    if (m_window) {
-        m_window->Show(fShow != FALSE);
-    }
-    return S_OK;
+    return GuardExplorerCall(
+        L"TabBand::ShowDW",
+        [&]() -> HRESULT {
+            EnsureWindow();
+            if (m_window) {
+                m_window->Show(fShow != FALSE);
+            }
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::CloseDW(DWORD) {
-    if (m_window) {
-        m_window->Show(false);
-    }
-    return S_OK;
+    return GuardExplorerCall(
+        L"TabBand::CloseDW",
+        [&]() -> HRESULT {
+            if (m_window) {
+                m_window->Show(false);
+            }
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::ResizeBorderDW(const RECT*, IUnknown*, BOOL) {
@@ -128,39 +143,44 @@ IFACEMETHODIMP TabBand::ResizeBorderDW(const RECT*, IUnknown*, BOOL) {
 }
 
 IFACEMETHODIMP TabBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO* pdbi) {
-    if (!pdbi) {
-        return E_POINTER;
-    }
-    m_bandId = dwBandID;
-    m_viewMode = dwViewMode;
+    return GuardExplorerCall(
+        L"TabBand::GetBandInfo",
+        [&]() -> HRESULT {
+            if (!pdbi) {
+                return E_POINTER;
+            }
+            m_bandId = dwBandID;
+            m_viewMode = dwViewMode;
 
-    if (pdbi->dwMask & DBIM_MINSIZE) {
-        pdbi->ptMinSize.x = 300;
-        pdbi->ptMinSize.y = 28;
-    }
-    if (pdbi->dwMask & DBIM_MAXSIZE) {
-        pdbi->ptMaxSize.x = -1;
-        pdbi->ptMaxSize.y = 0;
-    }
-    if (pdbi->dwMask & DBIM_INTEGRAL) {
-        pdbi->ptIntegral.x = 0;
-        pdbi->ptIntegral.y = 1;
-    }
-    if (pdbi->dwMask & DBIM_ACTUAL) {
-        pdbi->ptActual.x = 0;
-        pdbi->ptActual.y = 30;
-    }
-    if (pdbi->dwMask & DBIM_TITLE) {
-        pdbi->wszTitle[0] = L'\0';
-    }
-    if (pdbi->dwMask & DBIM_MODEFLAGS) {
-        pdbi->dwModeFlags = DBIMF_VARIABLEHEIGHT | DBIMF_NORMAL;
-    }
-    if (pdbi->dwMask & DBIM_BKCOLOR) {
-        pdbi->dwMask &= ~DBIM_BKCOLOR;
-    }
+            if (pdbi->dwMask & DBIM_MINSIZE) {
+                pdbi->ptMinSize.x = 300;
+                pdbi->ptMinSize.y = 28;
+            }
+            if (pdbi->dwMask & DBIM_MAXSIZE) {
+                pdbi->ptMaxSize.x = -1;
+                pdbi->ptMaxSize.y = 0;
+            }
+            if (pdbi->dwMask & DBIM_INTEGRAL) {
+                pdbi->ptIntegral.x = 0;
+                pdbi->ptIntegral.y = 1;
+            }
+            if (pdbi->dwMask & DBIM_ACTUAL) {
+                pdbi->ptActual.x = 0;
+                pdbi->ptActual.y = 30;
+            }
+            if (pdbi->dwMask & DBIM_TITLE) {
+                pdbi->wszTitle[0] = L'\0';
+            }
+            if (pdbi->dwMask & DBIM_MODEFLAGS) {
+                pdbi->dwModeFlags = DBIMF_VARIABLEHEIGHT | DBIMF_NORMAL;
+            }
+            if (pdbi->dwMask & DBIM_BKCOLOR) {
+                pdbi->dwMask &= ~DBIM_BKCOLOR;
+            }
 
-    return S_OK;
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::CanRenderComposited(BOOL* pfCanRenderComposited) {
@@ -185,116 +205,139 @@ IFACEMETHODIMP TabBand::GetCompositionState(BOOL* pfCompositionEnabled) {
 }
 
 IFACEMETHODIMP TabBand::UIActivateIO(BOOL fActivate, LPMSG) {
-    if (fActivate) {
-        EnsureWindow();
-        if (m_window) {
-            m_window->FocusTab();
-        }
-        if (m_site) {
-            m_site->OnFocusChangeIS(static_cast<IDockingWindow*>(this), TRUE);
-        }
-    } else if (m_site) {
-        m_site->OnFocusChangeIS(static_cast<IDockingWindow*>(this), FALSE);
-    }
-    return S_OK;
+    return GuardExplorerCall(
+        L"TabBand::UIActivateIO",
+        [&]() -> HRESULT {
+            if (fActivate) {
+                EnsureWindow();
+                if (m_window) {
+                    m_window->FocusTab();
+                }
+                if (m_site) {
+                    m_site->OnFocusChangeIS(static_cast<IDockingWindow*>(this), TRUE);
+                }
+            } else if (m_site) {
+                m_site->OnFocusChangeIS(static_cast<IDockingWindow*>(this), FALSE);
+            }
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::HasFocusIO() {
-    if (!m_window) {
-        return S_FALSE;
-    }
-    return m_window->HasFocus() ? S_OK : S_FALSE;
+    return GuardExplorerCall(
+        L"TabBand::HasFocusIO",
+        [&]() -> HRESULT {
+            if (!m_window) {
+                return S_FALSE;
+            }
+            return m_window->HasFocus() ? S_OK : S_FALSE;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::TranslateAcceleratorIO(LPMSG) {
-    return S_FALSE;
+    return GuardExplorerCall(L"TabBand::TranslateAcceleratorIO", []() -> HRESULT { return S_FALSE; },
+                             []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
-    if (!pUnkSite) {
-        DisconnectSite();
-        return S_OK;
-    }
+    return GuardExplorerCall(
+        L"TabBand::SetSite",
+        [&]() -> HRESULT {
+            if (pUnkSite == m_site.Get()) {
+                return S_OK;
+            }
+            if (!pUnkSite) {
+                DisconnectSite();
+                return S_OK;
+            }
 
-    DisconnectSite();
+            DisconnectSite();
 
-    Microsoft::WRL::ComPtr<IInputObjectSite> site;
-    HRESULT hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&site));
-    if (FAILED(hr)) {
-        return hr;
-    }
-    m_site = site;
+            Microsoft::WRL::ComPtr<IInputObjectSite> site;
+            HRESULT hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&site));
+            if (FAILED(hr)) {
+                return hr;
+            }
+            m_site = site;
 
-    Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
-    hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&serviceProvider));
-    if (SUCCEEDED(hr) && serviceProvider) {
-        serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
-        if (!m_shellBrowser) {
-            serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
-        }
-        serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&m_webBrowser));
-    }
-
-    if ((!m_shellBrowser || !m_webBrowser) && site) {
-        serviceProvider.Reset();
-        if (SUCCEEDED(site.As(&serviceProvider)) && serviceProvider) {
-            if (!m_shellBrowser) {
+            Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
+            hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&serviceProvider));
+            if (SUCCEEDED(hr) && serviceProvider) {
                 serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
-            }
-            if (!m_shellBrowser) {
-                serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
-            }
-            if (!m_webBrowser) {
+                if (!m_shellBrowser) {
+                    serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
+                }
                 serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&m_webBrowser));
             }
-        }
-    }
 
-    if (!m_shellBrowser || !m_webBrowser) {
-        DisconnectSite();
-        return E_FAIL;
-    }
+            if ((!m_shellBrowser || !m_webBrowser) && site) {
+                serviceProvider.Reset();
+                if (SUCCEEDED(site.As(&serviceProvider)) && serviceProvider) {
+                    if (!m_shellBrowser) {
+                        serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
+                    }
+                    if (!m_shellBrowser) {
+                        serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
+                    }
+                    if (!m_webBrowser) {
+                        serviceProvider->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&m_webBrowser));
+                    }
+                }
+            }
 
-    EnsureSessionStore();
+            if (!m_shellBrowser || !m_webBrowser) {
+                DisconnectSite();
+                return E_FAIL;
+            }
 
-    EnsureWindow();
-    if (!m_window) {
-        DisconnectSite();
-        return E_FAIL;
-    }
-    EnsureGitStatusListener();
+            EnsureSessionStore();
+            EnsureWindow();
+            if (!m_window) {
+                DisconnectSite();
+                return E_FAIL;
+            }
+            EnsureGitStatusListener();
 
-    m_browserEvents = std::make_unique<BrowserEvents>(this);
-    if (m_browserEvents) {
-        hr = m_browserEvents->Connect(m_webBrowser);
-        if (FAILED(hr)) {
-            m_browserEvents.reset();
-        }
-    }
+            m_browserEvents = std::make_unique<BrowserEvents>(this);
+            if (m_browserEvents) {
+                hr = m_browserEvents->Connect(m_webBrowser);
+                if (FAILED(hr)) {
+                    m_browserEvents.reset();
+                }
+            }
 
-    InitializeTabs();
-    UpdateTabsUI();
+            InitializeTabs();
+            UpdateTabsUI();
 
-    if (!m_viewColorizer) {
-        m_viewColorizer = std::make_unique<FolderViewColorizer>();
-    }
-    if (m_viewColorizer) {
-        m_viewColorizer->Attach(m_shellBrowser);
-    }
-    ScheduleColorizerRefresh();
+            if (!m_viewColorizer) {
+                m_viewColorizer = std::make_unique<FolderViewColorizer>();
+            }
+            if (m_viewColorizer) {
+                m_viewColorizer->Attach(m_shellBrowser);
+            }
+            ScheduleColorizerRefresh();
 
-    return S_OK;
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::GetSite(REFIID riid, void** ppvSite) {
-    if (!ppvSite) {
-        return E_POINTER;
-    }
-    if (!m_site) {
-        *ppvSite = nullptr;
-        return E_FAIL;
-    }
-    return m_site->QueryInterface(riid, ppvSite);
+    return GuardExplorerCall(
+        L"TabBand::GetSite",
+        [&]() -> HRESULT {
+            if (!ppvSite) {
+                return E_POINTER;
+            }
+            if (!m_site) {
+                *ppvSite = nullptr;
+                return E_FAIL;
+            }
+            return m_site->QueryInterface(riid, ppvSite);
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::GetClassID(CLSID* pClassID) {
@@ -1323,11 +1366,13 @@ void TabBand::OnColorizerRefresh() {
 }
 
 void TabBand::OnGitStatusUpdated() {
-    if (!m_window) {
-        return;
-    }
-    const auto items = m_tabs.BuildView();
-    m_window->SetTabs(items);
+    GuardExplorerCall(L"TabBand::OnGitStatusUpdated", [&]() {
+        if (!m_window) {
+            return;
+        }
+        const auto items = m_tabs.BuildView();
+        m_window->SetTabs(items);
+    });
 }
 
 void TabBand::QueueNavigateTo(TabLocation location) {

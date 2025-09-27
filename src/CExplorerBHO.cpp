@@ -11,6 +11,7 @@
 #include "ComUtils.h"
 #include "Guids.h"
 #include "Module.h"
+#include "Utilities.h"
 
 namespace shelltabs {
 
@@ -76,86 +77,93 @@ void CExplorerBHO::Disconnect() {
 }
 
 HRESULT CExplorerBHO::EnsureBandVisible() {
-    if (!m_webBrowser || !m_shouldRetryEnsure) {
-        return S_OK;
-    }
+    return GuardExplorerCall(
+        L"CExplorerBHO::EnsureBandVisible",
+        [&]() -> HRESULT {
+            if (!m_webBrowser || !m_shouldRetryEnsure) {
+                return S_OK;
+            }
 
-    Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
-    HRESULT hr = m_webBrowser.As(&serviceProvider);
-    if ((!serviceProvider || FAILED(hr)) && m_site) {
-        serviceProvider = nullptr;
-        hr = m_site.As(&serviceProvider);
-    }
-    if (FAILED(hr) || !serviceProvider) {
-        return hr;
-    }
+            Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
+            HRESULT hr = m_webBrowser.As(&serviceProvider);
+            if ((!serviceProvider || FAILED(hr)) && m_site) {
+                serviceProvider = nullptr;
+                hr = m_site.As(&serviceProvider);
+            }
+            if (FAILED(hr) || !serviceProvider) {
+                return hr;
+            }
 
-    Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
-    hr = serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&shellBrowser));
-    if ((FAILED(hr) || !shellBrowser)) {
-        hr = serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&shellBrowser));
-        if (FAILED(hr) || !shellBrowser) {
+            Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
+            hr = serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&shellBrowser));
+            if ((FAILED(hr) || !shellBrowser)) {
+                hr = serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&shellBrowser));
+                if (FAILED(hr) || !shellBrowser) {
+                    return hr;
+                }
+            }
+
+            const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
+            if (clsidString.empty()) {
+                return E_FAIL;
+            }
+
+            VARIANT bandId;
+            VariantInit(&bandId);
+            bandId.vt = VT_BSTR;
+            bandId.bstrVal = SysAllocString(clsidString.c_str());
+            if (!bandId.bstrVal) {
+                return E_OUTOFMEMORY;
+            }
+
+            VARIANT show;
+            VariantInit(&show);
+            show.vt = VT_BOOL;
+            show.boolVal = VARIANT_TRUE;
+
+            hr = m_webBrowser->ShowBrowserBar(&bandId, &show, nullptr);
+
+            VariantClear(&bandId);
+            VariantClear(&show);
+
+            if (SUCCEEDED(hr)) {
+                m_bandVisible = true;
+                m_shouldRetryEnsure = false;
+            } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
+                m_shouldRetryEnsure = false;
+            }
+
             return hr;
-        }
-    }
-
-    const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
-    if (clsidString.empty()) {
-        return E_FAIL;
-    }
-
-    VARIANT bandId;
-    VariantInit(&bandId);
-    bandId.vt = VT_BSTR;
-    bandId.bstrVal = SysAllocString(clsidString.c_str());
-    if (!bandId.bstrVal) {
-        return E_OUTOFMEMORY;
-    }
-
-    VARIANT show;
-    VariantInit(&show);
-    show.vt = VT_BOOL;
-    show.boolVal = VARIANT_TRUE;
-
-    hr = m_webBrowser->ShowBrowserBar(&bandId, &show, nullptr);
-
-    VariantClear(&bandId);
-    VariantClear(&show);
-
-    if (SUCCEEDED(hr)) {
-        m_bandVisible = true;
-        m_shouldRetryEnsure = false;
-    } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
-        // Avoid repeatedly attempting when policy forbids bands.
-        m_shouldRetryEnsure = false;
-    }
-
-    return hr;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
-    if (!site) {
-        Disconnect();
-        return S_OK;
-    }
+    return GuardExplorerCall(
+        L"CExplorerBHO::SetSite",
+        [&]() -> HRESULT {
+            if (!site) {
+                Disconnect();
+                return S_OK;
+            }
 
-    Microsoft::WRL::ComPtr<IWebBrowser2> browser;
-    HRESULT hr = ResolveBrowserFromSite(site, &browser);
-    if (FAILED(hr) || !browser) {
-        Disconnect();
-        return S_OK;
-    }
+            Microsoft::WRL::ComPtr<IWebBrowser2> browser;
+            HRESULT hr = ResolveBrowserFromSite(site, &browser);
+            if (FAILED(hr) || !browser) {
+                Disconnect();
+                return S_OK;
+            }
 
-    m_site = site;
-    m_webBrowser = browser;
-    m_shouldRetryEnsure = true;
+            m_site = site;
+            m_webBrowser = browser;
+            m_shouldRetryEnsure = true;
 
-    ConnectEvents();
+            ConnectEvents();
 
-    // Attempt to surface the deskband for the current window. Ignore failures because Explorer may
-    // reject the call if policy forbids bands or the window is not ready yet.
-    EnsureBandVisible();
-    return S_OK;
+            EnsureBandVisible();
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 HRESULT CExplorerBHO::ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser) {
@@ -210,42 +218,52 @@ HRESULT CExplorerBHO::ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** brow
 }
 
 IFACEMETHODIMP CExplorerBHO::GetSite(REFIID riid, void** site) {
-    if (!site) {
-        return E_POINTER;
-    }
-    *site = nullptr;
-    if (!m_site) {
-        return E_FAIL;
-    }
-    return m_site->QueryInterface(riid, site);
+    return GuardExplorerCall(
+        L"CExplorerBHO::GetSite",
+        [&]() -> HRESULT {
+            if (!site) {
+                return E_POINTER;
+            }
+            *site = nullptr;
+            if (!m_site) {
+                return E_FAIL;
+            }
+            return m_site->QueryInterface(riid, site);
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 HRESULT CExplorerBHO::ConnectEvents() {
-    if (!m_webBrowser || m_connectionCookie != 0) {
-        return S_OK;
-    }
+    return GuardExplorerCall(
+        L"CExplorerBHO::ConnectEvents",
+        [&]() -> HRESULT {
+            if (!m_webBrowser || m_connectionCookie != 0) {
+                return S_OK;
+            }
 
-    Microsoft::WRL::ComPtr<IConnectionPointContainer> container;
-    HRESULT hr = m_webBrowser.As(&container);
-    if (FAILED(hr) || !container) {
-        return hr;
-    }
+            Microsoft::WRL::ComPtr<IConnectionPointContainer> container;
+            HRESULT hr = m_webBrowser.As(&container);
+            if (FAILED(hr) || !container) {
+                return hr;
+            }
 
-    Microsoft::WRL::ComPtr<IConnectionPoint> connectionPoint;
-    hr = container->FindConnectionPoint(DIID_DWebBrowserEvents2, &connectionPoint);
-    if (FAILED(hr) || !connectionPoint) {
-        return hr;
-    }
+            Microsoft::WRL::ComPtr<IConnectionPoint> connectionPoint;
+            hr = container->FindConnectionPoint(DIID_DWebBrowserEvents2, &connectionPoint);
+            if (FAILED(hr) || !connectionPoint) {
+                return hr;
+            }
 
-    DWORD cookie = 0;
-    hr = connectionPoint->Advise(static_cast<IDispatch*>(this), &cookie);
-    if (FAILED(hr)) {
-        return hr;
-    }
+            DWORD cookie = 0;
+            hr = connectionPoint->Advise(static_cast<IDispatch*>(this), &cookie);
+            if (FAILED(hr)) {
+                return hr;
+            }
 
-    m_connectionPoint = connectionPoint;
-    m_connectionCookie = cookie;
-    return S_OK;
+            m_connectionPoint = connectionPoint;
+            m_connectionCookie = cookie;
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 void CExplorerBHO::DisconnectEvents() {
@@ -258,23 +276,28 @@ void CExplorerBHO::DisconnectEvents() {
 
 IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS*, VARIANT*, EXCEPINFO*,
                                     UINT*) {
-    switch (dispIdMember) {
-        case DISPID_DOCUMENTCOMPLETE:
-        case DISPID_NAVIGATECOMPLETE2:
-        case DISPID_ONVISIBLE:
-        case DISPID_WINDOWSTATECHANGED:
-            if (!m_bandVisible) {
-                EnsureBandVisible();
+    return GuardExplorerCall(
+        L"CExplorerBHO::Invoke",
+        [&]() -> HRESULT {
+            switch (dispIdMember) {
+                case DISPID_DOCUMENTCOMPLETE:
+                case DISPID_NAVIGATECOMPLETE2:
+                case DISPID_ONVISIBLE:
+                case DISPID_WINDOWSTATECHANGED:
+                    if (!m_bandVisible) {
+                        EnsureBandVisible();
+                    }
+                    break;
+                case DISPID_ONQUIT:
+                    Disconnect();
+                    break;
+                default:
+                    break;
             }
-            break;
-        case DISPID_ONQUIT:
-            Disconnect();
-            break;
-        default:
-            break;
-    }
 
-    return S_OK;
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 }  // namespace shelltabs

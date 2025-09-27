@@ -16,6 +16,7 @@
 
 #include "Module.h"
 #include "TabBand.h"
+#include "Utilities.h"
 
 namespace shelltabs {
 
@@ -1665,153 +1666,157 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         }
     }
 
+    auto fallback = [&]() -> LRESULT { return DefWindowProcW(hwnd, message, wParam, lParam); };
+
     if (!self) {
-        return DefWindowProcW(hwnd, message, wParam, lParam);
+        return fallback();
     }
 
-    switch (message) {
-        case WM_CREATE: {
-            self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                   0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
-                                                   GetModuleHandleInstance(), nullptr);
-            self->RefreshTheme();
-            DragAcceptFiles(hwnd, TRUE);
-            break;
-        }
-        case WM_SIZE: {
-            const int width = LOWORD(lParam);
-            const int height = HIWORD(lParam);
-            self->Layout(width, height);
-            break;
-        }
-        case WM_INITMENUPOPUP:
-        case WM_DRAWITEM:
-        case WM_MEASUREITEM: {
-            LRESULT handled = 0;
-            if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
-                return handled;
+    auto dispatch = [&]() -> LRESULT {
+        switch (message) {
+            case WM_CREATE: {
+                self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                                       0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
+                                                       GetModuleHandleInstance(), nullptr);
+                self->RefreshTheme();
+                DragAcceptFiles(hwnd, TRUE);
+                return 0;
             }
-            break;
-        }
-        case WM_MENUCHAR: {
-            LRESULT handled = 0;
-            if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
-                return handled;
+            case WM_SIZE: {
+                const int width = LOWORD(lParam);
+                const int height = HIWORD(lParam);
+                self->Layout(width, height);
+                return 0;
             }
-            break;
-        }
-        case WM_COMMAND: {
-            self->HandleCommand(wParam, lParam);
-            break;
-        }
-        case WM_LBUTTONDOWN: {
-            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            self->HandleMouseDown(pt);
-            break;
-        }
-        case WM_LBUTTONUP: {
-            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            self->HandleMouseUp(pt);
-            break;
-        }
-        case WM_MOUSEMOVE: {
-            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            self->HandleMouseMove(pt);
-            break;
-        }
-        case WM_RBUTTONUP: {
-            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            ClientToScreen(hwnd, &pt);
-            self->ShowContextMenu(pt);
-            return 0;
-        }
-        case WM_LBUTTONDBLCLK: {
-            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            self->HandleDoubleClick(pt);
-            break;
-        }
-        case WM_DROPFILES: {
-            self->HandleFileDrop(reinterpret_cast<HDROP>(wParam));
-            return 0;
-        }
-        case WM_THEMECHANGED:
-        case WM_SETTINGCHANGE:
-        case WM_SYSCOLORCHANGE: {
-            self->RefreshTheme();
-            InvalidateRect(hwnd, nullptr, TRUE);
-            break;
-        }
-        case WM_CONTEXTMENU: {
-            POINT screenPt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            if (screenPt.x == -1 && screenPt.y == -1) {
-                screenPt.x = 0;
-                screenPt.y = 0;
-                ClientToScreen(hwnd, &screenPt);
-            }
-            self->ShowContextMenu(screenPt);
-            return 0;
-        }
-        case WM_SHELLTABS_DEFER_NAVIGATE: {
-            if (self->m_owner) {
-                self->m_owner->OnDeferredNavigate();
-            }
-            return 0;
-        }
-        case WM_SHELLTABS_REFRESH_COLORIZER: {
-            if (self->m_owner) {
-                self->m_owner->OnColorizerRefresh();
-            }
-            return 0;
-        }
-        case WM_SHELLTABS_REFRESH_GIT_STATUS: {
-            if (self->m_owner) {
-                self->m_owner->OnGitStatusUpdated();
-            }
-            return 0;
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT ps;
-            HDC dc = BeginPaint(hwnd, &ps);
-            self->Draw(dc);
-            EndPaint(hwnd, &ps);
-            return 0;
-        }
-        case WM_ERASEBKGND: {
-            HDC eraseDc = reinterpret_cast<HDC>(wParam);
-            bool release = false;
-            if (!eraseDc) {
-                eraseDc = GetDC(hwnd);
-                release = eraseDc != nullptr;
-            }
-            if (eraseDc) {
-                RECT client{};
-                GetClientRect(hwnd, &client);
-                self->DrawBackground(eraseDc, client);
-                if (release) {
-                    ReleaseDC(hwnd, eraseDc);
+            case WM_INITMENUPOPUP:
+            case WM_DRAWITEM:
+            case WM_MEASUREITEM: {
+                LRESULT handled = 0;
+                if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
+                    return handled;
                 }
+                return fallback();
             }
-            return 1;
+            case WM_MENUCHAR: {
+                LRESULT handled = 0;
+                if (self->HandleExplorerMenuMessage(message, wParam, lParam, &handled)) {
+                    return handled;
+                }
+                return fallback();
+            }
+            case WM_COMMAND: {
+                self->HandleCommand(wParam, lParam);
+                return 0;
+            }
+            case WM_LBUTTONDOWN: {
+                POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                self->HandleMouseDown(pt);
+                return 0;
+            }
+            case WM_LBUTTONUP: {
+                POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                self->HandleMouseUp(pt);
+                return 0;
+            }
+            case WM_MOUSEMOVE: {
+                POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                self->HandleMouseMove(pt);
+                return 0;
+            }
+            case WM_RBUTTONUP: {
+                POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                ClientToScreen(hwnd, &pt);
+                self->ShowContextMenu(pt);
+                return 0;
+            }
+            case WM_LBUTTONDBLCLK: {
+                POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                self->HandleDoubleClick(pt);
+                return 0;
+            }
+            case WM_DROPFILES: {
+                self->HandleFileDrop(reinterpret_cast<HDROP>(wParam));
+                return 0;
+            }
+            case WM_THEMECHANGED:
+            case WM_SETTINGCHANGE:
+            case WM_SYSCOLORCHANGE: {
+                self->RefreshTheme();
+                InvalidateRect(hwnd, nullptr, TRUE);
+                return 0;
+            }
+            case WM_CONTEXTMENU: {
+                POINT screenPt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                if (screenPt.x == -1 && screenPt.y == -1) {
+                    screenPt.x = 0;
+                    screenPt.y = 0;
+                    ClientToScreen(hwnd, &screenPt);
+                }
+                self->ShowContextMenu(screenPt);
+                return 0;
+            }
+            case WM_SHELLTABS_DEFER_NAVIGATE: {
+                if (self->m_owner) {
+                    self->m_owner->OnDeferredNavigate();
+                }
+                return 0;
+            }
+            case WM_SHELLTABS_REFRESH_COLORIZER: {
+                if (self->m_owner) {
+                    self->m_owner->OnColorizerRefresh();
+                }
+                return 0;
+            }
+            case WM_SHELLTABS_REFRESH_GIT_STATUS: {
+                if (self->m_owner) {
+                    self->m_owner->OnGitStatusUpdated();
+                }
+                return 0;
+            }
+            case WM_PAINT: {
+                PAINTSTRUCT ps;
+                HDC dc = BeginPaint(hwnd, &ps);
+                self->Draw(dc);
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
+            case WM_ERASEBKGND: {
+                HDC eraseDc = reinterpret_cast<HDC>(wParam);
+                bool release = false;
+                if (!eraseDc) {
+                    eraseDc = GetDC(hwnd);
+                    release = eraseDc != nullptr;
+                }
+                if (eraseDc) {
+                    RECT client{};
+                    GetClientRect(hwnd, &client);
+                    self->DrawBackground(eraseDc, client);
+                    if (release) {
+                        ReleaseDC(hwnd, eraseDc);
+                    }
+                }
+                return 1;
+            }
+            case WM_CAPTURECHANGED: {
+                self->CancelDrag();
+                return fallback();
+            }
+            case WM_DESTROY: {
+                DragAcceptFiles(hwnd, FALSE);
+                self->ClearExplorerContext();
+                self->ClearVisualItems();
+                self->CloseThemeHandles();
+                self->m_hwnd = nullptr;
+                self->m_newTabButton = nullptr;
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                return fallback();
+            }
+            default:
+                return fallback();
         }
-        case WM_CAPTURECHANGED: {
-            self->CancelDrag();
-            break;
-        }
-        case WM_DESTROY: {
-            DragAcceptFiles(hwnd, FALSE);
-            self->ClearExplorerContext();
-            self->ClearVisualItems();
-            self->CloseThemeHandles();
-            self->m_hwnd = nullptr;
-            self->m_newTabButton = nullptr;
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            break;
-        }
-        default:
-            break;
-    }
+    };
 
-    return DefWindowProcW(hwnd, message, wParam, lParam);
+    return GuardExplorerCall(L"TabBandWindow::WndProc", dispatch, fallback);
 }
 
 }  // namespace shelltabs

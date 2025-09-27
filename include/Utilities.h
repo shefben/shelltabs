@@ -2,8 +2,11 @@
 
 #include <windows.h>
 
+#include <exception>
 #include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -28,6 +31,35 @@ UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& she
 
 bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value);
 bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value);
+
+void LogUnhandledException(const wchar_t* context, const wchar_t* details = nullptr);
+void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details);
+
+template <typename Func>
+auto GuardExplorerCall(const wchar_t* context, Func&& func) noexcept
+    -> std::enable_if_t<std::is_void_v<std::invoke_result_t<Func>>> {
+    try {
+        std::forward<Func>(func)();
+    } catch (const std::exception& ex) {
+        LogUnhandledExceptionNarrow(context, ex.what());
+    } catch (...) {
+        LogUnhandledException(context);
+    }
+}
+
+template <typename Func, typename Fallback>
+auto GuardExplorerCall(const wchar_t* context, Func&& func, Fallback&& fallback) noexcept
+    -> std::enable_if_t<!std::is_void_v<std::invoke_result_t<Func>>, std::invoke_result_t<Func>> {
+    using Result = std::invoke_result_t<Func>;
+    try {
+        return std::forward<Func>(func)();
+    } catch (const std::exception& ex) {
+        LogUnhandledExceptionNarrow(context, ex.what());
+    } catch (...) {
+        LogUnhandledException(context);
+    }
+    return std::forward<Fallback>(fallback)();
+}
 
 }  // namespace shelltabs
 
