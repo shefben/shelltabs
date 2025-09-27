@@ -158,6 +158,8 @@ SharedDragState& GetSharedDragState() {
     return state;
 }
 
+thread_local bool g_rebarPrintActive = false;
+
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -338,6 +340,10 @@ void TabBandWindow::Destroy() {
         DestroyWindow(m_newTabButton);
         m_newTabButton = nullptr;
     }
+    if (m_parentRebar && m_rebarSubclassed) {
+        RemoveWindowSubclass(m_parentRebar, RebarSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        m_rebarSubclassed = false;
+    }
     if (m_hwnd) {
         UnregisterWindow(m_hwnd, this);
         DestroyWindow(m_hwnd);
@@ -345,6 +351,7 @@ void TabBandWindow::Destroy() {
     }
     m_parentRebar = nullptr;
     m_rebarBandIndex = -1;
+    m_rebarZOrderTop = false;
     m_tabData.clear();
 }
 
@@ -586,6 +593,10 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
     }
 
     const_cast<TabBandWindow*>(this)->EnsureRebarIntegration();
+
+    if (DrawRebarBackground(dc, bounds)) {
+        return;
+    }
 
     bool backgroundDrawn = false;
     if (m_hwnd) {
@@ -1061,6 +1072,127 @@ bool TabBandWindow::IsRebarWindow(HWND hwnd) {
     return _wcsicmp(className, REBARCLASSNAMEW) == 0 || _wcsicmp(className, L"ReBarWindow32") == 0;
 }
 
+bool TabBandWindow::DrawRebarBackground(HDC dc, const RECT& bounds) const {
+    if (!dc || !m_hwnd) {
+        return false;
+    }
+    if (!m_parentRebar || !IsWindow(m_parentRebar) || m_rebarBandIndex < 0) {
+        return false;
+    }
+    if (g_rebarPrintActive) {
+        return false;
+    }
+
+    POINT origin{0, 0};
+    MapWindowPoints(m_hwnd, m_parentRebar, &origin, 1);
+
+    RECT clip = bounds;
+    OffsetRect(&clip, origin.x, origin.y);
+
+    const int saved = SaveDC(dc);
+    if (saved == 0) {
+        return false;
+    }
+
+    bool drawn = false;
+    if (SetViewportOrgEx(dc, -origin.x, -origin.y, nullptr)) {
+        if (!IsRectEmpty(&clip)) {
+            IntersectClipRect(dc, clip.left, clip.top, clip.right, clip.bottom);
+        }
+        g_rebarPrintActive = true;
+        SendMessageW(m_parentRebar, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT | PRF_ERASEBKGND);
+        g_rebarPrintActive = false;
+        drawn = true;
+    }
+
+    RestoreDC(dc, saved);
+    return drawn;
+}
+
+void TabBandWindow::OnParentRebarMetricsChanged() {
+    if (!m_hwnd) {
+        return;
+    }
+
+    if (!m_parentRebar || !IsWindow(m_parentRebar)) {
+        m_rebarBandIndex = -1;
+        m_rebarZOrderTop = false;
+        return;
+    }
+
+    m_rebarBandIndex = FindRebarBandIndex();
+    RefreshRebarMetrics();
+    EnsureToolbarZOrder();
+    InvalidateRect(m_hwnd, nullptr, TRUE);
+}
+
+void TabBandWindow::EnsureToolbarZOrder() {
+    if (!m_hwnd) {
+        m_rebarZOrderTop = false;
+        return;
+    }
+
+    HWND parent = GetParent(m_hwnd);
+    if (!parent || !IsWindow(parent) || !IsRebarWindow(parent)) {
+        m_rebarZOrderTop = false;
+        return;
+    }
+
+    if (!GetWindow(m_hwnd, GW_HWNDPREV)) {
+        m_rebarZOrderTop = true;
+        return;
+    }
+
+    const UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+    if (SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, flags)) {
+        if (!GetWindow(m_hwnd, GW_HWNDPREV)) {
+            m_rebarZOrderTop = true;
+            return;
+        }
+    }
+
+    m_rebarZOrderTop = false;
+}
+
+LRESULT CALLBACK TabBandWindow::RebarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                  UINT_PTR id, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<TabBandWindow*>(refData);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (self->m_parentRebar != hwnd) {
+        self->m_parentRebar = hwnd;
+    }
+
+    switch (msg) {
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+        case WM_SYSCOLORCHANGE:
+        case WM_SIZE:
+        case RB_SETBANDINFO:
+        case RB_INSERTBAND:
+        case RB_DELETEBAND:
+#ifdef RB_MOVEBAND
+        case RB_MOVEBAND:
+#endif
+#ifdef RB_SIZETOBAND
+        case RB_SIZETOBAND:
+#endif
+            if (self->m_hwnd && IsWindow(self->m_hwnd)) {
+                self->OnParentRebarMetricsChanged();
+            }
+            break;
+        case WM_NCDESTROY:
+            self->m_rebarSubclassed = false;
+            self->m_parentRebar = nullptr;
+            self->m_rebarBandIndex = -1;
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
 int TabBandWindow::FindRebarBandIndex() const {
     if (!m_parentRebar || !IsWindow(m_parentRebar)) {
         return -1;
@@ -1134,6 +1266,7 @@ void TabBandWindow::EnsureRebarIntegration() {
     if (!m_hwnd) {
         return;
     }
+    HWND previousRebar = m_parentRebar;
     if (!m_parentRebar || !IsWindow(m_parentRebar)) {
         HWND parent = GetParent(m_hwnd);
         while (parent && !IsRebarWindow(parent)) {
@@ -1141,9 +1274,23 @@ void TabBandWindow::EnsureRebarIntegration() {
         }
         m_parentRebar = parent;
         m_rebarBandIndex = -1;
+        m_rebarZOrderTop = false;
     }
+    if (previousRebar && previousRebar != m_parentRebar && m_rebarSubclassed) {
+        RemoveWindowSubclass(previousRebar, RebarSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        m_rebarSubclassed = false;
+    }
+
     if (!m_parentRebar) {
+        m_rebarZOrderTop = false;
         return;
+    }
+
+    if (!m_rebarSubclassed) {
+        if (SetWindowSubclass(m_parentRebar, RebarSubclassProc, reinterpret_cast<UINT_PTR>(this),
+                              reinterpret_cast<DWORD_PTR>(this))) {
+            m_rebarSubclassed = true;
+        }
     }
 
     const int index = FindRebarBandIndex();
@@ -1151,6 +1298,8 @@ void TabBandWindow::EnsureRebarIntegration() {
         m_rebarBandIndex = index;
         RefreshRebarMetrics();
     }
+
+    EnsureToolbarZOrder();
 }
 
 void TabBandWindow::UpdateToolbarMetrics() {
@@ -2925,6 +3074,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_WINDOWPOSCHANGED: {
                 self->EnsureRebarIntegration();
+                self->EnsureToolbarZOrder();
                 return fallback();
             }
             case WM_DRAWITEM: {
@@ -3093,6 +3243,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();
+                if (self->m_parentRebar && self->m_rebarSubclassed) {
+                    RemoveWindowSubclass(self->m_parentRebar, RebarSubclassProc, reinterpret_cast<UINT_PTR>(self));
+                    self->m_rebarSubclassed = false;
+                }
                 self->m_parentRebar = nullptr;
                 self->m_rebarBandIndex = -1;
                 UnregisterWindow(hwnd, self);
