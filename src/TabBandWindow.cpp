@@ -122,8 +122,25 @@ void ApplyImmersiveDarkMode(HWND hwnd, bool enabled) {
         return;
     }
 
+    using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    static DwmSetWindowAttributeFn setWindowAttribute = []() -> DwmSetWindowAttributeFn {
+        HMODULE module = GetModuleHandleW(L"dwmapi.dll");
+        if (!module) {
+            module = LoadLibraryW(L"dwmapi.dll");
+        }
+        if (!module) {
+            return nullptr;
+        }
+        return reinterpret_cast<DwmSetWindowAttributeFn>(
+            GetProcAddress(module, "DwmSetWindowAttribute"));
+    }();
+
+    if (!setWindowAttribute) {
+        return;
+    }
+
     const BOOL value = enabled ? TRUE : FALSE;
-    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+    setWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
 }
 
 }  // namespace
@@ -161,6 +178,11 @@ void TabBandWindow::Destroy() {
     ClearVisualItems();
     CloseThemeHandles();
     m_darkMode = false;
+    m_refreshingTheme = false;
+    m_windowDarkModeInitialized = false;
+    m_windowDarkModeValue = false;
+    m_buttonDarkModeInitialized = false;
+    m_buttonDarkModeValue = false;
 
     if (m_newTabButton) {
         DestroyWindow(m_newTabButton);
@@ -615,15 +637,38 @@ void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& o
 }
 
 void TabBandWindow::RefreshTheme() {
+    if (m_refreshingTheme) {
+        return;
+    }
+
+    m_refreshingTheme = true;
+    struct ThemeRefreshGuard {
+        TabBandWindow* window;
+        ~ThemeRefreshGuard() {
+            if (window) {
+                window->m_refreshingTheme = false;
+            }
+        }
+    } guard{this};
+
     CloseThemeHandles();
     if (!m_hwnd) {
         m_darkMode = false;
+        m_windowDarkModeInitialized = false;
+        m_windowDarkModeValue = false;
+        m_buttonDarkModeInitialized = false;
+        m_buttonDarkModeValue = false;
         return;
     }
 
     SetWindowTheme(m_hwnd, L"Explorer", nullptr);
-    m_darkMode = IsSystemDarkMode();
-    ApplyImmersiveDarkMode(m_hwnd, m_darkMode);
+    const bool darkMode = IsSystemDarkMode();
+    if (!m_windowDarkModeInitialized || darkMode != m_windowDarkModeValue) {
+        ApplyImmersiveDarkMode(m_hwnd, darkMode);
+        m_windowDarkModeInitialized = true;
+        m_windowDarkModeValue = darkMode;
+    }
+    m_darkMode = darkMode;
     m_tabTheme = OpenThemeData(m_hwnd, L"Tab");
     m_rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
     UpdateNewTabButtonTheme();
@@ -642,10 +687,16 @@ void TabBandWindow::CloseThemeHandles() {
 
 void TabBandWindow::UpdateNewTabButtonTheme() {
     if (!m_newTabButton) {
+        m_buttonDarkModeInitialized = false;
+        m_buttonDarkModeValue = false;
         return;
     }
     SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
-    ApplyImmersiveDarkMode(m_newTabButton, m_darkMode);
+    if (!m_buttonDarkModeInitialized || m_buttonDarkModeValue != m_darkMode) {
+        ApplyImmersiveDarkMode(m_newTabButton, m_darkMode);
+        m_buttonDarkModeInitialized = true;
+        m_buttonDarkModeValue = m_darkMode;
+    }
     SendMessageW(m_newTabButton, WM_SETFONT, reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
     InvalidateRect(m_newTabButton, nullptr, TRUE);
 }

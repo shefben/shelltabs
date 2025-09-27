@@ -107,6 +107,11 @@ private:
     HTHEME m_tabTheme = nullptr;
     HTHEME m_rebarTheme = nullptr;
     bool m_darkMode = false;
+    bool m_refreshingTheme = false;
+    bool m_windowDarkModeInitialized = false;
+    bool m_windowDarkModeValue = false;
+    bool m_buttonDarkModeInitialized = false;
+    bool m_buttonDarkModeValue = false;
 
     void Layout(int width, int height);
     void RebuildLayout();
