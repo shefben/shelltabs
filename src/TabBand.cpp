@@ -608,12 +608,18 @@ void TabBand::OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool header
     SyncAllSavedGroups();
 }
 
-std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool* wasSelected) {
+std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool* wasSelected,
+                                                     bool ensurePlaceholderTab, bool* removedLastTab) {
+    if (removedLastTab) {
+        *removedLastTab = false;
+    }
+
     if (wasSelected) {
         const TabLocation selected = m_tabs.SelectedLocation();
         *wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
     }
 
+    const bool wasLastTab = (m_tabs.TotalTabCount() == 1);
     auto removed = m_tabs.TakeTab(location);
     if (!removed) {
         if (wasSelected) {
@@ -622,7 +628,11 @@ std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool*
         return std::nullopt;
     }
 
-    if (m_tabs.TotalTabCount() == 0) {
+    if (removedLastTab) {
+        *removedLastTab = wasLastTab;
+    }
+
+    if (m_tabs.TotalTabCount() == 0 && ensurePlaceholderTab) {
         EnsureTabForCurrentFolder();
     }
 
@@ -811,6 +821,14 @@ void TabBand::OnFilesDropped(TabLocation location, const std::vector<std::wstrin
         return;
     }
     PerformFileOperation(location, paths, move);
+}
+
+void TabBand::CloseFrameWindowAsync() {
+    HWND frame = GetFrameWindow();
+    if (!frame) {
+        return;
+    }
+    PostMessageW(frame, WM_CLOSE, 0, 0);
 }
 
 HWND TabBand::GetFrameWindow() const {
