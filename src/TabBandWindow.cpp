@@ -1270,7 +1270,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
     int trailingBoundary = rect.right - indicatorWidth - kPaddingX;
     if (closeRect.right > closeRect.left) {
-        trailingBoundary = std::min(trailingBoundary, closeRect.left - kCloseButtonSpacing);
+        const int closeLeft = static_cast<int>(closeRect.left);
+        trailingBoundary = std::min(trailingBoundary, closeLeft - kCloseButtonSpacing);
     }
 
     int textRight = trailingBoundary;
@@ -1331,7 +1332,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         DrawTextW(dc, badgeText.c_str(), static_cast<int>(badgeText.size()), &badgeRect,
                   DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
         SetTextColor(dc, textColor);
-        textRight = std::max(textLeft + 1, badgeRect.left - kBadgePaddingX);
+        const int badgeLeft = static_cast<int>(badgeRect.left);
+        textRight = std::max(textLeft + 1, badgeLeft - kBadgePaddingX);
     }
 
     textRect.right = std::max(textLeft + 1, textRight);
