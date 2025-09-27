@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -90,6 +91,10 @@ public:
 
     TabLocation Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex = -1);
     void Remove(TabLocation location);
+    std::optional<TabInfo> TakeTab(TabLocation location);
+    TabLocation InsertTab(TabInfo tab, int groupIndex, int tabIndex, bool select);
+    std::optional<TabGroup> TakeGroup(int groupIndex);
+    int InsertGroup(TabGroup group, int insertIndex);
     void Clear();
     void Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence);
 

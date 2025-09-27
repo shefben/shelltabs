@@ -608,6 +608,115 @@ void TabBand::OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool header
     SyncAllSavedGroups();
 }
 
+std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool* wasSelected) {
+    if (wasSelected) {
+        const TabLocation selected = m_tabs.SelectedLocation();
+        *wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
+    }
+
+    auto removed = m_tabs.TakeTab(location);
+    if (!removed) {
+        if (wasSelected) {
+            *wasSelected = false;
+        }
+        return std::nullopt;
+    }
+
+    if (m_tabs.TotalTabCount() == 0) {
+        EnsureTabForCurrentFolder();
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    return removed;
+}
+
+TabLocation TabBand::InsertTransferredTab(TabInfo tab, int groupIndex, int tabIndex, bool createGroup,
+                                          bool headerVisible, bool select) {
+    if (createGroup) {
+        groupIndex = m_tabs.CreateGroupAfter(groupIndex - 1, {}, headerVisible);
+        tabIndex = 0;
+    }
+
+    if (groupIndex < 0) {
+        groupIndex = 0;
+    }
+    const int groupCount = m_tabs.GroupCount();
+    if (groupCount == 0) {
+        m_tabs.CreateGroupAfter(-1, {}, headerVisible);
+        groupIndex = 0;
+        tabIndex = 0;
+    } else if (groupIndex >= groupCount) {
+        groupIndex = groupCount - 1;
+    }
+
+    auto* group = m_tabs.GetGroup(groupIndex);
+    if (!group) {
+        groupIndex = m_tabs.CreateGroupAfter(groupCount - 1, {}, headerVisible);
+        group = m_tabs.GetGroup(groupIndex);
+        tabIndex = 0;
+    }
+    if (group) {
+        tabIndex = std::clamp(tabIndex, 0, static_cast<int>(group->tabs.size()));
+    } else {
+        tabIndex = 0;
+    }
+
+    TabLocation inserted = m_tabs.InsertTab(std::move(tab), groupIndex, tabIndex, select);
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (select && inserted.IsValid()) {
+        NavigateToTab(inserted);
+    }
+    return inserted;
+}
+
+std::optional<TabGroup> TabBand::DetachGroupForTransfer(int groupIndex, bool* wasSelected) {
+    if (wasSelected) {
+        *wasSelected = (m_tabs.SelectedLocation().groupIndex == groupIndex);
+    }
+
+    auto removed = m_tabs.TakeGroup(groupIndex);
+    if (!removed) {
+        if (wasSelected) {
+            *wasSelected = false;
+        }
+        return std::nullopt;
+    }
+
+    if (m_tabs.TotalTabCount() == 0) {
+        EnsureTabForCurrentFolder();
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    return removed;
+}
+
+int TabBand::InsertTransferredGroup(TabGroup group, int insertIndex, bool select) {
+    if (insertIndex < 0) {
+        insertIndex = 0;
+    }
+    insertIndex = m_tabs.InsertGroup(std::move(group), insertIndex);
+
+    if (select) {
+        if (auto* insertedGroup = m_tabs.GetGroup(insertIndex); insertedGroup) {
+            if (!insertedGroup->tabs.empty()) {
+                TabLocation location{insertIndex, 0};
+                m_tabs.SetSelectedLocation(location);
+                NavigateToTab(location);
+            }
+        }
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    return insertIndex;
+}
+
 void TabBand::OnSetGroupHeaderVisible(int groupIndex, bool visible) {
     m_tabs.SetGroupHeaderVisible(groupIndex, visible);
     UpdateTabsUI();

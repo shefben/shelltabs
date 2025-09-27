@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -86,6 +87,11 @@ public:
     void OnMoveTabRequested(TabLocation from, TabLocation to);
     void OnMoveGroupRequested(int fromGroup, int toGroup);
     void OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible);
+    std::optional<TabInfo> DetachTabForTransfer(TabLocation location, bool* wasSelected);
+    TabLocation InsertTransferredTab(TabInfo tab, int groupIndex, int tabIndex, bool createGroup, bool headerVisible,
+                                     bool select);
+    std::optional<TabGroup> DetachGroupForTransfer(int groupIndex, bool* wasSelected);
+    int InsertTransferredGroup(TabGroup group, int insertIndex, bool select);
     void OnSetGroupHeaderVisible(int groupIndex, bool visible);
     void OnToggleSplitView(int groupIndex);
     void OnPromoteSplitSecondary(TabLocation location);
