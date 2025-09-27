@@ -372,8 +372,12 @@ void TabBandWindow::RebuildLayout() {
     ReleaseDC(m_hwnd, dc);
 }
 
-void TabBandWindow::Draw(HDC dc) const {
-    RECT fillRect = m_clientRect;
+void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
+    if (!dc) {
+        return;
+    }
+
+    RECT fillRect = bounds;
     bool themedBackground = false;
     if (m_rebarTheme) {
         if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BAND, 0, &fillRect, nullptr))) {
@@ -386,10 +390,47 @@ void TabBandWindow::Draw(HDC dc) const {
         }
     }
     if (!themedBackground) {
-        HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
-        FillRect(dc, &fillRect, background);
-        DeleteObject(background);
+        const COLORREF baseColor = m_darkMode ? RGB(45, 45, 48) : GetSysColor(COLOR_BTNFACE);
+        HBRUSH background = CreateSolidBrush(baseColor);
+        if (background) {
+            FillRect(dc, &fillRect, background);
+            DeleteObject(background);
+        }
+
+        const COLORREF topBorder = m_darkMode ? RGB(65, 65, 70) : GetSysColor(COLOR_3DSHADOW);
+        const COLORREF bottomBorder = m_darkMode ? RGB(30, 30, 32) : GetSysColor(COLOR_3DLIGHT);
+
+        HPEN pen = CreatePen(PS_SOLID, 1, topBorder);
+        if (pen) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+            MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
+            LineTo(dc, fillRect.right, fillRect.top);
+            SelectObject(dc, oldPen);
+            DeleteObject(pen);
+        }
+
+        pen = CreatePen(PS_SOLID, 1, bottomBorder);
+        if (pen) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+            const int bottom = fillRect.bottom - 1;
+            MoveToEx(dc, fillRect.left, bottom, nullptr);
+            LineTo(dc, fillRect.right, bottom);
+            SelectObject(dc, oldPen);
+            DeleteObject(pen);
+        }
     }
+}
+
+void TabBandWindow::Draw(HDC dc) const {
+    if (!dc) {
+        return;
+    }
+
+    RECT windowRect = m_clientRect;
+    if (m_hwnd) {
+        GetClientRect(m_hwnd, &windowRect);
+    }
+    DrawBackground(dc, windowRect);
 
     HFONT font = GetDefaultFont();
     HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
@@ -1716,6 +1757,18 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             return 0;
         }
+        case WM_SHELLTABS_REFRESH_COLORIZER: {
+            if (self->m_owner) {
+                self->m_owner->OnColorizerRefresh();
+            }
+            return 0;
+        }
+        case WM_SHELLTABS_REFRESH_GIT_STATUS: {
+            if (self->m_owner) {
+                self->m_owner->OnGitStatusUpdated();
+            }
+            return 0;
+        }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC dc = BeginPaint(hwnd, &ps);
@@ -1724,6 +1777,20 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             return 0;
         }
         case WM_ERASEBKGND: {
+            HDC eraseDc = reinterpret_cast<HDC>(wParam);
+            bool release = false;
+            if (!eraseDc) {
+                eraseDc = GetDC(hwnd);
+                release = eraseDc != nullptr;
+            }
+            if (eraseDc) {
+                RECT client{};
+                GetClientRect(hwnd, &client);
+                self->DrawBackground(eraseDc, client);
+                if (release) {
+                    ReleaseDC(hwnd, eraseDc);
+                }
+            }
             return 1;
         }
         case WM_CAPTURECHANGED: {

@@ -23,6 +23,7 @@
 
 #include "Guids.h"
 #include "GroupStore.h"
+#include "GitStatus.h"
 #include "Module.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
@@ -261,6 +262,7 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
         DisconnectSite();
         return E_FAIL;
     }
+    EnsureGitStatusListener();
 
     m_browserEvents = std::make_unique<BrowserEvents>(this);
     if (m_browserEvents) {
@@ -279,6 +281,7 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
     if (m_viewColorizer) {
         m_viewColorizer->Attach(m_shellBrowser);
     }
+    ScheduleColorizerRefresh();
 
     return S_OK;
 }
@@ -324,9 +327,7 @@ IFACEMETHODIMP TabBand::GetSizeMax(ULARGE_INTEGER* pcbSize) {
 void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
-    if (m_viewColorizer) {
-        m_viewColorizer->Refresh();
-    }
+    ScheduleColorizerRefresh();
     m_internalNavigation = false;
 }
 
@@ -699,7 +700,31 @@ void TabBand::EnsureWindow() {
     auto window = std::make_unique<TabBandWindow>(this);
     if (window->Create(parent)) {
         m_window = std::move(window);
+        EnsureGitStatusListener();
     }
+}
+
+void TabBand::EnsureGitStatusListener() {
+    if (m_gitStatusListenerId != 0 || !m_window) {
+        return;
+    }
+    HWND hwnd = m_window->GetHwnd();
+    if (!hwnd) {
+        return;
+    }
+    m_gitStatusListenerId = GitStatusCache::Instance().AddListener([hwnd]() {
+        if (hwnd && IsWindow(hwnd)) {
+            PostMessageW(hwnd, WM_SHELLTABS_REFRESH_GIT_STATUS, 0, 0);
+        }
+    });
+}
+
+void TabBand::RemoveGitStatusListener() {
+    if (m_gitStatusListenerId == 0) {
+        return;
+    }
+    GitStatusCache::Instance().RemoveListener(m_gitStatusListenerId);
+    m_gitStatusListenerId = 0;
 }
 
 void TabBand::DisconnectSite() {
@@ -715,6 +740,7 @@ void TabBand::DisconnectSite() {
     m_shellBrowser.Reset();
     m_site.Reset();
 
+    RemoveGitStatusListener();
     if (m_window) {
         m_window->Destroy();
         m_window.reset();
@@ -729,6 +755,7 @@ void TabBand::DisconnectSite() {
     m_allowExternalNewWindows = 0;
     m_viewColorizer.reset();
     m_sessionStore.reset();
+    m_colorizerRefreshPosted = false;
 }
 
 void TabBand::InitializeTabs() {
@@ -1288,6 +1315,21 @@ void TabBand::OnDeferredNavigate() {
     }
 }
 
+void TabBand::OnColorizerRefresh() {
+    m_colorizerRefreshPosted = false;
+    if (m_viewColorizer) {
+        m_viewColorizer->Refresh();
+    }
+}
+
+void TabBand::OnGitStatusUpdated() {
+    if (!m_window) {
+        return;
+    }
+    const auto items = m_tabs.BuildView();
+    m_window->SetTabs(items);
+}
+
 void TabBand::QueueNavigateTo(TabLocation location) {
     if (!location.IsValid() || !m_window) {
         return;
@@ -1302,6 +1344,19 @@ void TabBand::QueueNavigateTo(TabLocation location) {
     }
     if (PostMessageW(hwnd, WM_SHELLTABS_DEFER_NAVIGATE, 0, 0)) {
         m_deferredNavigationPosted = true;
+    }
+}
+
+void TabBand::ScheduleColorizerRefresh() {
+    if (!m_viewColorizer || !m_window || m_colorizerRefreshPosted) {
+        return;
+    }
+    HWND hwnd = m_window->GetHwnd();
+    if (!hwnd) {
+        return;
+    }
+    if (PostMessageW(hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0)) {
+        m_colorizerRefreshPosted = true;
     }
 }
 

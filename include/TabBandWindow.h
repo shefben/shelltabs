@@ -112,6 +112,7 @@ private:
     void Layout(int width, int height);
     void RebuildLayout();
     void Draw(HDC dc) const;
+    void DrawBackground(HDC dc, const RECT& bounds) const;
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
@@ -156,6 +157,8 @@ private:
 
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
 constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
+constexpr UINT WM_SHELLTABS_REFRESH_COLORIZER = WM_APP + 44;
+constexpr UINT WM_SHELLTABS_REFRESH_GIT_STATUS = WM_APP + 45;
 
 enum : UINT_PTR {
     IDC_NEW_TAB = 1001,

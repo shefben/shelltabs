@@ -2,12 +2,17 @@
 
 #include <Shlwapi.h>
 
+#include <PathCch.h>
+
+#include <algorithm>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cwchar>
+#include <wchar.h>
 
 #include "Utilities.h"
 
@@ -15,6 +20,9 @@ namespace shelltabs {
 
 namespace {
 constexpr std::chrono::seconds kCacheTtl(5);
+constexpr std::chrono::seconds kRootCacheTtl(30);
+constexpr size_t kMaxRootCacheEntries = 256;
+constexpr size_t kMaxQueueDepth = 64;
 
 std::wstring NormalizePath(const std::wstring& path) {
     if (path.empty()) {
@@ -112,45 +120,87 @@ GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
         return {};
     }
 
-    const std::wstring repoRoot = FindRepositoryRoot(path);
+    const std::wstring repoRoot = ResolveRepositoryRoot(path);
     if (repoRoot.empty()) {
         return {};
     }
 
+    EnsureWorker();
+
+    bool shouldQueue = false;
     GitStatusInfo cached;
-    if (HasFreshEntry(repoRoot, &cached)) {
-        return cached;
+    {
+        std::lock_guard lock(m_mutex);
+        auto& entry = m_cache[repoRoot];
+        const auto now = std::chrono::steady_clock::now();
+        if (entry.hasStatus && now - entry.timestamp <= kCacheTtl) {
+            return entry.status;
+        }
+        if (!entry.inFlight) {
+            entry.inFlight = true;
+            shouldQueue = true;
+        }
+        if (entry.hasStatus) {
+            cached = entry.status;
+        }
     }
 
-    GitStatusInfo info = ComputeStatus(repoRoot);
+    if (shouldQueue) {
+        if (!EnqueueWork(repoRoot)) {
+            std::lock_guard lock(m_mutex);
+            auto it = m_cache.find(repoRoot);
+            if (it != m_cache.end()) {
+                it->second.inFlight = false;
+            }
+        }
+    }
 
-    std::lock_guard lock(m_mutex);
-    m_cache[repoRoot] = CacheEntry{info, std::chrono::steady_clock::now()};
-    return info;
+    return cached;
 }
 
-std::wstring GitStatusCache::FindRepositoryRoot(const std::wstring& path) const {
-    try {
-        std::filesystem::path current(path);
-        if (current.empty()) {
-            return {};
-        }
-
-        if (!std::filesystem::exists(current)) {
-            current = current.parent_path();
-        }
-
-        while (!current.empty()) {
-            const std::wstring gitDir = (current / L".git").wstring();
-            if (DirectoryExists(gitDir)) {
-                return NormalizePath(current.wstring());
-            }
-            current = current.parent_path();
-        }
-    } catch (const std::exception&) {
+std::wstring GitStatusCache::ResolveRepositoryRoot(const std::wstring& path) {
+    const auto now = std::chrono::steady_clock::now();
+    const std::wstring normalized = NormalizePath(path);
+    if (normalized.empty() || IsShellNamespacePath(normalized)) {
         return {};
     }
-    return {};
+
+    if (auto cached = LookupCachedRoot(normalized, now)) {
+        return *cached;
+    }
+
+    std::vector<std::wstring> probed;
+    probed.reserve(8);
+
+    std::wstring current = normalized;
+    std::wstring resolved;
+
+    while (!current.empty()) {
+        probed.push_back(current);
+
+        if (HasGitMetadata(current)) {
+            resolved = current;
+            break;
+        }
+
+        if (auto cachedParent = LookupCachedRoot(current, now)) {
+            resolved = *cachedParent;
+            break;
+        }
+
+        std::wstring parent = ParentDirectory(current);
+        if (parent.empty() || parent == current) {
+            break;
+        }
+        current = std::move(parent);
+    }
+
+    if (probed.empty()) {
+        probed.push_back(normalized);
+    }
+
+    CacheRepositoryRoot(probed, resolved, now);
+    return resolved;
 }
 
 GitStatusInfo GitStatusCache::ComputeStatus(const std::wstring& repoRoot) const {
@@ -166,6 +216,115 @@ GitStatusInfo GitStatusCache::ComputeStatus(const std::wstring& repoRoot) const 
     return ParseGitStatus(repoRoot, output);
 }
 
+bool GitStatusCache::IsShellNamespacePath(const std::wstring& path) const {
+    if (path.empty()) {
+        return true;
+    }
+    if (path.rfind(L"::", 0) == 0 || path.rfind(L"shell::", 0) == 0) {
+        return true;
+    }
+    if (PathIsURLW(path.c_str())) {
+        return true;
+    }
+    if (PathIsRelativeW(path.c_str()) && path.rfind(L"\\\\?\\", 0) != 0) {
+        return true;
+    }
+    return false;
+}
+
+bool GitStatusCache::HasGitMetadata(const std::wstring& directory) const {
+    if (directory.empty()) {
+        return false;
+    }
+
+    std::wstring probe = directory;
+    if (!probe.empty() && probe.back() != L'\\' && probe.back() != L'/') {
+        probe.push_back(L'\\');
+    }
+    probe += L".git";
+
+    const DWORD attributes = GetFileAttributesW(probe.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES;
+}
+
+std::wstring GitStatusCache::ParentDirectory(const std::wstring& path) const {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring buffer = path;
+    if (buffer.empty() || buffer.back() != L'\0') {
+        buffer.push_back(L'\0');
+    }
+
+    PWSTR end = nullptr;
+    size_t remaining = 0;
+    PathCchRemoveBackslashEx(buffer.data(), buffer.size(), &end, &remaining);
+
+    HRESULT hr = PathCchRemoveFileSpec(buffer.data(), buffer.size());
+    if (FAILED(hr)) {
+        return {};
+    }
+
+    const size_t length = _wcsnlen(buffer.c_str(), buffer.size());
+    if (length == 0) {
+        return {};
+    }
+
+    std::wstring parent(buffer.c_str(), length);
+    if (parent.size() == 2 && parent[1] == L':') {
+        parent.push_back(L'\\');
+    }
+    return NormalizePath(parent);
+}
+
+std::optional<std::wstring> GitStatusCache::LookupCachedRoot(const std::wstring& path,
+                                                             std::chrono::steady_clock::time_point now) {
+    std::lock_guard lock(m_rootCacheMutex);
+    auto it = m_rootCache.find(path);
+    if (it == m_rootCache.end()) {
+        return std::nullopt;
+    }
+    if (now - it->second.timestamp > kRootCacheTtl) {
+        m_rootCache.erase(it);
+        return std::nullopt;
+    }
+    return it->second.root;
+}
+
+void GitStatusCache::CacheRepositoryRoot(const std::vector<std::wstring>& probedPaths, const std::wstring& root,
+                                         std::chrono::steady_clock::time_point timestamp) {
+    if (probedPaths.empty()) {
+        return;
+    }
+
+    std::lock_guard lock(m_rootCacheMutex);
+    for (const auto& path : probedPaths) {
+        if (path.empty()) {
+            continue;
+        }
+        m_rootCache[path] = {root, timestamp};
+    }
+
+    for (auto it = m_rootCache.begin(); it != m_rootCache.end();) {
+        if (timestamp - it->second.timestamp > kRootCacheTtl) {
+            it = m_rootCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    while (m_rootCache.size() > kMaxRootCacheEntries) {
+        auto oldest = std::min_element(
+            m_rootCache.begin(), m_rootCache.end(),
+            [](const auto& lhs, const auto& rhs) { return lhs.second.timestamp < rhs.second.timestamp; });
+        if (oldest == m_rootCache.end()) {
+            break;
+        }
+        m_rootCache.erase(oldest);
+    }
+}
+
 bool GitStatusCache::HasFreshEntry(const std::wstring& repoRoot, GitStatusInfo* info) {
     std::lock_guard lock(m_mutex);
     auto it = m_cache.find(repoRoot);
@@ -173,7 +332,7 @@ bool GitStatusCache::HasFreshEntry(const std::wstring& repoRoot, GitStatusInfo* 
         return false;
     }
     const auto now = std::chrono::steady_clock::now();
-    if (now - it->second.timestamp > kCacheTtl) {
+    if (!it->second.hasStatus || now - it->second.timestamp > kCacheTtl) {
         m_cache.erase(it);
         return false;
     }
@@ -181,6 +340,116 @@ bool GitStatusCache::HasFreshEntry(const std::wstring& repoRoot, GitStatusInfo* 
         *info = it->second.status;
     }
     return true;
+}
+
+size_t GitStatusCache::AddListener(std::function<void()> callback) {
+    if (!callback) {
+        return 0;
+    }
+    std::lock_guard lock(m_listenerMutex);
+    const size_t id = m_nextListenerId++;
+    m_listeners.emplace_back(id, std::move(callback));
+    return id;
+}
+
+void GitStatusCache::RemoveListener(size_t id) {
+    if (id == 0) {
+        return;
+    }
+    std::lock_guard lock(m_listenerMutex);
+    auto it = std::remove_if(m_listeners.begin(), m_listeners.end(), [id](const auto& entry) { return entry.first == id; });
+    m_listeners.erase(it, m_listeners.end());
+}
+
+void GitStatusCache::EnsureWorker() {
+    std::call_once(m_workerInit, [this]() {
+        std::thread worker([this]() { WorkerLoop(); });
+        worker.detach();
+    });
+}
+
+void GitStatusCache::WorkerLoop() {
+    while (true) {
+        std::wstring repo;
+        {
+            std::unique_lock lock(m_queueMutex);
+            m_queueCv.wait(lock, [this]() { return m_stop.load() || !m_queue.empty(); });
+            if (m_stop.load() && m_queue.empty()) {
+                return;
+            }
+            repo = std::move(m_queue.front());
+            m_queue.pop();
+            if (!repo.empty()) {
+                m_pendingWork.erase(repo);
+            }
+        }
+
+        if (repo.empty()) {
+            continue;
+        }
+
+        GitStatusInfo info = ComputeStatus(repo);
+        const auto now = std::chrono::steady_clock::now();
+        bool notify = false;
+        {
+            std::lock_guard lock(m_mutex);
+            auto it = m_cache.find(repo);
+            if (it != m_cache.end()) {
+                it->second.status = info;
+                it->second.timestamp = now;
+                it->second.hasStatus = true;
+                it->second.inFlight = false;
+                notify = true;
+            }
+        }
+        if (notify) {
+            NotifyListeners();
+        }
+    }
+}
+
+bool GitStatusCache::EnqueueWork(std::wstring repoRoot) {
+    if (repoRoot.empty()) {
+        return false;
+    }
+
+    bool enqueued = false;
+    {
+        std::lock_guard lock(m_queueMutex);
+        if (m_pendingWork.find(repoRoot) != m_pendingWork.end()) {
+            return true;
+        }
+        if (m_queue.size() >= kMaxQueueDepth) {
+            return false;
+        }
+        m_pendingWork.insert(repoRoot);
+        m_queue.push(std::move(repoRoot));
+        enqueued = true;
+    }
+    if (enqueued) {
+        m_queueCv.notify_one();
+    }
+    return enqueued;
+}
+
+void GitStatusCache::NotifyListeners() {
+    std::vector<std::function<void()>> callbacks;
+    {
+        std::lock_guard lock(m_listenerMutex);
+        callbacks.reserve(m_listeners.size());
+        for (const auto& entry : m_listeners) {
+            if (entry.second) {
+                callbacks.push_back(entry.second);
+            }
+        }
+    }
+
+    for (auto& callback : callbacks) {
+        try {
+            callback();
+        } catch (...) {
+        }
+    }
 }
 
 }  // namespace shelltabs

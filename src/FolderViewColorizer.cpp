@@ -47,12 +47,11 @@ FolderViewColorizer::~FolderViewColorizer() { Detach(); }
 
 void FolderViewColorizer::Attach(const Microsoft::WRL::ComPtr<IShellBrowser>& browser) {
     if (browser == m_shellBrowser) {
-        Refresh();
+        ResetView();
         return;
     }
     Detach();
     m_shellBrowser = browser;
-    Refresh();
 }
 
 void FolderViewColorizer::Detach() {
