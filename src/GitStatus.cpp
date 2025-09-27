@@ -5,6 +5,7 @@
 #include <PathCch.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -15,6 +16,7 @@
 #include <cwchar>
 #include <wchar.h>
 
+#include "Logging.h"
 #include "Utilities.h"
 
 namespace shelltabs {
@@ -25,6 +27,19 @@ constexpr std::chrono::seconds kRootCacheTtl(30);
 constexpr size_t kMaxRootCacheEntries = 256;
 constexpr size_t kMaxQueueDepth = 64;
 constexpr std::chrono::seconds kWorkerRetryDelay(5);
+
+std::wstring FromUtf8(const char* value) {
+    if (!value || !*value) {
+        return {};
+    }
+    int required = MultiByteToWideChar(CP_UTF8, 0, value, -1, nullptr, 0);
+    if (required <= 0) {
+        return {};
+    }
+    std::wstring buffer(static_cast<size_t>(required - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value, -1, buffer.data(), required);
+    return buffer;
+}
 
 std::wstring NormalizePath(const std::wstring& path) {
     if (path.empty()) {
@@ -123,6 +138,8 @@ GitStatusCache& GitStatusCache::Instance() {
 }
 
 GitStatusCache::~GitStatusCache() {
+    LogMessage(LogLevel::Info, L"GitStatusCache shutting down (workerRunning=%ls)",
+               m_workerRunning.load(std::memory_order_acquire) ? L"true" : L"false");
     m_stop.store(true, std::memory_order_release);
     {
         std::lock_guard queueLock(m_queueMutex);
@@ -138,6 +155,7 @@ GitStatusCache::~GitStatusCache() {
         JoinWorkerIfNeeded();
         m_workerRunning.store(false, std::memory_order_release);
     }
+    LogMessage(LogLevel::Info, L"GitStatusCache shutdown complete");
 }
 
 GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
@@ -420,12 +438,20 @@ void GitStatusCache::EnsureWorker() {
     try {
         m_stop.store(false, std::memory_order_release);
         m_workerThread = std::thread([this]() { WorkerLoop(); });
+        LogMessage(LogLevel::Info, L"GitStatus worker thread started");
         m_workerRunning.store(true, std::memory_order_release);
         m_workerFailed.store(false, std::memory_order_release);
         m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
-    } catch (const std::system_error&) {
+    } catch (const std::system_error& ex) {
+        const std::wstring message = FromUtf8(ex.what());
+        if (!message.empty()) {
+            LogMessage(LogLevel::Error, L"GitStatus worker start failed (code=%d): %ls", ex.code().value(), message.c_str());
+        } else {
+            LogMessage(LogLevel::Error, L"GitStatus worker start failed (code=%d)", ex.code().value());
+        }
         ScheduleWorkerRetryLocked(now);
     } catch (...) {
+        LogMessage(LogLevel::Error, L"GitStatus worker start encountered an unknown exception");
         ScheduleWorkerRetryLocked(now);
     }
 }
@@ -459,6 +485,7 @@ void GitStatusCache::WorkerLoop() {
                 std::unique_lock lock(m_queueMutex);
                 m_queueCv.wait(lock, [this]() { return m_stop.load() || !m_queue.empty(); });
                 if (m_stop.load(std::memory_order_acquire) && m_queue.empty()) {
+                    LogMessage(LogLevel::Info, L"GitStatus worker stopping gracefully");
                     guard.Release();
                     return;
                 }
@@ -491,7 +518,18 @@ void GitStatusCache::WorkerLoop() {
                 NotifyListeners();
             }
         }
+    } catch (const std::exception& ex) {
+        const std::wstring message = FromUtf8(ex.what());
+        if (!message.empty()) {
+            LogMessage(LogLevel::Error, L"GitStatus worker loop terminated with exception: %ls", message.c_str());
+        } else {
+            LogMessage(LogLevel::Error, L"GitStatus worker loop terminated with exception");
+        }
+        guard.Release();
+        onFailure();
+        return;
     } catch (...) {
+        LogMessage(LogLevel::Error, L"GitStatus worker loop terminated with unknown exception");
         guard.Release();
         onFailure();
         return;
@@ -545,6 +583,7 @@ void GitStatusCache::NotifyListeners() {
 }
 
 void GitStatusCache::HandleWorkerFailure(std::chrono::steady_clock::time_point now) {
+    LogMessage(LogLevel::Warning, L"GitStatus worker failure detected; scheduling retry");
     ResetPendingWork();
 
     std::lock_guard startLock(m_workerStartMutex);
@@ -568,6 +607,7 @@ void GitStatusCache::ResetPendingWork() {
     }
 
     if (pending.empty()) {
+        LogMessage(LogLevel::Info, L"GitStatus worker had no pending work to reset");
         return;
     }
 
@@ -578,11 +618,14 @@ void GitStatusCache::ResetPendingWork() {
             it->second.inFlight = false;
         }
     }
+    LogMessage(LogLevel::Info, L"GitStatus worker reset %zu pending repositories", pending.size());
 }
 
 void GitStatusCache::ScheduleWorkerRetryLocked(std::chrono::steady_clock::time_point now) {
     m_workerFailed.store(true, std::memory_order_release);
     m_nextWorkerRetry = now + kWorkerRetryDelay;
+    const auto delayMs = std::chrono::duration_cast<std::chrono::milliseconds>(kWorkerRetryDelay).count();
+    LogMessage(LogLevel::Warning, L"GitStatus worker retry scheduled in %lld ms", static_cast<long long>(delayMs));
 }
 
 void GitStatusCache::JoinWorkerIfNeeded() {
@@ -590,8 +633,11 @@ void GitStatusCache::JoinWorkerIfNeeded() {
         return;
     }
     try {
+        LogMessage(LogLevel::Info, L"Joining GitStatus worker thread");
         m_workerThread.join();
+        LogMessage(LogLevel::Info, L"GitStatus worker thread joined");
     } catch (...) {
+        LogMessage(LogLevel::Warning, L"Exception while joining GitStatus worker thread");
     }
     m_workerThread = std::thread();
 }

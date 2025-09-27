@@ -23,6 +23,7 @@ add_library(ShellTabs SHARED
     src/GroupStore.cpp
     src/Utilities.cpp
     src/GitStatus.cpp
+    src/Logging.cpp
     src/resource.rc
 )
 

@@ -10,22 +10,12 @@
 #include <vector>
 #include <cwchar>
 
+#include "Logging.h"
 #include "Module.h"
 
 namespace shelltabs {
 
 namespace {
-std::wstring BuildLogPrefix(const wchar_t* context) {
-    std::wstring prefix = L"[ShellTabs] ";
-    if (context && *context) {
-        prefix += context;
-    } else {
-        prefix += L"(unknown context)";
-    }
-    prefix += L": ";
-    return prefix;
-}
-
 std::wstring NarrowToWide(const char* value) {
     if (!value || !*value) {
         return {};
@@ -42,14 +32,12 @@ std::wstring NarrowToWide(const char* value) {
 }  // namespace
 
 void LogUnhandledException(const wchar_t* context, const wchar_t* details) {
-    std::wstring message = BuildLogPrefix(context);
-    message += L"unhandled exception";
     if (details && *details) {
-        message += L" - ";
-        message += details;
+        LogMessage(LogLevel::Error, L"%ls: unhandled exception - %ls", context && *context ? context : L"(unknown context)",
+                   details);
+        return;
     }
-    message += L"\r\n";
-    OutputDebugStringW(message.c_str());
+    LogMessage(LogLevel::Error, L"%ls: unhandled exception", context && *context ? context : L"(unknown context)");
 }
 
 void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details) {
