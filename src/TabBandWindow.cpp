@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <CommCtrl.h>
 #include <windowsx.h>
 #include <shellapi.h>
 #include <ShlObj.h>
@@ -314,6 +315,7 @@ HWND TabBandWindow::Create(HWND parent) {
 
     if (m_hwnd) {
         RegisterWindow(m_hwnd, this);
+        EnsureRebarIntegration();
     }
 
     return m_hwnd;
@@ -341,6 +343,8 @@ void TabBandWindow::Destroy() {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
+    m_parentRebar = nullptr;
+    m_rebarBandIndex = -1;
     m_tabData.clear();
 }
 
@@ -580,6 +584,8 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
     if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
         return;
     }
+
+    const_cast<TabBandWindow*>(this)->EnsureRebarIntegration();
 
     bool backgroundDrawn = false;
     if (m_hwnd) {
@@ -837,10 +843,14 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
         }
 
         auto& outline = outlines[item.data.location.groupIndex];
+        COLORREF outlineColor = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
+        if (item.data.selected) {
+            outlineColor = DarkenColor(outlineColor, 0.2);
+        }
         if (!outline.initialized) {
             outline.groupIndex = item.data.location.groupIndex;
             outline.bounds = rect;
-            outline.color = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
+            outline.color = outlineColor;
             outline.initialized = true;
             outline.visible = true;
         } else {
@@ -848,7 +858,7 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
             outline.bounds.top = std::min(outline.bounds.top, rect.top);
             outline.bounds.right = std::max(outline.bounds.right, rect.right);
             outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
-            outline.color = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
+            outline.color = outlineColor;
             outline.visible = outline.visible || item.data.headerVisible;
         }
     }
@@ -1038,8 +1048,125 @@ void TabBandWindow::UpdateThemePalette() {
     }
 }
 
+bool TabBandWindow::IsRebarWindow(HWND hwnd) {
+    if (!hwnd) {
+        return false;
+    }
+    wchar_t className[64] = {};
+    if (!RealGetWindowClassW(hwnd, className, ARRAYSIZE(className))) {
+        if (!GetClassNameW(hwnd, className, ARRAYSIZE(className))) {
+            return false;
+        }
+    }
+    return _wcsicmp(className, REBARCLASSNAMEW) == 0 || _wcsicmp(className, L"ReBarWindow32") == 0;
+}
+
+int TabBandWindow::FindRebarBandIndex() const {
+    if (!m_parentRebar || !IsWindow(m_parentRebar)) {
+        return -1;
+    }
+    const LRESULT count = SendMessageW(m_parentRebar, RB_GETBANDCOUNT, 0, 0);
+    if (count <= 0) {
+        return -1;
+    }
+    for (int index = 0; index < count; ++index) {
+        REBARBANDINFOW info{sizeof(info)};
+        info.fMask = RBBIM_CHILD;
+        if (SendMessageW(m_parentRebar, RB_GETBANDINFO, index, reinterpret_cast<LPARAM>(&info))) {
+            if (info.hwndChild == m_hwnd) {
+                return index;
+            }
+        }
+    }
+    return -1;
+}
+
+void TabBandWindow::RefreshRebarMetrics() {
+    if (!m_parentRebar || !IsWindow(m_parentRebar)) {
+        return;
+    }
+    if (m_rebarBandIndex < 0) {
+        m_rebarBandIndex = FindRebarBandIndex();
+    }
+    if (m_rebarBandIndex < 0) {
+        return;
+    }
+
+    REBARBANDINFOW info{sizeof(info)};
+    info.fMask = RBBIM_STYLE | RBBIM_CHILD;
+    if (!SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&info))) {
+        return;
+    }
+
+    DWORD desiredStyle = info.fStyle;
+    if (desiredStyle & RBBS_NOGRIPPER) {
+        desiredStyle &= ~RBBS_NOGRIPPER;
+    }
+    if (!(desiredStyle & RBBS_GRIPPERALWAYS)) {
+        desiredStyle |= RBBS_GRIPPERALWAYS;
+    }
+    if (!(desiredStyle & RBBS_CHILDEDGE)) {
+        desiredStyle |= RBBS_CHILDEDGE;
+    }
+    if (desiredStyle != info.fStyle) {
+        REBARBANDINFOW styleInfo{sizeof(styleInfo)};
+        styleInfo.fMask = RBBIM_STYLE;
+        styleInfo.fStyle = desiredStyle;
+        SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&styleInfo));
+    }
+
+    RECT borders{0, 0, 0, 0};
+    if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex, reinterpret_cast<LPARAM>(&borders))) {
+        const int candidate = std::max(borders.left, 8);
+        if (candidate > 0) {
+            m_toolbarGripWidth = candidate;
+        }
+    }
+
+    REBARBANDINFOW colorInfo{sizeof(colorInfo)};
+    colorInfo.fMask = RBBIM_COLORS;
+    colorInfo.clrBack = CLR_DEFAULT;
+    colorInfo.clrFore = CLR_DEFAULT;
+    SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&colorInfo));
+}
+
+void TabBandWindow::EnsureRebarIntegration() {
+    if (!m_hwnd) {
+        return;
+    }
+    if (!m_parentRebar || !IsWindow(m_parentRebar)) {
+        HWND parent = GetParent(m_hwnd);
+        while (parent && !IsRebarWindow(parent)) {
+            parent = GetParent(parent);
+        }
+        m_parentRebar = parent;
+        m_rebarBandIndex = -1;
+    }
+    if (!m_parentRebar) {
+        return;
+    }
+
+    const int index = FindRebarBandIndex();
+    if (index >= 0) {
+        m_rebarBandIndex = index;
+        RefreshRebarMetrics();
+    }
+}
+
 void TabBandWindow::UpdateToolbarMetrics() {
     m_toolbarGripWidth = kToolbarGripWidth;
+    EnsureRebarIntegration();
+    if (m_parentRebar && m_rebarBandIndex >= 0) {
+        RECT borders{0, 0, 0, 0};
+        if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex, reinterpret_cast<LPARAM>(&borders))) {
+            const int candidate = std::max(borders.left, 8);
+            if (candidate > 0) {
+                m_toolbarGripWidth = candidate;
+                return;
+            }
+        }
+    }
+
     if (!m_hwnd || !m_rebarTheme) {
         return;
     }
@@ -1154,6 +1281,8 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
     RECT indicator = rect;
     indicator.right = std::min(indicator.left + kIslandIndicatorWidth, indicator.right);
+    indicator.top = rect.top;
+    indicator.bottom = rect.bottom;
     if (indicator.right > indicator.left) {
         COLORREF indicatorColor = item.data.hasCustomOutline
                                       ? item.data.outlineColor
@@ -1190,6 +1319,19 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
         return rect;
     }
     int size = std::min(kCloseButtonSize, height - kCloseButtonVerticalPadding * 2);
+    if (m_windowTheme && m_hwnd) {
+        HDC dc = GetDC(m_hwnd);
+        if (dc) {
+            SIZE themeSize{0, 0};
+            if (SUCCEEDED(GetThemePartSize(m_windowTheme, dc, WP_SMALLCLOSEBUTTON, 0, nullptr, TS_TRUE, &themeSize))) {
+                const int candidate = std::max(themeSize.cx, themeSize.cy);
+                if (candidate > 0) {
+                    size = std::min(candidate, height - kCloseButtonVerticalPadding * 2);
+                }
+            }
+            ReleaseDC(m_hwnd, dc);
+        }
+    }
     if (size <= 0) {
         return rect;
     }
@@ -1286,6 +1428,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         RECT indicatorRect = tabRect;
         indicatorRect.left = rect.left;
         indicatorRect.right = indicatorRect.left + kIslandIndicatorWidth;
+        indicatorRect.top = rect.top;
+        indicatorRect.bottom = rect.bottom;
         COLORREF indicatorColor = hasAccent ? accentColor
                                             : (m_darkMode ? RGB(120, 120, 180) : GetSysColor(COLOR_HOTLIGHT));
         if (selected) {
@@ -2758,9 +2902,16 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         switch (message) {
             case WM_CREATE: {
                 self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+",
-                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_CENTER |
+                                                           BS_VCENTER | BS_FLAT,
                                                        0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
                                                        GetModuleHandleInstance(), nullptr);
+                if (self->m_newTabButton) {
+                    SetWindowTheme(self->m_newTabButton, L"Explorer", nullptr);
+                    ApplyImmersiveDarkMode(self->m_newTabButton, self->m_darkMode);
+                    SendMessageW(self->m_newTabButton, WM_SETFONT,
+                                 reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
+                }
                 self->RefreshTheme();
                 DragAcceptFiles(hwnd, TRUE);
                 return 0;
@@ -2768,8 +2919,13 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_SIZE: {
                 const int width = LOWORD(lParam);
                 const int height = HIWORD(lParam);
+                self->EnsureRebarIntegration();
                 self->Layout(width, height);
                 return 0;
+            }
+            case WM_WINDOWPOSCHANGED: {
+                self->EnsureRebarIntegration();
+                return fallback();
             }
             case WM_DRAWITEM: {
                 LRESULT handled = 0;
@@ -2937,6 +3093,8 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();
+                self->m_parentRebar = nullptr;
+                self->m_rebarBandIndex = -1;
                 UnregisterWindow(hwnd, self);
                 self->m_hwnd = nullptr;
                 self->m_newTabButton = nullptr;

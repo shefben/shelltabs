@@ -124,6 +124,7 @@ private:
 
     HWND m_hwnd = nullptr;
     HWND m_newTabButton = nullptr;
+    HWND m_parentRebar = nullptr;
     TabBand* m_owner = nullptr;
 
     RECT m_clientRect{};
@@ -150,6 +151,7 @@ private:
     int m_toolbarGripWidth = 14;
     size_t m_hotCloseIndex = std::numeric_limits<size_t>::max();
     bool m_mouseTracking = false;
+    int m_rebarBandIndex = -1;
 
     void Layout(int width, int height);
     void RebuildLayout();
@@ -168,6 +170,11 @@ private:
     void EnsureMouseTracking();
     void UpdateCloseButtonHover(const POINT& pt);
     void ClearCloseButtonHover();
+
+    void EnsureRebarIntegration();
+    void RefreshRebarMetrics();
+    int FindRebarBandIndex() const;
+    static bool IsRebarWindow(HWND hwnd);
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
     bool HandleMouseDown(const POINT& pt);
