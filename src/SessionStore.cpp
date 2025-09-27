@@ -4,6 +4,7 @@
 #include <Shlwapi.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <sstream>
 #include <string>
 
@@ -96,7 +97,7 @@ std::wstring ColorToString(COLORREF color) {
     return buffer;
 }
 
-std::wstring ResolveStoragePath() {
+std::wstring ResolveStorageDirectory() {
     PWSTR knownFolder = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
         return {};
@@ -111,16 +112,58 @@ std::wstring ResolveStoragePath() {
     base += kStorageDirectory;
     CreateDirectoryW(base.c_str(), nullptr);
 
+    return base;
+}
+
+std::wstring ResolveStoragePath() {
+    std::wstring base = ResolveStorageDirectory();
+    if (base.empty()) {
+        return {};
+    }
     if (!base.empty() && base.back() != L'\\') {
         base.push_back(L'\\');
     }
     base += kStorageFile;
     return base;
 }
-
+ 
 }  // namespace
 
-SessionStore::SessionStore() : m_storagePath(ResolveStoragePath()) {}
+SessionStore::SessionStore() : SessionStore(ResolveStoragePath()) {}
+
+SessionStore::SessionStore(std::wstring storagePath) : m_storagePath(std::move(storagePath)) {
+    if (m_storagePath.empty()) {
+        m_storagePath = ResolveStoragePath();
+    }
+}
+
+std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
+    std::wstring directory = ResolveStorageDirectory();
+    if (directory.empty()) {
+        return {};
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+
+    std::wstring sanitized;
+    sanitized.reserve(token.size());
+    for (wchar_t ch : token) {
+        if (iswalnum(ch) || ch == L'-' || ch == L'_') {
+            sanitized.push_back(ch);
+        } else if (!iswspace(ch)) {
+            sanitized.push_back(L'_');
+        }
+    }
+    if (sanitized.empty()) {
+        sanitized = L"window";
+    }
+
+    directory += L"session-";
+    directory += sanitized;
+    directory += L".db";
+    return directory;
+}
 
 bool SessionStore::Load(SessionData& data) const {
     data = {};

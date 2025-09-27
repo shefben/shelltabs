@@ -126,6 +126,7 @@ private:
     std::unique_ptr<FolderViewColorizer> m_viewColorizer;
     std::unique_ptr<SessionStore> m_sessionStore;
     bool m_restoringSession = false;
+    std::wstring m_windowToken;
 
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
@@ -154,6 +155,9 @@ private:
     void QueueNavigateTo(TabLocation location);
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
+    HWND GetFrameWindow() const;
+    std::wstring ResolveWindowToken();
+    void ReleaseWindowToken();
 };
 
 }  // namespace shelltabs
