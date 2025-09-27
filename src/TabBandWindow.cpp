@@ -578,7 +578,32 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 
     bool backgroundDrawn = false;
     if (m_hwnd) {
-        if (SUCCEEDED(DrawThemeParentBackground(m_hwnd, dc, &bounds))) {
+        RECT clip = bounds;
+        const int saved = SaveDC(dc);
+        if (saved != 0) {
+            HWND parent = GetParent(m_hwnd);
+            if (parent) {
+                POINT origin{0, 0};
+                MapWindowPoints(m_hwnd, parent, &origin, 1);
+                SetWindowOrgEx(dc, origin.x, origin.y, nullptr);
+            } else {
+                POINT screen{0, 0};
+                ClientToScreen(m_hwnd, &screen);
+                SetWindowOrgEx(dc, screen.x, screen.y, nullptr);
+            }
+            HRESULT hr = DrawThemeParentBackgroundEx(m_hwnd, dc, DTBG_CLIPRECT, &clip);
+            RestoreDC(dc, saved);
+            if (SUCCEEDED(hr)) {
+                backgroundDrawn = true;
+            }
+        } else if (SUCCEEDED(DrawThemeParentBackgroundEx(m_hwnd, dc, DTBG_CLIPRECT, &clip))) {
+            backgroundDrawn = true;
+        }
+    }
+
+    if (!backgroundDrawn && m_rebarTheme) {
+        RECT fillRect = bounds;
+        if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BACKGROUND, 0, &fillRect, nullptr))) {
             backgroundDrawn = true;
         }
     }
@@ -2086,6 +2111,7 @@ bool TabBandWindow::TryCompleteExternalDrop() {
     payload->headerVisible = !target.floating;
     payload->select = m_drag.originSelected;
     payload->source = m_owner;
+    bool closeSourceWindow = false;
 
     if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
         auto detachedGroup = m_owner->DetachGroupForTransfer(m_drag.origin.location.groupIndex, nullptr);
@@ -2095,7 +2121,7 @@ bool TabBandWindow::TryCompleteExternalDrop() {
         payload->type = TransferPayload::Type::Group;
         payload->group = std::move(*detachedGroup);
     } else if (m_drag.origin.location.IsValid()) {
-        auto detachedTab = m_owner->DetachTabForTransfer(m_drag.origin.location, nullptr);
+        auto detachedTab = m_owner->DetachTabForTransfer(m_drag.origin.location, nullptr, false, &closeSourceWindow);
         if (!detachedTab) {
             return false;
         }
@@ -2115,6 +2141,9 @@ bool TabBandWindow::TryCompleteExternalDrop() {
     }
 
     DispatchExternalMessage(targetWindow->GetHwnd(), WM_SHELLTABS_EXTERNAL_DROP);
+    if (closeSourceWindow && m_owner) {
+        m_owner->CloseFrameWindowAsync();
+    }
     return true;
 }
 

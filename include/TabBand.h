@@ -87,7 +87,9 @@ public:
     void OnMoveTabRequested(TabLocation from, TabLocation to);
     void OnMoveGroupRequested(int fromGroup, int toGroup);
     void OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible);
-    std::optional<TabInfo> DetachTabForTransfer(TabLocation location, bool* wasSelected);
+    std::optional<TabInfo> DetachTabForTransfer(TabLocation location, bool* wasSelected,
+                                                bool ensurePlaceholderTab = true,
+                                                bool* removedLastTab = nullptr);
     TabLocation InsertTransferredTab(TabInfo tab, int groupIndex, int tabIndex, bool createGroup, bool headerVisible,
                                      bool select);
     std::optional<TabGroup> DetachGroupForTransfer(int groupIndex, bool* wasSelected);
@@ -101,6 +103,7 @@ public:
     void OnOpenVSCode(TabLocation location);
     void OnCopyPath(TabLocation location);
     void OnFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
+    void CloseFrameWindowAsync();
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
     int GetGroupCount() const noexcept;
