@@ -122,6 +122,24 @@ GitStatusCache& GitStatusCache::Instance() {
     return cache;
 }
 
+GitStatusCache::~GitStatusCache() {
+    m_stop.store(true, std::memory_order_release);
+    {
+        std::lock_guard queueLock(m_queueMutex);
+        while (!m_queue.empty()) {
+            m_queue.pop();
+        }
+        m_pendingWork.clear();
+    }
+    m_queueCv.notify_all();
+
+    {
+        std::lock_guard startLock(m_workerStartMutex);
+        JoinWorkerIfNeeded();
+        m_workerRunning.store(false, std::memory_order_release);
+    }
+}
+
 GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
     return GuardExplorerCall(
         L"GitStatusCache::Query",
@@ -385,6 +403,10 @@ void GitStatusCache::EnsureWorker() {
 
     const auto now = std::chrono::steady_clock::now();
     std::lock_guard startLock(m_workerStartMutex);
+    if (m_stop.load(std::memory_order_acquire)) {
+        return;
+    }
+
     if (m_workerRunning.load(std::memory_order_relaxed)) {
         return;
     }
@@ -393,9 +415,11 @@ void GitStatusCache::EnsureWorker() {
         return;
     }
 
+    JoinWorkerIfNeeded();
+
     try {
-        std::thread worker([this]() { WorkerLoop(); });
-        worker.detach();
+        m_stop.store(false, std::memory_order_release);
+        m_workerThread = std::thread([this]() { WorkerLoop(); });
         m_workerRunning.store(true, std::memory_order_release);
         m_workerFailed.store(false, std::memory_order_release);
         m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
@@ -434,7 +458,7 @@ void GitStatusCache::WorkerLoop() {
             {
                 std::unique_lock lock(m_queueMutex);
                 m_queueCv.wait(lock, [this]() { return m_stop.load() || !m_queue.empty(); });
-                if (m_stop.load() && m_queue.empty()) {
+                if (m_stop.load(std::memory_order_acquire) && m_queue.empty()) {
                     guard.Release();
                     return;
                 }
@@ -472,10 +496,12 @@ void GitStatusCache::WorkerLoop() {
         onFailure();
         return;
     }
+
+    guard.Release();
 }
 
 bool GitStatusCache::EnqueueWork(std::wstring repoRoot) {
-    if (repoRoot.empty()) {
+    if (repoRoot.empty() || m_stop.load(std::memory_order_acquire)) {
         return false;
     }
 
@@ -557,6 +583,17 @@ void GitStatusCache::ResetPendingWork() {
 void GitStatusCache::ScheduleWorkerRetryLocked(std::chrono::steady_clock::time_point now) {
     m_workerFailed.store(true, std::memory_order_release);
     m_nextWorkerRetry = now + kWorkerRetryDelay;
+}
+
+void GitStatusCache::JoinWorkerIfNeeded() {
+    if (!m_workerThread.joinable()) {
+        return;
+    }
+    try {
+        m_workerThread.join();
+    } catch (...) {
+    }
+    m_workerThread = std::thread();
 }
 
 }  // namespace shelltabs
