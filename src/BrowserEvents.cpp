@@ -2,6 +2,7 @@
 
 #include <exdispid.h>
 #include <OleAuto.h>
+#include <windows.h>
 
 #include "TabBand.h"
 
@@ -83,6 +84,11 @@ IFACEMETHODIMP BrowserEvents::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DI
     }
 
     switch (dispIdMember) {
+        case DISPID_BEFORENAVIGATE2:
+            if (HandleBeforeNavigate(pDispParams)) {
+                return S_OK;
+            }
+            break;
         case DISPID_DOCUMENTCOMPLETE:
         case DISPID_NAVIGATECOMPLETE2:
             m_owner->OnBrowserNavigate();
@@ -131,6 +137,33 @@ bool BrowserEvents::HandleNewWindowEvent(DISPID dispIdMember, DISPPARAMS* params
     }
 
     return false;
+}
+
+bool BrowserEvents::HandleBeforeNavigate(DISPPARAMS* params) {
+    if (!m_owner || !params || params->cArgs < 7) {
+        return false;
+    }
+
+    VARIANT_BOOL* cancel = ExtractCancelPointer(params->rgvarg[0]);
+    if (!cancel) {
+        return false;
+    }
+
+    const std::wstring url = VariantToString(params->rgvarg[5]);
+    if (url.empty()) {
+        return false;
+    }
+
+    if ((GetKeyState(VK_CONTROL) & 0x8000) == 0) {
+        return false;
+    }
+
+    if (!m_owner->OnCtrlBeforeNavigate(url)) {
+        return false;
+    }
+
+    *cancel = VARIANT_TRUE;
+    return true;
 }
 
 HRESULT BrowserEvents::Connect(const Microsoft::WRL::ComPtr<IWebBrowser2>& browser) {

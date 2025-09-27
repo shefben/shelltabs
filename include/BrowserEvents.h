@@ -32,6 +32,7 @@ public:
 
 private:
     bool HandleNewWindowEvent(DISPID dispIdMember, DISPPARAMS* params);
+    bool HandleBeforeNavigate(DISPPARAMS* params);
 
     std::atomic<long> m_refCount;
     TabBand* m_owner;

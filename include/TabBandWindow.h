@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <uxtheme.h>
 
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -64,6 +65,7 @@ private:
         TabViewItem groupHeader{};
         bool collapsedPlaceholder = false;
         bool indicatorHandle = false;
+        size_t index = 0;
     };
 
     struct GroupOutline {
@@ -122,6 +124,7 @@ private:
 
     HWND m_hwnd = nullptr;
     HWND m_newTabButton = nullptr;
+    HWND m_parentRebar = nullptr;
     TabBand* m_owner = nullptr;
 
     RECT m_clientRect{};
@@ -135,6 +138,7 @@ private:
     POINT m_lastContextPoint{};
     HTHEME m_tabTheme = nullptr;
     HTHEME m_rebarTheme = nullptr;
+    HTHEME m_windowTheme = nullptr;
     bool m_darkMode = false;
     bool m_refreshingTheme = false;
     bool m_windowDarkModeInitialized = false;
@@ -145,6 +149,9 @@ private:
     ExternalDropState m_externalDrop;
     ThemePalette m_themePalette;
     int m_toolbarGripWidth = 14;
+    size_t m_hotCloseIndex = std::numeric_limits<size_t>::max();
+    bool m_mouseTracking = false;
+    int m_rebarBandIndex = -1;
 
     void Layout(int width, int height);
     void RebuildLayout();
@@ -160,6 +167,14 @@ private:
     void ClearExplorerContext();
     HICON LoadItemIcon(const TabViewItem& item) const;
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
+    void EnsureMouseTracking();
+    void UpdateCloseButtonHover(const POINT& pt);
+    void ClearCloseButtonHover();
+
+    void EnsureRebarIntegration();
+    void RefreshRebarMetrics();
+    int FindRebarBandIndex() const;
+    static bool IsRebarWindow(HWND hwnd);
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
     bool HandleMouseDown(const POINT& pt);
@@ -220,6 +235,7 @@ enum : UINT_PTR {
     IDM_CLOSE_TAB = 40001,
     IDM_HIDE_TAB = 40002,
     IDM_DETACH_TAB = 40003,
+    IDM_CLONE_TAB = 40004,
     IDM_TOGGLE_ISLAND = 40010,
     IDM_UNHIDE_ALL = 40011,
     IDM_NEW_ISLAND = 40012,
