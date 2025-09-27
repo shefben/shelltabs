@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <uxtheme.h>
 
 #include <string>
 #include <utility>
@@ -42,6 +43,13 @@ private:
         TabViewItem groupHeader{};
         bool collapsedPlaceholder = false;
         bool indicatorHandle = false;
+    };
+
+    struct GroupOutline {
+        int groupIndex = -1;
+        RECT bounds{};
+        COLORREF color = RGB(0, 0, 0);
+        bool initialized = false;
     };
 
     struct ExplorerContext {
@@ -97,12 +105,16 @@ private:
     std::vector<std::pair<UINT, std::wstring>> m_savedGroupCommands;
     ExplorerContext m_explorerContext;
     POINT m_lastContextPoint{};
+    HTHEME m_tabTheme = nullptr;
+    HTHEME m_rebarTheme = nullptr;
+    bool m_darkMode = false;
 
     void Layout(int width, int height);
     void RebuildLayout();
     void Draw(HDC dc) const;
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
+    void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
     void ClearVisualItems();
@@ -133,6 +145,11 @@ private:
     COLORREF ResolveTabBackground(const TabViewItem& item) const;
     COLORREF ResolveGroupBackground(const TabViewItem& item) const;
     COLORREF ResolveTextColor(COLORREF background) const;
+    std::vector<GroupOutline> BuildGroupOutlines() const;
+    void RefreshTheme();
+    void CloseThemeHandles();
+    void UpdateNewTabButtonTheme();
+    bool IsSystemDarkMode() const;
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };

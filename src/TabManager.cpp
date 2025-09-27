@@ -280,7 +280,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.outlineColor = group.outlineColor;
             header.savedGroupId = group.savedGroupId;
             header.isSavedGroup = !group.savedGroupId.empty();
-            header.headerVisible = true;
+            header.headerVisible = group.headerVisible;
             items.emplace_back(std::move(header));
         }
 

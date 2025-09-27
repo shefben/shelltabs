@@ -2,9 +2,13 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include <objbase.h>
 
 #include <CommCtrl.h>
 #include <ShlObj.h>
@@ -26,6 +30,11 @@
 namespace shelltabs {
 
 using Microsoft::WRL::ComPtr;
+
+namespace {
+std::mutex g_windowTokenMutex;
+std::unordered_map<HWND, std::wstring> g_windowTokens;
+}
 
 TabBand::TabBand() : m_refCount(1) {
     ModuleAddRef();
@@ -589,6 +598,82 @@ void TabBand::OnFilesDropped(TabLocation location, const std::vector<std::wstrin
     PerformFileOperation(location, paths, move);
 }
 
+HWND TabBand::GetFrameWindow() const {
+    HWND candidate = nullptr;
+    if (m_window) {
+        HWND child = m_window->GetHwnd();
+        if (child) {
+            candidate = GetAncestor(child, GA_ROOT);
+            if (!candidate) {
+                candidate = child;
+            }
+        }
+    }
+    if (!candidate && m_site) {
+        ComPtr<IOleWindow> oleWindow;
+        if (SUCCEEDED(m_site.As(&oleWindow)) && oleWindow) {
+            HWND siteWindow = nullptr;
+            if (SUCCEEDED(oleWindow->GetWindow(&siteWindow)) && siteWindow) {
+                candidate = GetAncestor(siteWindow, GA_ROOT);
+                if (!candidate) {
+                    candidate = siteWindow;
+                }
+            }
+        }
+    }
+    return candidate;
+}
+
+std::wstring TabBand::ResolveWindowToken() {
+    if (!m_windowToken.empty()) {
+        return m_windowToken;
+    }
+
+    HWND frame = GetFrameWindow();
+    if (!frame) {
+        return {};
+    }
+
+    {
+        std::scoped_lock lock(g_windowTokenMutex);
+        const auto existing = g_windowTokens.find(frame);
+        if (existing != g_windowTokens.end()) {
+            m_windowToken = existing->second;
+            return m_windowToken;
+        }
+
+        GUID guid{};
+        std::wstring token;
+        if (SUCCEEDED(CoCreateGuid(&guid))) {
+            wchar_t buffer[64];
+            if (StringFromGUID2(guid, buffer, ARRAYSIZE(buffer)) > 0) {
+                token.assign(buffer);
+                token.erase(std::remove(token.begin(), token.end(), L'{'), token.end());
+                token.erase(std::remove(token.begin(), token.end(), L'}'), token.end());
+            }
+        }
+        if (token.empty()) {
+            token = std::to_wstring(reinterpret_cast<uintptr_t>(frame));
+        }
+        g_windowTokens.emplace(frame, token);
+        m_windowToken = token;
+    }
+
+    return m_windowToken;
+}
+
+void TabBand::ReleaseWindowToken() {
+    HWND frame = GetFrameWindow();
+    if (!frame) {
+        m_windowToken.clear();
+        return;
+    }
+
+    std::scoped_lock lock(g_windowTokenMutex);
+    g_windowTokens.erase(frame);
+    m_windowToken.clear();
+}
+
 void TabBand::EnsureWindow() {
     if (m_window) {
         return;
@@ -610,6 +695,7 @@ void TabBand::EnsureWindow() {
 
 void TabBand::DisconnectSite() {
     SaveSession();
+    ReleaseWindowToken();
 
     if (m_browserEvents) {
         m_browserEvents->Disconnect();
@@ -633,6 +719,7 @@ void TabBand::DisconnectSite() {
     m_internalNavigation = false;
     m_allowExternalNewWindows = 0;
     m_viewColorizer.reset();
+    m_sessionStore.reset();
 }
 
 void TabBand::InitializeTabs() {
@@ -673,9 +760,18 @@ void TabBand::UpdateTabsUI() {
 }
 
 void TabBand::EnsureSessionStore() {
-    if (!m_sessionStore) {
-        m_sessionStore = std::make_unique<SessionStore>();
+    if (m_sessionStore) {
+        return;
     }
+
+    EnsureWindow();
+    std::wstring storagePath;
+    const std::wstring token = ResolveWindowToken();
+    if (!token.empty()) {
+        storagePath = SessionStore::BuildPathForToken(token);
+    }
+
+    m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
 }
 
 bool TabBand::RestoreSession() {
@@ -993,13 +1089,11 @@ bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
         return false;
     }
 
-    UniquePidl pidl;
-    if (!targetUrl.empty()) {
-        pidl = ParseExplorerUrl(targetUrl);
+    if (targetUrl.empty()) {
+        return false;
     }
-    if (!pidl) {
-        pidl = QueryCurrentFolder();
-    }
+
+    UniquePidl pidl = ParseExplorerUrl(targetUrl);
     if (!pidl) {
         return false;
     }
