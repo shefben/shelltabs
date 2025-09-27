@@ -31,7 +31,8 @@ UniquePidl ParseExplorerUrl(const std::wstring& url);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
 
-bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value);
+bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value,
+                        COLORREF* color = nullptr);
 bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value);
 
 void LogUnhandledException(const wchar_t* context, const wchar_t* details = nullptr);
