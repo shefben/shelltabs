@@ -32,6 +32,8 @@ class GitStatusCache {
 public:
     static GitStatusCache& Instance();
 
+    ~GitStatusCache();
+
     GitStatusInfo Query(const std::wstring& path);
     size_t AddListener(std::function<void()> callback);
     void RemoveListener(size_t id);
@@ -63,6 +65,7 @@ private:
                              std::chrono::steady_clock::time_point timestamp);
     std::optional<std::wstring> LookupCachedRoot(const std::wstring& path,
                                                  std::chrono::steady_clock::time_point now);
+    void JoinWorkerIfNeeded();
 
     mutable std::mutex m_mutex;
     std::unordered_map<std::wstring, CacheEntry> m_cache;
@@ -83,6 +86,7 @@ private:
     std::atomic<bool> m_workerRunning{false};
     std::atomic<bool> m_workerFailed{false};
     std::chrono::steady_clock::time_point m_nextWorkerRetry{};
+    std::thread m_workerThread;
 
     std::mutex m_listenerMutex;
     std::vector<std::pair<size_t, std::function<void()>>> m_listeners;

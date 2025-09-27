@@ -13,11 +13,31 @@
 #include "ClassFactory.h"
 #include "ComUtils.h"
 #include "Guids.h"
+#include "Logging.h"
 #include "Module.h"
 
 using namespace shelltabs;
 
 namespace {
+
+std::wstring CurrentProcessImageName() {
+    wchar_t buffer[MAX_PATH] = {};
+    DWORD written = GetModuleFileNameW(nullptr, buffer, ARRAYSIZE(buffer));
+    if (written == 0 || written >= ARRAYSIZE(buffer)) {
+        return L"(unknown process)";
+    }
+    return std::wstring(buffer, written);
+}
+
+#define RETURN_IF_FAILED_LOG(step, expr)                                                     \
+    do {                                                                                     \
+        const HRESULT returnIfFailedHr__ = (expr);                                           \
+        if (FAILED(returnIfFailedHr__)) {                                                    \
+            LogHrFailure(step, returnIfFailedHr__);                                          \
+            return returnIfFailedHr__;                                                       \
+        }                                                                                    \
+        LogMessage(LogLevel::Info, L"%ls succeeded", step);                                 \
+    } while (false)
 
 constexpr wchar_t kBandFriendlyName[] = L"Shell Tabs";
 constexpr wchar_t kColumnFriendlyName[] = L"Shell Tabs Tags Column";
@@ -717,14 +737,21 @@ bool ShouldBlockProcessAttach() {
         }
     }
 
-    return _wcsicmp(fileName, L"iexplore.exe") == 0;
+    if (_wcsicmp(fileName, L"iexplore.exe") == 0) {
+        LogMessage(LogLevel::Warning, L"Blocking ShellTabs initialization in %ls", CurrentProcessImageName().c_str());
+        return true;
+    }
+    return false;
 }
 
 }  // namespace
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
+        InitializeLoggingEarly(module);
+        LogMessage(LogLevel::Info, L"DllMain PROCESS_ATTACH for %ls", CurrentProcessImageName().c_str());
         if (ShouldBlockProcessAttach()) {
+            ShutdownLogging();
             return FALSE;
         }
 
@@ -733,7 +760,14 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 
         INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX)};
         icc.dwICC = ICC_BAR_CLASSES | ICC_TAB_CLASSES;
-        InitCommonControlsEx(&icc);
+        if (!InitCommonControlsEx(&icc)) {
+            LogLastError(L"InitCommonControlsEx", GetLastError());
+        } else {
+            LogMessage(LogLevel::Info, L"InitCommonControlsEx succeeded");
+        }
+    } else if (reason == DLL_PROCESS_DETACH) {
+        LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
+        ShutdownLogging();
     }
     return TRUE;
 }
@@ -762,182 +796,87 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
 }
 
 STDAPI DllRegisterServer(void) {
+    LogScope scope(L"DllRegisterServer");
+    LogMessage(LogLevel::Info, L"DllRegisterServer invoked");
+
     std::wstring modulePath;
-    HRESULT hr = GetModulePath(&modulePath);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"GetModulePath", GetModulePath(&modulePath));
+    LogMessage(LogLevel::Info, L"DllRegisterServer module path: %ls", modulePath.c_str());
 
     const std::wstring moduleFileName = ExtractFileName(modulePath);
     const std::wstring appIdString = GuidToString(APPID_ShellTabs);
 
-    hr = RegisterAppId(appIdString, kBandFriendlyName, moduleFileName);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"RegisterAppId", RegisterAppId(appIdString, kBandFriendlyName, moduleFileName));
 
     const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
-    hr = RegisterInprocServer(modulePath, bandClsid, kBandFriendlyName, appIdString.c_str(), kBandProgIdVersion,
-                              kBandProgId, {CATID_DeskBand, CATID_InfoBand, CATID_CommBand});
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterDeskBandKey(bandClsid, kBandFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterExplorerBar(bandClsid, kBandFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterExplorerApproved(bandClsid, kBandFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterToolbarValue(bandClsid, kBandFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = ClearExplorerBandCache();
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (band)",
+                         RegisterInprocServer(modulePath, bandClsid, kBandFriendlyName, appIdString.c_str(),
+                                              kBandProgIdVersion, kBandProgId, {CATID_DeskBand, CATID_InfoBand, CATID_CommBand}));
+    RETURN_IF_FAILED_LOG(L"RegisterDeskBandKey", RegisterDeskBandKey(bandClsid, kBandFriendlyName));
+    RETURN_IF_FAILED_LOG(L"RegisterExplorerBar", RegisterExplorerBar(bandClsid, kBandFriendlyName));
+    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (band)", RegisterExplorerApproved(bandClsid, kBandFriendlyName));
+    RETURN_IF_FAILED_LOG(L"RegisterToolbarValue", RegisterToolbarValue(bandClsid, kBandFriendlyName));
+    RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
 
     const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
-    hr = RegisterInprocServer(modulePath, columnClsid, kColumnFriendlyName, appIdString.c_str(), kColumnProgIdVersion,
-                              kColumnProgId, {kColumnProviderCategory});
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterExplorerApproved(columnClsid, kColumnFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterColumnHandler(columnClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (column)",
+                         RegisterInprocServer(modulePath, columnClsid, kColumnFriendlyName, appIdString.c_str(),
+                                              kColumnProgIdVersion, kColumnProgId, {kColumnProviderCategory}));
+    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (column)",
+                         RegisterExplorerApproved(columnClsid, kColumnFriendlyName));
+    RETURN_IF_FAILED_LOG(L"RegisterColumnHandler", RegisterColumnHandler(columnClsid));
 
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
-    hr = RegisterInprocServer(modulePath, bhoClsid, kBhoFriendlyName, appIdString.c_str(), kBhoProgIdVersion,
-                              kBhoProgId, {});
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (BHO)",
+                         RegisterInprocServer(modulePath, bhoClsid, kBhoFriendlyName, appIdString.c_str(),
+                                              kBhoProgIdVersion, kBhoProgId, {}));
+    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (BHO)", RegisterExplorerApproved(bhoClsid, kBhoFriendlyName));
+    RETURN_IF_FAILED_LOG(L"RegisterBrowserHelper", RegisterBrowserHelper(bhoClsid, kBhoFriendlyName));
 
-    hr = RegisterExplorerApproved(bhoClsid, kBhoFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = RegisterBrowserHelper(bhoClsid, kBhoFriendlyName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
+    LogMessage(LogLevel::Info, L"DllRegisterServer completed successfully");
     return S_OK;
 }
 
 STDAPI DllUnregisterServer(void) {
+    LogScope scope(L"DllUnregisterServer");
+    LogMessage(LogLevel::Info, L"DllUnregisterServer invoked");
+
     std::wstring modulePath;
-    HRESULT hr = GetModulePath(&modulePath);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"GetModulePath", GetModulePath(&modulePath));
+    LogMessage(LogLevel::Info, L"DllUnregisterServer module path: %ls", modulePath.c_str());
 
     const std::wstring moduleFileName = ExtractFileName(modulePath);
     const std::wstring appIdString = GuidToString(APPID_ShellTabs);
 
     const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
-    hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bandClsid, /*ignoreAccessDenied=*/true);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterProgIds(kBandProgIdVersion, kBandProgId);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterDeskBandKey(bandClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterExplorerBar(bandClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterApprovedExtension(bandClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterToolbarValue(bandClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = ClearExplorerBandCache();
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (band CLSID)",
+                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bandClsid, /*ignoreAccessDenied=*/true));
+    RETURN_IF_FAILED_LOG(L"UnregisterProgIds (band)", UnregisterProgIds(kBandProgIdVersion, kBandProgId));
+    RETURN_IF_FAILED_LOG(L"UnregisterDeskBandKey", UnregisterDeskBandKey(bandClsid));
+    RETURN_IF_FAILED_LOG(L"UnregisterExplorerBar", UnregisterExplorerBar(bandClsid));
+    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (band)", UnregisterApprovedExtension(bandClsid));
+    RETURN_IF_FAILED_LOG(L"UnregisterToolbarValue", UnregisterToolbarValue(bandClsid));
+    RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
 
     const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
-    hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + columnClsid, /*ignoreAccessDenied=*/true);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterProgIds(kColumnProgIdVersion, kColumnProgId);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterApprovedExtension(columnClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterColumnHandler();
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (column CLSID)",
+                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + columnClsid,
+                                                     /*ignoreAccessDenied=*/true));
+    RETURN_IF_FAILED_LOG(L"UnregisterProgIds (column)", UnregisterProgIds(kColumnProgIdVersion, kColumnProgId));
+    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (column)", UnregisterApprovedExtension(columnClsid));
+    RETURN_IF_FAILED_LOG(L"UnregisterColumnHandler", UnregisterColumnHandler());
 
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
-    hr = DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bhoClsid, /*ignoreAccessDenied=*/true);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (BHO CLSID)",
+                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bhoClsid, /*ignoreAccessDenied=*/true));
+    RETURN_IF_FAILED_LOG(L"UnregisterProgIds (BHO)", UnregisterProgIds(kBhoProgIdVersion, kBhoProgId));
+    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (BHO)", UnregisterApprovedExtension(bhoClsid));
+    RETURN_IF_FAILED_LOG(L"UnregisterBrowserHelper", UnregisterBrowserHelper(bhoClsid));
+    RETURN_IF_FAILED_LOG(L"UnregisterAppId", UnregisterAppId(appIdString, moduleFileName));
 
-    hr = UnregisterProgIds(kBhoProgIdVersion, kBhoProgId);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterApprovedExtension(bhoClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterBrowserHelper(bhoClsid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = UnregisterAppId(appIdString, moduleFileName);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
+    LogMessage(LogLevel::Info, L"DllUnregisterServer completed successfully");
     return S_OK;
 }
+
+#undef RETURN_IF_FAILED_LOG
 
