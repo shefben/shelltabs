@@ -68,7 +68,6 @@ private:
         TabLocation location;
         bool before = false;
         bool after = false;
-        bool indicator = false;
     };
 
     struct DropTarget {
@@ -108,6 +107,11 @@ private:
     HTHEME m_tabTheme = nullptr;
     HTHEME m_rebarTheme = nullptr;
     bool m_darkMode = false;
+    bool m_refreshingTheme = false;
+    bool m_windowDarkModeInitialized = false;
+    bool m_windowDarkModeValue = false;
+    bool m_buttonDarkModeInitialized = false;
+    bool m_buttonDarkModeValue = false;
 
     void Layout(int width, int height);
     void RebuildLayout();
@@ -118,6 +122,7 @@ private:
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
+    void DrawNewTabButton(LPDRAWITEMSTRUCT draw);
     void ClearVisualItems();
     void ClearExplorerContext();
     HICON LoadItemIcon(const TabViewItem& item) const;

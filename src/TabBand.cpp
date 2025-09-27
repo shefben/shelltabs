@@ -210,7 +210,7 @@ IFACEMETHODIMP TabBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDIN
                 pdbi->wszTitle[0] = L'\0';
             }
             if (pdbi->dwMask & DBIM_MODEFLAGS) {
-                pdbi->dwModeFlags = DBIMF_VARIABLEHEIGHT | DBIMF_NORMAL;
+                pdbi->dwModeFlags = DBIMF_VARIABLEHEIGHT | DBIMF_NORMAL | DBIMF_TOPALIGN;
             }
             if (pdbi->dwMask & DBIM_BKCOLOR) {
                 pdbi->dwMask &= ~DBIM_BKCOLOR;
