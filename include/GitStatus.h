@@ -52,6 +52,9 @@ private:
     void EnsureWorker();
     void WorkerLoop();
     bool EnqueueWork(std::wstring repoRoot);
+    void HandleWorkerFailure(std::chrono::steady_clock::time_point now);
+    void ResetPendingWork();
+    void ScheduleWorkerRetryLocked(std::chrono::steady_clock::time_point now);
     void NotifyListeners();
     bool IsShellNamespacePath(const std::wstring& path) const;
     bool HasGitMetadata(const std::wstring& directory) const;
@@ -74,8 +77,12 @@ private:
     std::condition_variable m_queueCv;
     std::queue<std::wstring> m_queue;
     std::unordered_set<std::wstring> m_pendingWork;
-    std::once_flag m_workerInit;
     std::atomic<bool> m_stop{false};
+
+    mutable std::mutex m_workerStartMutex;
+    std::atomic<bool> m_workerRunning{false};
+    std::atomic<bool> m_workerFailed{false};
+    std::chrono::steady_clock::time_point m_nextWorkerRetry{};
 
     std::mutex m_listenerMutex;
     std::vector<std::pair<size_t, std::function<void()>>> m_listeners;

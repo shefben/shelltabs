@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 #include <cwchar>
 #include <wchar.h>
@@ -23,6 +24,7 @@ constexpr std::chrono::seconds kCacheTtl(5);
 constexpr std::chrono::seconds kRootCacheTtl(30);
 constexpr size_t kMaxRootCacheEntries = 256;
 constexpr size_t kMaxQueueDepth = 64;
+constexpr std::chrono::seconds kWorkerRetryDelay(5);
 
 std::wstring NormalizePath(const std::wstring& path) {
     if (path.empty()) {
@@ -116,46 +118,56 @@ GitStatusCache& GitStatusCache::Instance() {
 }
 
 GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
-    if (path.empty()) {
-        return {};
-    }
-
-    const std::wstring repoRoot = ResolveRepositoryRoot(path);
-    if (repoRoot.empty()) {
-        return {};
-    }
-
-    EnsureWorker();
-
-    bool shouldQueue = false;
-    GitStatusInfo cached;
-    {
-        std::lock_guard lock(m_mutex);
-        auto& entry = m_cache[repoRoot];
-        const auto now = std::chrono::steady_clock::now();
-        if (entry.hasStatus && now - entry.timestamp <= kCacheTtl) {
-            return entry.status;
-        }
-        if (!entry.inFlight) {
-            entry.inFlight = true;
-            shouldQueue = true;
-        }
-        if (entry.hasStatus) {
-            cached = entry.status;
-        }
-    }
-
-    if (shouldQueue) {
-        if (!EnqueueWork(repoRoot)) {
-            std::lock_guard lock(m_mutex);
-            auto it = m_cache.find(repoRoot);
-            if (it != m_cache.end()) {
-                it->second.inFlight = false;
+    return GuardExplorerCall(
+        L"GitStatusCache::Query",
+        [&]() -> GitStatusInfo {
+            if (path.empty()) {
+                return {};
             }
-        }
-    }
 
-    return cached;
+            const std::wstring repoRoot = ResolveRepositoryRoot(path);
+            if (repoRoot.empty()) {
+                return {};
+            }
+
+            EnsureWorker();
+            const bool workerReady = m_workerRunning.load(std::memory_order_acquire);
+
+            bool shouldQueue = false;
+            GitStatusInfo cached;
+            {
+                std::lock_guard lock(m_mutex);
+                auto& entry = m_cache[repoRoot];
+                const auto now = std::chrono::steady_clock::now();
+                if (entry.hasStatus && now - entry.timestamp <= kCacheTtl) {
+                    return entry.status;
+                }
+                if (workerReady) {
+                    if (!entry.inFlight) {
+                        entry.inFlight = true;
+                        shouldQueue = true;
+                    }
+                } else {
+                    entry.inFlight = false;
+                }
+                if (entry.hasStatus) {
+                    cached = entry.status;
+                }
+            }
+
+            if (shouldQueue) {
+                if (!EnqueueWork(repoRoot)) {
+                    std::lock_guard lock(m_mutex);
+                    auto it = m_cache.find(repoRoot);
+                    if (it != m_cache.end()) {
+                        it->second.inFlight = false;
+                    }
+                }
+            }
+
+            return cached;
+        },
+        []() -> GitStatusInfo { return {}; });
 }
 
 std::wstring GitStatusCache::ResolveRepositoryRoot(const std::wstring& path) {
@@ -362,49 +374,98 @@ void GitStatusCache::RemoveListener(size_t id) {
 }
 
 void GitStatusCache::EnsureWorker() {
-    std::call_once(m_workerInit, [this]() {
+    if (m_workerRunning.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard startLock(m_workerStartMutex);
+    if (m_workerRunning.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    if (m_workerFailed.load(std::memory_order_relaxed) && now < m_nextWorkerRetry) {
+        return;
+    }
+
+    try {
         std::thread worker([this]() { WorkerLoop(); });
         worker.detach();
-    });
+        m_workerRunning.store(true, std::memory_order_release);
+        m_workerFailed.store(false, std::memory_order_release);
+        m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
+    } catch (const std::system_error&) {
+        ScheduleWorkerRetryLocked(now);
+    } catch (...) {
+        ScheduleWorkerRetryLocked(now);
+    }
 }
 
 void GitStatusCache::WorkerLoop() {
-    while (true) {
-        std::wstring repo;
-        {
-            std::unique_lock lock(m_queueMutex);
-            m_queueCv.wait(lock, [this]() { return m_stop.load() || !m_queue.empty(); });
-            if (m_stop.load() && m_queue.empty()) {
-                return;
-            }
-            repo = std::move(m_queue.front());
-            m_queue.pop();
-            if (!repo.empty()) {
-                m_pendingWork.erase(repo);
+    struct RunningGuard {
+        explicit RunningGuard(std::atomic<bool>& flag) : target(flag) {}
+        ~RunningGuard() {
+            if (!released) {
+                target.store(false, std::memory_order_release);
             }
         }
+        void Release() {
+            if (!released) {
+                target.store(false, std::memory_order_release);
+                released = true;
+            }
+        }
+        std::atomic<bool>& target;
+        bool released = false;
+    } guard(m_workerRunning);
 
-        if (repo.empty()) {
-            continue;
-        }
+    auto onFailure = [this]() {
+        HandleWorkerFailure(std::chrono::steady_clock::now());
+    };
 
-        GitStatusInfo info = ComputeStatus(repo);
-        const auto now = std::chrono::steady_clock::now();
-        bool notify = false;
-        {
-            std::lock_guard lock(m_mutex);
-            auto it = m_cache.find(repo);
-            if (it != m_cache.end()) {
-                it->second.status = info;
-                it->second.timestamp = now;
-                it->second.hasStatus = true;
-                it->second.inFlight = false;
-                notify = true;
+    try {
+        while (true) {
+            std::wstring repo;
+            {
+                std::unique_lock lock(m_queueMutex);
+                m_queueCv.wait(lock, [this]() { return m_stop.load() || !m_queue.empty(); });
+                if (m_stop.load() && m_queue.empty()) {
+                    guard.Release();
+                    return;
+                }
+                repo = std::move(m_queue.front());
+                m_queue.pop();
+                if (!repo.empty()) {
+                    m_pendingWork.erase(repo);
+                }
+            }
+
+            if (repo.empty()) {
+                continue;
+            }
+
+            GitStatusInfo info = ComputeStatus(repo);
+            const auto now = std::chrono::steady_clock::now();
+            bool notify = false;
+            {
+                std::lock_guard lock(m_mutex);
+                auto it = m_cache.find(repo);
+                if (it != m_cache.end()) {
+                    it->second.status = info;
+                    it->second.timestamp = now;
+                    it->second.hasStatus = true;
+                    it->second.inFlight = false;
+                    notify = true;
+                }
+            }
+            if (notify) {
+                NotifyListeners();
             }
         }
-        if (notify) {
-            NotifyListeners();
-        }
+    } catch (...) {
+        guard.Release();
+        onFailure();
+        return;
     }
 }
 
@@ -450,6 +511,47 @@ void GitStatusCache::NotifyListeners() {
         } catch (...) {
         }
     }
+}
+
+void GitStatusCache::HandleWorkerFailure(std::chrono::steady_clock::time_point now) {
+    ResetPendingWork();
+
+    std::lock_guard startLock(m_workerStartMutex);
+    ScheduleWorkerRetryLocked(now);
+}
+
+void GitStatusCache::ResetPendingWork() {
+    std::vector<std::wstring> pending;
+    {
+        std::lock_guard lock(m_queueMutex);
+        if (m_pendingWork.empty() && m_queue.empty()) {
+            return;
+        }
+        pending.reserve(m_pendingWork.size());
+        for (const auto& repo : m_pendingWork) {
+            pending.push_back(repo);
+        }
+        m_pendingWork.clear();
+        std::queue<std::wstring> empty;
+        std::swap(m_queue, empty);
+    }
+
+    if (pending.empty()) {
+        return;
+    }
+
+    std::lock_guard lock(m_mutex);
+    for (const auto& repo : pending) {
+        auto it = m_cache.find(repo);
+        if (it != m_cache.end()) {
+            it->second.inFlight = false;
+        }
+    }
+}
+
+void GitStatusCache::ScheduleWorkerRetryLocked(std::chrono::steady_clock::time_point now) {
+    m_workerFailed.store(true, std::memory_order_release);
+    m_nextWorkerRetry = now + kWorkerRetryDelay;
 }
 
 }  // namespace shelltabs
