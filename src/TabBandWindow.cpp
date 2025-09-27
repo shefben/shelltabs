@@ -386,7 +386,8 @@ void TabBandWindow::RebuildLayout() {
     const int bottom = bounds.bottom - 2;
     const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
     const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
-    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, bounds.right - bounds.left);
+    const int bandWidth = static_cast<int>(bounds.right - bounds.left);
+    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
     int x = bounds.left + gripWidth + 4;
     int currentGroup = -1;
     TabViewItem currentHeader{};
@@ -550,14 +551,15 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
         return;
     }
 
-    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, bounds.right - bounds.left);
+    const int bandWidth = static_cast<int>(bounds.right - bounds.left);
+    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
 
     auto drawManualGrip = [&](const RECT& rect) {
         if (gripWidth <= 0) {
             return;
         }
-        const int gripLeft = rect.left;
-        const int gripRight = std::min(rect.right, gripLeft + gripWidth);
+        const int gripLeft = static_cast<int>(rect.left);
+        const int gripRight = std::min(static_cast<int>(rect.right), gripLeft + gripWidth);
         if (gripRight <= gripLeft) {
             return;
         }
