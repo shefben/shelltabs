@@ -266,7 +266,7 @@ std::wstring GitStatusCache::ParentDirectory(const std::wstring& path) const {
         return {};
     }
 
-    const size_t length = _wcsnlen(buffer.c_str(), buffer.size());
+    const size_t length = wcsnlen(buffer.c_str(), buffer.size());
     if (length == 0) {
         return {};
     }
