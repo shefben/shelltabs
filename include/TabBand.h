@@ -73,6 +73,7 @@ public:
     void OnBrowserNavigate();
     void OnBrowserQuit();
     bool OnBrowserNewWindow(const std::wstring& targetUrl);
+    bool OnCtrlBeforeNavigate(const std::wstring& url);
 
     void OnTabSelected(TabLocation location);
     void OnNewTabRequested();
@@ -80,6 +81,7 @@ public:
     void OnHideTabRequested(TabLocation location);
     void OnUnhideTabRequested(TabLocation location);
     void OnDetachTabRequested(TabLocation location);
+    void OnCloneTabRequested(TabLocation location);
     void OnToggleGroupCollapsed(int groupIndex);
     void OnUnhideAllInGroup(int groupIndex);
     void OnCreateIslandAfter(int groupIndex);

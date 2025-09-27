@@ -26,6 +26,7 @@ namespace shelltabs {
 
 namespace {
 const wchar_t kWindowClassName[] = L"ShellTabsBandWindow";
+constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
 constexpr int kButtonWidth = 22;
 constexpr int kButtonHeight = 22;
 constexpr int kButtonMargin = 6;
@@ -377,7 +378,6 @@ void TabBandWindow::FocusTab() {
 void TabBandWindow::Layout(int width, int height) {
     m_clientRect = {0, 0, width, height};
 
-    const int buttonWidth = kButtonWidth;
     int buttonHeight = std::min(height - kButtonMargin * 2, kButtonHeight);
     if (buttonHeight < kButtonHeight / 2) {
         buttonHeight = std::max(0, height - kButtonMargin * 2);
@@ -385,7 +385,11 @@ void TabBandWindow::Layout(int width, int height) {
     if (buttonHeight <= 0) {
         buttonHeight = std::max(0, height);
     }
-    const int buttonX = (width > buttonWidth + kButtonMargin) ? (width - buttonWidth - kButtonMargin) : 0;
+    int buttonWidth = buttonHeight;
+    if (buttonWidth <= 0) {
+        buttonWidth = std::max(0, std::min(kButtonWidth, width));
+    }
+    const int buttonX = std::max(0, width - buttonWidth - kButtonMargin);
     const int buttonY = std::max(0, (height - buttonHeight) / 2);
     if (m_newTabButton) {
         MoveWindow(m_newTabButton, buttonX, buttonY, buttonWidth, buttonHeight, TRUE);
@@ -557,6 +561,7 @@ void TabBandWindow::RebuildLayout() {
         }
 
         visual.bounds = {x, top, x + width, bottom};
+        visual.index = m_items.size();
         m_items.emplace_back(std::move(visual));
         x += width;
     }
@@ -843,9 +848,7 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
             outline.bounds.top = std::min(outline.bounds.top, rect.top);
             outline.bounds.right = std::max(outline.bounds.right, rect.right);
             outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
-            if (item.data.hasCustomOutline || item.data.hasTagColor) {
-                outline.color = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
-            }
+            outline.color = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
             outline.visible = outline.visible || item.data.headerVisible;
         }
     }
@@ -941,6 +944,7 @@ void TabBandWindow::RefreshTheme() {
     ResetThemePalette();
     m_tabTheme = OpenThemeData(m_hwnd, L"Tab");
     m_rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
+    m_windowTheme = OpenThemeData(m_hwnd, L"Window");
     UpdateThemePalette();
     UpdateToolbarMetrics();
     UpdateNewTabButtonTheme();
@@ -1076,6 +1080,10 @@ void TabBandWindow::CloseThemeHandles() {
     if (m_rebarTheme) {
         CloseThemeData(m_rebarTheme);
         m_rebarTheme = nullptr;
+    }
+    if (m_windowTheme) {
+        CloseThemeData(m_windowTheme);
+        m_windowTheme = nullptr;
     }
 }
 
@@ -1275,7 +1283,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     }
 
     if (item.indicatorHandle) {
-        RECT indicatorRect = rect;
+        RECT indicatorRect = tabRect;
+        indicatorRect.left = rect.left;
         indicatorRect.right = indicatorRect.left + kIslandIndicatorWidth;
         COLORREF indicatorColor = hasAccent ? accentColor
                                             : (m_darkMode ? RGB(120, 120, 180) : GetSysColor(COLOR_HOTLIGHT));
@@ -1384,33 +1393,65 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     }
 
     if (closeRect.right > closeRect.left) {
-        COLORREF closeBackground = m_darkMode ? BlendColors(computedBackground, RGB(255, 255, 255), 0.15)
-                                              : BlendColors(computedBackground, RGB(0, 0, 0), 0.12);
-        HBRUSH closeBrush = CreateSolidBrush(closeBackground);
-        if (closeBrush) {
-            FillRect(dc, &closeRect, closeBrush);
-            DeleteObject(closeBrush);
+        const bool closeHot = (m_hotCloseIndex != kInvalidIndex && m_hotCloseIndex == item.index);
+        bool closePressed = false;
+        if (closeHot && m_drag.closeClick && m_drag.closeItemIndex < m_items.size()) {
+            closePressed = (m_items[m_drag.closeItemIndex].index == item.index);
         }
-        HPEN borderPen = CreatePen(PS_SOLID, 1, BlendColors(closeBackground, RGB(0, 0, 0), m_darkMode ? 0.6 : 0.4));
-        if (borderPen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
-            MoveToEx(dc, closeRect.left, closeRect.top, nullptr);
-            LineTo(dc, closeRect.right, closeRect.top);
-            LineTo(dc, closeRect.right, closeRect.bottom);
-            LineTo(dc, closeRect.left, closeRect.bottom);
-            LineTo(dc, closeRect.left, closeRect.top);
-            SelectObject(dc, oldPen);
-            DeleteObject(borderPen);
+
+        int closeState = CBS_NORMAL;
+        if (closePressed) {
+            closeState = CBS_PUSHED;
+        } else if (closeHot) {
+            closeState = CBS_HOT;
         }
-        HPEN crossPen = CreatePen(PS_SOLID, 1, ResolveTextColor(closeBackground));
-        if (crossPen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, crossPen));
-            MoveToEx(dc, closeRect.left + 3, closeRect.top + 3, nullptr);
-            LineTo(dc, closeRect.right - 3, closeRect.bottom - 3);
-            MoveToEx(dc, closeRect.right - 3, closeRect.top + 3, nullptr);
-            LineTo(dc, closeRect.left + 3, closeRect.bottom - 3);
-            SelectObject(dc, oldPen);
-            DeleteObject(crossPen);
+
+        bool themedClose = false;
+        if (m_windowTheme) {
+            if (SUCCEEDED(DrawThemeBackground(m_windowTheme, dc, WP_SMALLCLOSEBUTTON, closeState, &closeRect, nullptr))) {
+                themedClose = true;
+            } else if (SUCCEEDED(DrawThemeBackground(m_windowTheme, dc, WP_CLOSEBUTTON, closeState, &closeRect, nullptr))) {
+                themedClose = true;
+            }
+        }
+
+        if (!themedClose) {
+            COLORREF closeBackground = closeHot ? RGB(232, 17, 35)
+                                                : (m_darkMode ? BlendColors(computedBackground, RGB(255, 255, 255), 0.15)
+                                                              : BlendColors(computedBackground, RGB(0, 0, 0), 0.12));
+            if (closePressed) {
+                closeBackground = BlendColors(closeBackground, RGB(0, 0, 0), 0.2);
+            }
+
+            HBRUSH closeBrush = CreateSolidBrush(closeBackground);
+            if (closeBrush) {
+                FillRect(dc, &closeRect, closeBrush);
+                DeleteObject(closeBrush);
+            }
+
+            COLORREF borderColor = closeHot ? BlendColors(closeBackground, RGB(0, 0, 0), 0.2)
+                                            : BlendColors(closeBackground, RGB(0, 0, 0), m_darkMode ? 0.6 : 0.4);
+            HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
+            if (borderPen) {
+                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
+                MoveToEx(dc, closeRect.left, closeRect.top, nullptr);
+                LineTo(dc, closeRect.right, closeRect.top);
+                LineTo(dc, closeRect.right, closeRect.bottom);
+                LineTo(dc, closeRect.left, closeRect.bottom);
+                LineTo(dc, closeRect.left, closeRect.top);
+                SelectObject(dc, oldPen);
+                DeleteObject(borderPen);
+            }
+
+            RECT glyphRect = closeRect;
+            COLORREF glyphColor = closeHot ? RGB(255, 255, 255) : ResolveTextColor(closeBackground);
+            COLORREF previousColor = SetTextColor(dc, glyphColor);
+            DrawTextW(dc, L"x", 1, &glyphRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            if (previousColor != CLR_INVALID) {
+                SetTextColor(dc, previousColor);
+            } else {
+                SetTextColor(dc, textColor);
+            }
         }
     }
 }
@@ -1633,6 +1674,7 @@ void TabBandWindow::ClearVisualItems() {
         }
     }
     m_items.clear();
+    m_hotCloseIndex = kInvalidIndex;
 }
 
 void TabBandWindow::ClearExplorerContext() {
@@ -1673,6 +1715,68 @@ bool TabBandWindow::HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARA
         }
     }
     return false;
+}
+
+void TabBandWindow::EnsureMouseTracking() {
+    if (m_mouseTracking || !m_hwnd) {
+        return;
+    }
+    TRACKMOUSEEVENT tme{};
+    tme.cbSize = sizeof(tme);
+    tme.dwFlags = TME_LEAVE;
+    tme.hwndTrack = m_hwnd;
+    if (TrackMouseEvent(&tme)) {
+        m_mouseTracking = true;
+    }
+}
+
+void TabBandWindow::UpdateCloseButtonHover(const POINT& pt) {
+    size_t newIndex = kInvalidIndex;
+    if (PtInRect(&m_clientRect, pt)) {
+        HitInfo hit = HitTest(pt);
+        if (hit.hit && hit.type == TabViewItemType::kTab && hit.itemIndex < m_items.size()) {
+            const auto& item = m_items[hit.itemIndex];
+            RECT closeRect = ComputeCloseButtonRect(item);
+            if (closeRect.right > closeRect.left && PtInRect(&closeRect, pt)) {
+                newIndex = item.index;
+            }
+        }
+    }
+
+    if (newIndex == m_hotCloseIndex) {
+        return;
+    }
+
+    size_t previous = m_hotCloseIndex;
+    m_hotCloseIndex = newIndex;
+
+    if (!m_hwnd) {
+        return;
+    }
+
+    if (previous != kInvalidIndex && previous < m_items.size()) {
+        RECT invalidate = ComputeCloseButtonRect(m_items[previous]);
+        InvalidateRect(m_hwnd, &invalidate, FALSE);
+    }
+    if (newIndex != kInvalidIndex && newIndex < m_items.size()) {
+        RECT invalidate = ComputeCloseButtonRect(m_items[newIndex]);
+        InvalidateRect(m_hwnd, &invalidate, FALSE);
+    }
+}
+
+void TabBandWindow::ClearCloseButtonHover() {
+    if (m_hotCloseIndex == kInvalidIndex) {
+        return;
+    }
+    size_t previous = m_hotCloseIndex;
+    m_hotCloseIndex = kInvalidIndex;
+    if (!m_hwnd) {
+        return;
+    }
+    if (previous < m_items.size()) {
+        RECT invalidate = ComputeCloseButtonRect(m_items[previous]);
+        InvalidateRect(m_hwnd, &invalidate, FALSE);
+    }
 }
 
 void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
@@ -1716,6 +1820,8 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
         m_owner->OnHideTabRequested(m_contextHit.location);
     } else if (id == IDM_DETACH_TAB && m_contextHit.location.IsValid()) {
         m_owner->OnDetachTabRequested(m_contextHit.location);
+    } else if (id == IDM_CLONE_TAB && m_contextHit.location.IsValid()) {
+        m_owner->OnCloneTabRequested(m_contextHit.location);
     } else if (id == IDM_OPEN_TERMINAL && m_contextHit.location.IsValid()) {
         m_owner->OnOpenTerminal(m_contextHit.location);
     } else if (id == IDM_OPEN_VSCODE && m_contextHit.location.IsValid()) {
@@ -1759,6 +1865,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 }
 
 bool TabBandWindow::HandleMouseDown(const POINT& pt) {
+    UpdateCloseButtonHover(pt);
     HitInfo hit = HitTest(pt);
     if (!hit.hit) {
         return false;
@@ -1770,6 +1877,9 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
         m_drag.closeClick = true;
         m_drag.closeItemIndex = hit.itemIndex;
         m_drag.closeLocation = hit.location;
+        if (hit.itemIndex < m_items.size()) {
+            m_hotCloseIndex = m_items[hit.itemIndex].index;
+        }
         if (GetCapture() != m_hwnd) {
             SetCapture(m_hwnd);
         }
@@ -1790,6 +1900,7 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
 }
 
 bool TabBandWindow::HandleMouseUp(const POINT& pt) {
+    UpdateCloseButtonHover(pt);
     bool handled = false;
     if (m_drag.closeClick) {
         handled = true;
@@ -1974,6 +2085,7 @@ void TabBandWindow::CancelDrag() {
     }
     m_externalDrop = {};
     m_drag = {};
+    m_mouseTracking = false;
     if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, TRUE);
     }
@@ -2373,6 +2485,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_CLOSE_TAB, L"Close Tab");
             AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
+            AppendMenuW(menu, MF_STRING, IDM_CLONE_TAB, L"Clone Tab");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
@@ -2700,10 +2813,26 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_MOUSEMOVE: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                self->EnsureMouseTracking();
+                self->UpdateCloseButtonHover(pt);
                 if (self->HandleMouseMove(pt)) {
                     return 0;
                 }
                 return fallback();
+            }
+            case WM_NCHITTEST: {
+                POINT screen{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                POINT client = screen;
+                ScreenToClient(hwnd, &client);
+                if (client.x >= 0 && client.y >= 0 && client.x < self->m_toolbarGripWidth) {
+                    return HTTRANSPARENT;
+                }
+                return HTCLIENT;
+            }
+            case WM_MOUSELEAVE: {
+                self->m_mouseTracking = false;
+                self->ClearCloseButtonHover();
+                return 0;
             }
             case WM_RBUTTONUP: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};

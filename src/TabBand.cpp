@@ -437,6 +437,36 @@ bool TabBand::OnBrowserNewWindow(const std::wstring& targetUrl) {
     return HandleNewWindowRequest(targetUrl);
 }
 
+bool TabBand::OnCtrlBeforeNavigate(const std::wstring& url) {
+    if (m_internalNavigation || url.empty()) {
+        return false;
+    }
+
+    UniquePidl pidl = ParseExplorerUrl(url);
+    if (!pidl) {
+        return false;
+    }
+
+    std::wstring name = GetDisplayName(pidl.get());
+    if (name.empty()) {
+        name = L"Tab";
+    }
+    std::wstring tooltip = GetParsingName(pidl.get());
+    if (tooltip.empty()) {
+        tooltip = name;
+    }
+
+    const TabLocation current = m_tabs.SelectedLocation();
+    const int groupIndex = current.groupIndex >= 0 ? current.groupIndex : -1;
+    TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (location.IsValid()) {
+        QueueNavigateTo(location);
+    }
+    return true;
+}
+
 void TabBand::OnTabSelected(TabLocation location) {
     const auto current = m_tabs.SelectedLocation();
     if (current.groupIndex == location.groupIndex && current.tabIndex == location.tabIndex) {
@@ -546,6 +576,38 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
     SyncAllSavedGroups();
     if (!removedGroupId.empty()) {
         GroupStore::Instance().UpdateTabs(removedGroupId, {});
+    }
+}
+
+void TabBand::OnCloneTabRequested(TabLocation location) {
+    if (!location.IsValid()) {
+        return;
+    }
+
+    const auto* tab = m_tabs.Get(location);
+    if (!tab || !tab->pidl) {
+        return;
+    }
+
+    UniquePidl clone = ClonePidl(tab->pidl.get());
+    if (!clone) {
+        return;
+    }
+
+    std::wstring name = tab->name;
+    if (name.empty()) {
+        name = GetDisplayName(tab->pidl.get());
+    }
+    if (name.empty()) {
+        name = L"Tab";
+    }
+    std::wstring tooltip = tab->tooltip.empty() ? name : tab->tooltip;
+
+    TabLocation newLocation = m_tabs.Add(std::move(clone), name, tooltip, true, location.groupIndex);
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (newLocation.IsValid()) {
+        NavigateToTab(newLocation);
     }
 }
 
