@@ -30,10 +30,15 @@ std::wstring NormalizePath(const std::wstring& path) {
     if (path.empty()) {
         return {};
     }
-    wchar_t buffer[MAX_PATH];
-    if (PathCanonicalizeW(buffer, path.c_str())) {
-        return std::wstring(buffer);
+#ifdef _WIN32
+    const size_t capacity = std::max<size_t>(path.size() + 1, MAX_PATH);
+    std::vector<wchar_t> buffer(capacity, L'\0');
+    const HRESULT hr = PathCchCanonicalizeEx(buffer.data(), buffer.size(), path.c_str(), PATHCCH_ALLOW_LONG_PATHS);
+    if (SUCCEEDED(hr)) {
+        const auto terminator = std::find(buffer.begin(), buffer.end(), L'\0');
+        return std::wstring(buffer.data(), static_cast<size_t>(std::distance(buffer.begin(), terminator)));
     }
+#endif
     return path;
 }
 

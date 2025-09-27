@@ -14,11 +14,13 @@
 
 namespace shelltabs {
 
+using AbsolutePidl = std::remove_pointer_t<PIDLIST_ABSOLUTE>;
+
 struct PidlDeleter {
-    void operator()(ITEMIDLIST* pidl) const noexcept;
+    void operator()(AbsolutePidl* pidl) const noexcept;
 };
 
-using UniquePidl = std::unique_ptr<ITEMIDLIST, PidlDeleter>;
+using UniquePidl = std::unique_ptr<AbsolutePidl, PidlDeleter>;
 
 UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source);
 bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
