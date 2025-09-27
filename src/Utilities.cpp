@@ -6,6 +6,7 @@
 #include <oleauto.h>
 #include <commdlg.h>
 
+#include <array>
 #include <string>
 #include <vector>
 #include <cwchar>
@@ -198,6 +199,9 @@ UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& she
 namespace {
 constexpr WORD kPromptControlId = 3001;
 constexpr WORD kEditControlId = 3002;
+constexpr WORD kColorButtonId = 3003;
+constexpr WORD kColorPreviewId = 3004;
+constexpr WORD kColorLabelId = 3005;
 
 void AppendWord(std::vector<BYTE>& buffer, WORD value) {
     buffer.push_back(static_cast<BYTE>(value & 0xFF));
@@ -223,11 +227,11 @@ std::vector<BYTE> BuildInputDialogTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU;
     dlg->dwExtendedStyle = 0;
-    dlg->cdit = 4;
+    dlg->cdit = 7;
     dlg->x = 10;
     dlg->y = 10;
     dlg->cx = 220;
-    dlg->cy = 80;
+    dlg->cy = 100;
 
     AppendWord(data, 0);  // menu
     AppendWord(data, 0);  // class
@@ -270,11 +274,59 @@ std::vector<BYTE> BuildInputDialogTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* colorLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    colorLabel->style = WS_CHILD | WS_VISIBLE;
+    colorLabel->dwExtendedStyle = 0;
+    colorLabel->x = 7;
+    colorLabel->y = 44;
+    colorLabel->cx = 30;
+    colorLabel->cy = 12;
+    colorLabel->id = kColorLabelId;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Color:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* colorPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    colorPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
+    colorPreview->dwExtendedStyle = 0;
+    colorPreview->x = 42;
+    colorPreview->y = 42;
+    colorPreview->cx = 28;
+    colorPreview->cy = 16;
+    colorPreview->id = kColorPreviewId;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* colorButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    colorButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+    colorButton->dwExtendedStyle = 0;
+    colorButton->x = 78;
+    colorButton->y = 42;
+    colorButton->cx = 60;
+    colorButton->cy = 16;
+    colorButton->id = kColorButtonId;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Color...");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* okButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     okButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON;
     okButton->dwExtendedStyle = 0;
     okButton->x = 60;
-    okButton->y = 50;
+    okButton->y = 70;
     okButton->cx = 50;
     okButton->cy = 14;
     okButton->id = IDOK;
@@ -290,7 +342,7 @@ std::vector<BYTE> BuildInputDialogTemplate() {
     cancelButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     cancelButton->dwExtendedStyle = 0;
     cancelButton->x = 120;
-    cancelButton->y = 50;
+    cancelButton->y = 70;
     cancelButton->cx = 60;
     cancelButton->cy = 14;
     cancelButton->id = IDCANCEL;
@@ -307,6 +359,10 @@ struct InputDialogContext {
     std::wstring title;
     std::wstring prompt;
     std::wstring value;
+    bool allowColor = false;
+    COLORREF color = RGB(0, 120, 215);
+    HBRUSH colorBrush = nullptr;
+    std::array<COLORREF, 16>* customColors = nullptr;
 };
 
 INT_PTR CALLBACK InputDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -318,6 +374,26 @@ INT_PTR CALLBACK InputDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                 SetWindowTextW(hwnd, context->title.c_str());
                 SetDlgItemTextW(hwnd, kPromptControlId, context->prompt.c_str());
                 SetDlgItemTextW(hwnd, kEditControlId, context->value.c_str());
+                if (!context->allowColor) {
+                    if (HWND label = GetDlgItem(hwnd, kColorLabelId)) {
+                        ShowWindow(label, SW_HIDE);
+                    }
+                    if (HWND preview = GetDlgItem(hwnd, kColorPreviewId)) {
+                        ShowWindow(preview, SW_HIDE);
+                    }
+                    if (HWND button = GetDlgItem(hwnd, kColorButtonId)) {
+                        ShowWindow(button, SW_HIDE);
+                    }
+                } else {
+                    if (context->colorBrush) {
+                        DeleteObject(context->colorBrush);
+                        context->colorBrush = nullptr;
+                    }
+                    context->colorBrush = CreateSolidBrush(context->color);
+                    if (HWND preview = GetDlgItem(hwnd, kColorPreviewId)) {
+                        InvalidateRect(preview, nullptr, TRUE);
+                    }
+                }
                 HWND editControl = GetDlgItem(hwnd, kEditControlId);
                 if (editControl) {
                     SendMessageW(editControl, EM_SETSEL, 0, -1);
@@ -340,13 +416,69 @@ INT_PTR CALLBACK InputDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                             text.resize(wcslen(text.c_str()));
                             context->value = std::move(text);
                         }
+                        if (!context->allowColor && context->colorBrush) {
+                            DeleteObject(context->colorBrush);
+                            context->colorBrush = nullptr;
+                        }
                     }
                     EndDialog(hwnd, IDOK);
                     return TRUE;
                 }
                 case IDCANCEL:
+                    if (auto* context = reinterpret_cast<InputDialogContext*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        context && context->colorBrush) {
+                        DeleteObject(context->colorBrush);
+                        context->colorBrush = nullptr;
+                    }
                     EndDialog(hwnd, IDCANCEL);
                     return TRUE;
+                case kColorButtonId: {
+                    auto* context = reinterpret_cast<InputDialogContext*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                    if (!context || !context->allowColor) {
+                        return TRUE;
+                    }
+                    CHOOSECOLORW cc{};
+                    cc.lStructSize = sizeof(cc);
+                    cc.hwndOwner = hwnd;
+                    cc.rgbResult = context->color;
+                    cc.lpCustColors = context->customColors ? context->customColors->data() : nullptr;
+                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                    if (ChooseColorW(&cc)) {
+                        context->color = cc.rgbResult;
+                        if (context->colorBrush) {
+                            DeleteObject(context->colorBrush);
+                        }
+                        context->colorBrush = CreateSolidBrush(context->color);
+                        if (HWND preview = GetDlgItem(hwnd, kColorPreviewId)) {
+                            InvalidateRect(preview, nullptr, TRUE);
+                        }
+                    }
+                    return TRUE;
+                }
+            }
+            break;
+        }
+        case WM_CTLCOLORSTATIC: {
+            auto* context = reinterpret_cast<InputDialogContext*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (context && context->allowColor) {
+                HWND control = reinterpret_cast<HWND>(lParam);
+                if (control && GetDlgCtrlID(control) == kColorPreviewId) {
+                    HDC dc = reinterpret_cast<HDC>(wParam);
+                    SetBkColor(dc, context->color);
+                    SetTextColor(dc, RGB(0, 0, 0));
+                    if (!context->colorBrush) {
+                        context->colorBrush = CreateSolidBrush(context->color);
+                    }
+                    return reinterpret_cast<INT_PTR>(context->colorBrush);
+                }
+            }
+            break;
+        }
+        case WM_DESTROY: {
+            auto* context = reinterpret_cast<InputDialogContext*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (context && context->colorBrush) {
+                DeleteObject(context->colorBrush);
+                context->colorBrush = nullptr;
             }
             break;
         }
@@ -355,7 +487,8 @@ INT_PTR CALLBACK InputDialogProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 }
 }  // namespace
 
-bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value) {
+bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value,
+                        COLORREF* color) {
     if (!value) {
         return false;
     }
@@ -363,6 +496,12 @@ bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstri
     context.title = title;
     context.prompt = prompt;
     context.value = *value;
+    static std::array<COLORREF, 16> customColors{};
+    if (color) {
+        context.allowColor = true;
+        context.color = *color;
+        context.customColors = &customColors;
+    }
 
     std::vector<BYTE> dialogTemplate = BuildInputDialogTemplate();
     INT_PTR result = DialogBoxIndirectParamW(GetModuleHandleInstance(),
@@ -370,6 +509,9 @@ bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstri
                                              InputDialogProc, reinterpret_cast<LPARAM>(&context));
     if (result == IDOK) {
         *value = context.value;
+        if (color) {
+            *color = context.color;
+        }
         return true;
     }
     return false;

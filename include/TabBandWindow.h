@@ -37,6 +37,7 @@ public:
         TabLocation location;
         bool before = false;
         bool after = false;
+        bool closeButton = false;
     };
 
     struct DropTarget {
@@ -70,6 +71,7 @@ private:
         RECT bounds{};
         COLORREF color = RGB(0, 0, 0);
         bool initialized = false;
+        bool visible = false;
     };
 
     struct ExplorerContext {
@@ -90,6 +92,11 @@ private:
         POINT current{};
         bool hasCurrent = false;
         bool originSelected = false;
+        bool closeClick = false;
+        size_t closeItemIndex = 0;
+        TabLocation closeLocation{};
+        HWND overlay = nullptr;
+        bool overlayVisible = false;
     };
 
     struct ExternalDropState {
@@ -186,6 +193,10 @@ private:
     COLORREF ResolveTabTextColor(bool selected, COLORREF background) const;
     COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
     std::vector<GroupOutline> BuildGroupOutlines() const;
+    RECT ComputeCloseButtonRect(const VisualItem& item) const;
+    HBITMAP CreateDragVisualBitmap(const VisualItem& item, SIZE* size) const;
+    void UpdateDragOverlay(const POINT& clientPt, const POINT& screenPt);
+    void HideDragOverlay(bool destroy);
     void RefreshTheme();
     void CloseThemeHandles();
     void UpdateNewTabButtonTheme();

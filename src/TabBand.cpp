@@ -1476,7 +1476,8 @@ std::vector<std::wstring> TabBand::GetSavedGroupNames() const {
 void TabBand::OnCreateSavedGroup(int afterGroup) {
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
     std::wstring name = L"New Group";
-    if (!PromptForTextInput(hwnd, L"Create Tab Group", L"Group name:", &name)) {
+    COLORREF color = RGB(0, 120, 215);
+    if (!PromptForTextInput(hwnd, L"Create Tab Group", L"Group name:", &name, &color)) {
         return;
     }
     if (name.empty()) {
@@ -1487,11 +1488,6 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
     store.Load();
     if (store.Find(name)) {
         MessageBoxW(hwnd, L"A saved group with that name already exists.", L"ShellTabs", MB_OK | MB_ICONWARNING);
-        return;
-    }
-
-    COLORREF color = RGB(0, 120, 215);
-    if (!PromptForColor(hwnd, color, &color)) {
         return;
     }
 
