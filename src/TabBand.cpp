@@ -1,6 +1,7 @@
 #include "TabBand.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -24,6 +25,7 @@
 #include "Guids.h"
 #include "GroupStore.h"
 #include "GitStatus.h"
+#include "Logging.h"
 #include "Module.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
@@ -42,13 +44,49 @@ WindowTokenState& GetWindowTokenState() {
     static auto* state = new WindowTokenState();
     return *state;
 }
+
+struct GitStatusActivationState {
+    std::atomic<long> clients{0};
+};
+
+GitStatusActivationState& GetGitStatusActivationState() {
+    static auto* state = new GitStatusActivationState();
+    return *state;
+}
+
+void AcquireGitStatusActivation() {
+    auto& state = GetGitStatusActivationState();
+    const long previous = state.clients.fetch_add(1, std::memory_order_acq_rel);
+    const long current = previous + 1;
+    LogMessage(LogLevel::Info, L"TabBand acquiring git status activation (count=%ld)", current);
+    if (previous == 0) {
+        GitStatusCache::Instance().SetEnabled(true);
+    }
+}
+
+void ReleaseGitStatusActivation() {
+    auto& state = GetGitStatusActivationState();
+    long previous = state.clients.fetch_sub(1, std::memory_order_acq_rel);
+    if (previous <= 0) {
+        state.clients.store(0, std::memory_order_release);
+        LogMessage(LogLevel::Warning, L"TabBand release git status activation underflow");
+        return;
+    }
+    const long remaining = previous - 1;
+    LogMessage(LogLevel::Info, L"TabBand releasing git status activation (remaining=%ld)", remaining);
+    if (remaining == 0) {
+        GitStatusCache::Instance().SetEnabled(false);
+    }
+}
 }
 
 TabBand::TabBand() : m_refCount(1) {
     ModuleAddRef();
+    LogMessage(LogLevel::Info, L"TabBand constructed (this=%p)", this);
 }
 
 TabBand::~TabBand() {
+    LogMessage(LogLevel::Info, L"TabBand destroyed (this=%p)", this);
     DisconnectSite();
     ModuleRelease();
 }
@@ -245,10 +283,13 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
     return GuardExplorerCall(
         L"TabBand::SetSite",
         [&]() -> HRESULT {
+            LogMessage(LogLevel::Info, L"TabBand::SetSite begin (this=%p, site=%p)", this, pUnkSite);
             if (pUnkSite == m_site.Get()) {
+                LogMessage(LogLevel::Info, L"TabBand::SetSite site unchanged");
                 return S_OK;
             }
             if (!pUnkSite) {
+                LogMessage(LogLevel::Info, L"TabBand::SetSite clearing site");
                 DisconnectSite();
                 return S_OK;
             }
@@ -288,27 +329,37 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             }
 
             if (!m_shellBrowser || !m_webBrowser) {
+                LogMessage(LogLevel::Warning, L"TabBand::SetSite missing browser interfaces");
                 DisconnectSite();
                 return E_FAIL;
             }
 
+            LogMessage(LogLevel::Info, L"TabBand::SetSite resolved browser interfaces");
+            LogMessage(LogLevel::Info, L"TabBand::SetSite EnsureSessionStore");
             EnsureSessionStore();
+            LogMessage(LogLevel::Info, L"TabBand::SetSite EnsureWindow");
             EnsureWindow();
             if (!m_window) {
+                LogMessage(LogLevel::Error, L"TabBand::SetSite failed to create window");
                 DisconnectSite();
                 return E_FAIL;
             }
-            EnsureGitStatusListener();
 
             m_browserEvents = std::make_unique<BrowserEvents>(this);
             if (m_browserEvents) {
                 hr = m_browserEvents->Connect(m_webBrowser);
                 if (FAILED(hr)) {
+                    LogMessage(LogLevel::Warning, L"TabBand::SetSite BrowserEvents::Connect failed (hr=0x%08X)",
+                               static_cast<unsigned int>(hr));
                     m_browserEvents.reset();
+                } else {
+                    LogMessage(LogLevel::Info, L"TabBand::SetSite BrowserEvents connected");
                 }
             }
 
+            LogMessage(LogLevel::Info, L"TabBand::SetSite InitializeTabs");
             InitializeTabs();
+            LogMessage(LogLevel::Info, L"TabBand::SetSite UpdateTabsUI (initial)");
             UpdateTabsUI();
 
             if (!m_viewColorizer) {
@@ -318,6 +369,10 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
                 m_viewColorizer->Attach(m_shellBrowser);
             }
             ScheduleColorizerRefresh();
+
+            ScheduleGitStatusEnable();
+
+            LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
 
             return S_OK;
         },
@@ -732,6 +787,7 @@ void TabBand::EnsureWindow() {
         return;
     }
 
+    LogMessage(LogLevel::Info, L"TabBand::EnsureWindow creating band window (this=%p)", this);
     HWND parent = nullptr;
     if (m_site) {
         ComPtr<IOleWindow> oleWindow;
@@ -743,7 +799,16 @@ void TabBand::EnsureWindow() {
     auto window = std::make_unique<TabBandWindow>(this);
     if (window->Create(parent)) {
         m_window = std::move(window);
-        EnsureGitStatusListener();
+        LogMessage(LogLevel::Info, L"TabBand::EnsureWindow created window hwnd=%p",
+                   m_window ? m_window->GetHwnd() : nullptr);
+        if (m_gitStatusActivationAcquired) {
+            EnsureGitStatusListener();
+        } else if (m_gitStatusEnablePending || m_gitStatusEnablePosted) {
+            m_gitStatusEnablePosted = false;
+            ScheduleGitStatusEnable();
+        }
+    } else {
+        LogMessage(LogLevel::Error, L"TabBand::EnsureWindow failed to create window");
     }
 }
 
@@ -751,8 +816,14 @@ void TabBand::EnsureGitStatusListener() {
     if (m_gitStatusListenerId != 0 || !m_window) {
         return;
     }
+    if (!GitStatusCache::Instance().IsEnabled()) {
+        LogMessage(LogLevel::Info, L"TabBand::EnsureGitStatusListener skipped (git disabled)");
+        return;
+    }
+    LogMessage(LogLevel::Info, L"TabBand::EnsureGitStatusListener registering listener (this=%p)", this);
     HWND hwnd = m_window->GetHwnd();
     if (!hwnd) {
+        m_gitStatusEnablePending = true;
         return;
     }
     m_gitStatusListenerId = GitStatusCache::Instance().AddListener([hwnd]() {
@@ -760,17 +831,27 @@ void TabBand::EnsureGitStatusListener() {
             PostMessageW(hwnd, WM_SHELLTABS_REFRESH_GIT_STATUS, 0, 0);
         }
     });
+    if (m_gitStatusListenerId == 0) {
+        LogMessage(LogLevel::Warning, L"TabBand::EnsureGitStatusListener failed to register listener");
+        m_gitStatusEnablePending = true;
+        return;
+    }
+    LogMessage(LogLevel::Info, L"TabBand::EnsureGitStatusListener listener id=%llu",
+               static_cast<unsigned long long>(m_gitStatusListenerId));
 }
 
 void TabBand::RemoveGitStatusListener() {
     if (m_gitStatusListenerId == 0) {
         return;
     }
+    LogMessage(LogLevel::Info, L"TabBand::RemoveGitStatusListener id=%llu",
+               static_cast<unsigned long long>(m_gitStatusListenerId));
     GitStatusCache::Instance().RemoveListener(m_gitStatusListenerId);
     m_gitStatusListenerId = 0;
 }
 
 void TabBand::DisconnectSite() {
+    LogMessage(LogLevel::Info, L"TabBand::DisconnectSite (this=%p)", this);
     SaveSession();
     ReleaseWindowToken();
 
@@ -784,6 +865,12 @@ void TabBand::DisconnectSite() {
     m_site.Reset();
 
     RemoveGitStatusListener();
+    if (m_gitStatusActivationAcquired) {
+        ReleaseGitStatusActivation();
+        m_gitStatusActivationAcquired = false;
+    }
+    m_gitStatusEnablePosted = false;
+    m_gitStatusEnablePending = false;
     if (m_window) {
         m_window->Destroy();
         m_window.reset();
@@ -802,6 +889,7 @@ void TabBand::DisconnectSite() {
 }
 
 void TabBand::InitializeTabs() {
+    LogScope scope(L"TabBand::InitializeTabs");
     m_tabs.Clear();
 
     GroupStore::Instance().Load();
@@ -816,6 +904,7 @@ void TabBand::InitializeTabs() {
                 name = L"Tab";
             }
             m_tabs.Add(std::move(pidl), name, name, true);
+            LogMessage(LogLevel::Info, L"TabBand::InitializeTabs seeded new tab %ls", name.c_str());
         }
     } else {
         const TabLocation selection = m_tabs.SelectedLocation();
@@ -832,6 +921,9 @@ void TabBand::InitializeTabs() {
 
 void TabBand::UpdateTabsUI() {
     const auto items = m_tabs.BuildView();
+    LogMessage(LogLevel::Info, L"TabBand::UpdateTabsUI applying %llu items (git=%ls)",
+               static_cast<unsigned long long>(items.size()),
+               GitStatusCache::Instance().IsEnabled() ? L"enabled" : L"disabled");
     if (m_window) {
         m_window->SetTabs(items);
     }
@@ -843,13 +935,24 @@ void TabBand::EnsureSessionStore() {
         return;
     }
 
+    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore resolving storage (this=%p)", this);
     EnsureWindow();
     std::wstring storagePath;
     const std::wstring token = ResolveWindowToken();
+    if (token.empty()) {
+        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using anonymous window token");
+    } else {
+        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore window token %ls", token.c_str());
+    }
     if (!token.empty()) {
         storagePath = SessionStore::BuildPathForToken(token);
     }
 
+    if (storagePath.empty()) {
+        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using default storage path");
+    } else {
+        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
+    }
     m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
 }
 
@@ -860,8 +963,12 @@ bool TabBand::RestoreSession() {
 
     SessionData data;
     if (!m_sessionStore->Load(data)) {
+        LogMessage(LogLevel::Warning, L"TabBand::RestoreSession load failed");
         return false;
     }
+
+    LogMessage(LogLevel::Info, L"TabBand::RestoreSession loaded %llu groups",
+               static_cast<unsigned long long>(data.groups.size()));
 
     std::vector<TabGroup> groups;
     groups.reserve(data.groups.size());
@@ -1368,10 +1475,72 @@ void TabBand::OnColorizerRefresh() {
 void TabBand::OnGitStatusUpdated() {
     GuardExplorerCall(L"TabBand::OnGitStatusUpdated", [&]() {
         if (!m_window) {
+            LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated ignored (no window)");
             return;
         }
+        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated refreshing view");
         const auto items = m_tabs.BuildView();
+        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated applied %llu items",
+                   static_cast<unsigned long long>(items.size()));
         m_window->SetTabs(items);
+    });
+}
+
+void TabBand::ScheduleGitStatusEnable() {
+    if (m_gitStatusActivationAcquired) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already active");
+        EnsureGitStatusListener();
+        return;
+    }
+    if (!m_window) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (no window)");
+        m_gitStatusEnablePending = true;
+        return;
+    }
+    HWND hwnd = m_window->GetHwnd();
+    if (!hwnd || !IsWindow(hwnd)) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (invalid hwnd)");
+        m_gitStatusEnablePending = true;
+        return;
+    }
+    if (m_gitStatusEnablePosted) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already posted");
+        return;
+    }
+    if (PostMessageW(hwnd, WM_SHELLTABS_ENABLE_GIT_STATUS, 0, 0)) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable posted enable message");
+        m_gitStatusEnablePosted = true;
+        m_gitStatusEnablePending = false;
+    } else {
+        const DWORD error = GetLastError();
+        LogMessage(LogLevel::Warning,
+                   L"TabBand::ScheduleGitStatusEnable PostMessage failed (error=%lu)", error);
+        m_gitStatusEnablePending = true;
+    }
+}
+
+void TabBand::OnEnableGitStatus() {
+    GuardExplorerCall(L"TabBand::OnEnableGitStatus", [&]() {
+        LogMessage(LogLevel::Info, L"TabBand::OnEnableGitStatus invoked (this=%p)", this);
+        m_gitStatusEnablePosted = false;
+        if (!m_window) {
+            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (no window)");
+            m_gitStatusEnablePending = true;
+            return;
+        }
+        HWND hwnd = m_window->GetHwnd();
+        if (!hwnd || !IsWindow(hwnd)) {
+            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (invalid hwnd)");
+            m_gitStatusEnablePending = true;
+            return;
+        }
+        if (!m_gitStatusActivationAcquired) {
+            AcquireGitStatusActivation();
+            m_gitStatusActivationAcquired = true;
+        }
+        m_gitStatusEnablePending = false;
+        EnsureGitStatusListener();
+        UpdateTabsUI();
     });
 }
 

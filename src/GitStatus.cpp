@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cerrno>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -27,6 +28,45 @@ constexpr std::chrono::seconds kRootCacheTtl(30);
 constexpr size_t kMaxRootCacheEntries = 256;
 constexpr size_t kMaxQueueDepth = 64;
 constexpr std::chrono::seconds kWorkerRetryDelay(5);
+
+void LogGitCacheStateChange(const wchar_t* message) {
+    LogMessage(LogLevel::Info, L"GitStatusCache %ls", message);
+}
+
+std::wstring QuoteCommandArgument(const std::wstring& argument) {
+    std::wstring result;
+    result.reserve(argument.size() + 2);
+    result.push_back(L'"');
+
+    size_t backslashCount = 0;
+    for (wchar_t ch : argument) {
+        if (ch == L'\\') {
+            ++backslashCount;
+            continue;
+        }
+
+        if (ch == L'"') {
+            result.append(backslashCount * 2 + 1, L'\\');
+            result.push_back(L'"');
+            backslashCount = 0;
+            continue;
+        }
+
+        if (backslashCount != 0) {
+            result.append(backslashCount, L'\\');
+            backslashCount = 0;
+        }
+
+        result.push_back(ch);
+    }
+
+    if (backslashCount != 0) {
+        result.append(backslashCount * 2, L'\\');
+    }
+
+    result.push_back(L'"');
+    return result;
+}
 
 std::wstring FromUtf8(const char* value) {
     if (!value || !*value) {
@@ -63,13 +103,17 @@ bool DirectoryExists(const std::wstring& path) {
 }
 
 std::wstring RunGitStatus(const std::wstring& root) {
-    std::wstring command = L"\"git\" -C \"" + root + L"\" status --porcelain=2 --branch";
+    const std::wstring command = QuoteCommandArgument(L"git") + L" -C " + QuoteCommandArgument(root) +
+                                 L" status --porcelain=2 --branch";
+    LogMessage(LogLevel::Info, L"GitStatus invoking git for %ls", root.c_str());
+    LogMessage(LogLevel::Info, L"GitStatus command line: %ls", command.c_str());
 #ifdef _WIN32
     FILE* pipe = _wpopen(command.c_str(), L"rt, ccs=UTF-8");
 #else
     FILE* pipe = popen(std::string(command.begin(), command.end()).c_str(), "r");
 #endif
     if (!pipe) {
+        LogMessage(LogLevel::Warning, L"GitStatus failed to start git process for %ls (errno=%d)", root.c_str(), errno);
         return {};
     }
 
@@ -83,6 +127,8 @@ std::wstring RunGitStatus(const std::wstring& root) {
 #else
     pclose(pipe);
 #endif
+    LogMessage(LogLevel::Info, L"GitStatus received %llu characters from git for %ls",
+               static_cast<unsigned long long>(result.size()), root.c_str());
     return result;
 }
 
@@ -132,6 +178,10 @@ GitStatusInfo ParseGitStatus(const std::wstring& root, const std::wstring& outpu
 
 }  // namespace
 
+GitStatusCache::GitStatusCache() {
+    LogMessage(LogLevel::Info, L"GitStatusCache constructed (this=%p)", this);
+}
+
 GitStatusCache& GitStatusCache::Instance() {
     static GitStatusCache cache;
     return cache;
@@ -140,6 +190,7 @@ GitStatusCache& GitStatusCache::Instance() {
 GitStatusCache::~GitStatusCache() {
     LogMessage(LogLevel::Info, L"GitStatusCache shutting down (workerRunning=%ls)",
                m_workerRunning.load(std::memory_order_acquire) ? L"true" : L"false");
+    m_enabled.store(false, std::memory_order_release);
     m_stop.store(true, std::memory_order_release);
     {
         std::lock_guard queueLock(m_queueMutex);
@@ -158,16 +209,52 @@ GitStatusCache::~GitStatusCache() {
     LogMessage(LogLevel::Info, L"GitStatusCache shutdown complete");
 }
 
+void GitStatusCache::SetEnabled(bool enabled) {
+    const bool previous = m_enabled.exchange(enabled, std::memory_order_acq_rel);
+    if (previous == enabled) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::SetEnabled no state change (enabled=%ls)",
+                   enabled ? L"true" : L"false");
+        return;
+    }
+
+    if (enabled) {
+        LogGitCacheStateChange(L"enabled");
+        m_workerFailed.store(false, std::memory_order_release);
+        m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
+        m_stop.store(false, std::memory_order_release);
+    } else {
+        LogGitCacheStateChange(L"disabling");
+        m_stop.store(true, std::memory_order_release);
+        m_queueCv.notify_all();
+        ResetPendingWork();
+        JoinWorkerIfNeeded();
+        m_workerFailed.store(false, std::memory_order_release);
+        m_workerRunning.store(false, std::memory_order_release);
+        m_nextWorkerRetry = std::chrono::steady_clock::time_point{};
+        LogGitCacheStateChange(L"disabled");
+    }
+}
+
+bool GitStatusCache::IsEnabled() const noexcept {
+    return m_enabled.load(std::memory_order_acquire);
+}
+
 GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
     return GuardExplorerCall(
         L"GitStatusCache::Query",
         [&]() -> GitStatusInfo {
+            if (!IsEnabled()) {
+                LogMessage(LogLevel::Info, L"GitStatusCache::Query skipped (disabled) for %ls", path.c_str());
+                return {};
+            }
+            LogMessage(LogLevel::Info, L"GitStatusCache::Query invoked for %ls", path.c_str());
             if (path.empty()) {
                 return {};
             }
 
             const std::wstring repoRoot = ResolveRepositoryRoot(path);
             if (repoRoot.empty()) {
+                LogMessage(LogLevel::Info, L"GitStatusCache::Query no repository found for %ls", path.c_str());
                 return {};
             }
 
@@ -181,6 +268,8 @@ GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
                 auto& entry = m_cache[repoRoot];
                 const auto now = std::chrono::steady_clock::now();
                 if (entry.hasStatus && now - entry.timestamp <= kCacheTtl) {
+                    LogMessage(LogLevel::Info, L"GitStatusCache::Query returning cached status for %ls",
+                               repoRoot.c_str());
                     return entry.status;
                 }
                 if (workerReady) {
@@ -197,15 +286,22 @@ GitStatusInfo GitStatusCache::Query(const std::wstring& path) {
             }
 
             if (shouldQueue) {
+                LogMessage(LogLevel::Info, L"GitStatusCache::Query queueing status refresh for %ls", repoRoot.c_str());
                 if (!EnqueueWork(repoRoot)) {
+                    LogMessage(LogLevel::Warning, L"GitStatusCache::Query failed to enqueue work for %ls", repoRoot.c_str());
                     std::lock_guard lock(m_mutex);
                     auto it = m_cache.find(repoRoot);
                     if (it != m_cache.end()) {
                         it->second.inFlight = false;
                     }
                 }
+            } else if (!workerReady) {
+                LogMessage(LogLevel::Warning, L"GitStatusCache::Query worker not ready for %ls", repoRoot.c_str());
             }
 
+            if (cached.isRepository) {
+                LogMessage(LogLevel::Info, L"GitStatusCache::Query returning stale status for %ls", repoRoot.c_str());
+            }
             return cached;
         },
         []() -> GitStatusInfo { return {}; });
@@ -253,6 +349,12 @@ std::wstring GitStatusCache::ResolveRepositoryRoot(const std::wstring& path) {
     }
 
     CacheRepositoryRoot(probed, resolved, now);
+    if (resolved.empty()) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::ResolveRepositoryRoot %ls resolved to <none>", normalized.c_str());
+    } else {
+        LogMessage(LogLevel::Info, L"GitStatusCache::ResolveRepositoryRoot %ls resolved to %ls", normalized.c_str(),
+                   resolved.c_str());
+    }
     return resolved;
 }
 
@@ -262,10 +364,13 @@ GitStatusInfo GitStatusCache::ComputeStatus(const std::wstring& repoRoot) const 
         return info;
     }
 
+    LogMessage(LogLevel::Info, L"GitStatusCache::ComputeStatus running for %ls", repoRoot.c_str());
     const std::wstring output = RunGitStatus(repoRoot);
     if (output.empty()) {
+        LogMessage(LogLevel::Warning, L"GitStatusCache::ComputeStatus git output empty for %ls", repoRoot.c_str());
         return info;
     }
+    LogMessage(LogLevel::Info, L"GitStatusCache::ComputeStatus received output for %ls", repoRoot.c_str());
     return ParseGitStatus(repoRoot, output);
 }
 
@@ -399,6 +504,10 @@ size_t GitStatusCache::AddListener(std::function<void()> callback) {
     if (!callback) {
         return 0;
     }
+    if (!IsEnabled()) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::AddListener rejected (disabled)");
+        return 0;
+    }
     std::lock_guard lock(m_listenerMutex);
     const size_t id = m_nextListenerId++;
     m_listeners.emplace_back(id, std::move(callback));
@@ -415,6 +524,10 @@ void GitStatusCache::RemoveListener(size_t id) {
 }
 
 void GitStatusCache::EnsureWorker() {
+    if (!IsEnabled()) {
+        LogMessage(LogLevel::Info, L"GitStatusCache::EnsureWorker skipped (disabled)");
+        return;
+    }
     if (m_workerRunning.load(std::memory_order_acquire)) {
         return;
     }

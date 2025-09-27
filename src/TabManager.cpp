@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "GitStatus.h"
+#include "Logging.h"
 #include "Tagging.h"
 
 namespace shelltabs {
@@ -228,6 +229,9 @@ std::vector<TabViewItem> TabManager::BuildView() const {
     std::vector<TabViewItem> items;
     items.reserve(TotalTabCount() + static_cast<int>(m_groups.size()));
 
+    auto& gitCache = GitStatusCache::Instance();
+    const bool gitEnabled = gitCache.IsEnabled();
+
     for (size_t g = 0; g < m_groups.size(); ++g) {
         const auto& group = m_groups[g];
         const size_t total = group.tabs.size();
@@ -321,12 +325,15 @@ std::vector<TabViewItem> TabManager::BuildView() const {
                 item.tags = std::move(tags);
             }
 
-            if (!tab.path.empty()) {
-                const GitStatusInfo status = GitStatusCache::Instance().Query(tab.path);
+            if (gitEnabled && !tab.path.empty()) {
+                const GitStatusInfo status = gitCache.Query(tab.path);
                 if (status.isRepository) {
                     item.hasGitStatus = true;
                     item.gitStatus = status;
                 }
+            } else if (!gitEnabled && !tab.path.empty()) {
+                LogMessage(LogLevel::Info, L"TabManager::BuildView skipping git status for %ls (disabled)",
+                           tab.path.c_str());
             }
 
             items.emplace_back(std::move(item));

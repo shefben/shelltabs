@@ -38,6 +38,9 @@ public:
     size_t AddListener(std::function<void()> callback);
     void RemoveListener(size_t id);
 
+    void SetEnabled(bool enabled);
+    bool IsEnabled() const noexcept;
+
 private:
     struct CacheEntry {
         GitStatusInfo status;
@@ -46,7 +49,7 @@ private:
         bool inFlight = false;
     };
 
-    GitStatusCache() = default;
+    GitStatusCache();
 
     std::wstring ResolveRepositoryRoot(const std::wstring& path);
     GitStatusInfo ComputeStatus(const std::wstring& repoRoot) const;
@@ -91,6 +94,8 @@ private:
     std::mutex m_listenerMutex;
     std::vector<std::pair<size_t, std::function<void()>>> m_listeners;
     size_t m_nextListenerId = 1;
+
+    std::atomic<bool> m_enabled{false};
 };
 
 }  // namespace shelltabs
