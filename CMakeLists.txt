@@ -59,6 +59,7 @@ target_link_libraries(ShellTabs PRIVATE
     comdlg32
     uxtheme
     advapi32
+    pathcch
 )
 
 set_target_properties(ShellTabs PROPERTIES

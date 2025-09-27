@@ -110,6 +110,8 @@ public:
     void OnCreateSavedGroup(int afterGroup);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnDeferredNavigate();
+    void OnColorizerRefresh();
+    void OnGitStatusUpdated();
 
 private:
     std::atomic<long> m_refCount;
@@ -134,8 +136,12 @@ private:
     int m_allowExternalNewWindows = 0;
     TabLocation m_pendingNavigation;
     bool m_deferredNavigationPosted = false;
+    bool m_colorizerRefreshPosted = false;
+    size_t m_gitStatusListenerId = 0;
 
     void EnsureWindow();
+    void EnsureGitStatusListener();
+    void RemoveGitStatusListener();
     void DisconnectSite();
     void InitializeTabs();
     void UpdateTabsUI();
@@ -153,6 +159,7 @@ private:
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
     void QueueNavigateTo(TabLocation location);
+    void ScheduleColorizerRefresh();
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
     HWND GetFrameWindow() const;
