@@ -30,6 +30,26 @@ public:
     bool HasFocus() const;
     void FocusTab();
 
+    struct HitInfo {
+        bool hit = false;
+        size_t itemIndex = 0;
+        TabViewItemType type = TabViewItemType::kGroupHeader;
+        TabLocation location;
+        bool before = false;
+        bool after = false;
+    };
+
+    struct DropTarget {
+        bool active = false;
+        bool outside = false;
+        bool group = false;
+        int groupIndex = -1;
+        int tabIndex = -1;
+        int indicatorX = -1;
+        bool newGroup = false;
+        bool floating = false;
+    };
+
 private:
     struct VisualItem {
         TabViewItem data;
@@ -59,26 +79,6 @@ private:
         TabLocation location;
         UINT idFirst = 0;
         UINT idLast = 0;
-    };
-
-    struct HitInfo {
-        bool hit = false;
-        size_t itemIndex = 0;
-        TabViewItemType type = TabViewItemType::kGroupHeader;
-        TabLocation location;
-        bool before = false;
-        bool after = false;
-    };
-
-    struct DropTarget {
-        bool active = false;
-        bool outside = false;
-        bool group = false;
-        int groupIndex = -1;
-        int tabIndex = -1;
-        int indicatorX = -1;
-        bool newGroup = false;
-        bool floating = false;
     };
 
     struct DragState {
