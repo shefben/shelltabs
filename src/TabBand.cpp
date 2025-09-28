@@ -1464,29 +1464,67 @@ bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
         return false;
     }
 
-    if (targetUrl.empty()) {
+    std::vector<UniquePidl> targets;
+    if (!targetUrl.empty()) {
+        if (auto pidl = ParseExplorerUrl(targetUrl)) {
+            targets.emplace_back(std::move(pidl));
+        }
+    }
+
+    if (targets.empty()) {
+        auto selection = GetSelectedItemsPidL(m_shellBrowser);
+        if (!selection.empty()) {
+            targets = std::move(selection);
+        }
+    }
+
+    if (targets.empty()) {
+        if (auto pidl = QueryCurrentFolder()) {
+            targets.emplace_back(std::move(pidl));
+        }
+    }
+
+    if (targets.empty()) {
         return false;
     }
 
-    UniquePidl pidl = ParseExplorerUrl(targetUrl);
-    if (!pidl) {
+    bool opened = false;
+    TabLocation navigateTo;
+    bool haveNavigateTarget = false;
+
+    for (auto& pidl : targets) {
+        if (!pidl) {
+            continue;
+        }
+
+        std::wstring name = GetDisplayName(pidl.get());
+        if (name.empty()) {
+            name = L"Tab";
+        }
+        std::wstring tooltip = GetParsingName(pidl.get());
+        if (tooltip.empty()) {
+            tooltip = name;
+        }
+
+        const bool selectCurrent = !haveNavigateTarget;
+        TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, selectCurrent, -1);
+        if (location.IsValid()) {
+            opened = true;
+            if (selectCurrent && !haveNavigateTarget) {
+                navigateTo = location;
+                haveNavigateTarget = true;
+            }
+        }
+    }
+
+    if (!opened) {
         return false;
     }
 
-    std::wstring name = GetDisplayName(pidl.get());
-    if (name.empty()) {
-        name = L"Tab";
-    }
-    std::wstring tooltip = GetParsingName(pidl.get());
-    if (tooltip.empty()) {
-        tooltip = name;
-    }
-
-    TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, -1);
     UpdateTabsUI();
     SyncAllSavedGroups();
-    if (location.IsValid()) {
-        QueueNavigateTo(location);
+    if (haveNavigateTarget) {
+        QueueNavigateTo(navigateTo);
     }
     return true;
 }

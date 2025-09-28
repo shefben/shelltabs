@@ -152,6 +152,134 @@ UniquePidl ParseExplorerUrl(const std::wstring& url) {
     return nullptr;
 }
 
+namespace {
+
+UniquePidl ShellItemToPidl(IShellItem* item) {
+    if (!item) {
+        return nullptr;
+    }
+
+    Microsoft::WRL::ComPtr<IShellItem2> item2;
+    if (SUCCEEDED(item->QueryInterface(IID_PPV_ARGS(&item2))) && item2) {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(item2->GetIDList(&pidl)) && pidl) {
+            return UniquePidl(pidl);
+        }
+    }
+
+    PWSTR parsingName = nullptr;
+    if (SUCCEEDED(item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingName)) && parsingName) {
+        UniquePidl pidl = ParseDisplayName(parsingName);
+        CoTaskMemFree(parsingName);
+        if (pidl) {
+            return pidl;
+        }
+    } else if (parsingName) {
+        CoTaskMemFree(parsingName);
+    }
+
+    return nullptr;
+}
+
+}  // namespace
+
+std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser) {
+    std::vector<UniquePidl> result;
+    if (!shellBrowser) {
+        return result;
+    }
+
+    IShellView* rawShellView = nullptr;
+    if (FAILED(shellBrowser->QueryActiveShellView(&rawShellView)) || !rawShellView) {
+        return result;
+    }
+
+    Microsoft::WRL::ComPtr<IShellView> shellView;
+    shellView.Attach(rawShellView);
+
+    Microsoft::WRL::ComPtr<IFolderView2> folderView2;
+    shellView.As(&folderView2);
+    if (folderView2) {
+        Microsoft::WRL::ComPtr<IShellItemArray> selection;
+        if (SUCCEEDED(folderView2->GetSelection(TRUE, &selection)) && selection) {
+            DWORD count = 0;
+            if (SUCCEEDED(selection->GetCount(&count)) && count > 0) {
+                result.reserve(count);
+                for (DWORD i = 0; i < count; ++i) {
+                    Microsoft::WRL::ComPtr<IShellItem> item;
+                    if (SUCCEEDED(selection->GetItemAt(i, &item)) && item) {
+                        if (auto pidl = ShellItemToPidl(item.Get())) {
+                            result.emplace_back(std::move(pidl));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!result.empty()) {
+        return result;
+    }
+
+    Microsoft::WRL::ComPtr<IFolderView> folderView;
+    shellView.As(&folderView);
+    if (!folderView) {
+        return result;
+    }
+
+    Microsoft::WRL::ComPtr<IPersistFolder2> persist;
+    if (FAILED(folderView->GetFolder(IID_PPV_ARGS(&persist))) || !persist) {
+        return result;
+    }
+
+    PIDLIST_ABSOLUTE parent = nullptr;
+    if (FAILED(persist->GetCurFolder(&parent)) || !parent) {
+        return result;
+    }
+    UniquePidl parentHolder(parent);
+
+    auto resolveIndex = [&](int index) -> UniquePidl {
+        if (index < 0) {
+            return nullptr;
+        }
+        PIDLIST_RELATIVE child = nullptr;
+        if (FAILED(folderView->Item(index, &child)) || !child) {
+            return nullptr;
+        }
+        PIDLIST_ABSOLUTE combined = ILCombine(parentHolder.get(), child);
+        CoTaskMemFree(child);
+        if (!combined) {
+            return nullptr;
+        }
+        return UniquePidl(combined);
+    };
+
+    int index = -1;
+    if (SUCCEEDED(folderView->GetSelectionMarkedItem(&index)) && index >= 0) {
+        if (auto pidl = resolveIndex(index)) {
+            result.emplace_back(std::move(pidl));
+            return result;
+        }
+    }
+
+    index = -1;
+    if (SUCCEEDED(folderView->GetFocusedItem(&index)) && index >= 0) {
+        if (auto pidl = resolveIndex(index)) {
+            result.emplace_back(std::move(pidl));
+            return result;
+        }
+    }
+
+    index = -1;
+    if (SUCCEEDED(folderView->GetSelectedItem(0, &index)) && index >= 0) {
+        if (auto pidl = resolveIndex(index)) {
+            result.emplace_back(std::move(pidl));
+        }
+    }
+
+    return result;
+}
+
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser) {
     if (shellBrowser) {
