@@ -4,6 +4,10 @@
 #include <cwchar>
 #include <memory>
 
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0500
+#endif
+
 #include <CommCtrl.h>
 #include <ShlObj.h>
 #include <shellapi.h>
@@ -59,9 +63,9 @@ void RegisterWindowClass() {
 }
 
 int ToolbarIconSize() {
-    const int small = GetSystemMetrics(SM_CXSMICON);
-    if (small > 0) {
-        return small;
+    const int smallIconSize = GetSystemMetrics(SM_CXSMICON);
+    if (smallIconSize > 0) {
+        return smallIconSize;
     }
     return 16;
 }  // namespace
@@ -146,7 +150,7 @@ void TabBandWindow::EnsureToolbar() {
     SendMessageW(toolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
     SendMessageW(toolbar, TB_SETEXTENDEDSTYLE, 0, exStyle);
 
-    HFONT font = static_cast<HFONT>(SendMessageW(m_hwnd, WM_GETFONT, 0, 0));
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(m_hwnd, WM_GETFONT, 0, 0));
     if (!font) {
         font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     }
