@@ -989,7 +989,7 @@ void TabBandWindow::ResetThemePalette() {
     const COLORREF windowBase = AdjustForDarkTone(windowColor, 0.55, m_darkMode);
     const COLORREF buttonBase = AdjustForDarkTone(buttonColor, 0.4, m_darkMode);
 
-    m_themePalette.rebarBackground = m_darkMode ? BlendColors(buttonBase, windowBase, 0.55) : buttonBase;
+    m_themePalette.rebarBackground = m_darkMode ? BlendColors(buttonBase, windowBase, 0.55) : windowBase;
 
     m_themePalette.borderTop = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(0, 0, 0), 0.6)
                                           : GetSysColor(COLOR_3DSHADOW);

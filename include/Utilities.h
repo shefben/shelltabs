@@ -7,6 +7,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -30,6 +31,7 @@ UniquePidl ParseDisplayName(const std::wstring& parsingName);
 UniquePidl ParseExplorerUrl(const std::wstring& url);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
+std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser);
 
 bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value,
                         COLORREF* color = nullptr);
