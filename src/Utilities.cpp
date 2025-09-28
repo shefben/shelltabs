@@ -1,5 +1,6 @@
 #include "Utilities.h"
 
+#include <shlobj.h>
 #include <shobjidl_core.h>
 #include <shlwapi.h>
 #include <urlmon.h>
@@ -159,12 +160,9 @@ UniquePidl ShellItemToPidl(IShellItem* item) {
         return nullptr;
     }
 
-    Microsoft::WRL::ComPtr<IShellItem2> item2;
-    if (SUCCEEDED(item->QueryInterface(IID_PPV_ARGS(&item2))) && item2) {
-        PIDLIST_ABSOLUTE pidl = nullptr;
-        if (SUCCEEDED(item2->GetIDList(&pidl)) && pidl) {
-            return UniquePidl(pidl);
-        }
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (SUCCEEDED(SHGetIDListFromObject(item, &pidl)) && pidl) {
+        return UniquePidl(pidl);
     }
 
     PWSTR parsingName = nullptr;
@@ -270,10 +268,16 @@ std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShell
         }
     }
 
-    index = -1;
-    if (SUCCEEDED(folderView->GetSelectedItem(0, &index)) && index >= 0) {
-        if (auto pidl = resolveIndex(index)) {
-            result.emplace_back(std::move(pidl));
+    Microsoft::WRL::ComPtr<IEnumIDList> selection;
+    if (SUCCEEDED(folderView->Items(SVGIO_SELECTION, IID_PPV_ARGS(&selection))) && selection) {
+        ULONG fetched = 0;
+        PIDLIST_RELATIVE child = nullptr;
+        if (SUCCEEDED(selection->Next(1, &child, &fetched)) && fetched == 1 && child) {
+            PIDLIST_ABSOLUTE combined = ILCombine(parentHolder.get(), child);
+            CoTaskMemFree(child);
+            if (combined) {
+                result.emplace_back(UniquePidl(combined));
+            }
         }
     }
 
