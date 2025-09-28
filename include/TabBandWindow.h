@@ -1,6 +1,14 @@
 #pragma once
 
 #include <windows.h>
+
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0601
+#elif _WIN32_IE < 0x0601
+#undef _WIN32_IE
+#define _WIN32_IE 0x0601
+#endif
+
 #include <CommCtrl.h>
 #include <uxtheme.h>
 
@@ -59,6 +67,7 @@ private:
     void HandleLButtonDown(int commandId);
     void HandleTooltipRequest(NMTTDISPINFOW* info);
     void RelayFocusToToolbar();
+    int CommandIdFromButtonIndex(int index) const;
     TabLocation LocationForCommand(int commandId) const;
     const TabViewItem* ItemForCommand(int commandId) const;
 
