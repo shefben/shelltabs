@@ -627,7 +627,15 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
     }
 
     if (!backgroundDrawn) {
-        FillRect(dc, &bounds, GetSysColorBrush(COLOR_BTNFACE));
+        const COLORREF fallbackColor = m_themePalette.rebarBackground;
+        HBRUSH brush = CreateSolidBrush(fallbackColor);
+        if (brush) {
+            FillRect(dc, &bounds, brush);
+            DeleteObject(brush);
+        } else {
+            FillRect(dc, &bounds, GetSysColorBrush(COLOR_BTNFACE));
+        }
+        backgroundDrawn = true;
     }
 
     const int bandWidth = static_cast<int>(bounds.right - bounds.left);
