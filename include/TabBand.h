@@ -74,6 +74,7 @@ public:
     void OnBrowserQuit();
     bool OnBrowserNewWindow(const std::wstring& targetUrl);
     bool OnCtrlBeforeNavigate(const std::wstring& url);
+    void OnBandActivated();
 
     void OnTabSelected(TabLocation location);
     void OnNewTabRequested();
@@ -173,6 +174,10 @@ private:
     std::wstring GetTabPath(TabLocation location) const;
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
+    std::optional<TabLocation> AddTabsForTargets(std::vector<UniquePidl> targets);
+    bool ImportExternalWindow(HWND hwnd, UniquePidl pidl, const std::wstring& url);
+    bool ConsumeAllowExternalNewWindow();
+    bool HasWindowHandle() const noexcept;
     void QueueNavigateTo(TabLocation location);
     void ScheduleColorizerRefresh();
     void ScheduleGitStatusEnable();

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <new>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -12,8 +13,10 @@
 #include <objbase.h>
 
 #include <CommCtrl.h>
+#include <OleAuto.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
+#include <exdispid.h>
 #include <shellapi.h>
 #include <shlguid.h>
 #include <shobjidl_core.h>
@@ -78,16 +81,306 @@ void ReleaseGitStatusActivation() {
         GitStatusCache::Instance().SetEnabled(false);
     }
 }
+
+struct TabBandRegistry {
+    std::mutex mutex;
+    std::vector<TabBand*> bands;
+    TabBand* active = nullptr;
+    ComPtr<IShellWindows> shellWindows;
+    ComPtr<IConnectionPoint> connectionPoint;
+    ComPtr<IDispatch> sink;
+    DWORD cookie = 0;
+};
+
+TabBandRegistry& GetTabBandRegistry() {
+    static auto* registry = new TabBandRegistry();
+    return *registry;
+}
+
+class ShellWindowsEventSink : public IDispatch {
+public:
+    explicit ShellWindowsEventSink(TabBandRegistry* registry) : m_refCount(1), m_registry(registry) {}
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IDispatch) {
+            *object = static_cast<IDispatch*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_refCount; }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG remaining = --m_refCount;
+        if (remaining == 0) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    IFACEMETHODIMP GetTypeInfoCount(UINT* pctinfo) override {
+        if (pctinfo) {
+            *pctinfo = 0;
+        }
+        return S_OK;
+    }
+
+    IFACEMETHODIMP GetTypeInfo(UINT, LCID, ITypeInfo**) override { return E_NOTIMPL; }
+
+    IFACEMETHODIMP GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID*) override { return E_NOTIMPL; }
+
+    IFACEMETHODIMP Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS* params, VARIANT*, EXCEPINFO*,
+                          UINT*) override;
+
+private:
+    std::atomic<ULONG> m_refCount;
+    TabBandRegistry* m_registry = nullptr;
+};
+
+bool IsExplorerWindow(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+    wchar_t className[64];
+    if (GetClassNameW(hwnd, className, ARRAYSIZE(className)) == 0) {
+        return false;
+    }
+    return _wcsicmp(className, L"CabinetWClass") == 0 || _wcsicmp(className, L"ExploreWClass") == 0;
+}
+
+void EnsureShellWindowsSubscription(TabBandRegistry& registry);
+void HandleWindowRegistered(TabBandRegistry& registry, LONG cookie);
+void RegisterTabBandInstance(TabBand* band);
+void UnregisterTabBandInstance(TabBand* band);
+void MarkActiveBand(TabBand* band);
+
+IFACEMETHODIMP ShellWindowsEventSink::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS* params,
+                                             VARIANT*, EXCEPINFO*, UINT*) {
+    if (!m_registry) {
+        return S_OK;
+    }
+    if (dispIdMember == DISPID_WINDOWREGISTER && params && params->cArgs >= 1) {
+        const VARIANT& value = params->rgvarg[0];
+        LONG cookie = 0;
+        if (value.vt == VT_I4 || value.vt == VT_INT) {
+            cookie = value.lVal;
+        } else if (value.vt == VT_I2) {
+            cookie = value.iVal;
+        } else if (value.vt == VT_UI4) {
+            cookie = static_cast<LONG>(value.ulVal);
+        } else if (value.vt == VT_I8) {
+            cookie = static_cast<LONG>(value.llVal);
+        }
+        if (cookie != 0) {
+            HandleWindowRegistered(*m_registry, cookie);
+        }
+    }
+    return S_OK;
+}
+
+void EnsureShellWindowsSubscription(TabBandRegistry& registry) {
+    if (registry.cookie != 0 && registry.connectionPoint) {
+        return;
+    }
+    if (!registry.shellWindows) {
+        ComPtr<IShellWindows> windows;
+        if (SUCCEEDED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_SERVER, IID_PPV_ARGS(&windows)))) {
+            registry.shellWindows = std::move(windows);
+        }
+    }
+    if (!registry.shellWindows) {
+        return;
+    }
+
+    ComPtr<IConnectionPointContainer> container;
+    if (FAILED(registry.shellWindows.As(&container)) || !container) {
+        return;
+    }
+
+    ComPtr<IConnectionPoint> connection;
+    if (FAILED(container->FindConnectionPoint(DIID_DShellWindowsEvents, &connection)) || !connection) {
+        return;
+    }
+
+    if (!registry.sink) {
+        registry.sink.Attach(new (std::nothrow) ShellWindowsEventSink(&registry));
+    }
+    if (!registry.sink) {
+        return;
+    }
+
+    DWORD cookie = 0;
+    if (FAILED(connection->Advise(registry.sink.Get(), &cookie)) || cookie == 0) {
+        return;
+    }
+
+    registry.connectionPoint = std::move(connection);
+    registry.cookie = cookie;
+}
+
+void DisconnectShellWindows(TabBandRegistry& registry) {
+    if (registry.connectionPoint && registry.cookie != 0) {
+        registry.connectionPoint->Unadvise(registry.cookie);
+    }
+    registry.cookie = 0;
+    registry.connectionPoint.Reset();
+    registry.sink.Reset();
+    registry.shellWindows.Reset();
+}
+
+void RegisterTabBandInstance(TabBand* band) {
+    if (!band) {
+        return;
+    }
+    auto& registry = GetTabBandRegistry();
+    std::scoped_lock lock(registry.mutex);
+    if (std::find(registry.bands.begin(), registry.bands.end(), band) == registry.bands.end()) {
+        registry.bands.push_back(band);
+    }
+    EnsureShellWindowsSubscription(registry);
+}
+
+void UnregisterTabBandInstance(TabBand* band) {
+    if (!band) {
+        return;
+    }
+    auto& registry = GetTabBandRegistry();
+    std::scoped_lock lock(registry.mutex);
+    auto it = std::remove(registry.bands.begin(), registry.bands.end(), band);
+    if (it != registry.bands.end()) {
+        registry.bands.erase(it, registry.bands.end());
+    }
+    if (registry.active == band) {
+        registry.active = nullptr;
+    }
+    if (registry.bands.empty()) {
+        DisconnectShellWindows(registry);
+    }
+}
+
+void MarkActiveBand(TabBand* band) {
+    auto& registry = GetTabBandRegistry();
+    std::scoped_lock lock(registry.mutex);
+    registry.active = band;
+}
+
+void HandleWindowRegistered(TabBandRegistry& registry, LONG cookie) {
+    ComPtr<IShellWindows> windows;
+    {
+        std::scoped_lock lock(registry.mutex);
+        if (!registry.shellWindows) {
+            EnsureShellWindowsSubscription(registry);
+        }
+        windows = registry.shellWindows;
+    }
+
+    if (!windows) {
+        return;
+    }
+
+    VARIANT index;
+    VariantInit(&index);
+    index.vt = VT_I4;
+    index.lVal = cookie;
+    ComPtr<IDispatch> dispatch;
+    const HRESULT itemResult = windows->Item(index, &dispatch);
+    VariantClear(&index);
+    if (FAILED(itemResult) || !dispatch) {
+        return;
+    }
+
+    ComPtr<IWebBrowser2> browser;
+    dispatch.As(&browser);
+    if (!browser) {
+        return;
+    }
+
+    SHANDLE_PTR handle = 0;
+    if (FAILED(browser->get_HWND(&handle))) {
+        return;
+    }
+    HWND hwnd = reinterpret_cast<HWND>(handle);
+    if (!IsExplorerWindow(hwnd)) {
+        return;
+    }
+
+    UniquePidl pidl;
+    std::wstring url;
+
+    ComPtr<IServiceProvider> provider;
+    if (SUCCEEDED(browser.As(&provider)) && provider) {
+        ComPtr<IShellBrowser> shellBrowser;
+        provider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&shellBrowser));
+        if (!shellBrowser) {
+            provider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&shellBrowser));
+        }
+        if (shellBrowser) {
+            pidl = GetCurrentFolderPidL(shellBrowser, browser);
+        }
+    }
+
+    if (!pidl) {
+        BSTR rawUrl = nullptr;
+        if (SUCCEEDED(browser->get_LocationURL(&rawUrl)) && rawUrl) {
+            url.assign(rawUrl, SysStringLen(rawUrl));
+            SysFreeString(rawUrl);
+        }
+    }
+
+    if (!pidl && !url.empty()) {
+        if (auto parsed = ParseExplorerUrl(url)) {
+            pidl = std::move(parsed);
+        }
+    }
+
+    if (!pidl && url.empty()) {
+        return;
+    }
+
+    TabBand* target = nullptr;
+    {
+        std::scoped_lock lock(registry.mutex);
+        for (TabBand* band : registry.bands) {
+            if (band && band->ConsumeAllowExternalNewWindow()) {
+                return;
+            }
+        }
+        if (registry.active && registry.active->HasWindowHandle()) {
+            target = registry.active;
+        } else {
+            for (TabBand* candidate : registry.bands) {
+                if (candidate && candidate->HasWindowHandle()) {
+                    target = candidate;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!target) {
+        return;
+    }
+
+    target->ImportExternalWindow(hwnd, std::move(pidl), url);
+}
 }
 
 TabBand::TabBand() : m_refCount(1) {
     ModuleAddRef();
     LogMessage(LogLevel::Info, L"TabBand constructed (this=%p)", this);
+    RegisterTabBandInstance(this);
 }
 
 TabBand::~TabBand() {
     LogMessage(LogLevel::Info, L"TabBand destroyed (this=%p)", this);
     DisconnectSite();
+    UnregisterTabBandInstance(this);
     ModuleRelease();
 }
 
@@ -247,6 +540,7 @@ IFACEMETHODIMP TabBand::UIActivateIO(BOOL fActivate, LPMSG) {
         L"TabBand::UIActivateIO",
         [&]() -> HRESULT {
             if (fActivate) {
+                OnBandActivated();
                 EnsureWindow();
                 if (m_window) {
                     m_window->FocusTab();
@@ -435,6 +729,10 @@ void TabBand::OnBrowserQuit() {
 
 bool TabBand::OnBrowserNewWindow(const std::wstring& targetUrl) {
     return HandleNewWindowRequest(targetUrl);
+}
+
+void TabBand::OnBandActivated() {
+    MarkActiveBand(this);
 }
 
 bool TabBand::OnCtrlBeforeNavigate(const std::wstring& url) {
@@ -1348,6 +1646,87 @@ void TabBand::OpenTabInNewWindow(const TabInfo& tab) {
     }
 }
 
+bool TabBand::HasWindowHandle() const noexcept {
+    return m_window && m_window->GetHwnd();
+}
+
+bool TabBand::ConsumeAllowExternalNewWindow() {
+    if (m_allowExternalNewWindows > 0) {
+        --m_allowExternalNewWindows;
+        return true;
+    }
+    return false;
+}
+
+std::optional<TabLocation> TabBand::AddTabsForTargets(std::vector<UniquePidl> targets) {
+    bool opened = false;
+    TabLocation navigateTo;
+    bool haveNavigateTarget = false;
+
+    for (auto& pidl : targets) {
+        if (!pidl) {
+            continue;
+        }
+
+        std::wstring name = GetDisplayName(pidl.get());
+        if (name.empty()) {
+            name = L"Tab";
+        }
+        std::wstring tooltip = GetParsingName(pidl.get());
+        if (tooltip.empty()) {
+            tooltip = name;
+        }
+
+        const bool selectCurrent = !haveNavigateTarget;
+        TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, selectCurrent, -1);
+        if (location.IsValid()) {
+            opened = true;
+            if (selectCurrent && !haveNavigateTarget) {
+                navigateTo = location;
+                haveNavigateTarget = true;
+            }
+        }
+    }
+
+    if (!opened) {
+        return std::nullopt;
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+    if (haveNavigateTarget) {
+        return navigateTo;
+    }
+    return std::nullopt;
+}
+
+bool TabBand::ImportExternalWindow(HWND hwnd, UniquePidl pidl, const std::wstring& url) {
+    if (ConsumeAllowExternalNewWindow()) {
+        return false;
+    }
+
+    if (!pidl && !url.empty()) {
+        pidl = ParseExplorerUrl(url);
+    }
+
+    if (!pidl) {
+        return false;
+    }
+
+    std::vector<UniquePidl> targets;
+    targets.emplace_back(std::move(pidl));
+    auto navigateTo = AddTabsForTargets(std::move(targets));
+    if (!navigateTo.has_value()) {
+        return false;
+    }
+
+    QueueNavigateTo(*navigateTo);
+    if (hwnd && IsWindow(hwnd)) {
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+    return true;
+}
+
 std::vector<std::pair<TabLocation, std::wstring>> TabBand::GetHiddenTabs(int groupIndex) const {
     return m_tabs.GetHiddenTabs(groupIndex);
 }
@@ -1459,8 +1838,7 @@ void TabBand::EnsureSplitViewWindows(int groupIndex) {
 }
 
 bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
-    if (m_allowExternalNewWindows > 0) {
-        --m_allowExternalNewWindows;
+    if (ConsumeAllowExternalNewWindow()) {
         return false;
     }
 
@@ -1488,44 +1866,11 @@ bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
         return false;
     }
 
-    bool opened = false;
-    TabLocation navigateTo;
-    bool haveNavigateTarget = false;
-
-    for (auto& pidl : targets) {
-        if (!pidl) {
-            continue;
-        }
-
-        std::wstring name = GetDisplayName(pidl.get());
-        if (name.empty()) {
-            name = L"Tab";
-        }
-        std::wstring tooltip = GetParsingName(pidl.get());
-        if (tooltip.empty()) {
-            tooltip = name;
-        }
-
-        const bool selectCurrent = !haveNavigateTarget;
-        TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, selectCurrent, -1);
-        if (location.IsValid()) {
-            opened = true;
-            if (selectCurrent && !haveNavigateTarget) {
-                navigateTo = location;
-                haveNavigateTarget = true;
-            }
-        }
-    }
-
-    if (!opened) {
+    auto navigateTo = AddTabsForTargets(std::move(targets));
+    if (!navigateTo.has_value()) {
         return false;
     }
-
-    UpdateTabsUI();
-    SyncAllSavedGroups();
-    if (haveNavigateTarget) {
-        QueueNavigateTo(navigateTo);
-    }
+    QueueNavigateTo(*navigateTo);
     return true;
 }
 
