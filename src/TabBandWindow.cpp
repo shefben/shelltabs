@@ -588,6 +588,9 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
     const_cast<TabBandWindow*>(this)->EnsureRebarIntegration();
 
     bool backgroundDrawn = false;
+    if (!backgroundDrawn) {
+        backgroundDrawn = DrawRebarBackground(dc, bounds);
+    }
     if (m_hwnd) {
         RECT clip = bounds;
         const int saved = SaveDC(dc);
@@ -649,6 +652,32 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
             }
         }
     }
+}
+
+bool TabBandWindow::DrawRebarBackground(HDC dc, const RECT& bounds) const {
+    if (!dc || !m_parentRebar || !IsWindow(m_parentRebar)) {
+        return false;
+    }
+
+    const int saved = SaveDC(dc);
+    if (saved != 0) {
+        POINT origin{0, 0};
+        MapWindowPoints(m_hwnd, m_parentRebar, &origin, 1);
+        SetWindowOrgEx(dc, origin.x, origin.y, nullptr);
+    }
+
+    const LRESULT result = SendMessageW(m_parentRebar, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc),
+                                        PRF_CLIENT | PRF_ERASEBKGND);
+
+    if (saved != 0) {
+        RestoreDC(dc, saved);
+    }
+
+    if (result == 0) {
+        return false;
+    }
+
+    return true;
 }
 
 void TabBandWindow::Draw(HDC dc) const {
@@ -2023,6 +2052,9 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
         return false;
     }
 
+    if (m_owner) {
+        m_owner->OnBandActivated();
+    }
     SetFocus(m_hwnd);
     m_drag = {};
     if (hit.closeButton && hit.type == TabViewItemType::kTab) {
