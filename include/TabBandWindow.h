@@ -1,5 +1,6 @@
 #pragma once
 
+#include <windows.h>
 #include <CommCtrl.h>
 #include <uxtheme.h>
 

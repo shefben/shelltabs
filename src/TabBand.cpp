@@ -21,6 +21,10 @@
 #include <shlguid.h>
 #include <shobjidl_core.h>
 
+#ifndef DISPID_WINDOWREGISTER
+#define DISPID_WINDOWREGISTER 0x000000C8
+#endif
+
 #ifndef SBSP_EXPLORE
 #define SBSP_EXPLORE 0x00000004
 #endif
