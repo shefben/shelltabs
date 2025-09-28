@@ -19,6 +19,25 @@ const wchar_t kWindowClassName[] = L"ShellTabsNativeToolbarHost";
 constexpr int kNewTabCommandId = 40000;
 constexpr int kMaxTooltip = 512;
 
+int ToolbarHitTest(HWND toolbar, POINT pt) {
+    if (!toolbar) {
+        return -1;
+    }
+
+    const LRESULT buttonCount = SendMessageW(toolbar, TB_BUTTONCOUNT, 0, 0);
+    for (LRESULT index = 0; index < buttonCount; ++index) {
+        RECT rect{};
+        if (SendMessageW(toolbar, TB_GETITEMRECT, static_cast<WPARAM>(index),
+                         reinterpret_cast<LPARAM>(&rect))) {
+            if (PtInRect(&rect, pt)) {
+                return static_cast<int>(index);
+            }
+        }
+    }
+
+    return -1;
+}
+
 HICON LoadItemIcon(const TabViewItem& item, int iconSize) {
     if (!item.pidl) {
         return nullptr;
@@ -639,13 +658,14 @@ LRESULT CALLBACK TabBandWindow::ToolbarWndProc(HWND hwnd, UINT msg, WPARAM wPara
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
+    UNREFERENCED_PARAMETER(id);
+
     switch (msg) {
         case WM_LBUTTONDOWN: {
-            TBHITTESTINFO info{};
-            info.pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            const LRESULT hit = SendMessageW(hwnd, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&info));
+            const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            const int hit = ToolbarHitTest(hwnd, pt);
             if (hit >= 0) {
-                const int commandId = self->CommandIdFromButtonIndex(static_cast<int>(hit));
+                const int commandId = self->CommandIdFromButtonIndex(hit);
                 if (commandId != -1) {
                     self->HandleLButtonDown(commandId);
                 }
@@ -653,11 +673,10 @@ LRESULT CALLBACK TabBandWindow::ToolbarWndProc(HWND hwnd, UINT msg, WPARAM wPara
             break;
         }
         case WM_MBUTTONUP: {
-            TBHITTESTINFO info{};
-            info.pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            const LRESULT hit = SendMessageW(hwnd, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&info));
+            const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            const int hit = ToolbarHitTest(hwnd, pt);
             if (hit >= 0) {
-                const int commandId = self->CommandIdFromButtonIndex(static_cast<int>(hit));
+                const int commandId = self->CommandIdFromButtonIndex(hit);
                 if (commandId != -1) {
                     self->HandleMiddleClick(commandId);
                 }
@@ -670,14 +689,12 @@ LRESULT CALLBACK TabBandWindow::ToolbarWndProc(HWND hwnd, UINT msg, WPARAM wPara
                 pt = {0, 0};
                 ClientToScreen(hwnd, &pt);
             }
-            TBHITTESTINFO info{};
             POINT clientPt = pt;
             ScreenToClient(hwnd, &clientPt);
-            info.pt = clientPt;
-            const LRESULT hit = SendMessageW(hwnd, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&info));
+            const int hit = ToolbarHitTest(hwnd, clientPt);
             int commandId = kNewTabCommandId;
             if (hit >= 0) {
-                const int hitCommandId = self->CommandIdFromButtonIndex(static_cast<int>(hit));
+                const int hitCommandId = self->CommandIdFromButtonIndex(hit);
                 if (hitCommandId != -1) {
                     commandId = hitCommandId;
                 }
