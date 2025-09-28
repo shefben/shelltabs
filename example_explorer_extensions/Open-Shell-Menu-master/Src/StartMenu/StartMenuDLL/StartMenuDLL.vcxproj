@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Setup|ARM64">
+      <Configuration>Setup</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Setup|Win32">
+      <Configuration>Setup</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Setup|x64">
+      <Configuration>Setup</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{85DEECBB-1F9B-4983-9D54-3BF42182B7E7}</ProjectGuid>
+    <RootNamespace>StartMenuDLL</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <UseOfAtl>Static</UseOfAtl>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization Condition="'$(Configuration)'!='Debug'">true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="..\..\Common.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>_USRDLL;CLASSICSTARTMENUDLL_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>comctl32.lib;uxtheme.lib;WtsApi32.lib;Secur32.lib;Msimg32.lib;Netapi32.lib;dwmapi.lib;PowrProf.lib;Oleacc.lib;winmm.lib;htmlhelp.lib;wininet.lib;structuredquery.lib;Propsys.lib;wintrust.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Accessibility.cpp" />
+    <ClCompile Include="StartButton.cpp" />
+    <ClCompile Include="StartMenuDLL.cpp" />
+    <ClCompile Include="CustomMenu.cpp" />
+    <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="DragDrop.cpp" />
+    <ClCompile Include="ItemManager.cpp" />
+    <ClCompile Include="JumpLists.cpp" />
+    <ClCompile Include="LogManager.cpp" />
+    <ClCompile Include="MenuCommands.cpp" />
+    <ClCompile Include="MenuContainer.cpp" />
+    <ClCompile Include="MenuPaint.cpp" />
+    <ClCompile Include="MetroLinkManager.cpp" />
+    <ClCompile Include="ProgramsTree.cpp" />
+    <ClCompile Include="SearchManager.cpp" />
+    <ClCompile Include="SettingsUI.cpp" />
+    <ClCompile Include="SkinManager.cpp" />
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="TouchHelper.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Accessibility.h" />
+    <ClInclude Include="StartButton.h" />
+    <ClInclude Include="StartMenuDLL.h" />
+    <ClInclude Include="CustomMenu.h" />
+    <ClInclude Include="dllmain.h" />
+    <ClInclude Include="DragDrop.h" />
+    <ClInclude Include="ItemManager.h" />
+    <ClInclude Include="JumpLists.h" />
+    <ClInclude Include="LogManager.h" />
+    <ClInclude Include="MenuContainer.h" />
+    <ClInclude Include="MetroLinkManager.h" />
+    <ClInclude Include="ProgramsTree.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="SearchManager.h" />
+    <ClInclude Include="SettingsUI.h" />
+    <ClInclude Include="SkinManager.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="TouchHelper.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\Setup\OpenShell.ico" />
+    <Image Include="apps.ico" />
+    <Image Include="btn_aero.ico" />
+    <Image Include="btn_classic.bmp" />
+    <Image Include="button120.png" />
+    <Image Include="button144.png" />
+    <Image Include="button180.png" />
+    <Image Include="button96.png" />
+    <Image Include="menu_arrows.bmp" />
+    <Image Include="menu_arrows150.bmp" />
+    <Image Include="search_icons.bmp" />
+    <Image Include="start.ico" />
+    <Image Include="start10.ico" />
+    <Image Include="style_7.bmp" />
+    <Image Include="style_7150.bmp" />
+    <Image Include="style_classic.bmp" />
+    <Image Include="style_classic150.bmp" />
+    <Image Include="style_vista.bmp" />
+    <Image Include="style_vista150.bmp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="StartMenuDLL.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="SkinDescription.txt" />
+    <Text Include="SkinDescription7.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Lib\Lib.vcxproj">
+      <Project>{d42fe717-485b-492d-884a-1999f6d51154}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

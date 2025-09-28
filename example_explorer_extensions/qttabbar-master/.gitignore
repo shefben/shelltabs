@@ -1,0 +1,821 @@
+/BandObjectLib/bin/Release/BandObjectLib.dll
+/BandObjectLib/bin/Release/Interop.SHDocVw.dll
+/BandObjectLib/obj/Debug/BandObjectLib.csproj.ResolveComReference.cache
+/BandObjectLib/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/BandObjectLib/obj/Debug/Interop.SHDocVw.dll
+/BandObjectLib/obj/Release/BandObjectLib.csproj.FileListAbsolute.txt
+/BandObjectLib/obj/Release/BandObjectLib.csproj.ResolveComReference.cache
+/BandObjectLib/obj/Release/BandObjectLib.dll
+/BandObjectLib/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/BandObjectLib/obj/Release/Interop.SHDocVw.dll
+/Installer/Strings1.wxl
+/Installer/bin/Release/en-US/QTTabBar Setup.msi
+/Installer/bin/Release/en-US/QTTabBar Setup.wixpdb
+/Installer/bin/Release/zh-CN/QTTabBar Setup.msi
+/Installer/bin/Release/zh-CN/QTTabBar Setup.wixpdb
+/Installer/lang.wxl
+/Installer/lang_zh_CN.wxl
+/Installer/obj/Release/CustomWelcomeEulaDlg.wixobj
+/Installer/obj/Release/CustomWixUI_Minimal.wixobj
+/Installer/obj/Release/Installer.wixobj
+/Installer/obj/Release/Installer.wixproj.BindBuiltOutputsFileListen-US.txt
+/Installer/obj/Release/Installer.wixproj.BindBuiltOutputsFileListzh-CN.txt
+/Installer/obj/Release/Installer.wixproj.BindContentsFileListen-US.txt
+/Installer/obj/Release/Installer.wixproj.BindContentsFileListzh-CN.txt
+/Installer/obj/Release/Installer.wixproj.BindOutputsFileListen-US.txt
+/Installer/obj/Release/Installer.wixproj.BindOutputsFileListzh-CN.txt
+/Installer/obj/Release/Installer.wixproj.FileList.txt
+/InstallerHelper/bin/Release/InstallerHelper.dll
+/InstallerHelper/bin/Release/InstallerHelper.exp
+/InstallerHelper/bin/Release/InstallerHelper.lib
+/InstallerHelper/obj/Release/CL.read.1.tlog
+/InstallerHelper/obj/Release/CL.write.1.tlog
+/InstallerHelper/obj/Release/CustomAction.obj
+/InstallerHelper/obj/Release/InstallerHelper.Build.CppClean.log
+/InstallerHelper/obj/Release/InstallerHelper.dll.intermediate.manifest
+/InstallerHelper/obj/Release/InstallerHelper.lastbuildstate
+/InstallerHelper/obj/Release/InstallerHelper.log
+/InstallerHelper/obj/Release/InstallerHelper.write.1.tlog
+/InstallerHelper/obj/Release/cl.command.1.tlog
+/InstallerHelper/obj/Release/link.command.1.tlog
+/InstallerHelper/obj/Release/link.read.1.tlog
+/InstallerHelper/obj/Release/link.write.1.tlog
+/InstallerHelper/obj/Release/mt.command.1.tlog
+/InstallerHelper/obj/Release/mt.read.1.tlog
+/InstallerHelper/obj/Release/mt.write.1.tlog
+/InstallerHelper/obj/Release/vc100.pdb
+/LICENSE
+/MinHook/bin/Release/libMinHook.x64.lib
+/MinHook/bin/Release/libMinHook.x86.lib
+/MinHook/obj/Win32/Release/CL.read.1.tlog
+/MinHook/obj/Win32/Release/CL.write.1.tlog
+/MinHook/obj/Win32/Release/Lib-link.read.1.tlog
+/MinHook/obj/Win32/Release/Lib-link.write.1.tlog
+/MinHook/obj/Win32/Release/buffer.obj
+/MinHook/obj/Win32/Release/cl.command.1.tlog
+/MinHook/obj/Win32/Release/export.obj
+/MinHook/obj/Win32/Release/hde32.obj
+/MinHook/obj/Win32/Release/hde64.obj
+/MinHook/obj/Win32/Release/hook.obj
+/MinHook/obj/Win32/Release/lib.command.1.tlog
+/MinHook/obj/Win32/Release/libMinHook.lastbuildstate
+/MinHook/obj/Win32/Release/libMinHook.log
+/MinHook/obj/Win32/Release/libMinHook.write.1.tlog
+/MinHook/obj/Win32/Release/libMinHook.x86.Build.CppClean.log
+/MinHook/obj/Win32/Release/thread.obj
+/MinHook/obj/Win32/Release/trampoline.obj
+/MinHook/obj/Win32/Release/vc100.pdb
+/MinHook/obj/x64/Release/CL.read.1.tlog
+/MinHook/obj/x64/Release/CL.write.1.tlog
+/MinHook/obj/x64/Release/Lib-link.read.1.tlog
+/MinHook/obj/x64/Release/Lib-link.write.1.tlog
+/MinHook/obj/x64/Release/buffer.obj
+/MinHook/obj/x64/Release/cl.command.1.tlog
+/MinHook/obj/x64/Release/export.obj
+/MinHook/obj/x64/Release/hde32.obj
+/MinHook/obj/x64/Release/hde64.obj
+/MinHook/obj/x64/Release/hook.obj
+/MinHook/obj/x64/Release/lib.command.1.tlog
+/MinHook/obj/x64/Release/libMinHook.lastbuildstate
+/MinHook/obj/x64/Release/libMinHook.write.1.tlog
+/MinHook/obj/x64/Release/libMinHook.x64.Build.CppClean.log
+/MinHook/obj/x64/Release/thread.obj
+/MinHook/obj/x64/Release/trampoline.obj
+/MinHook/obj/x64/Release/vc100.pdb
+/Plugins/CreateNewItem/bin/Release/CreateNewItem.dll
+/Plugins/CreateNewItem/obj/Release/CreateNewItem.dll
+/Plugins/Memo/bin/Release/Memo.dll
+/Plugins/Memo/obj/Release/Memo.dll
+/Plugins/MigemoLoader/bin/Release/MigemoLoader.dll
+/Plugins/MigemoLoader/obj/Release/MigemoLoader.dll
+/Plugins/QTClock/bin/Release/QTClock.dll
+/Plugins/QTClock/obj/Release/QTClock.dll
+/Plugins/QTFileTools/bin/Release/QTFileTools.dll
+/Plugins/QTFileTools/obj/Release/QTFileTools.dll
+/Plugins/QTFolderButton/bin/Release/FolderTreeButton.dll
+/Plugins/QTFolderButton/obj/Release/FolderTreeButton.dll
+/Plugins/QTViewModeButton/bin/Release/QTViewModeButton.dll
+/Plugins/QTViewModeButton/obj/Release/QTViewModeButton.dll
+/Plugins/QTWindowManager/bin/Release/QTWindowManager.dll
+/Plugins/QTWindowManager/obj/Release/QTWindowManager.dll
+/Plugins/Sample/bin/Release/SampleSplitButton.dll
+/Plugins/Sample/bin/Release/SampleSplitButton.pdb
+/Plugins/Sample/obj/Release/SampleSplitButton.dll
+/Plugins/Sample/obj/Release/SampleSplitButton.pdb
+/Plugins/ShowStatusBar/bin/Release/ShowStatusBar.dll
+/Plugins/ShowStatusBar/obj/Release/ShowStatusBar.dll
+/QTHookLib/bin/Release/QTHookLib32.dll
+/QTHookLib/bin/Release/QTHookLib32.exp
+/QTHookLib/bin/Release/QTHookLib32.lib
+/QTHookLib/bin/Release/QTHookLib32.pdb
+/QTHookLib/bin/Release/QTHookLib64.dll
+/QTHookLib/bin/Release/QTHookLib64.exp
+/QTHookLib/bin/Release/QTHookLib64.lib
+/QTHookLib/bin/Release/QTHookLib64.pdb
+/QTHookLib/obj/Win32/Release/CL.read.1.tlog
+/QTHookLib/obj/Win32/Release/CL.write.1.tlog
+/QTHookLib/obj/Win32/Release/QTHookLib.lastbuildstate
+/QTHookLib/obj/Win32/Release/QTHookLib.log
+/QTHookLib/obj/Win32/Release/QTHookLib.write.1.tlog
+/QTHookLib/obj/Win32/Release/QTHookLib32.Build.CppClean.log
+/QTHookLib/obj/Win32/Release/QTHookLib32.dll.intermediate.manifest
+/QTHookLib/obj/Win32/Release/cl.command.1.tlog
+/QTHookLib/obj/Win32/Release/link.command.1.tlog
+/QTHookLib/obj/Win32/Release/link.read.1.tlog
+/QTHookLib/obj/Win32/Release/link.write.1.tlog
+/QTHookLib/obj/Win32/Release/main.obj
+/QTHookLib/obj/Win32/Release/mt.command.1.tlog
+/QTHookLib/obj/Win32/Release/mt.read.1.tlog
+/QTHookLib/obj/Win32/Release/mt.write.1.tlog
+/QTHookLib/obj/Win32/Release/vc100.pdb
+/QTHookLib/obj/x64/Release/CL.read.1.tlog
+/QTHookLib/obj/x64/Release/CL.write.1.tlog
+/QTHookLib/obj/x64/Release/QTHookLib.lastbuildstate
+/QTHookLib/obj/x64/Release/QTHookLib.write.1.tlog
+/QTHookLib/obj/x64/Release/QTHookLib64.Build.CppClean.log
+/QTHookLib/obj/x64/Release/QTHookLib64.dll.intermediate.manifest
+/QTHookLib/obj/x64/Release/cl.command.1.tlog
+/QTHookLib/obj/x64/Release/link.command.1.tlog
+/QTHookLib/obj/x64/Release/link.read.1.tlog
+/QTHookLib/obj/x64/Release/link.write.1.tlog
+/QTHookLib/obj/x64/Release/main.obj
+/QTHookLib/obj/x64/Release/mt.command.1.tlog
+/QTHookLib/obj/x64/Release/mt.read.1.tlog
+/QTHookLib/obj/x64/Release/mt.write.1.tlog
+/QTHookLib/obj/x64/Release/vc100.pdb
+/QTPluginLib/bin/Release/QTPluginLib.dll
+/QTPluginLib/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/QTPluginLib/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/QTPluginLib/obj/Release/QTPluginLib.csproj.FileListAbsolute.txt
+/QTPluginLib/obj/Release/QTPluginLib.dll
+/QTTabBar Rebirth.sdf
+/QTTabBar/Resources/Ricciolo.Controls.TreeListView.dll
+/QTTabBar/Resources/weichat_pay.jpg
+/QTTabBar/bin/Release/Interop.SHDocVw.dll
+/QTTabBar/bin/Release/QTTabBar.dll
+/QTTabBar/bin/Release/QTTabBar.pdb
+/QTTabBar/bin/Release/Ricciolo.Controls.TreeListView.dll
+/QTTabBar/obj/Debug/EditableHeader.g.i.cs
+/QTTabBar/obj/Debug/FileFolderEntryBox.g.i.cs
+/QTTabBar/obj/Debug/GeneratedInternalTypeHelper.g.i.cs
+/QTTabBar/obj/Debug/Interop.SHDocVw.dll
+/QTTabBar/obj/Debug/MarginCombo.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options01_Window.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options02_Tabs.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options03_Tweaks.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options04_Tooltips.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options05_General.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options06_Appearance.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options07_Mouse.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options08_Keys.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options09_Groups.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options10_Apps.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options11_ButtonBar.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options12_Plugins.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options13_Language.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options14_About.g.i.cs
+/QTTabBar/obj/Debug/OptionsDialog/OptionsDialog.g.i.cs
+/QTTabBar/obj/Debug/QTTabBar.csproj.ResolveComReference.cache
+/QTTabBar/obj/Debug/QTTabBar_MarkupCompile.i.cache
+/QTTabBar/obj/Debug/QTTabBar_MarkupCompile.i.lref
+/QTTabBar/obj/Debug/Spinner.g.i.cs
+/QTTabBar/obj/Debug/build.force
+/QTTabBar/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/QTTabBar/obj/Release/EditableHeader.baml
+/QTTabBar/obj/Release/EditableHeader.g.cs
+/QTTabBar/obj/Release/EditableHeader.g.i.cs
+/QTTabBar/obj/Release/FileFolderEntryBox.baml
+/QTTabBar/obj/Release/FileFolderEntryBox.g.cs
+/QTTabBar/obj/Release/FileFolderEntryBox.g.i.cs
+/QTTabBar/obj/Release/GeneratedInternalTypeHelper.g.cs
+/QTTabBar/obj/Release/GeneratedInternalTypeHelper.g.i.cs
+/QTTabBar/obj/Release/Interop.SHDocVw.dll
+/QTTabBar/obj/Release/MarginCombo.baml
+/QTTabBar/obj/Release/MarginCombo.g.cs
+/QTTabBar/obj/Release/MarginCombo.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options01_Window.baml
+/QTTabBar/obj/Release/OptionsDialog/Options01_Window.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options01_Window.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options02_Tabs.baml
+/QTTabBar/obj/Release/OptionsDialog/Options02_Tabs.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options02_Tabs.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options03_Tweaks.baml
+/QTTabBar/obj/Release/OptionsDialog/Options03_Tweaks.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options03_Tweaks.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options04_Tooltips.baml
+/QTTabBar/obj/Release/OptionsDialog/Options04_Tooltips.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options04_Tooltips.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options05_General.baml
+/QTTabBar/obj/Release/OptionsDialog/Options05_General.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options05_General.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options06_Appearance.baml
+/QTTabBar/obj/Release/OptionsDialog/Options06_Appearance.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options06_Appearance.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options07_Mouse.baml
+/QTTabBar/obj/Release/OptionsDialog/Options07_Mouse.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options07_Mouse.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options08_Keys.baml
+/QTTabBar/obj/Release/OptionsDialog/Options08_Keys.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options08_Keys.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options09_Groups.baml
+/QTTabBar/obj/Release/OptionsDialog/Options09_Groups.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options09_Groups.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options10_Apps.baml
+/QTTabBar/obj/Release/OptionsDialog/Options10_Apps.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options10_Apps.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options11_ButtonBar.baml
+/QTTabBar/obj/Release/OptionsDialog/Options11_ButtonBar.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options11_ButtonBar.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options12_Plugins.baml
+/QTTabBar/obj/Release/OptionsDialog/Options12_Plugins.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options12_Plugins.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options13_Language.baml
+/QTTabBar/obj/Release/OptionsDialog/Options13_Language.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options13_Language.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/Options14_About.baml
+/QTTabBar/obj/Release/OptionsDialog/Options14_About.g.cs
+/QTTabBar/obj/Release/OptionsDialog/Options14_About.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/OptionsDialog.baml
+/QTTabBar/obj/Release/OptionsDialog/OptionsDialog.g.cs
+/QTTabBar/obj/Release/OptionsDialog/OptionsDialog.g.i.cs
+/QTTabBar/obj/Release/OptionsDialog/OptionsDialogResources.baml
+/QTTabBar/obj/Release/QTTabBar.csproj.FileListAbsolute.txt
+/QTTabBar/obj/Release/QTTabBar.csproj.GenerateResource.Cache
+/QTTabBar/obj/Release/QTTabBar.csproj.ResolveComReference.cache
+/QTTabBar/obj/Release/QTTabBar.csprojResolveAssemblyReference.cache
+/QTTabBar/obj/Release/QTTabBar.dll
+/QTTabBar/obj/Release/QTTabBar.g.resources
+/QTTabBar/obj/Release/QTTabBar.pdb
+/QTTabBar/obj/Release/QTTabBarLib.Properties.Resources.resources
+/QTTabBar/obj/Release/QTTabBarLib.Resource_String_zh_CN.resources
+/QTTabBar/obj/Release/QTTabBarLib.Resources_Image.resources
+/QTTabBar/obj/Release/QTTabBarLib.Resources_String.resources
+/QTTabBar/obj/Release/QTTabBar_MarkupCompile.cache
+/QTTabBar/obj/Release/QTTabBar_MarkupCompile.i.cache
+/QTTabBar/obj/Release/QTTabBar_MarkupCompile.lref
+/QTTabBar/obj/Release/Spinner.baml
+/QTTabBar/obj/Release/Spinner.g.cs
+/QTTabBar/obj/Release/Spinner.g.i.cs
+/Register/Release/Register.log
+/Installer/bin/Release/en-US/QTTabBar Setup_en-US.msi
+/Installer/bin/Release/zh-CN/QTTabBar Setup_zh-CN.msi
+/QTTabBar Rebirth.suo
+/QTTabBar/obj/Release/TempPE/Properties.Resources.Designer.cs.dll
+/QTTabBar/obj/Release/TempPE/Resource_String_zh_CN.Designer.cs.dll
+/QTTabBar/obj/Release/TempPE/Resources_Image.Designer.cs.dll
+/QTTabBar/obj/Release/TempPE/Resources_String.Designer.cs.dll
+/Plugins/CreateNewItem/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/CreateNewItem/obj/Release/CreateNewItem.csproj.FileListAbsolute.txt
+/Plugins/CreateNewItem/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/Memo/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/Memo/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/Memo/obj/Release/Memo.csproj.FileListAbsolute.txt
+/Plugins/MigemoLoader/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/MigemoLoader/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/MigemoLoader/obj/Release/MigemoLoader.csproj.FileListAbsolute.txt
+/Plugins/QTClock/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTClock/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTClock/obj/Release/QTClock.csproj.FileListAbsolute.txt
+/Plugins/QTFileTools/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTFileTools/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTFileTools/obj/Release/QTFileTools.csproj.FileListAbsolute.txt
+/Plugins/QTFolderButton/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTFolderButton/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTFolderButton/obj/Release/QTFolderButton.csproj.FileListAbsolute.txt
+/Plugins/QTViewModeButton/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTViewModeButton/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTViewModeButton/obj/Release/ViewModeButton.csproj.FileListAbsolute.txt
+/Plugins/QTWindowManager/QTWindowManager.cs
+/Plugins/QTWindowManager/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTWindowManager/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/QTWindowManager/obj/Release/QTWindowManager.csproj.FileListAbsolute.txt
+/Plugins/Sample/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/Sample/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/Sample/obj/Release/SamplePlugin.csproj.FileListAbsolute.txt
+/Plugins/ShowStatusBar/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/ShowStatusBar/obj/Release/DesignTimeResolveAssemblyReferencesInput.cache
+/Plugins/ShowStatusBar/obj/Release/ShowStatusBar.csproj.FileListAbsolute.txt
+/Register/Debug/Register.vcxprojResolveAssemblyReference.cache
+/Register/Release/Register.lastbuildstate
+/BandObjectLib/obj/Release/BandObjectLib.csprojResolveAssemblyReference.cache
+/MinHook/obj/Win32/Release/libMinHook.vcxprojResolveAssemblyReference.cache
+/Plugins/QTClock/obj/Release/TempPE/Resource.Designer.cs.dll
+/Plugins/QTFileTools/obj/Release/TempPE/Resource.Designer.cs.dll
+/Plugins/QTFolderButton/obj/Release/TempPE/Resource.Designer.cs.dll
+/Plugins/QTViewModeButton/obj/Release/TempPE/Resource.Designer.cs.dll
+/Plugins/QTWindowManager/obj/Release/TempPE/Resource.Designer.cs.dll
+/Plugins/Sample/obj/Release/TempPE/Resource.Designer.cs.dll
+/QTHookLib/obj/Win32/Release/QTHookLib.unsuccessfulbuild
+/QTTabBar Rebirth.opensdf
+/QTTabBar/obj/Release/QTTabBar_MarkupCompile.i.lref
+/Register/Release/Register.vcxprojResolveAssemblyReference.cache
+/Register/Release/*.log
+*.cache
+*.Cache
+/BandObjectLib/bin/Debug/BandObjectLib.dll
+/BandObjectLib/bin/Debug/BandObjectLib.pdb
+/BandObjectLib/bin/Debug/Interop.SHDocVw.dll
+/BandObjectLib/obj/Debug/BandObjectLib.csproj.FileListAbsolute.txt
+/BandObjectLib/obj/Debug/BandObjectLib.dll
+/BandObjectLib/obj/Debug/BandObjectLib.pdb
+/QTPluginLib/bin/Debug/QTPluginLib.dll
+/QTPluginLib/bin/Debug/QTPluginLib.pdb
+/QTPluginLib/obj/Debug/QTPluginLib.csproj.FileListAbsolute.txt
+/QTPluginLib/obj/Debug/QTPluginLib.dll
+/QTPluginLib/obj/Debug/QTPluginLib.pdb
+/QTTabBar/obj/Debug/EditableHeader.baml
+/QTTabBar/obj/Debug/EditableHeader.g.cs
+/QTTabBar/obj/Debug/FileFolderEntryBox.baml
+/QTTabBar/obj/Debug/FileFolderEntryBox.g.cs
+/QTTabBar/obj/Debug/GeneratedInternalTypeHelper.g.cs
+/QTTabBar/obj/Debug/MarginCombo.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options01_Window.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options02_Tabs.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options03_Tweaks.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options04_Tooltips.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options05_General.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options06_Appearance.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options07_Mouse.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options08_Keys.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options09_Groups.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options10_Apps.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options11_ButtonBar.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options12_Plugins.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options13_Language.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/Options14_About.g.cs
+/QTTabBar/obj/Debug/OptionsDialog/OptionsDialog.g.cs
+/QTTabBar/obj/Debug/QTTabBar.csproj.FileListAbsolute.txt
+/QTTabBar/obj/Debug/QTTabBar_MarkupCompile.lref
+/QTTabBar/obj/Debug/Spinner.g.cs
+/QTTabBar/obj/x86/Release/EditableHeader.baml
+/QTTabBar/obj/x86/Release/FileFolderEntryBox.baml
+/QTTabBar/obj/x86/Release/MarginCombo.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options01_Window.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options02_Tabs.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options03_Tweaks.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options04_Tooltips.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options05_General.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options06_Appearance.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options07_Mouse.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options08_Keys.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options09_Groups.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options10_Apps.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options11_ButtonBar.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options12_Plugins.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options13_Language.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/Options14_About.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/OptionsDialog.baml
+/QTTabBar/obj/x86/Release/OptionsDialog/OptionsDialogResources.baml
+/QTTabBar/obj/x86/Release/Spinner.baml
+/QTTabBar/obj/x86/Release/EditableHeader.g.cs
+/QTTabBar/obj/x86/Release/EditableHeader.g.i.cs
+/QTTabBar/obj/x86/Release/FileFolderEntryBox.g.cs
+/QTTabBar/obj/x86/Release/FileFolderEntryBox.g.i.cs
+/QTTabBar/obj/x86/Release/GeneratedInternalTypeHelper.g.cs
+/QTTabBar/obj/x86/Release/GeneratedInternalTypeHelper.g.i.cs
+/QTTabBar/obj/x86/Release/MarginCombo.g.cs
+/QTTabBar/obj/x86/Release/MarginCombo.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options01_Window.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options01_Window.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options02_Tabs.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options02_Tabs.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options03_Tweaks.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options03_Tweaks.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options04_Tooltips.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options04_Tooltips.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options05_General.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options05_General.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options06_Appearance.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options06_Appearance.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options07_Mouse.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options07_Mouse.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options08_Keys.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options08_Keys.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options09_Groups.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options09_Groups.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options10_Apps.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options10_Apps.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options11_ButtonBar.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options11_ButtonBar.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options12_Plugins.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options12_Plugins.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options13_Language.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options13_Language.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options14_About.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/Options14_About.g.i.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/OptionsDialog.g.cs
+/QTTabBar/obj/x86/Release/OptionsDialog/OptionsDialog.g.i.cs
+/QTTabBar/obj/x86/Release/Spinner.g.cs
+/QTTabBar/obj/x86/Release/Spinner.g.i.cs
+/TestWindow/Form1.cs
+/TestWindow/Form1.Designer.cs
+/TestWindow/Program.cs
+/TestWindow/Properties/AssemblyInfo.cs
+/TestWindow/Properties/Resources.Designer.cs
+/TestWindow/Properties/Settings.Designer.cs
+/TestWindow/TestWindow.csproj
+/QTTabBar/bin/x86/Release/BandObjectLib.dll
+/QTTabBar/bin/x86/Release/Interop.SHDocVw.dll
+/QTTabBar/bin/x86/Release/QTPluginLib.dll
+/QTTabBar/bin/x86/Release/QTTabBar.dll
+/QTTabBar/bin/x86/Release/Ricciolo.Controls.TreeListView.dll
+/QTTabBar/obj/x86/Release/Interop.SHDocVw.dll
+/QTTabBar/obj/x86/Release/QTTabBar.dll
+/QTTabBar/obj/x86/Release/TempPE/Properties.Resources.Designer.cs.dll
+/QTTabBar/obj/x86/Release/TempPE/Resource_String_zh_CN.Designer.cs.dll
+/QTTabBar/obj/x86/Release/TempPE/Resources_Image.Designer.cs.dll
+/QTTabBar/obj/x86/Release/TempPE/Resources_String.Designer.cs.dll
+/TestWindow/bin/Release/TestWindow.exe
+/TestWindow/bin/Release/TestWindow.vshost.exe
+/TestWindow/obj/x86/Release/TestWindow.exe
+/MinHook/obj/x64/Release/libMinHook.log
+/QTHookLib/obj/x64/Release/QTHookLib.log
+/QTTabBar/obj/x86/Release/QTTabBar_MarkupCompile.i.lref
+/QTTabBar/obj/x86/Release/QTTabBar_MarkupCompile.lref
+/TestWindow/bin/Release/TestWindow.vshost.exe.manifest
+/QTTabBar/bin/x86/Release/QTTabBar.pdb
+/QTTabBar/obj/x86/Release/QTTabBar.pdb
+/TestWindow/bin/Release/TestWindow.pdb
+/TestWindow/obj/x86/Release/TestWindow.pdb
+/QTTabBar/obj/x86/Release/QTTabBar.g.resources
+/QTTabBar/obj/x86/Release/QTTabBarLib.Properties.Resources.resources
+/QTTabBar/obj/x86/Release/QTTabBarLib.Resource_String_zh_CN.resources
+/QTTabBar/obj/x86/Release/QTTabBarLib.Resources_Image.resources
+/QTTabBar/obj/x86/Release/QTTabBarLib.Resources_String.resources
+/TestWindow/obj/x86/Release/TestWindow.Form1.resources
+/TestWindow/obj/x86/Release/TestWindow.Properties.Resources.resources
+/TestWindow/Form1.resx
+/TestWindow/Properties/Resources.resx
+/TestWindow/Properties/Settings.settings
+/latestversion.txt
+/QTTabBar/obj/x86/Release/QTTabBar.csproj.FileListAbsolute.txt
+/TestWindow/obj/x86/Release/TestWindow.csproj.FileListAbsolute.txt
+QTTabBar/obj/
+/Register/Release/*.lastbuildstate
+
+## Ignore Visual Studio temporary files, build results, and
+## files generated by popular Visual Studio add-ons.
+##
+## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Mono auto generated files
+mono_crash.*
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio 2015/2017 cache/options directory
+.vs/
+# Uncomment if you have tasks that create the project's static files in wwwroot
+#wwwroot/
+
+# Visual Studio 2017 auto generated files
+Generated\ Files/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# Build Results of an ATL Project
+[Dd]ebugPS/
+[Rr]eleasePS/
+dlldata.c
+
+# Benchmark Results
+BenchmarkDotNet.Artifacts/
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# StyleCop
+StyleCopReport.xml
+
+# Files built by Visual Studio
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Chutzpah Test files
+_Chutzpah*
+
+# Visual C++ cache files
+ipch/
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Visual Studio Trace Files
+*.e2e
+
+# TFS 2012 Local Workspace
+$tf/
+
+# Guidance Automation Toolkit
+*.gpState
+
+# ReSharper is a .NET coding add-in
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# TeamCity is a build add-in
+_TeamCity*
+
+# DotCover is a Code Coverage Tool
+*.dotCover
+
+# AxoCover is a Code Coverage Tool
+.axoCover/*
+!.axoCover/settings.json
+
+# Visual Studio code coverage results
+*.coverage
+*.coveragexml
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# MightyMoose
+*.mm.*
+AutoTest.Net/
+
+# Web workbench (sass)
+.sass-cache/
+
+# Installshield output folder
+[Ee]xpress/
+
+# DocProject is a documentation generator add-in
+DocProject/buildhelp/
+DocProject/Help/*.HxT
+DocProject/Help/*.HxC
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/Html2
+DocProject/Help/html
+
+# Click-Once directory
+publish/
+
+# Publish Web Output
+*.[Pp]ublish.xml
+*.azurePubxml
+# Note: Comment the next line if you want to checkin your web deploy settings,
+# but database connection strings (with potential passwords) will be unencrypted
+*.pubxml
+*.publishproj
+
+# Microsoft Azure Web App publish settings. Comment the next line if you want to
+# checkin your Azure Web App publish settings, but sensitive information contained
+# in these scripts will be unencrypted
+PublishScripts/
+
+# NuGet Packages
+*.nupkg
+# NuGet Symbol Packages
+*.snupkg
+# The packages folder can be ignored because of Package Restore
+**/[Pp]ackages/*
+**/[Oo]bj/*
+
+# except build/, which is used as an MSBuild target.
+!**/[Pp]ackages/build/
+# Uncomment if necessary however generally it will be regenerated when needed
+#!**/[Pp]ackages/repositories.config
+# NuGet v3's project.json files produces more ignorable files
+*.nuget.props
+*.nuget.targets
+
+# Microsoft Azure Build Output
+csx/
+*.build.csdef
+
+# Microsoft Azure Emulator
+ecf/
+rcf/
+
+# Windows Store app package directories and files
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+*.appx
+*.appxbundle
+*.appxupload
+
+# Visual Studio cache files
+# files ending in .cache can be ignored
+*.[Cc]ache
+# but keep track of directories ending in .cache
+!?*.[Cc]ache/
+
+# Others
+ClientBin/
+~$*
+*~
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+orleans.codegen.cs
+
+# Including strong name files can present a security risk
+# (https://github.com/github/gitignore/pull/2483#issue-259490424)
+#*.snk
+
+# Since there are multiple workflows, uncomment next line to ignore bower_components
+# (https://github.com/github/gitignore/pull/1529#issuecomment-104372622)
+#bower_components/
+
+# RIA/Silverlight projects
+Generated_Code/
+
+# Backup & report files from converting an old project file
+# to a newer Visual Studio version. Backup files are not needed,
+# because we have git ;-)
+_UpgradeReport_Files/
+Backup*/
+UpgradeLog*.XML
+UpgradeLog*.htm
+ServiceFabricBackup/
+*.rptproj.bak
+
+# SQL Server files
+*.mdf
+*.ldf
+*.ndf
+
+# Business Intelligence projects
+*.rdl.data
+*.bim.layout
+*.bim_*.settings
+*.rptproj.rsuser
+*- [Bb]ackup.rdl
+*- [Bb]ackup ([0-9]).rdl
+*- [Bb]ackup ([0-9][0-9]).rdl
+
+# Microsoft Fakes
+FakesAssemblies/
+
+# GhostDoc plugin setting file
+*.GhostDoc.xml
+
+# Node.js Tools for Visual Studio
+.ntvs_analysis.dat
+node_modules/
+
+# Visual Studio 6 build log
+*.plg
+
+# Visual Studio 6 workspace options file
+*.opt
+
+# Visual Studio 6 auto-generated workspace file (contains which files were open etc.)
+*.vbw
+
+# Visual Studio LightSwitch build output
+**/*.HTMLClient/GeneratedArtifacts
+**/*.DesktopClient/GeneratedArtifacts
+**/*.DesktopClient/ModelManifest.xml
+**/*.Server/GeneratedArtifacts
+**/*.Server/ModelManifest.xml
+_Pvt_Extensions
+
+# Paket dependency manager
+.paket/paket.exe
+paket-files/
+
+# FAKE - F# Make
+.fake/
+
+# CodeRush personal settings
+.cr/personal
+
+# Python Tools for Visual Studio (PTVS)
+__pycache__/
+*.pyc
+
+# Cake - Uncomment if you are using it
+# tools/**
+# !tools/packages.config
+
+# Tabs Studio
+*.tss
+
+# Telerik's JustMock configuration file
+*.jmconfig
+
+# BizTalk build output
+*.btp.cs
+*.btm.cs
+*.odx.cs
+*.xsd.cs
+
+# OpenCover UI analysis results
+OpenCover/
+
+# Azure Stream Analytics local run output
+ASALocalRun/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# NVidia Nsight GPU debugger configuration file
+*.nvuser
+
+# MFractors (Xamarin productivity tool) working folder
+.mfractor/
+
+# Local History for Visual Studio
+.localhistory/
+
+# BeatPulse healthcheck temp database
+healthchecksdb
+
+# Backup folder for Package Reference Convert tool in Visual Studio 2017
+MigrationBackup/
+
+# Ionide (cross platform F# VS Code tools) working folder
+.ionide/
+/Plugins/QTClock/obj
+/Plugins/Memo/obj
+/Plugins/MigemoLoader/obj
+/Plugins/QTClock/obj
+/Plugins/QTFileTools/obj
+/Plugins/QTFolderButton/obj
+/Plugins/QTViewModeButton/obj
+/Plugins/QTWindowManager/obj
+/Plugins/Sample/obj
+/.sonarqube
+/.sonarlint
+/BandObjectLib/*.ruleset
+*.ruleset
+/.idea

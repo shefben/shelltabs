@@ -1,0 +1,164 @@
+<?xml version="1.0"?>
+<project name="StExBar" default="build">
+
+  <include buildfile="default.build.user" />
+
+  <target name="build" depends="VSNET,env">
+    <!-- the signinfo.txt file has to contain one line with parameters for signtool.exe,
+         for example:
+         /t "url/to/timestamp/server" /q
+    -->
+    <loadfile file="signinfo.txt" property="signinfo" failonerror="false" />
+
+    <nant target="versioninfo">
+      <buildfiles>
+        <include name="versioninfo.build" />
+      </buildfiles>
+    </nant>
+    <loadfile file="src\version.in" property="versionheaderfile">
+      <filterchain>
+        <replacetokens begintoken="$" endtoken="$">
+          <token key="MajorVersion" value="${environment::get-variable('MajorVersion')}" />
+          <token key="MinorVersion" value="${environment::get-variable('MinorVersion')}" />
+          <token key="MicroVersion" value="${environment::get-variable('Microversion')}" />
+          <token key="WCREV" value="${environment::get-variable('WCREV')}" />
+          <token key="WCDATE" value="${environment::get-variable('WCDATE')}" />
+        </replacetokens>
+      </filterchain>
+    </loadfile>
+    <echo file="src\version.h" message="${versionheaderfile}" />
+
+    <exec program="msbuild.exe" >
+      <arg value="StExBar.sln" />
+      <arg value="/t:Rebuild" />
+      <arg value="/p:Configuration=Debug" />
+      <arg value="/p:Platform=Win32" />
+      <arg value="/verbosity:minimal" />
+      <arg value="/maxcpucount" />
+    </exec>
+    <exec program="msbuild.exe" >
+      <arg value="StExBar.sln" />
+      <arg value="/t:Rebuild" />
+      <arg value="/p:Configuration=Release" />
+      <arg value="/p:Platform=Win32" />
+      <arg value="/verbosity:minimal" />
+      <arg value="/maxcpucount" />
+    </exec>
+
+    <exec program="msbuild.exe" >
+      <arg value="StExBar.sln" />
+      <arg value="/t:Rebuild" />
+      <arg value="/p:Configuration=Debug" />
+      <arg value="/p:Platform=x64" />
+      <arg value="/verbosity:minimal" />
+      <arg value="/maxcpucount" />
+    </exec>
+    <exec program="msbuild.exe" >
+      <arg value="StExBar.sln" />
+      <arg value="/t:Rebuild" />
+      <arg value="/p:Configuration=Release" />
+      <arg value="/p:Platform=x64" />
+      <arg value="/verbosity:minimal" />
+      <arg value="/maxcpucount" />
+    </exec>
+
+    <!-- sign all release binaries -->
+    <if test="${file::exists('signinfo.txt')}">
+      <exec program="signtool">
+        <arg value="sign" />
+        <arg value="${signinfo}" />
+        <arg value="bin/release/StExBar.dll" />
+      </exec>
+      <exec program="signtool">
+        <arg value="sign" />
+        <arg value="${signinfo}" />
+        <arg value="bin/release_x64/StExBar.dll" />
+      </exec>
+    </if>
+
+
+    <exec program="candle">
+      <arg value="-nologo" />
+      <arg value="-out" />
+      <arg value="bin\" />
+      <arg value="src/setup/Setup.wxs" />
+    </exec>
+    <exec program="light">
+      <arg value="-nologo" />
+      <arg value="-ext" />
+      <arg value="WixUIExtension" />
+      <arg value="-cultures:en-us" />
+      <arg value="-out" />
+      <arg value="bin\StExBar.msi" />
+      <arg value="bin\Setup.wixobj" />
+    </exec>
+
+    <exec program="candle">
+      <arg value="-nologo" />
+      <arg value="-out" />
+      <arg value="bin\" />
+      <arg value="src/setup/Setup64.wxs" />
+    </exec>
+    <exec program="light">
+      <arg value="-nologo" />
+      <arg value="-ext" />
+      <arg value="WixUIExtension" />
+      <arg value="-cultures:en-us" />
+      <arg value="-out" />
+      <arg value="bin\StExBar64.msi" />
+      <arg value="bin\Setup64.wixobj" />
+    </exec>
+
+    <delete>
+      <fileset>
+        <include name="bin\*.wixobj" />
+        <include name="bin\*.wixpdb" />
+      </fileset>
+    </delete>
+    <if test="${file::exists('signinfo.txt')}">
+      <exec program="signtool">
+        <arg value="sign" />
+        <arg value="${signinfo}" />
+        <arg value="bin\StExBar64.msi" />
+      </exec>
+      <exec program="signtool">
+        <arg value="sign" />
+        <arg value="${signinfo}" />
+        <arg value="bin\StExBar.msi" />
+      </exec>
+    </if>
+
+    <loadfile file="choco\stexbar.nuspec" property="nuspecfile">
+      <filterchain>
+        <replacetokens begintoken="$" endtoken="$">
+          <token key="MajorVersion" value="${environment::get-variable('MajorVersion')}" />
+          <token key="MinorVersion" value="${environment::get-variable('MinorVersion')}" />
+          <token key="MicroVersion" value="${environment::get-variable('Microversion')}" />
+          <token key="WCREV" value="${environment::get-variable('WCREV')}" />
+          <token key="WCDATE" value="${environment::get-variable('WCDATE')}" />
+        </replacetokens>
+      </filterchain>
+    </loadfile>
+    <echo file="choco\package\stexbar.nuspec" message="${nuspecfile}" />
+    <loadfile file="choco\chocolateyInstall.ps1" property="cinstfile">
+      <filterchain>
+        <replacetokens begintoken="$" endtoken="$">
+          <token key="MajorVersion" value="${environment::get-variable('MajorVersion')}" />
+          <token key="MinorVersion" value="${environment::get-variable('MinorVersion')}" />
+          <token key="MicroVersion" value="${environment::get-variable('Microversion')}" />
+          <token key="WCREV" value="${environment::get-variable('WCREV')}" />
+          <token key="WCDATE" value="${environment::get-variable('WCDATE')}" />
+        </replacetokens>
+      </filterchain>
+    </loadfile>
+    <echo file="choco\package\tools\chocolateyInstall.ps1" message="${cinstfile}" />
+    <echo>
+      now start an admin console in choco\package and then run
+      choco pack
+      to upload the package, run
+      cpush StExBar-x.x.x.nupkg
+    </echo>
+
+  </target>
+
+</project>

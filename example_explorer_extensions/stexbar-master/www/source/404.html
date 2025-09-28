@@ -1,0 +1,27 @@
+@@include("_includes/header.html", {"title": "Error 404"})
+<div class="wrapper">
+<div class="content">
+    <h2>404 - Page Not Found</h2>
+
+    <p>
+        The page you requested doesn't exist on this server. Maybe it was moved to another place.
+    </p>
+    <p>
+        You can search for the information you want using the search button below.
+    </p>
+    <div class="gcse-searchbox-only"></div>
+</div>
+</div>
+<script>
+    (function() {
+        var cx = 'partner-pub-0430507460695576:cuostksju2b';
+        var gcse = document.createElement('script');
+        gcse.type = 'text/javascript';
+        gcse.async = true;
+        gcse.src = (document.location.protocol == 'https' ? 'https:' : 'http:') +
+            '//www.google.com/cse/cse.js?cx=' + cx;
+        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(gcse, s);
+    })();
+</script>
+
+@@include("_includes/footer.html")

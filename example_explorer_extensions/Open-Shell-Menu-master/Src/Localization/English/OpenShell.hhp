@@ -1,0 +1,15 @@
+[OPTIONS]
+Compatibility=1.1 or later
+Compiled file=OpenShell.chm
+Contents file=OpenShellTOC.hhc
+Default topic=Main.html
+Display compile progress=Yes
+Language=0x409 English (United States)
+Title=Open-Shell Help
+
+[FILES]
+ClassicExplorer.html
+StartMenu.html
+ClassicIE.html
+
+[INFOTYPES]

@@ -1,0 +1,484 @@
+* {
+    -webkit-box-sizing: border-box;
+       -moz-box-sizing: border-box;
+            box-sizing: border-box;
+}
+
+*:before,
+*:after {
+    -webkit-box-sizing: border-box;
+       -moz-box-sizing: border-box;
+            box-sizing: border-box;
+}
+
+html {
+    font: 13px "Lucida Grande", Verdana, Arial, Sans-Serif;
+    height: 100%;
+}
+
+body {
+    background-color: #3d63f2; /* Old browsers */
+    background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0.08, #3d63f2), color-stop(0.4, #6084fe)); /* Chrome, Safari4+ */
+    background-image: -webkit-linear-gradient(top, #3d63f2 8%, #6084fe 40%);    /* Chrome10+, Safari5.1+ */
+    background-image:    -moz-linear-gradient(top, #3d63f2 8%, #6084fe 40%);    /* FF3.6+ */
+    background-image:     -ms-linear-gradient(top, #3d63f2 8%, #6084fe 40%);    /* IE10+ */
+    background-image:      -o-linear-gradient(top, #3d63f2 8%, #6084fe 40%);    /* Opera 11.10+ */
+    background-image:         linear-gradient(top, #3d63f2 8%, #6084fe 40%);    /* W3C */
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    color: #181818;
+    height: 100%;
+    margin: 0 auto;
+    padding: 0;
+    text-align: left;
+}
+
+a {
+    color: #0066ee;
+}
+
+a:hover {
+    color: #181818;
+}
+
+a,
+.main-table tr {
+    -webkit-transition: color 0.15s linear;
+       -moz-transition: color 0.15s linear;
+         -o-transition: color 0.15s linear;
+            transition: color 0.15s linear;
+}
+
+.content {
+    font-size: 110%;
+    margin: 10px 8px 0;
+    padding: 2px 10px 22px 40px;
+    width: 845px;
+}
+
+code {
+    background-color: #f7f7f9;
+    border: 1px solid #e1e1e8;
+    color: #d14;
+    padding: 0.5px 4px;
+}
+
+code,
+h1,
+h2,
+h3,
+h4,
+pre {
+    -webkit-border-radius: 4px;
+       -moz-border-radius: 4px;
+            border-radius: 4px;
+}
+
+dd {
+    margin-left: 10px;
+}
+
+dd,
+dt {
+    line-height: 1.4em;
+}
+
+dl {
+    margin-bottom: 20px;
+}
+
+dt {
+    font-weight: bold;
+}
+
+footer {
+    background-position: 0 -310px;
+    color: white;
+    font-size: 85%;
+    margin: 0 auto;
+    text-align: center;
+    width: 900px;
+    height: 54px;
+}
+
+footer ul {
+    list-style: none;
+    margin: 0;
+    padding-left: 0;
+    padding-top: 20px;
+}
+
+footer ul > li {
+    display: inline-block;
+}
+
+footer a {
+    color: #5e7eff;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+footer p {
+    display: inline-block;
+    font-size: smaller;
+    margin: 0 auto;
+}
+
+footer a:hover:not(img) {
+    color: #acacd7;
+    text-decoration: underline;
+}
+
+h1,
+h2,
+h3,
+h4 {
+    background-color: #0a0809; /* Old browsers */
+    background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0%, #0a0809), color-stop(48%, #0a0e0a), color-stop(92%, #6e7774), color-stop(100%, #aebcbf)); /* Chrome, Safari4+ */
+    background-image: -webkit-linear-gradient(top, #0a0809 0%, #0a0e0a 48%, #6e7774 92%, #aebcbf 100%);       /* Chrome10+, Safari5.1+ */
+    background-image:    -moz-linear-gradient(top, #0a0809 0%, #0a0e0a 48%, #6e7774 92%, #aebcbf 100%);       /* FF3.6+ */
+    background-image:     -ms-linear-gradient(top, #0a0809 0%, #0a0e0a 48%, #6e7774 92%, #aebcbf 100%);       /* IE10+ */
+    background-image:      -o-linear-gradient(top, #0a0809 0%, #0a0e0a 48%, #6e7774 92%, #aebcbf 100%);       /* Opera 11.10+ */
+    background-image:         linear-gradient(to bottom, #0a0809 0%, #0a0e0a 48%, #6e7774 92%, #aebcbf 100%); /* W3C */
+    color: #eeeeee;
+    font-weight: bold;
+}
+
+h1,
+h2 {
+    font-size: 120%;
+    margin: 12px 0;
+    padding: 2px 4px 6px 6px;
+}
+
+h3 {
+    font-size: 105%;
+    margin: 30px 0 15px;
+    padding: 4px 4px 6px 6px;
+}
+
+h4 {
+    font-size: 100%;
+    margin: 30px 0 15px;
+    padding: 4px 4px 6px 6px;
+}
+
+
+h1 a,
+h2 a,
+h3 a,
+h4 a {
+    color: #eeeeee;
+    text-decoration: none;
+}
+
+h1 a:hover,
+h2 a:hover,
+h3 a:hover,
+h4 a:hover {
+    color: #acacd7;
+    text-decoration: none;
+}
+
+header {
+    background-position: 0 0;
+    margin: 0 auto;
+    padding: 0;
+    text-decoration: none;
+    width: 900px;
+    height: 300px;
+}
+
+img {
+    border: 0;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+li {
+    padding: 2px;
+}
+
+nav {
+    margin: 0 60px 0 0;
+    float: right;
+    position: relative;
+}
+
+ol,
+ul {
+    margin: 10px 0 10px 35px;
+    padding: 0;
+}
+
+pre {
+    background-color: #f5f5f5;
+    border: 1px solid #ccc;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    color: #333;
+    display: block;
+    line-height: 140%;
+    margin: 0 0 10px;
+    padding: 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+
+/*
+ * ID selectors and classes
+ */
+::-moz-selection {
+    background-color: #b3d4fc;
+    text-shadow: none;
+}
+
+::selection {
+    background-color: #b3d4fc;
+    text-shadow: none;
+}
+
+.main-sprite {
+    background-image: url("../img/main_sprite.png");
+    background-repeat: no-repeat;
+}
+
+.header-title,
+.header-description {
+    -webkit-border-radius: 0;
+       -moz-border-radius: 0;
+            border-radius: 0;
+}
+
+
+.header-title {
+    background: transparent none !important;
+    color: #5e7eff;
+    font-size: 200%;
+    margin: inherit;
+    padding: 128px 0 0 348px;
+}
+
+.header-title a {
+    color: #5e7eff;
+}
+
+.header-title a:hover {
+    color: #acacd7;
+}
+
+.header-description {
+    background: transparent none;
+    color: white;
+    font-size: 110%;
+    font-weight: normal;
+    margin: 0;
+    padding: 0 0 0 350px;
+}
+
+/* Homepage's table start */
+.main-table {
+    border-collapse: collapse;
+    border-spacing: 0;
+    box-shadow: 10px 10px 5px #888888;
+    display: inline-block;
+    margin: 8px 0 2px;
+}
+
+.main-table,
+.main-table td,
+.main-table th {
+    border: 1px inset blue;
+}
+
+.main-table img {
+    padding: 2px;
+}
+
+.main-table li {
+    margin: 0;
+    padding: 0;
+}
+
+.main-table td,
+.main-table th {
+    padding: 4px 8px;
+}
+
+.main-table th {
+    background-color: #005fbf; /* Old browsers */
+    background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0.5, #005fbf), color-stop(0.9, #003f7f)); /* Chrome, Safari4+ */
+    background-image: -webkit-linear-gradient(top, #005fbf 50%, #003f7f 90%);       /* Chrome10+, Safari5.1+ */
+    background-image:    -moz-linear-gradient(top, #005fbf 50%, #003f7f 90%);       /* FF3.6+ */
+    background-image:     -ms-linear-gradient(top, #005fbf 50%, #003f7f 90%);       /* IE10+ */
+    background-image:      -o-linear-gradient(top, #005fbf 50%, #003f7f 90%);       /* Opera 11.10+ */
+    background-image:         linear-gradient(to bottom, #005fbf 50%, #003f7f 90%); /* W3C */
+    color: white;
+    font-weight: bold;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.main-table tr {
+    background-color: white;
+}
+
+.main-table tr:hover {
+    background-color: #e4e9ee;
+}
+
+.main-table ul {
+    list-style-type: none;
+    margin: 0 4px;
+}
+
+.apps-sprite {
+    background: url("../img/app_icons_sprite.png") no-repeat;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.AAClr          { background-position: 0      0; }
+.BowPad         { background-position: 0  -74px; }
+.CommitMonitor  { background-position: 0 -148px; }
+.CryptSync      { background-position: 0 -222px; }
+.DemoHelper     { background-position: 0 -296px; }
+.EvImSync       { background-position: 0 -370px; }
+.FavIconizer    { background-position: 0 -444px; }
+.FileTool       { background-position: 0 -518px; }
+.MailNoter      { background-position: 0 -592px; }
+.SendMessage    { background-position: 0 -666px; }
+.console        { background-position: 0 -740px; }
+.grepWin        { background-position: 0 -814px; }
+.trafficWatcher { background-position: 0 -888px; }
+.win            { background-position: 0 -962px; }
+.ev2on          { background-position: 0 -1036px; }
+
+/* Homepage's table end */
+
+
+.wrapper {
+    background: repeat-y url("../img/main.png");
+    margin: -10px auto 0;
+    width: 900px;
+}
+
+.nav-list {
+    display: inline;
+}
+
+.important {
+    background: no-repeat 4px 3px url("../img/important.png");
+    border-left: 1px solid #069;
+    border-top: 5px solid #069;
+    -webkit-border-top-left-radius: 4px;
+       -moz-border-radius-topleft: 4px;
+    border-top-left-radius: 4px;
+    clear: both;
+    margin: 1em 0 0 1em;
+    min-height: 52px;
+    padding-left: 42px;
+    width: 95%;
+}
+
+.important h2,
+.important h3 {
+    background: none;
+    color: #069;
+    font-style: italic;
+    font-weight: bold;
+    margin: 0;
+    padding: 4px 0 0 0;
+}
+
+.important h2 {
+    font-size: 1.05em;
+}
+
+.important h3 {
+    font-size: 1.0em
+}
+
+.nowrap {
+    white-space: nowrap;
+}
+
+/* Image style */
+#scrollUp {
+    background-image: url("../img/icon_top.png");
+    bottom: 2%;
+    right: 2%;
+    width: 38px;    /* Width of image */
+    height: 38px;   /* Height of image */
+}
+
+.superscript {
+    font-size: 75%;
+    vertical-align: super;
+}
+
+
+@media print {
+    *,
+    *:before,
+    *:after {
+        background: transparent !important;
+        color: black !important; /* Black prints faster: h5bp.com/s */
+        box-shadow: none !important;
+        text-shadow: none !important;
+    }
+
+    a,
+    a:visited {
+        text-decoration: underline;
+    }
+
+    a[href]:after {
+        content: " (" attr(href) ")";
+    }
+
+    abbr[title]:after {
+        content: " (" attr(title) ")";
+    }
+
+    /*
+     * Don't show links that are fragment identifiers,
+     * or use the `javascript:` pseudo protocol
+     */
+
+    a[href^="#"]:after,
+    a[href^="javascript:"]:after {
+        content: "";
+    }
+
+    pre,
+    blockquote {
+        border: 1px solid #999;
+        page-break-inside: avoid;
+    }
+
+    thead {
+        display: table-header-group; /* h5bp.com/t */
+    }
+
+    tr,
+    img {
+        page-break-inside: avoid;
+    }
+
+    img {
+        max-width: 100% !important;
+    }
+
+    p,
+    h2,
+    h3 {
+        orphans: 3;
+        widows: 3;
+    }
+
+    h2,
+    h3 {
+        page-break-after: avoid;
+    }
+}

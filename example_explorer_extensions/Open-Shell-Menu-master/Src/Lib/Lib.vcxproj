@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64EC">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64EC</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64EC">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64EC</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{D42FE717-485B-492D-884A-1999F6D51154}</ProjectGuid>
+    <RootNamespace>Lib</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <UseOfAtl>Static</UseOfAtl>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization Condition="'$(Configuration)'!='Debug'">true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="..\Common.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(IntDir)</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Platform)'=='ARM64'">
+    <BuildAsX>true</BuildAsX>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Lib>
+      <TargetMachine Condition="'$(Platform)'=='Win32'">MachineX86</TargetMachine>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Image Include="..\Setup\OpenShell.ico" />
+    <Image Include="flags.bmp" />
+    <Image Include="flags24.bmp" />
+    <Image Include="padlock.ico" />
+    <Image Include="play.ico" />
+    <Image Include="warning.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Lib.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Assert.h" />
+    <ClInclude Include="ComHelper.h" />
+    <ClInclude Include="DownloadHelper.h" />
+    <ClInclude Include="FileHelper.h" />
+    <ClInclude Include="FNVHash.h" />
+    <ClInclude Include="IatHookHelper.h" />
+    <ClInclude Include="LanguageSettingsHelper.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="ResourceHelper.h" />
+    <ClInclude Include="Settings.h" />
+    <ClInclude Include="SettingsParser.h" />
+    <ClInclude Include="SettingsUIHelper.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="StringSet.h" />
+    <ClInclude Include="StringUtils.h" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="TrackResources.h" />
+    <ClInclude Include="Translations.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Assert.cpp" />
+    <ClCompile Include="DownloadHelper.cpp" />
+    <ClCompile Include="FileHelper.cpp" />
+    <ClCompile Include="FNVHash.cpp" />
+    <ClCompile Include="IatHookHelper.cpp" />
+    <ClCompile Include="Instance.cpp" />
+    <ClCompile Include="LanguageSettingsHelper.cpp" />
+    <ClCompile Include="ResourceHelper.cpp" />
+    <ClCompile Include="Settings.cpp" />
+    <ClCompile Include="SettingsParser.cpp" />
+    <ClCompile Include="SettingsUIHelper.cpp" />
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="StringSet.cpp" />
+    <ClCompile Include="StringUtils.cpp" />
+    <ClCompile Include="TrackResources.cpp" />
+    <ClCompile Include="Translations.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="..\packages\nlohmann.json.3.11.2\build\native\nlohmann.json.targets" Condition="Exists('..\packages\nlohmann.json.3.11.2\build\native\nlohmann.json.targets')" />
+  </ImportGroup>
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('..\packages\nlohmann.json.3.11.2\build\native\nlohmann.json.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\nlohmann.json.3.11.2\build\native\nlohmann.json.targets'))" />
+  </Target>
+</Project>

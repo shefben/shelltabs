@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A4A4D3B1-24E7-401E-A37C-72141D7603DC}</ProjectGuid>
+    <RootNamespace>Setup</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization Condition="'$(Configuration)'!='Debug'">true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="..\Common.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>comctl32.lib;Psapi.lib;version.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Image Include="banner.jpg" />
+    <Image Include="OpenShell.ico" />
+    <Image Include="dialog.jpg" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Setup.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="Setup.manifest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Setup.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Localization\English\OpenShellText-en-US.wxl" />
+    <None Include="BuildArchives.bat" />
+    <None Include="BuildBinaries.bat" />
+    <None Include="BuildInstaller.bat" />
+    <None Include="Setup.wxs" />
+    <None Include="msichecksum.bin" />
+    <None Include="Temp\Setup32.msi_" />
+    <None Include="Temp\Setup64.msi_" />
+    <None Include="Temp\SetupARM64.msi_" />
+    <None Include="__MakeFinal.bat" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lib\Lib.vcxproj">
+      <Project>{d42fe717-485b-492d-884a-1999f6d51154}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
