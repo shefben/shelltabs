@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <cwchar>
 #include <memory>
+#include <string_view>
 
 #include <CommCtrl.h>
 #include <ShlObj.h>
 #include <shellapi.h>
 #include <windowsx.h>
+#include <winreg.h>
 
 #include "Module.h"
 #include "TabBand.h"
@@ -108,6 +110,7 @@ HWND TabBandWindow::Create(HWND parent) {
     SetWindowSubclass(hwnd, WndProc, reinterpret_cast<UINT_PTR>(this), reinterpret_cast<DWORD_PTR>(this));
 
     m_hwnd = hwnd;
+    UpdateTheme();
     EnsureToolbar();
     return m_hwnd;
 }
@@ -155,7 +158,7 @@ void TabBandWindow::EnsureToolbar() {
     }
 
     DWORD style = WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_LIST | TBSTYLE_TOOLTIPS | CCS_NOPARENTALIGN |
-                  CCS_NORESIZE | CCS_NODIVIDER | CCS_ADJUSTABLE | TBSTYLE_TRANSPARENT;
+                  CCS_NORESIZE | CCS_NODIVIDER | CCS_ADJUSTABLE;
     DWORD exStyle = TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER;
 
     HWND toolbar = CreateWindowExW(0, TOOLBARCLASSNAMEW, L"", style, 0, 0, 0, 0, m_hwnd, nullptr,
@@ -178,6 +181,7 @@ void TabBandWindow::EnsureToolbar() {
     SetWindowSubclass(toolbar, ToolbarWndProc, reinterpret_cast<UINT_PTR>(this), reinterpret_cast<DWORD_PTR>(this));
 
     m_toolbar = toolbar;
+    UpdateTheme();
     RebuildToolbar();
 }
 
@@ -568,6 +572,22 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             }
             return 0;
         }
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+            self->UpdateTheme();
+            break;
+        case WM_SETTINGCHANGE: {
+            if (self->ShouldUpdateThemeForSettingChange(lParam)) {
+                self->UpdateTheme();
+            }
+            break;
+        }
+        case WM_ERASEBKGND: {
+            if (self->PaintHostBackground(reinterpret_cast<HDC>(wParam))) {
+                return 1;
+            }
+            break;
+        }
         case WM_COMMAND: {
             if (HIWORD(wParam) == 0) {
                 self->HandleToolbarCommand(static_cast<int>(LOWORD(wParam)));
@@ -612,6 +632,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             }
             if (header->hwndFrom == self->m_toolbar) {
                 switch (header->code) {
+                    case NM_CUSTOMDRAW: {
+                        auto* customDraw = reinterpret_cast<NMTBCUSTOMDRAW*>(lParam);
+                        return self->HandleToolbarCustomDraw(customDraw);
+                    }
                     case NM_RCLICK: {
                         const auto* mouse = reinterpret_cast<const NMMOUSE*>(header);
                         POINT pt = mouse->pt;
@@ -702,11 +726,223 @@ LRESULT CALLBACK TabBandWindow::ToolbarWndProc(HWND hwnd, UINT msg, WPARAM wPara
             self->HandleContextMenu(commandId, pt);
             return 0;
         }
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+            self->UpdateTheme();
+            break;
+        case WM_SETTINGCHANGE:
+            if (self->ShouldUpdateThemeForSettingChange(lParam)) {
+                self->UpdateTheme();
+            }
+            break;
+        case WM_ERASEBKGND: {
+            if (self->PaintToolbarBackground(hwnd, reinterpret_cast<HDC>(wParam))) {
+                return 1;
+            }
+            break;
+        }
+        case WM_PRINTCLIENT: {
+            if (self->PaintToolbarBackground(hwnd, reinterpret_cast<HDC>(wParam))) {
+                break;
+            }
+            break;
+        }
         default:
             break;
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
+    if (!customDraw) {
+        return CDRF_DODEFAULT;
+    }
+
+    switch (customDraw->nmcd.dwDrawStage) {
+        case CDDS_PREPAINT: {
+            customDraw->clrBtnFace = m_theme.background;
+            customDraw->clrBtnHighlight = m_theme.hover;
+            customDraw->clrBtnShadow = m_theme.border;
+            customDraw->clrHighlightHotTrack = m_theme.hover;
+            customDraw->clrText = m_theme.text;
+            return CDRF_NOTIFYITEMDRAW;
+        }
+        case CDDS_ITEMPREPAINT: {
+            const int commandId = static_cast<int>(customDraw->nmcd.dwItemSpec);
+            const TabViewItem* item = ItemForCommand(commandId);
+            const bool isGroupHeader = item && item->type == TabViewItemType::kGroupHeader;
+            const bool isChecked = (customDraw->nmcd.uItemState & CDIS_CHECKED) != 0;
+            const bool isHot = (customDraw->nmcd.uItemState & CDIS_HOT) != 0;
+            const bool isPressed = (customDraw->nmcd.uItemState & CDIS_SELECTED) != 0;
+
+            COLORREF fill = m_theme.background;
+            COLORREF text = m_theme.text;
+            if (isGroupHeader) {
+                fill = m_theme.groupHeaderBackground;
+                text = m_theme.groupHeaderText;
+            }
+            if (isChecked) {
+                fill = m_theme.checked;
+            } else if (isPressed) {
+                fill = m_theme.pressed;
+            } else if (isHot) {
+                fill = isGroupHeader ? m_theme.groupHeaderHover : m_theme.hover;
+            }
+
+            RECT rect = customDraw->nmcd.rc;
+            FillRectColor(customDraw->nmcd.hdc, rect, fill);
+
+            if (isChecked) {
+                RECT borderRect = rect;
+                InflateRect(&borderRect, -1, -1);
+                FrameRectColor(customDraw->nmcd.hdc, borderRect, m_theme.highlight);
+            }
+
+            customDraw->clrText = text;
+            customDraw->clrBtnFace = fill;
+            customDraw->clrBtnHighlight = fill;
+            customDraw->clrBtnShadow = m_theme.border;
+            return CDRF_DODEFAULT;
+        }
+        default:
+            break;
+    }
+
+    return CDRF_DODEFAULT;
+}
+
+void TabBandWindow::UpdateTheme() {
+    const bool darkPreferred = IsDarkModePreferred();
+    const ToolbarTheme newTheme = CalculateTheme(darkPreferred);
+    if (newTheme == m_theme && darkPreferred == m_darkModeEnabled) {
+        return;
+    }
+
+    m_theme = newTheme;
+    m_darkModeEnabled = darkPreferred;
+
+    ApplyThemeToToolbar();
+
+    if (m_hwnd) {
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+    }
+    if (m_toolbar) {
+        InvalidateRect(m_toolbar, nullptr, TRUE);
+    }
+}
+
+void TabBandWindow::ApplyThemeToToolbar() {
+    if (!m_toolbar) {
+        return;
+    }
+
+    SendMessageW(m_toolbar, TB_SETBKCOLOR, 0, static_cast<LPARAM>(m_theme.background));
+    SendMessageW(m_toolbar, TB_SETTEXTCOLOR, 0, static_cast<LPARAM>(m_theme.text));
+    SetWindowTheme(m_toolbar, m_darkModeEnabled ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+}
+
+bool TabBandWindow::PaintHostBackground(HDC dc) const {
+    if (!dc || !m_hwnd) {
+        return false;
+    }
+    RECT rect{};
+    if (!GetClientRect(m_hwnd, &rect)) {
+        return false;
+    }
+    FillRectColor(dc, rect, m_theme.background);
+    RECT bottom = rect;
+    bottom.top = bottom.bottom - 1;
+    if (bottom.top < bottom.bottom) {
+        FillRectColor(dc, bottom, m_theme.separator);
+    }
+    return true;
+}
+
+bool TabBandWindow::PaintToolbarBackground(HWND hwnd, HDC dc) const {
+    if (!dc || !hwnd) {
+        return false;
+    }
+    RECT rect{};
+    if (!GetClientRect(hwnd, &rect)) {
+        return false;
+    }
+    FillRectColor(dc, rect, m_theme.background);
+    return true;
+}
+
+bool TabBandWindow::ShouldUpdateThemeForSettingChange(LPARAM lParam) const {
+    if (!lParam) {
+        return true;
+    }
+    std::wstring_view setting(reinterpret_cast<PCWSTR>(lParam));
+    if (setting.empty()) {
+        return true;
+    }
+    static constexpr std::wstring_view kTargets[] = {L"ImmersiveColorSet", L"ImmersiveColorSetChanged", L"WindowsThemeElement",
+                                                      L"SystemUsesLightTheme", L"AppsUseLightTheme"};
+    for (const auto& target : kTargets) {
+        if (setting == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool TabBandWindow::IsDarkModePreferred() const {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS) {
+        return value == 0;
+    }
+    return false;
+}
+
+TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
+    ToolbarTheme theme{};
+    if (darkMode) {
+        theme.background = RGB(32, 32, 32);
+        theme.hover = RGB(52, 52, 52);
+        theme.pressed = RGB(62, 62, 62);
+        theme.checked = RGB(72, 72, 72);
+        theme.text = RGB(241, 241, 241);
+        theme.textDisabled = RGB(150, 150, 150);
+        theme.groupHeaderBackground = RGB(26, 26, 26);
+        theme.groupHeaderHover = RGB(46, 46, 46);
+        theme.groupHeaderText = RGB(189, 189, 189);
+        theme.highlight = RGB(45, 137, 255);
+        theme.border = RGB(63, 63, 63);
+        theme.separator = RGB(58, 58, 58);
+    }
+    return theme;
+}
+
+void TabBandWindow::FillRectColor(HDC dc, const RECT& rect, COLORREF color) {
+    if (!dc) {
+        return;
+    }
+    HBRUSH brush = static_cast<HBRUSH>(GetStockObject(DC_BRUSH));
+    if (!brush) {
+        return;
+    }
+    const COLORREF previous = SetDCBrushColor(dc, color);
+    FillRect(dc, &rect, brush);
+    SetDCBrushColor(dc, previous);
+}
+
+void TabBandWindow::FrameRectColor(HDC dc, const RECT& rect, COLORREF color) {
+    if (!dc) {
+        return;
+    }
+    HBRUSH brush = static_cast<HBRUSH>(GetStockObject(DC_BRUSH));
+    if (!brush) {
+        return;
+    }
+    const COLORREF previous = SetDCBrushColor(dc, color);
+    FrameRect(dc, &rect, brush);
+    SetDCBrushColor(dc, previous);
 }
 
 }  // namespace shelltabs
