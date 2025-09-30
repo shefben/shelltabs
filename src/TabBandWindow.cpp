@@ -558,6 +558,7 @@ int TabBandWindow::CommandIdFromButtonIndex(int index) const {
 
 LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR id,
                                         DWORD_PTR refData) {
+    (void)id;
     auto* self = reinterpret_cast<TabBandWindow*>(refData);
     if (!self) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -763,7 +764,6 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
         case CDDS_PREPAINT: {
             customDraw->clrBtnFace = m_theme.background;
             customDraw->clrBtnHighlight = m_theme.hover;
-            customDraw->clrBtnShadow = m_theme.border;
             customDraw->clrHighlightHotTrack = m_theme.hover;
             customDraw->clrText = m_theme.text;
             return CDRF_NOTIFYITEMDRAW;
@@ -775,12 +775,16 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
             const bool isChecked = (customDraw->nmcd.uItemState & CDIS_CHECKED) != 0;
             const bool isHot = (customDraw->nmcd.uItemState & CDIS_HOT) != 0;
             const bool isPressed = (customDraw->nmcd.uItemState & CDIS_SELECTED) != 0;
+            const bool isDisabled = (customDraw->nmcd.uItemState & CDIS_DISABLED) != 0;
 
             COLORREF fill = m_theme.background;
             COLORREF text = m_theme.text;
             if (isGroupHeader) {
                 fill = m_theme.groupHeaderBackground;
                 text = m_theme.groupHeaderText;
+            }
+            if (isDisabled) {
+                text = m_theme.textDisabled;
             }
             if (isChecked) {
                 fill = m_theme.checked;
@@ -802,7 +806,6 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
             customDraw->clrText = text;
             customDraw->clrBtnFace = fill;
             customDraw->clrBtnHighlight = fill;
-            customDraw->clrBtnShadow = m_theme.border;
             return CDRF_DODEFAULT;
         }
         default:
@@ -837,8 +840,6 @@ void TabBandWindow::ApplyThemeToToolbar() {
         return;
     }
 
-    SendMessageW(m_toolbar, TB_SETBKCOLOR, 0, static_cast<LPARAM>(m_theme.background));
-    SendMessageW(m_toolbar, TB_SETTEXTCOLOR, 0, static_cast<LPARAM>(m_theme.text));
     SetWindowTheme(m_toolbar, m_darkModeEnabled ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
 
