@@ -1407,6 +1407,21 @@ bool TabBandWindow::GetButtonRect(int commandId, RECT* rect) const {
     return true;
 }
 
+int TabBandWindow::GetButtonImage(int commandId) const {
+    if (!m_toolbar || commandId == -1) {
+        return I_IMAGENONE;
+    }
+    const LRESULT index = SendMessageW(m_toolbar, TB_COMMANDTOINDEX, commandId, 0);
+    if (index < 0) {
+        return I_IMAGENONE;
+    }
+    TBBUTTON button{};
+    if (!SendMessageW(m_toolbar, TB_GETBUTTON, static_cast<WPARAM>(index), reinterpret_cast<LPARAM>(&button))) {
+        return I_IMAGENONE;
+    }
+    return button.iBitmap;
+}
+
 void TabBandWindow::InvalidateButton(int commandId) const {
     if (!m_toolbar || commandId == -1) {
         return;
@@ -1806,9 +1821,12 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
                 const int iconSize = ToolbarIconSize();
                 int contentLeft = rect.left + padding;
 
-                if (customDraw->iImage >= 0 && m_imageList) {
-                    const int iconTop = rect.top + std::max(0, (rect.bottom - rect.top - iconSize) / 2);
-                    ImageList_DrawEx(m_imageList, customDraw->iImage, customDraw->nmcd.hdc, contentLeft, iconTop, iconSize,
+                const int imageIndex = GetButtonImage(commandId);
+                if (imageIndex >= 0 && m_imageList) {
+                    const int buttonHeight = rect.bottom - rect.top;
+                    const int iconOffset = std::max(0, (buttonHeight - iconSize) / 2);
+                    const int iconTop = rect.top + iconOffset;
+                    ImageList_DrawEx(m_imageList, imageIndex, customDraw->nmcd.hdc, contentLeft, iconTop, iconSize,
                                      iconSize, CLR_NONE, CLR_NONE, ILD_NORMAL);
                     contentLeft += iconSize + iconSpacing;
                 }

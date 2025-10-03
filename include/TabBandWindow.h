@@ -106,6 +106,7 @@ private:
     int CloseButtonSize() const;
     RECT CloseButtonRect(const RECT& buttonRect) const;
     bool GetButtonRect(int commandId, RECT* rect) const;
+    int GetButtonImage(int commandId) const;
     void InvalidateButton(int commandId) const;
     bool IsPointInCloseButton(int commandId, const POINT& screenPt, RECT* closeRectOut = nullptr) const;
     void ResetCloseTracking();
