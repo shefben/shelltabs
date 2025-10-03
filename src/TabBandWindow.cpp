@@ -893,6 +893,7 @@ void TabBandWindow::HandleMiddleClick(int commandId) {
 }
 
 void TabBandWindow::HandleLButtonDown(int commandId) {
+    ResetCommandIgnore();
     RelayFocusToToolbar();
     if (commandId == kNewTabCommandId) {
         HandleToolbarCommand(commandId);
@@ -1006,8 +1007,7 @@ void TabBandWindow::HandleLButtonUp(const POINT& screenPt) {
             }
             return;
         }
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        ResetCommandIgnore();
         if (commandId != -1) {
             HandleToolbarCommand(commandId);
             UpdateCheckedState();
@@ -1230,8 +1230,7 @@ void TabBandWindow::UpdateDrag(const POINT& screenPt) {
 void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
     if (!m_toolbar) {
         m_dragState = {};
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        ResetCommandIgnore();
         return;
     }
 
@@ -1245,14 +1244,27 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
     m_dragState = {};
 
     if (canceled || !state.tracking) {
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        ResetCommandIgnore();
         return;
     }
 
     if (!state.dragging) {
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        if (state.commandId != -1) {
+            POINT clientPt = screenPt;
+            ScreenToClient(m_toolbar, &clientPt);
+            const int hit = ToolbarHitTest(m_toolbar, clientPt);
+            if (hit >= 0) {
+                const int hitCommandId = CommandIdFromButtonIndex(hit);
+                if (hitCommandId == state.commandId) {
+                    m_ignoreNextCommand = true;
+                    m_ignoredCommandId = state.commandId;
+                    HandleToolbarCommand(state.commandId);
+                    UpdateCheckedState();
+                    return;
+                }
+            }
+        }
+        ResetCommandIgnore();
         return;
     }
 
@@ -1346,8 +1358,7 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
         UpdateCheckedState();
     }
 
-    m_ignoreNextCommand = false;
-    m_ignoredCommandId = -1;
+    ResetCommandIgnore();
 }
 
 void TabBandWindow::CancelDrag() {
@@ -1360,8 +1371,7 @@ void TabBandWindow::CancelDrag() {
     }
     DestroyDragImage();
     m_dragState = {};
-    m_ignoreNextCommand = false;
-    m_ignoredCommandId = -1;
+    ResetCommandIgnore();
     ResetCloseTracking();
 }
 
@@ -1744,6 +1754,11 @@ void TabBandWindow::ResetCloseTracking() {
     const int commandId = m_closeState.commandId;
     m_closeState = {};
     InvalidateButton(commandId);
+}
+
+void TabBandWindow::ResetCommandIgnore() {
+    m_ignoreNextCommand = false;
+    m_ignoredCommandId = -1;
 }
 
 int TabBandWindow::CalculateTabButtonWidth(const TabViewItem& item) const {

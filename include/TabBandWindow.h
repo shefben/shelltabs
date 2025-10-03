@@ -119,6 +119,7 @@ private:
     void InvalidateButton(int commandId) const;
     bool IsPointInCloseButton(int commandId, const POINT& screenPt, RECT* closeRectOut = nullptr) const;
     void ResetCloseTracking();
+    void ResetCommandIgnore();
     int CalculateTabButtonWidth(const TabViewItem& item) const;
 
     struct DragState {
