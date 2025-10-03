@@ -64,6 +64,7 @@ private:
     void RebuildToolbar();
     void ClearToolbar();
     void ClearImageList();
+    void ConfigureToolbarMetrics();
     int AppendImage(HICON icon);
     void UpdateCheckedState();
     void HandleToolbarCommand(int commandId);
@@ -99,6 +100,16 @@ private:
     int GroupIndicatorWidth() const;
     int GroupIndicatorHitWidth(bool collapsed) const;
     COLORREF GroupIndicatorColor(const TabViewItem& item) const;
+    int TabHorizontalPadding() const;
+    int IconTextSpacing() const;
+    int CloseButtonSpacing() const;
+    int CloseButtonSize() const;
+    RECT CloseButtonRect(const RECT& buttonRect) const;
+    bool GetButtonRect(int commandId, RECT* rect) const;
+    void InvalidateButton(int commandId) const;
+    bool IsPointInCloseButton(int commandId, const POINT& screenPt, RECT* closeRectOut = nullptr) const;
+    void ResetCloseTracking();
+    int CalculateTabButtonWidth(const TabViewItem& item) const;
 
     struct DragState {
         bool tracking = false;
@@ -108,6 +119,13 @@ private:
         TabLocation tabLocation{};
         int groupIndex = -1;
         POINT startPoint{};
+    };
+
+    struct CloseButtonState {
+        bool tracking = false;
+        bool hot = false;
+        int commandId = -1;
+        RECT rect{};
     };
 
     struct ToolbarTheme {
@@ -150,6 +168,7 @@ private:
     bool m_ignoreNextCommand = false;
     int m_ignoredCommandId = -1;
     IDropTarget* m_dropTarget = nullptr;
+    CloseButtonState m_closeState{};
 };
 
 }  // namespace shelltabs
