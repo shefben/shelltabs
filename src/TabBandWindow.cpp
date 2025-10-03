@@ -22,6 +22,10 @@
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
+#ifndef BTNS_FIXEDSIZE
+#define BTNS_FIXEDSIZE 0x0020
+#endif
+
 #include "Module.h"
 #include "TabBand.h"
 
@@ -31,6 +35,110 @@ namespace {
 const wchar_t kWindowClassName[] = L"ShellTabsNativeToolbarHost";
 constexpr int kNewTabCommandId = 40000;
 constexpr int kMaxTooltip = 512;
+
+enum class PreferredAppMode {
+    Default,
+    AllowDark,
+    ForceDark,
+    ForceLight,
+    Max,
+};
+
+using ShouldAppsUseDarkModeFunc = BOOL(WINAPI*)();
+using AllowDarkModeForWindowFunc = BOOL(WINAPI*)(HWND, BOOL);
+using AllowDarkModeForAppFunc = BOOL(WINAPI*)(BOOL);
+using RefreshImmersiveColorPolicyStateFunc = void(WINAPI*)();
+using SetPreferredAppModeFunc = PreferredAppMode(WINAPI*)(PreferredAppMode);
+
+struct ThemeApi {
+    HMODULE module = nullptr;
+    ShouldAppsUseDarkModeFunc shouldAppsUseDarkMode = nullptr;
+    AllowDarkModeForWindowFunc allowDarkModeForWindow = nullptr;
+    AllowDarkModeForAppFunc allowDarkModeForApp = nullptr;
+    RefreshImmersiveColorPolicyStateFunc refreshImmersiveColorPolicyState = nullptr;
+    SetPreferredAppModeFunc setPreferredAppMode = nullptr;
+    bool preferredAppModeInitialized = false;
+};
+
+FARPROC LoadThemeProcedure(HMODULE module, const char* name, WORD ordinal) {
+    if (!module) {
+        return nullptr;
+    }
+    FARPROC proc = nullptr;
+    if (name) {
+        proc = GetProcAddress(module, name);
+    }
+    if (!proc && ordinal != 0) {
+        proc = GetProcAddress(module, MAKEINTRESOURCEA(ordinal));
+    }
+    return proc;
+}
+
+ThemeApi& GetThemeApi() {
+    static ThemeApi api;
+    if (!api.module) {
+        api.module = LoadLibraryW(L"uxtheme.dll");
+        if (api.module) {
+            api.shouldAppsUseDarkMode = reinterpret_cast<ShouldAppsUseDarkModeFunc>(
+                LoadThemeProcedure(api.module, "ShouldAppsUseDarkMode", 132));
+            api.allowDarkModeForWindow = reinterpret_cast<AllowDarkModeForWindowFunc>(
+                LoadThemeProcedure(api.module, "AllowDarkModeForWindow", 133));
+            api.refreshImmersiveColorPolicyState = reinterpret_cast<RefreshImmersiveColorPolicyStateFunc>(
+                LoadThemeProcedure(api.module, "RefreshImmersiveColorPolicyState", 104));
+            api.setPreferredAppMode = reinterpret_cast<SetPreferredAppModeFunc>(
+                LoadThemeProcedure(api.module, "SetPreferredAppMode", 135));
+            if (!api.setPreferredAppMode) {
+                api.allowDarkModeForApp = reinterpret_cast<AllowDarkModeForAppFunc>(
+                    LoadThemeProcedure(api.module, "AllowDarkModeForApp", 135));
+            }
+        }
+    }
+    return api;
+}
+
+void EnsurePreferredAppMode() {
+    auto& api = GetThemeApi();
+    if (api.preferredAppModeInitialized) {
+        return;
+    }
+    if (api.setPreferredAppMode) {
+        api.setPreferredAppMode(PreferredAppMode::AllowDark);
+        api.preferredAppModeInitialized = true;
+        return;
+    }
+    if (api.allowDarkModeForApp) {
+        api.allowDarkModeForApp(TRUE);
+        api.preferredAppModeInitialized = true;
+    }
+}
+
+COLORREF LightenColor(COLORREF color, double factor) {
+    factor = std::clamp(factor, 0.0, 1.0);
+    const auto adjust = [factor](BYTE component) -> BYTE {
+        const double result = static_cast<double>(component) + (255.0 - static_cast<double>(component)) * factor;
+        return static_cast<BYTE>(std::clamp(result, 0.0, 255.0));
+    };
+    return RGB(adjust(GetRValue(color)), adjust(GetGValue(color)), adjust(GetBValue(color)));
+}
+
+COLORREF DarkenColor(COLORREF color, double factor) {
+    factor = std::clamp(factor, 0.0, 1.0);
+    const auto adjust = [factor](BYTE component) -> BYTE {
+        const double result = static_cast<double>(component) * (1.0 - factor);
+        return static_cast<BYTE>(std::clamp(result, 0.0, 255.0));
+    };
+    return RGB(adjust(GetRValue(color)), adjust(GetGValue(color)), adjust(GetBValue(color)));
+}
+
+COLORREF AdjustIndicatorColorForState(COLORREF base, bool hot, bool pressed) {
+    if (pressed) {
+        return DarkenColor(base, 0.2);
+    }
+    if (hot) {
+        return LightenColor(base, 0.15);
+    }
+    return base;
+}
 
 int ToolbarHitTest(HWND toolbar, POINT pt) {
     if (!toolbar) {
@@ -423,6 +531,11 @@ void TabBandWindow::RebuildToolbar() {
 
     std::vector<TBBUTTON> buttons;
     buttons.reserve(m_tabData.size() + 1);
+    struct GroupIndicatorCommand {
+        int commandId = -1;
+        bool collapsed = false;
+    };
+    std::vector<GroupIndicatorCommand> groupIndicatorCommands;
 
     for (size_t index = 0; index < m_tabData.size(); ++index) {
         const auto& item = m_tabData[index];
@@ -433,14 +546,15 @@ void TabBandWindow::RebuildToolbar() {
             TBBUTTON button{};
             const int commandId = m_nextCommandId++;
             button.idCommand = commandId;
-            button.fsStyle = BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT;
-            button.fsState = 0;
+            button.fsStyle = BTNS_BUTTON | BTNS_FIXEDSIZE;
+            button.fsState = TBSTATE_ENABLED;
             button.iBitmap = I_IMAGENONE;
             button.dwData = static_cast<DWORD_PTR>(index);
             button.iString = static_cast<INT_PTR>(SendMessageW(m_toolbar, TB_ADDSTRINGW, 0,
                                                                reinterpret_cast<LPARAM>(item.name.c_str())));
             buttons.push_back(button);
             m_commandToIndex[commandId] = index;
+            groupIndicatorCommands.push_back(GroupIndicatorCommand{commandId, item.collapsed});
         } else {
             TBBUTTON button{};
             const int commandId = m_nextCommandId++;
@@ -468,6 +582,20 @@ void TabBandWindow::RebuildToolbar() {
     if (!buttons.empty()) {
         SendMessageW(m_toolbar, TB_ADDBUTTONS, static_cast<WPARAM>(buttons.size()),
                      reinterpret_cast<LPARAM>(buttons.data()));
+    }
+
+    if (!groupIndicatorCommands.empty()) {
+        const int indicatorWidth = GroupIndicatorWidth();
+        for (const auto& entry : groupIndicatorCommands) {
+            const int hitWidth = GroupIndicatorHitWidth(entry.collapsed);
+            TBBUTTONINFO info{};
+            info.cbSize = sizeof(info);
+            info.dwMask = TBIF_SIZE | TBIF_STYLE | TBIF_STATE;
+            info.fsStyle = BTNS_BUTTON | BTNS_FIXEDSIZE;
+            info.fsState = TBSTATE_ENABLED;
+            info.cx = static_cast<WORD>(entry.collapsed ? hitWidth : indicatorWidth);
+            SendMessageW(m_toolbar, TB_SETBUTTONINFO, entry.commandId, reinterpret_cast<LPARAM>(&info));
+        }
     }
 
     // Add new tab button at the end.
@@ -717,8 +845,8 @@ void TabBandWindow::HandleMouseMove(const POINT& screenPt) {
         return;
     }
     if (!m_dragState.dragging) {
-        const int thresholdX = GetSystemMetrics(SM_CXDRAG) / 2;
-        const int thresholdY = GetSystemMetrics(SM_CYDRAG) / 2;
+        const int thresholdX = std::max(GetSystemMetrics(SM_CXDRAG), 1);
+        const int thresholdY = std::max(GetSystemMetrics(SM_CYDRAG), 1);
         const int deltaX = std::abs(screenPt.x - m_dragState.startPoint.x);
         const int deltaY = std::abs(screenPt.y - m_dragState.startPoint.y);
         if (deltaX >= thresholdX || deltaY >= thresholdY) {
@@ -821,10 +949,24 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
     ScreenToClient(m_toolbar, &clientPt);
 
     if (state.isGroup) {
-        const int insertIndex = ComputeGroupInsertIndex(clientPt);
-        if (insertIndex >= 0 && state.groupIndex >= 0 && m_owner) {
-            if (insertIndex != state.groupIndex && insertIndex != state.groupIndex + 1) {
-                m_owner->OnMoveGroupRequested(state.groupIndex, insertIndex);
+        bool detachGroup = false;
+        if (m_toolbar) {
+            RECT toolbarRect{};
+            if (GetWindowRect(m_toolbar, &toolbarRect)) {
+                detachGroup = !PtInRect(&toolbarRect, screenPt);
+            }
+        }
+
+        if (detachGroup) {
+            if (m_owner && state.groupIndex >= 0) {
+                m_owner->OnDetachGroupRequested(state.groupIndex);
+            }
+        } else {
+            const int insertIndex = ComputeGroupInsertIndex(clientPt);
+            if (insertIndex >= 0 && state.groupIndex >= 0 && m_owner) {
+                if (insertIndex != state.groupIndex && insertIndex != state.groupIndex + 1) {
+                    m_owner->OnMoveGroupRequested(state.groupIndex, insertIndex);
+                }
             }
         }
     } else {
@@ -1073,6 +1215,50 @@ TabLocation TabBandWindow::TabLocationFromPoint(const POINT& screenPt) const {
         return location;
     }
     return item->location;
+}
+
+UINT TabBandWindow::CurrentDpi() const {
+    UINT dpi = 96;
+    HWND reference = m_toolbar ? m_toolbar : m_hwnd;
+    if (reference) {
+        HDC dc = GetDC(reference);
+        if (dc) {
+            dpi = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+            ReleaseDC(reference, dc);
+        }
+    } else {
+        HDC dc = GetDC(nullptr);
+        if (dc) {
+            dpi = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+            ReleaseDC(nullptr, dc);
+        }
+    }
+    return dpi == 0 ? 96u : dpi;
+}
+
+int TabBandWindow::GroupIndicatorWidth() const {
+    const UINT dpi = CurrentDpi();
+    return std::max(5, MulDiv(5, static_cast<int>(dpi), 96));
+}
+
+int TabBandWindow::GroupIndicatorHitWidth(bool collapsed) const {
+    const UINT dpi = CurrentDpi();
+    const int base = std::max(5, MulDiv(5, static_cast<int>(dpi), 96));
+    if (!collapsed) {
+        return base;
+    }
+    const int minHit = MulDiv(12, static_cast<int>(dpi), 96);
+    return std::max(base, minHit);
+}
+
+COLORREF TabBandWindow::GroupIndicatorColor(const TabViewItem& item) const {
+    if (item.hasCustomOutline) {
+        return item.outlineColor;
+    }
+    if (item.hasTagColor) {
+        return item.tagColor;
+    }
+    return m_theme.highlight;
 }
 
 void TabBandWindow::RegisterDropTarget() {
@@ -1344,6 +1530,19 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
             const bool isPressed = (customDraw->nmcd.uItemState & CDIS_SELECTED) != 0;
             const bool isDisabled = (customDraw->nmcd.uItemState & CDIS_DISABLED) != 0;
 
+            if (isGroupHeader && item) {
+                RECT rect = customDraw->nmcd.rc;
+                FillRectColor(customDraw->nmcd.hdc, rect, m_theme.background);
+
+                const int indicatorWidth = GroupIndicatorWidth();
+                RECT indicatorRect = rect;
+                indicatorRect.right = std::min(indicatorRect.left + indicatorWidth, rect.right);
+                COLORREF indicatorColor = AdjustIndicatorColorForState(GroupIndicatorColor(*item), isHot, isPressed);
+                FillRectColor(customDraw->nmcd.hdc, indicatorRect, indicatorColor);
+
+                return CDRF_SKIPDEFAULT;
+            }
+
             COLORREF fill = m_theme.background;
             COLORREF text = m_theme.text;
             if (isGroupHeader) {
@@ -1383,6 +1582,11 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
 }
 
 void TabBandWindow::UpdateTheme() {
+    EnsurePreferredAppMode();
+    auto& themeApi = GetThemeApi();
+    if (themeApi.refreshImmersiveColorPolicyState) {
+        themeApi.refreshImmersiveColorPolicyState();
+    }
     const bool darkPreferred = IsDarkModePreferred();
     const ToolbarTheme newTheme = CalculateTheme(darkPreferred);
     if (newTheme == m_theme && darkPreferred == m_darkModeEnabled) {
@@ -1404,13 +1608,20 @@ void TabBandWindow::UpdateTheme() {
 
 void TabBandWindow::ApplyThemeToToolbar() {
     const wchar_t* themeName = m_darkModeEnabled ? L"DarkMode_Explorer" : L"Explorer";
+    auto& themeApi = GetThemeApi();
     if (m_hwnd) {
         SetWindowTheme(m_hwnd, themeName, nullptr);
+        if (themeApi.allowDarkModeForWindow) {
+            themeApi.allowDarkModeForWindow(m_hwnd, m_darkModeEnabled ? TRUE : FALSE);
+        }
         const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
         DwmSetWindowAttribute(m_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
     }
     if (m_toolbar) {
         SetWindowTheme(m_toolbar, themeName, nullptr);
+        if (themeApi.allowDarkModeForWindow) {
+            themeApi.allowDarkModeForWindow(m_toolbar, m_darkModeEnabled ? TRUE : FALSE);
+        }
         const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
         DwmSetWindowAttribute(m_toolbar, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
     }
@@ -1423,6 +1634,17 @@ bool TabBandWindow::PaintHostBackground(HDC dc) const {
     RECT rect{};
     if (!GetClientRect(m_hwnd, &rect)) {
         return false;
+    }
+    if (m_darkModeEnabled) {
+        FillRectColor(dc, rect, m_theme.background);
+        if (m_theme.separator != CLR_INVALID) {
+            RECT border = rect;
+            border.top = border.bottom - 1;
+            if (border.top < border.bottom) {
+                FillRectColor(dc, border, m_theme.separator);
+            }
+        }
+        return true;
     }
     if (IsThemeActive()) {
         HTHEME theme = OpenThemeData(m_hwnd, L"Rebar");
@@ -1454,6 +1676,10 @@ bool TabBandWindow::PaintToolbarBackground(HWND hwnd, HDC dc) const {
     if (!GetClientRect(hwnd, &rect)) {
         return false;
     }
+    if (m_darkModeEnabled) {
+        FillRectColor(dc, rect, m_theme.background);
+        return true;
+    }
     if (IsThemeActive()) {
         DrawThemeParentBackground(hwnd, dc, &rect);
         return true;
@@ -1481,6 +1707,10 @@ bool TabBandWindow::ShouldUpdateThemeForSettingChange(LPARAM lParam) const {
 }
 
 bool TabBandWindow::IsDarkModePreferred() const {
+    auto& themeApi = GetThemeApi();
+    if (themeApi.shouldAppsUseDarkMode) {
+        return themeApi.shouldAppsUseDarkMode() != FALSE;
+    }
     DWORD value = 1;
     DWORD size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER,
@@ -1513,7 +1743,7 @@ TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
         theme.separator = GetSysColor(COLOR_3DSHADOW);
     }
 
-    if (IsThemeActive()) {
+    if (!darkMode && IsThemeActive()) {
         if (m_toolbar) {
             HTHEME toolbarTheme = OpenThemeData(m_toolbar, L"Toolbar");
             if (toolbarTheme) {
