@@ -845,18 +845,8 @@ void TabBandWindow::HandleMouseMove(const POINT& screenPt) {
         return;
     }
     if (!m_dragState.dragging) {
-        int thresholdX = GetSystemMetrics(SM_CXDRAG);
-        int thresholdY = GetSystemMetrics(SM_CYDRAG);
-        UINT dragWidth = 0;
-        if (SystemParametersInfoW(SPI_GETDRAGWIDTH, 0, &dragWidth, 0) && dragWidth > 0) {
-            thresholdX = static_cast<int>(dragWidth);
-        }
-        UINT dragHeight = 0;
-        if (SystemParametersInfoW(SPI_GETDRAGHEIGHT, 0, &dragHeight, 0) && dragHeight > 0) {
-            thresholdY = static_cast<int>(dragHeight);
-        }
-        thresholdX = std::max(thresholdX, 1);
-        thresholdY = std::max(thresholdY, 1);
+        const int thresholdX = std::max(GetSystemMetrics(SM_CXDRAG), 1);
+        const int thresholdY = std::max(GetSystemMetrics(SM_CYDRAG), 1);
         const int deltaX = std::abs(screenPt.x - m_dragState.startPoint.x);
         const int deltaY = std::abs(screenPt.y - m_dragState.startPoint.y);
         if (deltaX >= thresholdX || deltaY >= thresholdY) {
