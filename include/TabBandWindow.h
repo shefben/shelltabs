@@ -10,8 +10,10 @@
 #endif
 
 #include <CommCtrl.h>
+#include <OleIdl.h>
 #include <uxtheme.h>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -65,6 +67,9 @@ private:
     void HandleContextMenu(int commandId, const POINT& screenPt);
     void HandleMiddleClick(int commandId);
     void HandleLButtonDown(int commandId);
+    void HandleFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
+    void HandleMouseMove(const POINT& screenPt);
+    void HandleLButtonUp(const POINT& screenPt);
     void HandleTooltipRequest(NMTTDISPINFOW* info);
     void RelayFocusToToolbar();
     int CommandIdFromButtonIndex(int index) const;
@@ -77,6 +82,26 @@ private:
     bool PaintToolbarBackground(HWND hwnd, HDC dc) const;
     bool ShouldUpdateThemeForSettingChange(LPARAM lParam) const;
     bool IsDarkModePreferred() const;
+    void RegisterDropTarget();
+    void RevokeDropTarget();
+    void BeginDrag(int commandId, const POINT& screenPt);
+    void UpdateDrag(const POINT& screenPt);
+    void EndDrag(const POINT& screenPt, bool canceled);
+    void CancelDrag();
+    TabLocation ComputeTabInsertLocation(const POINT& clientPt) const;
+    int ComputeGroupInsertIndex(const POINT& clientPt) const;
+    const TabViewItem* ItemFromPoint(const POINT& screenPt) const;
+    TabLocation TabLocationFromPoint(const POINT& screenPt) const;
+
+    struct DragState {
+        bool tracking = false;
+        bool dragging = false;
+        bool isGroup = false;
+        int commandId = -1;
+        TabLocation tabLocation{};
+        int groupIndex = -1;
+        POINT startPoint{};
+    };
 
     struct ToolbarTheme {
         COLORREF background = RGB(249, 249, 249);
@@ -114,6 +139,10 @@ private:
 
     ToolbarTheme m_theme{};
     bool m_darkModeEnabled = false;
+    DragState m_dragState{};
+    bool m_ignoreNextCommand = false;
+    int m_ignoredCommandId = -1;
+    IDropTarget* m_dropTarget = nullptr;
 };
 
 }  // namespace shelltabs
