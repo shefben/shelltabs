@@ -42,6 +42,7 @@ constexpr UINT kExplorerMenuLastCommand = kExplorerMenuFirstCommand + 0x03FF;
 constexpr BYTE kDragImageAlpha = 200;
 constexpr int kGroupIndicatorPixelWidth = 5;
 constexpr int kGroupIndicatorSpacingPixels = 4;
+constexpr size_t kMaxTabCaptionCharacters = 35;
 
 enum class PreferredAppMode {
     Default,
@@ -145,6 +146,15 @@ COLORREF AdjustIndicatorColorForState(COLORREF base, bool hot, bool pressed) {
         return LightenColor(base, 0.15);
     }
     return base;
+}
+
+COLORREF GetSystemAccentColor() {
+    DWORD color = 0;
+    BOOL opaque = FALSE;
+    if (SUCCEEDED(DwmGetColorizationColor(&color, &opaque))) {
+        return color & 0x00FFFFFF;
+    }
+    return GetSysColor(COLOR_HIGHLIGHT);
 }
 
 int ToolbarHitTest(HWND toolbar, POINT pt) {
@@ -556,11 +566,11 @@ void TabBandWindow::RebuildToolbar() {
 
     std::vector<TBBUTTON> buttons;
     buttons.reserve(m_tabData.size() + 1);
-    struct GroupIndicatorCommand {
+    struct GroupHeaderButton {
         int commandId = -1;
-        bool collapsed = false;
+        int width = 0;
     };
-    std::vector<GroupIndicatorCommand> groupIndicatorCommands;
+    std::vector<GroupHeaderButton> groupHeaderButtons;
     struct TabButtonWidth {
         int commandId = -1;
         int width = 0;
@@ -570,9 +580,6 @@ void TabBandWindow::RebuildToolbar() {
     for (size_t index = 0; index < m_tabData.size(); ++index) {
         const auto& item = m_tabData[index];
         if (item.type == TabViewItemType::kGroupHeader) {
-            if (!item.headerVisible) {
-                continue;
-            }
             TBBUTTON button{};
             const int commandId = m_nextCommandId++;
             button.idCommand = commandId;
@@ -584,7 +591,8 @@ void TabBandWindow::RebuildToolbar() {
                                                                reinterpret_cast<LPARAM>(item.name.c_str())));
             buttons.push_back(button);
             m_commandToIndex[commandId] = index;
-            groupIndicatorCommands.push_back(GroupIndicatorCommand{commandId, item.collapsed});
+            const int width = CalculateGroupHeaderWidth(item);
+            groupHeaderButtons.push_back(GroupHeaderButton{commandId, std::max(width, 0)});
         } else {
             TBBUTTON button{};
             const int commandId = m_nextCommandId++;
@@ -595,8 +603,9 @@ void TabBandWindow::RebuildToolbar() {
                 button.fsState |= TBSTATE_CHECKED;
             }
             button.dwData = static_cast<DWORD_PTR>(index);
-            button.iString = static_cast<INT_PTR>(SendMessageW(m_toolbar, TB_ADDSTRINGW, 0,
-                                                               reinterpret_cast<LPARAM>(item.name.c_str())));
+            const std::wstring displayLabel = DisplayLabelForItem(item);
+            button.iString = static_cast<INT_PTR>(SendMessageW(
+                m_toolbar, TB_ADDSTRINGW, 0, reinterpret_cast<LPARAM>(displayLabel.c_str())));
             if (item.pidl) {
                 HICON icon = LoadItemIcon(item, ToolbarIconSize());
                 button.iBitmap = AppendImage(icon);
@@ -615,17 +624,18 @@ void TabBandWindow::RebuildToolbar() {
                      reinterpret_cast<LPARAM>(buttons.data()));
     }
 
-    if (!groupIndicatorCommands.empty()) {
-        const int expandedWidth = GroupIndicatorExpandedWidth();
-        const int collapsedWidth = GroupIndicatorWidth();
-        for (const auto& entry : groupIndicatorCommands) {
+    if (!groupHeaderButtons.empty()) {
+        for (const auto& entry : groupHeaderButtons) {
+            if (entry.commandId == -1) {
+                continue;
+            }
             TBBUTTONINFO info{};
             info.cbSize = sizeof(info);
             info.dwMask = TBIF_SIZE | TBIF_STYLE | TBIF_STATE;
             info.fsStyle = BTNS_BUTTON | BTNS_FIXEDSIZE;
             info.fsState = TBSTATE_ENABLED;
-            const int width = entry.collapsed ? collapsedWidth : expandedWidth;
-            info.cx = static_cast<WORD>(width);
+            const int clampedWidth = std::clamp(entry.width, 0, 0xFFFF);
+            info.cx = static_cast<WORD>(clampedWidth);
             SendMessageW(m_toolbar, TB_SETBUTTONINFO, entry.commandId, reinterpret_cast<LPARAM>(&info));
         }
     }
@@ -757,6 +767,7 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
     TabLocation explorerLocation{};
     POINT explorerPoint = screenPt;
     HMENU explorerSubMenu = nullptr;
+    bool explorerMenuAttached = false;
 
     if (item && item->type == TabViewItemType::kTab) {
         AppendMenuW(menu, MF_STRING, kMenuCloseTab, L"Close Tab");
@@ -778,14 +789,7 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
                 explorerLastId = usedLast;
                 AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
                 AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(explorerSubMenu), L"Explorer");
-                m_contextMenuState.menu = explorerMenu;
-                m_contextMenuState.menu2 = explorerMenu2;
-                m_contextMenuState.menu3 = explorerMenu3;
-                m_contextMenuState.menuHandle = explorerSubMenu;
-                m_contextMenuState.idFirst = kExplorerMenuFirstCommand;
-                m_contextMenuState.idLast = explorerLastId;
-                m_contextMenuState.location = explorerLocation;
-                m_contextMenuState.invokePoint = explorerPoint;
+                explorerMenuAttached = true;
             } else {
                 DestroyMenu(explorerSubMenu);
                 explorerSubMenu = nullptr;
@@ -800,6 +804,8 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, kMenuToggleSplit, item->splitActive ? L"Disable Split View" : L"Enable Split View");
         }
+    } else {
+        AppendMenuW(menu, MF_STRING, kMenuNewTab, L"New Tab");
     }
 
     if (GetMenuItemCount(menu) == 0) {
@@ -809,6 +815,23 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
         DestroyMenu(menu);
         ResetContextMenuState();
         return;
+    }
+
+    if (explorerMenuAttached) {
+        m_contextMenuState.menu = explorerMenu;
+        m_contextMenuState.menu2 = explorerMenu2;
+        m_contextMenuState.menu3 = explorerMenu3;
+        m_contextMenuState.menuHandle = menu;
+        m_contextMenuState.explorerSubMenu = explorerSubMenu;
+        m_contextMenuState.idFirst = kExplorerMenuFirstCommand;
+        m_contextMenuState.idLast = explorerLastId;
+        m_contextMenuState.location = explorerLocation;
+        m_contextMenuState.invokePoint = explorerPoint;
+    }
+
+    const HWND ownerHwnd = m_toolbar ? m_toolbar : m_hwnd;
+    if (ownerHwnd) {
+        SetForegroundWindow(ownerHwnd);
     }
 
     const UINT command = TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, screenPt.x, screenPt.y, m_hwnd, nullptr);
@@ -879,6 +902,14 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
             default:
                 break;
         }
+    } else {
+        switch (command) {
+            case kMenuNewTab:
+                m_owner->OnNewTabRequested();
+                break;
+            default:
+                break;
+        }
     }
 }
 
@@ -923,6 +954,10 @@ void TabBandWindow::HandleLButtonDown(int commandId) {
             InvalidateButton(commandId);
             return;
         }
+        m_ignoreNextCommand = true;
+        m_ignoredCommandId = commandId;
+        HandleToolbarCommand(commandId);
+        UpdateCheckedState();
     }
 
     BeginDrag(commandId, screenPt);
@@ -1145,8 +1180,11 @@ bool TabBandWindow::StartDragVisual(const POINT& screenPt) {
         RECT textRect = drawRect;
         textRect.left = x;
         textRect.right = std::max(textRect.left, textRect.right - (CloseButtonSize() + closeSpacing + padding));
-        DrawTextW(memDC, item->name.c_str(), static_cast<int>(item->name.size()), &textRect,
-                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        const std::wstring displayText = DisplayLabelForItem(*item);
+        if (!displayText.empty()) {
+            DrawTextW(memDC, displayText.c_str(), static_cast<int>(displayText.size()), &textRect,
+                      DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
         if (oldFont) {
             SelectObject(memDC, oldFont);
         }
@@ -1158,6 +1196,10 @@ bool TabBandWindow::StartDragVisual(const POINT& screenPt) {
         RECT indicatorRect{0, 0, GroupIndicatorVisualWidth(), static_cast<LONG>(height)};
         COLORREF indicator = GroupIndicatorColor(*item);
         FillRectColor(memDC, indicatorRect, indicator);
+        RECT remainder = drawRect;
+        remainder.left = indicatorRect.right;
+        COLORREF remainderFill = item->headerVisible ? m_theme.groupHeaderBackground : m_theme.background;
+        FillRectColor(memDC, remainder, remainderFill);
     }
 
     if (bits) {
@@ -1199,10 +1241,12 @@ bool TabBandWindow::StartDragVisual(const POINT& screenPt) {
         return false;
     }
 
-    ImageList_DragEnter(m_toolbar, screenPt.x, screenPt.y);
+    HWND dragWindow = GetDesktopWindow();
+    ImageList_DragEnter(dragWindow, screenPt.x, screenPt.y);
     ImageList_DragShowNolock(TRUE);
     m_dragState.dragImage = dragImage;
     m_dragState.dragImageVisible = true;
+    m_dragState.dragImageWindow = dragWindow;
     return true;
 }
 
@@ -1212,13 +1256,14 @@ void TabBandWindow::DestroyDragImage() {
     }
 
     if (m_dragState.dragImageVisible) {
-        ImageList_DragLeave(m_toolbar ? m_toolbar : nullptr);
+        ImageList_DragLeave(m_dragState.dragImageWindow);
         ImageList_DragShowNolock(FALSE);
     }
     ImageList_EndDrag();
     ImageList_Destroy(m_dragState.dragImage);
     m_dragState.dragImage = nullptr;
     m_dragState.dragImageVisible = false;
+    m_dragState.dragImageWindow = nullptr;
 }
 
 void TabBandWindow::UpdateDrag(const POINT& screenPt) {
@@ -1249,6 +1294,10 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
     }
 
     if (!state.dragging) {
+        if (m_ignoreNextCommand && state.commandId == m_ignoredCommandId) {
+            ResetCommandIgnore();
+            return;
+        }
         if (state.commandId != -1) {
             POINT clientPt = screenPt;
             ScreenToClient(m_toolbar, &clientPt);
@@ -1627,10 +1676,6 @@ int TabBandWindow::GroupIndicatorWidth() const {
     return GroupIndicatorVisualWidth();
 }
 
-int TabBandWindow::GroupIndicatorExpandedWidth() const {
-    return GroupIndicatorVisualWidth() + GroupIndicatorSpacing();
-}
-
 int TabBandWindow::GroupIndicatorSpacing() const {
     return kGroupIndicatorSpacingPixels;
 }
@@ -1761,12 +1806,75 @@ void TabBandWindow::ResetCommandIgnore() {
     m_ignoredCommandId = -1;
 }
 
+std::wstring TabBandWindow::DisplayLabelForItem(const TabViewItem& item) const {
+    if (item.type != TabViewItemType::kTab || item.name.size() <= kMaxTabCaptionCharacters) {
+        return item.name;
+    }
+    std::wstring trimmed = item.name.substr(0, kMaxTabCaptionCharacters);
+    return trimmed;
+}
+
 int TabBandWindow::CalculateTabButtonWidth(const TabViewItem& item) const {
     const UINT dpi = CurrentDpi();
     const int padding = TabHorizontalPadding();
     const int iconSpacing = IconTextSpacing();
     const int closeSpacing = CloseButtonSpacing();
     const int closeSize = CloseButtonSize();
+
+    const std::wstring displayText = DisplayLabelForItem(item);
+
+    int textWidth = 0;
+    if (m_toolbar && !displayText.empty()) {
+        HDC dc = GetDC(m_toolbar);
+        if (dc) {
+            HFONT font = reinterpret_cast<HFONT>(SendMessageW(m_toolbar, WM_GETFONT, 0, 0));
+            HFONT oldFont = nullptr;
+            if (font) {
+                oldFont = static_cast<HFONT>(SelectObject(dc, font));
+            }
+            SIZE extent{};
+            if (GetTextExtentPoint32W(dc, displayText.c_str(), static_cast<int>(displayText.size()), &extent)) {
+                textWidth = extent.cx;
+            }
+            if (oldFont) {
+                SelectObject(dc, oldFont);
+            }
+            ReleaseDC(m_toolbar, dc);
+        }
+    }
+    if (textWidth <= 0) {
+        textWidth = MulDiv(40, static_cast<int>(dpi), 96);
+    } else {
+        textWidth += std::max(2, MulDiv(2, static_cast<int>(dpi), 96));
+    }
+
+    int width = padding;  // left padding
+    if (item.pidl) {
+        width += ToolbarIconSize();
+        width += iconSpacing;
+    }
+    width += textWidth;
+    width += closeSpacing + closeSize;
+    width += padding;  // right padding
+
+    const int minWidth = MulDiv(80, static_cast<int>(dpi), 96);
+    return std::max(width, minWidth);
+}
+
+int TabBandWindow::CalculateGroupHeaderWidth(const TabViewItem& item) const {
+    const int indicatorWidth = GroupIndicatorVisualWidth();
+
+    if (!item.headerVisible) {
+        if (item.collapsed) {
+            return indicatorWidth;
+        }
+        return indicatorWidth + GroupIndicatorSpacing();
+    }
+
+    const UINT dpi = CurrentDpi();
+    const int spacing = GroupIndicatorSpacing();
+    const int glyphSize = std::max(8, MulDiv(9, static_cast<int>(dpi), 96));
+    const int padding = std::max(4, MulDiv(4, static_cast<int>(dpi), 96));
 
     int textWidth = 0;
     if (m_toolbar && !item.name.empty()) {
@@ -1787,20 +1895,17 @@ int TabBandWindow::CalculateTabButtonWidth(const TabViewItem& item) const {
             ReleaseDC(m_toolbar, dc);
         }
     }
+
     if (textWidth <= 0) {
-        textWidth = MulDiv(40, static_cast<int>(dpi), 96);
+        textWidth = MulDiv(60, static_cast<int>(dpi), 96);
     }
 
-    int width = padding;  // left padding
-    if (item.pidl) {
-        width += ToolbarIconSize();
-        width += iconSpacing;
-    }
+    int width = indicatorWidth + spacing;
+    width += glyphSize;
+    width += padding * 2;
     width += textWidth;
-    width += closeSpacing + closeSize;
-    width += padding;  // right padding
 
-    const int minWidth = MulDiv(80, static_cast<int>(dpi), 96);
+    const int minWidth = MulDiv(120, static_cast<int>(dpi), 96);
     return std::max(width, minWidth);
 }
 
@@ -1830,7 +1935,39 @@ void TabBandWindow::RevokeDropTarget() {
 }
 
 bool TabBandWindow::HandleShellContextMenuMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result) {
-    if (!m_contextMenuState.menu2 && !m_contextMenuState.menu3) {
+    if (!m_contextMenuState.IsActive()) {
+        return false;
+    }
+
+    auto messageTargetsMenu = [this, msg, lParam]() -> bool {
+        switch (msg) {
+            case WM_DRAWITEM: {
+                if (auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam)) {
+                    if (dis->CtlType != ODT_MENU) {
+                        return false;
+                    }
+                    const HMENU menu = reinterpret_cast<HMENU>(dis->hwndItem);
+                    return menu == m_contextMenuState.menuHandle || menu == m_contextMenuState.explorerSubMenu;
+                }
+                return false;
+            }
+            case WM_MEASUREITEM: {
+                if (auto* mis = reinterpret_cast<const MEASUREITEMSTRUCT*>(lParam)) {
+                    return mis->CtlType == ODT_MENU;
+                }
+                return false;
+            }
+            case WM_INITMENUPOPUP:
+            case WM_UNINITMENUPOPUP:
+            case WM_MENUCHAR:
+                return reinterpret_cast<HMENU>(lParam) == m_contextMenuState.menuHandle ||
+                       reinterpret_cast<HMENU>(lParam) == m_contextMenuState.explorerSubMenu;
+            default:
+                return true;
+        }
+    };
+
+    if (!messageTargetsMenu()) {
         return false;
     }
 
@@ -1857,6 +1994,7 @@ void TabBandWindow::ResetContextMenuState() {
     m_contextMenuState.menu2.Reset();
     m_contextMenuState.menu3.Reset();
     m_contextMenuState.menuHandle = nullptr;
+    m_contextMenuState.explorerSubMenu = nullptr;
     m_contextMenuState.idFirst = 0;
     m_contextMenuState.idLast = 0;
     m_contextMenuState.location = {};
@@ -2132,13 +2270,111 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
 
             if (isGroupHeader && item) {
                 RECT rect = customDraw->nmcd.rc;
-                FillRectColor(customDraw->nmcd.hdc, rect, m_theme.background);
+                COLORREF fill = m_theme.groupHeaderBackground;
+                if (!item->headerVisible) {
+                    fill = m_theme.background;
+                }
+                if (isChecked) {
+                    fill = m_theme.checked;
+                } else if (isPressed) {
+                    fill = m_theme.pressed;
+                } else if (isHot) {
+                    fill = item->headerVisible ? m_theme.groupHeaderHover : m_theme.hover;
+                }
+
+                FillRectColor(customDraw->nmcd.hdc, rect, fill);
 
                 const int indicatorWidth = GroupIndicatorVisualWidth();
                 RECT indicatorRect = rect;
                 indicatorRect.right = std::min(indicatorRect.left + indicatorWidth, rect.right);
                 COLORREF indicatorColor = AdjustIndicatorColorForState(GroupIndicatorColor(*item), isHot, isPressed);
                 FillRectColor(customDraw->nmcd.hdc, indicatorRect, indicatorColor);
+
+                if (!item->headerVisible) {
+                    if (isChecked) {
+                        RECT borderRect = rect;
+                        InflateRect(&borderRect, -1, -1);
+                        FrameRectColor(customDraw->nmcd.hdc, borderRect, m_theme.highlight);
+                    }
+                    return CDRF_SKIPDEFAULT;
+                }
+
+                const UINT dpi = CurrentDpi();
+                const int spacing = GroupIndicatorSpacing();
+                RECT contentRect = rect;
+                contentRect.left = std::min(rect.right, indicatorRect.right + spacing);
+
+                const int glyphSize = std::max(8, MulDiv(9, static_cast<int>(dpi), 96));
+                RECT glyphRect = contentRect;
+                glyphRect.right = std::min(rect.right, glyphRect.left + glyphSize);
+
+                const COLORREF textColor = isDisabled ? m_theme.textDisabled : m_theme.groupHeaderText;
+
+                if (glyphRect.right > glyphRect.left) {
+                    const int centerX = (glyphRect.left + glyphRect.right) / 2;
+                    const int centerY = (glyphRect.top + glyphRect.bottom) / 2;
+                    const int glyphWidth = static_cast<int>(glyphRect.right - glyphRect.left);
+                    const int half = std::max(2, glyphWidth / 3);
+
+                    POINT arrow[3]{};
+                    if (item->collapsed) {
+                        arrow[0] = {centerX - half, centerY - half};
+                        arrow[1] = {centerX - half, centerY + half};
+                        arrow[2] = {centerX + half, centerY};
+                    } else {
+                        arrow[0] = {centerX - half, centerY - half / 2};
+                        arrow[1] = {centerX + half, centerY - half / 2};
+                        arrow[2] = {centerX, centerY + half};
+                    }
+
+                    HBRUSH brush = CreateSolidBrush(textColor);
+                    if (brush) {
+                        HGDIOBJ oldBrush = SelectObject(customDraw->nmcd.hdc, brush);
+                        HPEN pen = CreatePen(PS_SOLID, 1, textColor);
+                        HPEN oldPen = nullptr;
+                        if (pen) {
+                            oldPen = static_cast<HPEN>(SelectObject(customDraw->nmcd.hdc, pen));
+                        }
+                        Polygon(customDraw->nmcd.hdc, arrow, 3);
+                        if (oldPen) {
+                            SelectObject(customDraw->nmcd.hdc, oldPen);
+                        }
+                        if (pen) {
+                            DeleteObject(pen);
+                        }
+                        if (oldBrush) {
+                            SelectObject(customDraw->nmcd.hdc, oldBrush);
+                        }
+                        DeleteObject(brush);
+                    }
+                }
+
+                RECT textRect = rect;
+                const int textPadding = std::max(4, MulDiv(4, static_cast<int>(dpi), 96));
+                textRect.left = std::min(rect.right, glyphRect.right + textPadding);
+                textRect.right = std::max(textRect.left, rect.right - textPadding);
+
+                HFONT font = reinterpret_cast<HFONT>(SendMessageW(m_toolbar, WM_GETFONT, 0, 0));
+                HFONT oldFont = nullptr;
+                if (font) {
+                    oldFont = static_cast<HFONT>(SelectObject(customDraw->nmcd.hdc, font));
+                }
+                SetBkMode(customDraw->nmcd.hdc, TRANSPARENT);
+                SetTextColor(customDraw->nmcd.hdc, textColor);
+                const std::wstring displayText = DisplayLabelForItem(*item);
+                if (!displayText.empty()) {
+                    DrawTextW(customDraw->nmcd.hdc, displayText.c_str(), static_cast<int>(displayText.size()), &textRect,
+                              DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+                }
+                if (oldFont) {
+                    SelectObject(customDraw->nmcd.hdc, oldFont);
+                }
+
+                if (isChecked) {
+                    RECT borderRect = rect;
+                    InflateRect(&borderRect, -1, -1);
+                    FrameRectColor(customDraw->nmcd.hdc, borderRect, m_theme.highlight);
+                }
 
                 return CDRF_SKIPDEFAULT;
             }
@@ -2332,6 +2568,50 @@ void TabBandWindow::ApplyThemeToToolbar() {
         const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
         DwmSetWindowAttribute(m_toolbar, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
     }
+
+    ApplyThemeToRibbonAncestors();
+}
+
+void TabBandWindow::ApplyThemeToRibbonAncestors() {
+    const wchar_t* themeName = m_darkModeEnabled ? L"DarkMode_Explorer" : L"Explorer";
+    auto& themeApi = GetThemeApi();
+    const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
+
+    auto applyTheme = [&](HWND target) {
+        if (!target) {
+            return;
+        }
+        SetWindowTheme(target, themeName, nullptr);
+        if (themeApi.allowDarkModeForWindow) {
+            themeApi.allowDarkModeForWindow(target, useDark);
+        }
+        DwmSetWindowAttribute(target, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
+    };
+
+    HWND host = m_hwnd ? GetParent(m_hwnd) : nullptr;
+    applyTheme(host);
+
+    HWND root = host ? GetAncestor(host, GA_ROOT) : (m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr);
+    applyTheme(root);
+
+    if (!root) {
+        return;
+    }
+
+    const std::array<const wchar_t*, 5> ribbonClasses = {
+        L"UIRibbonCommandBarDock",
+        L"UIRibbonCommandBar",
+        L"UIRibbonWorkPane",
+        L"UIRibbonToolbarHost",
+        L"ReBarWindow32",
+    };
+
+    for (const auto* className : ribbonClasses) {
+        HWND child = nullptr;
+        while ((child = FindWindowExW(root, child, className, nullptr)) != nullptr) {
+            applyTheme(child);
+        }
+    }
 }
 
 bool TabBandWindow::PaintHostBackground(HDC dc) const {
@@ -2458,22 +2738,32 @@ TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
     ToolbarTheme theme{};
     theme.border = CLR_INVALID;
     theme.separator = CLR_INVALID;
-    theme.highlight = GetSysColor(COLOR_HIGHLIGHT);
+    theme.highlight = GetSystemAccentColor();
+
     if (darkMode) {
-        theme.background = RGB(36, 36, 36);
-        theme.hover = RGB(56, 56, 56);
-        theme.pressed = RGB(64, 64, 64);
-        theme.checked = RGB(72, 72, 72);
+        theme.background = RGB(30, 30, 30);
+        theme.hover = LightenColor(theme.background, 0.12);
+        theme.pressed = DarkenColor(theme.background, 0.08);
+        theme.checked = LightenColor(theme.background, 0.18);
         theme.text = RGB(235, 235, 235);
-        theme.textDisabled = RGB(120, 120, 120);
-        theme.groupHeaderBackground = RGB(30, 30, 30);
-        theme.groupHeaderHover = RGB(56, 56, 56);
-        theme.groupHeaderText = RGB(210, 210, 210);
-        theme.border = RGB(54, 54, 54);
-        theme.separator = RGB(48, 48, 48);
+        theme.textDisabled = RGB(128, 128, 128);
+        theme.groupHeaderBackground = DarkenColor(theme.background, 0.08);
+        theme.groupHeaderHover = LightenColor(theme.groupHeaderBackground, 0.15);
+        theme.groupHeaderText = RGB(215, 215, 215);
+        theme.border = DarkenColor(theme.background, 0.35);
+        theme.separator = DarkenColor(theme.background, 0.4);
     } else {
+        theme.background = GetSysColor(COLOR_WINDOW);
+        theme.hover = LightenColor(theme.background, 0.15);
+        theme.pressed = DarkenColor(theme.background, 0.1);
+        theme.checked = LightenColor(theme.background, 0.2);
+        theme.text = GetSysColor(COLOR_WINDOWTEXT);
+        theme.textDisabled = GetSysColor(COLOR_GRAYTEXT);
+        theme.groupHeaderBackground = GetSysColor(COLOR_BTNFACE);
+        theme.groupHeaderHover = LightenColor(theme.groupHeaderBackground, 0.18);
+        theme.groupHeaderText = GetSysColor(COLOR_BTNTEXT);
         theme.border = GetSysColor(COLOR_3DSHADOW);
-        theme.separator = GetSysColor(COLOR_3DSHADOW);
+        theme.separator = theme.border;
     }
 
     if (!darkMode && IsThemeActive()) {
