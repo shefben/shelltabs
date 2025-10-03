@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <wrl/client.h>
 
 #include "TabManager.h"
 
@@ -86,19 +87,27 @@ private:
     bool PaintToolbarBackground(HWND hwnd, HDC dc) const;
     bool ShouldUpdateThemeForSettingChange(LPARAM lParam) const;
     bool IsDarkModePreferred() const;
+    bool IsAmbientDark() const;
     void RegisterDropTarget();
     void RevokeDropTarget();
     void BeginDrag(int commandId, const POINT& screenPt);
     void UpdateDrag(const POINT& screenPt);
     void EndDrag(const POINT& screenPt, bool canceled);
     void CancelDrag();
+    bool StartDragVisual(const POINT& screenPt);
+    void DestroyDragImage();
+    bool HandleShellContextMenuMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+    void ResetContextMenuState();
+    bool IsPointInsideToolbar(const POINT& screenPt) const;
     TabLocation ComputeTabInsertLocation(const POINT& clientPt) const;
     int ComputeGroupInsertIndex(const POINT& clientPt) const;
     const TabViewItem* ItemFromPoint(const POINT& screenPt) const;
     TabLocation TabLocationFromPoint(const POINT& screenPt) const;
     UINT CurrentDpi() const;
     int GroupIndicatorWidth() const;
-    int GroupIndicatorHitWidth(bool collapsed) const;
+    int GroupIndicatorExpandedWidth() const;
+    int GroupIndicatorSpacing() const;
+    int GroupIndicatorVisualWidth() const;
     COLORREF GroupIndicatorColor(const TabViewItem& item) const;
     int TabHorizontalPadding() const;
     int IconTextSpacing() const;
@@ -110,6 +119,7 @@ private:
     void InvalidateButton(int commandId) const;
     bool IsPointInCloseButton(int commandId, const POINT& screenPt, RECT* closeRectOut = nullptr) const;
     void ResetCloseTracking();
+    void ResetCommandIgnore();
     int CalculateTabButtonWidth(const TabViewItem& item) const;
 
     struct DragState {
@@ -120,6 +130,8 @@ private:
         TabLocation tabLocation{};
         int groupIndex = -1;
         POINT startPoint{};
+        HIMAGELIST dragImage = nullptr;
+        bool dragImageVisible = false;
     };
 
     struct CloseButtonState {
@@ -127,6 +139,17 @@ private:
         bool hot = false;
         int commandId = -1;
         RECT rect{};
+    };
+
+    struct ShellContextMenuState {
+        Microsoft::WRL::ComPtr<IContextMenu> menu;
+        Microsoft::WRL::ComPtr<IContextMenu2> menu2;
+        Microsoft::WRL::ComPtr<IContextMenu3> menu3;
+        HMENU menuHandle = nullptr;
+        UINT idFirst = 0;
+        UINT idLast = 0;
+        TabLocation location{};
+        POINT invokePoint{};
     };
 
     struct ToolbarTheme {
@@ -170,6 +193,7 @@ private:
     int m_ignoredCommandId = -1;
     IDropTarget* m_dropTarget = nullptr;
     CloseButtonState m_closeState{};
+    ShellContextMenuState m_contextMenuState{};
 };
 
 }  // namespace shelltabs

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cwchar>
 #include <cstdlib>
 #include <memory>
@@ -17,6 +18,7 @@
 #include <windowsx.h>
 #include <winreg.h>
 #include <vssym32.h>
+#include <wrl/client.h>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -35,6 +37,11 @@ namespace {
 const wchar_t kWindowClassName[] = L"ShellTabsNativeToolbarHost";
 constexpr int kNewTabCommandId = 40000;
 constexpr int kMaxTooltip = 512;
+constexpr UINT kExplorerMenuFirstCommand = 55000;
+constexpr UINT kExplorerMenuLastCommand = kExplorerMenuFirstCommand + 0x03FF;
+constexpr BYTE kDragImageAlpha = 200;
+constexpr int kGroupIndicatorPixelWidth = 5;
+constexpr int kGroupIndicatorSpacingPixels = 4;
 
 enum class PreferredAppMode {
     Default,
@@ -462,6 +469,8 @@ void TabBandWindow::DestroyToolbar() {
     }
 
     ResetCloseTracking();
+    DestroyDragImage();
+    ResetContextMenuState();
     RevokeDropTarget();
     RemoveWindowSubclass(m_toolbar, ToolbarWndProc, reinterpret_cast<UINT_PTR>(this));
     ClearImageList();
@@ -607,15 +616,16 @@ void TabBandWindow::RebuildToolbar() {
     }
 
     if (!groupIndicatorCommands.empty()) {
-        const int indicatorWidth = GroupIndicatorWidth();
+        const int expandedWidth = GroupIndicatorExpandedWidth();
+        const int collapsedWidth = GroupIndicatorWidth();
         for (const auto& entry : groupIndicatorCommands) {
-            const int hitWidth = GroupIndicatorHitWidth(entry.collapsed);
             TBBUTTONINFO info{};
             info.cbSize = sizeof(info);
             info.dwMask = TBIF_SIZE | TBIF_STYLE | TBIF_STATE;
             info.fsStyle = BTNS_BUTTON | BTNS_FIXEDSIZE;
             info.fsState = TBSTATE_ENABLED;
-            info.cx = static_cast<WORD>(entry.collapsed ? hitWidth : indicatorWidth);
+            const int width = entry.collapsed ? collapsedWidth : expandedWidth;
+            info.cx = static_cast<WORD>(width);
             SendMessageW(m_toolbar, TB_SETBUTTONINFO, entry.commandId, reinterpret_cast<LPARAM>(&info));
         }
     }
@@ -716,6 +726,8 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
         return;
     }
 
+    ResetContextMenuState();
+
     const TabViewItem* item = ItemForCommand(commandId);
     HMENU menu = CreatePopupMenu();
     if (!menu) {
@@ -738,6 +750,14 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
         kMenuCopyPath,
     };
 
+    Microsoft::WRL::ComPtr<IContextMenu> explorerMenu;
+    Microsoft::WRL::ComPtr<IContextMenu2> explorerMenu2;
+    Microsoft::WRL::ComPtr<IContextMenu3> explorerMenu3;
+    UINT explorerLastId = kExplorerMenuFirstCommand - 1;
+    TabLocation explorerLocation{};
+    POINT explorerPoint = screenPt;
+    HMENU explorerSubMenu = nullptr;
+
     if (item && item->type == TabViewItemType::kTab) {
         AppendMenuW(menu, MF_STRING, kMenuCloseTab, L"Close Tab");
         AppendMenuW(menu, MF_STRING, kMenuDetachTab, L"Detach Tab");
@@ -747,6 +767,30 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
         AppendMenuW(menu, MF_STRING, kMenuOpenTerminal, L"Open Terminal Here");
         AppendMenuW(menu, MF_STRING, kMenuOpenVSCode, L"Open in VS Code");
         AppendMenuW(menu, MF_STRING, kMenuCopyPath, L"Copy Path");
+
+        explorerLocation = item->location;
+        explorerSubMenu = CreatePopupMenu();
+        if (explorerSubMenu) {
+            UINT usedLast = kExplorerMenuFirstCommand - 1;
+            if (m_owner->BuildExplorerContextMenu(item->location, explorerSubMenu, kExplorerMenuFirstCommand,
+                                                  kExplorerMenuLastCommand, &explorerMenu, &explorerMenu2,
+                                                  &explorerMenu3, &usedLast)) {
+                explorerLastId = usedLast;
+                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(explorerSubMenu), L"Explorer");
+                m_contextMenuState.menu = explorerMenu;
+                m_contextMenuState.menu2 = explorerMenu2;
+                m_contextMenuState.menu3 = explorerMenu3;
+                m_contextMenuState.menuHandle = explorerSubMenu;
+                m_contextMenuState.idFirst = kExplorerMenuFirstCommand;
+                m_contextMenuState.idLast = explorerLastId;
+                m_contextMenuState.location = explorerLocation;
+                m_contextMenuState.invokePoint = explorerPoint;
+            } else {
+                DestroyMenu(explorerSubMenu);
+                explorerSubMenu = nullptr;
+            }
+        }
     } else if (item && item->type == TabViewItemType::kGroupHeader) {
         AppendMenuW(menu, MF_STRING, kMenuToggleGroup, item->collapsed ? L"Expand Group" : L"Collapse Group");
         AppendMenuW(menu, MF_STRING, kMenuCreateGroupAfter, L"Create Group After");
@@ -759,13 +803,31 @@ void TabBandWindow::HandleContextMenu(int commandId, const POINT& screenPt) {
     }
 
     if (GetMenuItemCount(menu) == 0) {
+        if (explorerSubMenu) {
+            DestroyMenu(explorerSubMenu);
+        }
         DestroyMenu(menu);
+        ResetContextMenuState();
         return;
     }
 
-    const UINT command = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, screenPt.x, screenPt.y, 0, m_hwnd, nullptr);
+    const UINT command = TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, screenPt.x, screenPt.y, m_hwnd, nullptr);
+
+    auto shellMenu = explorerMenu;
+    UINT shellFirst = kExplorerMenuFirstCommand;
+    UINT shellLast = explorerLastId;
+    TabLocation shellLocation = explorerLocation;
+    POINT shellPoint = explorerPoint;
+
     DestroyMenu(menu);
+    ResetContextMenuState();
+
     if (command == 0) {
+        return;
+    }
+
+    if (command >= shellFirst && command <= shellLast && shellMenu) {
+        m_owner->InvokeExplorerContextCommand(shellLocation, shellMenu.Get(), command, shellFirst, shellPoint);
         return;
     }
 
@@ -831,6 +893,7 @@ void TabBandWindow::HandleMiddleClick(int commandId) {
 }
 
 void TabBandWindow::HandleLButtonDown(int commandId) {
+    ResetCommandIgnore();
     RelayFocusToToolbar();
     if (commandId == kNewTabCommandId) {
         HandleToolbarCommand(commandId);
@@ -919,9 +982,13 @@ void TabBandWindow::HandleMouseMove(const POINT& screenPt) {
                 SendMessageW(m_toolbar, WM_CANCELMODE, 0, 0);
                 SendMessageW(m_toolbar, TB_SETHOTITEM, static_cast<WPARAM>(-1), 0);
             }
+            StartDragVisual(screenPt);
         }
     }
     if (m_dragState.dragging) {
+        if (!m_dragState.dragImage) {
+            StartDragVisual(screenPt);
+        }
         UpdateDrag(screenPt);
     }
 }
@@ -940,8 +1007,7 @@ void TabBandWindow::HandleLButtonUp(const POINT& screenPt) {
             }
             return;
         }
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        ResetCommandIgnore();
         if (commandId != -1) {
             HandleToolbarCommand(commandId);
             UpdateCheckedState();
@@ -997,15 +1063,174 @@ void TabBandWindow::BeginDrag(int commandId, const POINT& screenPt) {
     SetCapture(m_toolbar);
 }
 
-void TabBandWindow::UpdateDrag(const POINT& /*screenPt*/) {
-    // No visual feedback for now beyond cancelling the default hot item.
+bool TabBandWindow::StartDragVisual(const POINT& screenPt) {
+    if (!m_toolbar || m_dragState.dragImage) {
+        return m_dragState.dragImage != nullptr;
+    }
+
+    const TabViewItem* item = ItemForCommand(m_dragState.commandId);
+    if (!item) {
+        return false;
+    }
+
+    RECT buttonRect{};
+    if (!GetButtonRect(m_dragState.commandId, &buttonRect)) {
+        return false;
+    }
+
+    RECT buttonScreen = buttonRect;
+    MapWindowPoints(m_toolbar, nullptr, reinterpret_cast<POINT*>(&buttonScreen), 2);
+
+    const LONG width = std::max<LONG>(buttonRect.right - buttonRect.left, 1);
+    const LONG height = std::max<LONG>(buttonRect.bottom - buttonRect.top, 1);
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap) {
+        return false;
+    }
+
+    HDC screenDC = GetDC(nullptr);
+    HDC memDC = CreateCompatibleDC(screenDC);
+    ReleaseDC(nullptr, screenDC);
+    if (!memDC) {
+        DeleteObject(bitmap);
+        return false;
+    }
+
+    HGDIOBJ oldBitmap = SelectObject(memDC, bitmap);
+
+    RECT drawRect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    COLORREF background = m_theme.hover;
+    if (item->type == TabViewItemType::kGroupHeader) {
+        background = m_theme.groupHeaderBackground;
+    }
+    FillRectColor(memDC, drawRect, background);
+
+    if (item->type == TabViewItemType::kTab) {
+        const int padding = TabHorizontalPadding();
+        const int iconSpacing = IconTextSpacing();
+        const int closeSpacing = CloseButtonSpacing();
+        const int iconSize = ToolbarIconSize();
+        int x = padding;
+
+        if (item->pidl) {
+            const int imageIndex = GetButtonImage(m_dragState.commandId);
+            if (imageIndex >= 0 && m_imageList) {
+                const int iconY = std::max(0, (static_cast<int>(height) - iconSize) / 2);
+                ImageList_Draw(m_imageList, imageIndex, memDC, x, iconY, ILD_TRANSPARENT);
+                x += iconSize + iconSpacing;
+            }
+        }
+
+        HFONT font = reinterpret_cast<HFONT>(SendMessageW(m_toolbar, WM_GETFONT, 0, 0));
+        if (!font) {
+            font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        }
+        HFONT oldFont = nullptr;
+        if (font) {
+            oldFont = static_cast<HFONT>(SelectObject(memDC, font));
+        }
+        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(memDC, m_theme.text);
+
+        RECT textRect = drawRect;
+        textRect.left = x;
+        textRect.right = std::max(textRect.left, textRect.right - (CloseButtonSize() + closeSpacing + padding));
+        DrawTextW(memDC, item->name.c_str(), static_cast<int>(item->name.size()), &textRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (oldFont) {
+            SelectObject(memDC, oldFont);
+        }
+
+        RECT borderRect = drawRect;
+        InflateRect(&borderRect, -1, -1);
+        FrameRectColor(memDC, borderRect, m_theme.highlight);
+    } else {
+        RECT indicatorRect{0, 0, GroupIndicatorVisualWidth(), static_cast<LONG>(height)};
+        COLORREF indicator = GroupIndicatorColor(*item);
+        FillRectColor(memDC, indicatorRect, indicator);
+    }
+
+    if (bits) {
+        const int pixelCount = static_cast<int>(width * height);
+        auto* pixelData = static_cast<UINT32*>(bits);
+        for (int i = 0; i < pixelCount; ++i) {
+            const UINT32 color = pixelData[i] & 0x00FFFFFF;
+            if (color != 0) {
+                pixelData[i] = (static_cast<UINT32>(kDragImageAlpha) << 24) | color;
+            } else {
+                pixelData[i] = 0;
+            }
+        }
+    }
+
+    HIMAGELIST dragImage = ImageList_Create(static_cast<int>(width), static_cast<int>(height), ILC_COLOR32, 1, 1);
+    if (!dragImage) {
+        SelectObject(memDC, oldBitmap);
+        DeleteDC(memDC);
+        DeleteObject(bitmap);
+        return false;
+    }
+
+    const int added = ImageList_Add(dragImage, bitmap, nullptr);
+    SelectObject(memDC, oldBitmap);
+    DeleteDC(memDC);
+    DeleteObject(bitmap);
+    if (added < 0) {
+        ImageList_Destroy(dragImage);
+        return false;
+    }
+
+    POINT hotspot{};
+    hotspot.x = std::clamp(screenPt.x - buttonScreen.left, 0L, width - 1);
+    hotspot.y = std::clamp(screenPt.y - buttonScreen.top, 0L, height - 1);
+
+    if (!ImageList_BeginDrag(dragImage, 0, hotspot.x, hotspot.y)) {
+        ImageList_Destroy(dragImage);
+        return false;
+    }
+
+    ImageList_DragEnter(m_toolbar, screenPt.x, screenPt.y);
+    ImageList_DragShowNolock(TRUE);
+    m_dragState.dragImage = dragImage;
+    m_dragState.dragImageVisible = true;
+    return true;
+}
+
+void TabBandWindow::DestroyDragImage() {
+    if (!m_dragState.dragImage) {
+        return;
+    }
+
+    if (m_dragState.dragImageVisible) {
+        ImageList_DragLeave(m_toolbar ? m_toolbar : nullptr);
+        ImageList_DragShowNolock(FALSE);
+    }
+    ImageList_EndDrag();
+    ImageList_Destroy(m_dragState.dragImage);
+    m_dragState.dragImage = nullptr;
+    m_dragState.dragImageVisible = false;
+}
+
+void TabBandWindow::UpdateDrag(const POINT& screenPt) {
+    if (m_dragState.dragImage) {
+        ImageList_DragMove(screenPt.x, screenPt.y);
+    }
 }
 
 void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
     if (!m_toolbar) {
         m_dragState = {};
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        ResetCommandIgnore();
         return;
     }
 
@@ -1013,18 +1238,33 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
         ReleaseCapture();
     }
 
+    DestroyDragImage();
+
     DragState state = m_dragState;
     m_dragState = {};
 
     if (canceled || !state.tracking) {
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        ResetCommandIgnore();
         return;
     }
 
     if (!state.dragging) {
-        m_ignoreNextCommand = false;
-        m_ignoredCommandId = -1;
+        if (state.commandId != -1) {
+            POINT clientPt = screenPt;
+            ScreenToClient(m_toolbar, &clientPt);
+            const int hit = ToolbarHitTest(m_toolbar, clientPt);
+            if (hit >= 0) {
+                const int hitCommandId = CommandIdFromButtonIndex(hit);
+                if (hitCommandId == state.commandId) {
+                    m_ignoreNextCommand = true;
+                    m_ignoredCommandId = state.commandId;
+                    HandleToolbarCommand(state.commandId);
+                    UpdateCheckedState();
+                    return;
+                }
+            }
+        }
+        ResetCommandIgnore();
         return;
     }
 
@@ -1035,12 +1275,7 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
 
     if (state.isGroup) {
         bool detachGroup = false;
-        if (m_toolbar) {
-            RECT toolbarRect{};
-            if (GetWindowRect(m_toolbar, &toolbarRect)) {
-                detachGroup = !PtInRect(&toolbarRect, screenPt);
-            }
-        }
+        detachGroup = !IsPointInsideToolbar(screenPt);
 
         if (detachGroup) {
             if (m_owner && state.groupIndex >= 0) {
@@ -1057,16 +1292,61 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
             }
         }
     } else {
-        TabLocation target = ComputeTabInsertLocation(clientPt);
-        if (target.IsValid() && state.tabLocation.IsValid() && m_owner) {
-            if (target.groupIndex == state.tabLocation.groupIndex &&
-                target.tabIndex > state.tabLocation.tabIndex) {
-                --target.tabIndex;
-            }
-            if (target.groupIndex != state.tabLocation.groupIndex ||
-                target.tabIndex != state.tabLocation.tabIndex) {
-                m_owner->OnMoveTabRequested(state.tabLocation, target);
+        const bool insideToolbar = IsPointInsideToolbar(screenPt);
+        if (!insideToolbar) {
+            if (m_owner && state.tabLocation.IsValid()) {
+                m_owner->OnDetachTabRequested(state.tabLocation);
                 performedAction = true;
+            }
+        } else {
+            TabLocation target = ComputeTabInsertLocation(clientPt);
+            if (target.IsValid() && state.tabLocation.IsValid() && m_owner) {
+                if (target.groupIndex == state.tabLocation.groupIndex &&
+                    target.tabIndex > state.tabLocation.tabIndex) {
+                    --target.tabIndex;
+                }
+                if (target.groupIndex != state.tabLocation.groupIndex ||
+                    target.tabIndex != state.tabLocation.tabIndex) {
+                    m_owner->OnMoveTabRequested(state.tabLocation, target);
+                    performedAction = true;
+                }
+            } else if (state.tabLocation.IsValid() && m_owner) {
+                int insertIndex = ComputeGroupInsertIndex(clientPt);
+                if (insertIndex >= 0) {
+                    const bool ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                    bool createNewGroup = ctrlPressed;
+                    if (!createNewGroup) {
+                        createNewGroup = (insertIndex != state.tabLocation.groupIndex &&
+                                          insertIndex != state.tabLocation.groupIndex + 1);
+                    }
+                    if (!createNewGroup) {
+                        POINT clientCopy = clientPt;
+                        const int hit = ToolbarHitTest(m_toolbar, clientCopy);
+                        if (hit >= 0) {
+                            const int hitCommandId = CommandIdFromButtonIndex(hit);
+                            const TabViewItem* hitItem = ItemForCommand(hitCommandId);
+                            if (hitItem && hitItem->type == TabViewItemType::kGroupHeader) {
+                                RECT headerRect{};
+                                if (GetButtonRect(hitCommandId, &headerRect)) {
+                                    RECT headerScreen = headerRect;
+                                    MapWindowPoints(m_toolbar, nullptr, reinterpret_cast<POINT*>(&headerScreen), 2);
+                                    if (screenPt.x >= headerScreen.left + GroupIndicatorVisualWidth()) {
+                                        insertIndex = hitItem->location.groupIndex + 1;
+                                        createNewGroup = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (createNewGroup) {
+                        bool headerVisible = true;
+                        if (state.tabLocation.groupIndex >= 0) {
+                            headerVisible = m_owner->IsGroupHeaderVisible(state.tabLocation.groupIndex);
+                        }
+                        m_owner->OnMoveTabToNewGroup(state.tabLocation, insertIndex, headerVisible);
+                        performedAction = true;
+                    }
+                }
             }
         }
     }
@@ -1078,8 +1358,7 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
         UpdateCheckedState();
     }
 
-    m_ignoreNextCommand = false;
-    m_ignoredCommandId = -1;
+    ResetCommandIgnore();
 }
 
 void TabBandWindow::CancelDrag() {
@@ -1090,10 +1369,21 @@ void TabBandWindow::CancelDrag() {
     if (GetCapture() == m_toolbar) {
         ReleaseCapture();
     }
+    DestroyDragImage();
     m_dragState = {};
-    m_ignoreNextCommand = false;
-    m_ignoredCommandId = -1;
+    ResetCommandIgnore();
     ResetCloseTracking();
+}
+
+bool TabBandWindow::IsPointInsideToolbar(const POINT& screenPt) const {
+    if (!m_toolbar) {
+        return false;
+    }
+    RECT rect{};
+    if (!GetWindowRect(m_toolbar, &rect)) {
+        return false;
+    }
+    return PtInRect(&rect, screenPt) != FALSE;
 }
 
 TabLocation TabBandWindow::ComputeTabInsertLocation(const POINT& clientPt) const {
@@ -1334,18 +1624,19 @@ UINT TabBandWindow::CurrentDpi() const {
 }
 
 int TabBandWindow::GroupIndicatorWidth() const {
-    const UINT dpi = CurrentDpi();
-    return std::max(5, MulDiv(5, static_cast<int>(dpi), 96));
+    return GroupIndicatorVisualWidth();
 }
 
-int TabBandWindow::GroupIndicatorHitWidth(bool collapsed) const {
-    const UINT dpi = CurrentDpi();
-    const int base = std::max(5, MulDiv(5, static_cast<int>(dpi), 96));
-    if (!collapsed) {
-        return base;
-    }
-    const int minHit = MulDiv(12, static_cast<int>(dpi), 96);
-    return std::max(base, minHit);
+int TabBandWindow::GroupIndicatorExpandedWidth() const {
+    return GroupIndicatorVisualWidth() + GroupIndicatorSpacing();
+}
+
+int TabBandWindow::GroupIndicatorSpacing() const {
+    return kGroupIndicatorSpacingPixels;
+}
+
+int TabBandWindow::GroupIndicatorVisualWidth() const {
+    return kGroupIndicatorPixelWidth;
 }
 
 COLORREF TabBandWindow::GroupIndicatorColor(const TabViewItem& item) const {
@@ -1465,6 +1756,11 @@ void TabBandWindow::ResetCloseTracking() {
     InvalidateButton(commandId);
 }
 
+void TabBandWindow::ResetCommandIgnore() {
+    m_ignoreNextCommand = false;
+    m_ignoredCommandId = -1;
+}
+
 int TabBandWindow::CalculateTabButtonWidth(const TabViewItem& item) const {
     const UINT dpi = CurrentDpi();
     const int padding = TabHorizontalPadding();
@@ -1533,6 +1829,40 @@ void TabBandWindow::RevokeDropTarget() {
     m_dropTarget = nullptr;
 }
 
+bool TabBandWindow::HandleShellContextMenuMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result) {
+    if (!m_contextMenuState.menu2 && !m_contextMenuState.menu3) {
+        return false;
+    }
+
+    if (m_contextMenuState.menu3) {
+        HRESULT hr = m_contextMenuState.menu3->HandleMenuMsg2(msg, wParam, lParam, result);
+        return SUCCEEDED(hr);
+    }
+
+    if (m_contextMenuState.menu2) {
+        HRESULT hr = m_contextMenuState.menu2->HandleMenuMsg(msg, wParam, lParam);
+        if (SUCCEEDED(hr)) {
+            if (result) {
+                *result = 0;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void TabBandWindow::ResetContextMenuState() {
+    m_contextMenuState.menu.Reset();
+    m_contextMenuState.menu2.Reset();
+    m_contextMenuState.menu3.Reset();
+    m_contextMenuState.menuHandle = nullptr;
+    m_contextMenuState.idFirst = 0;
+    m_contextMenuState.idLast = 0;
+    m_contextMenuState.location = {};
+    m_contextMenuState.invokePoint = {};
+}
+
 LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR id,
                                         DWORD_PTR refData) {
     (void)id;
@@ -1542,6 +1872,17 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     }
 
     switch (msg) {
+        case WM_MENUCHAR:
+        case WM_MEASUREITEM:
+        case WM_DRAWITEM:
+        case WM_INITMENUPOPUP:
+        case WM_UNINITMENUPOPUP: {
+            LRESULT handled = 0;
+            if (self->HandleShellContextMenuMessage(msg, wParam, lParam, &handled)) {
+                return handled;
+            }
+            break;
+        }
         case WM_CREATE:
             return 0;
         case WM_SIZE: {
@@ -1670,6 +2011,17 @@ LRESULT CALLBACK TabBandWindow::ToolbarWndProc(HWND hwnd, UINT msg, WPARAM wPara
     UNREFERENCED_PARAMETER(id);
 
     switch (msg) {
+        case WM_MENUCHAR:
+        case WM_MEASUREITEM:
+        case WM_DRAWITEM:
+        case WM_INITMENUPOPUP:
+        case WM_UNINITMENUPOPUP: {
+            LRESULT handled = 0;
+            if (self->HandleShellContextMenuMessage(msg, wParam, lParam, &handled)) {
+                return handled;
+            }
+            break;
+        }
         case WM_LBUTTONDOWN: {
             const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             const int hit = ToolbarHitTest(hwnd, pt);
@@ -1782,7 +2134,7 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
                 RECT rect = customDraw->nmcd.rc;
                 FillRectColor(customDraw->nmcd.hdc, rect, m_theme.background);
 
-                const int indicatorWidth = GroupIndicatorWidth();
+                const int indicatorWidth = GroupIndicatorVisualWidth();
                 RECT indicatorRect = rect;
                 indicatorRect.right = std::min(indicatorRect.left + indicatorWidth, rect.right);
                 COLORREF indicatorColor = AdjustIndicatorColorForState(GroupIndicatorColor(*item), isHot, isPressed);
@@ -2064,16 +2416,42 @@ bool TabBandWindow::ShouldUpdateThemeForSettingChange(LPARAM lParam) const {
 bool TabBandWindow::IsDarkModePreferred() const {
     auto& themeApi = GetThemeApi();
     if (themeApi.shouldAppsUseDarkMode) {
-        return themeApi.shouldAppsUseDarkMode() != FALSE;
+        if (themeApi.shouldAppsUseDarkMode() != FALSE) {
+            return true;
+        }
+        return IsAmbientDark();
     }
     DWORD value = 1;
     DWORD size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER,
                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                      L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS) {
-        return value == 0;
+        if (value == 0) {
+            return true;
+        }
+        return IsAmbientDark();
     }
-    return false;
+    return IsAmbientDark();
+}
+
+bool TabBandWindow::IsAmbientDark() const {
+    const std::array<COLORREF, 4> candidates = {GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_BTNFACE),
+                                                GetSysColor(COLOR_MENU), GetSysColor(COLOR_APPWORKSPACE)};
+    double luminanceSum = 0.0;
+    int count = 0;
+    for (COLORREF color : candidates) {
+        const double r = static_cast<double>(GetRValue(color)) / 255.0;
+        const double g = static_cast<double>(GetGValue(color)) / 255.0;
+        const double b = static_cast<double>(GetBValue(color)) / 255.0;
+        const double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        luminanceSum += luminance;
+        ++count;
+    }
+    if (count == 0) {
+        return false;
+    }
+    const double average = luminanceSum / static_cast<double>(count);
+    return average < 0.5;
 }
 
 TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
@@ -2082,17 +2460,17 @@ TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
     theme.separator = CLR_INVALID;
     theme.highlight = GetSysColor(COLOR_HIGHLIGHT);
     if (darkMode) {
-        theme.background = RGB(32, 32, 32);
-        theme.hover = RGB(52, 52, 52);
-        theme.pressed = RGB(62, 62, 62);
+        theme.background = RGB(36, 36, 36);
+        theme.hover = RGB(56, 56, 56);
+        theme.pressed = RGB(64, 64, 64);
         theme.checked = RGB(72, 72, 72);
-        theme.text = RGB(241, 241, 241);
-        theme.textDisabled = RGB(150, 150, 150);
-        theme.groupHeaderBackground = RGB(26, 26, 26);
-        theme.groupHeaderHover = RGB(46, 46, 46);
-        theme.groupHeaderText = RGB(189, 189, 189);
-        theme.border = RGB(63, 63, 63);
-        theme.separator = RGB(58, 58, 58);
+        theme.text = RGB(235, 235, 235);
+        theme.textDisabled = RGB(120, 120, 120);
+        theme.groupHeaderBackground = RGB(30, 30, 30);
+        theme.groupHeaderHover = RGB(56, 56, 56);
+        theme.groupHeaderText = RGB(210, 210, 210);
+        theme.border = RGB(54, 54, 54);
+        theme.separator = RGB(48, 48, 48);
     } else {
         theme.border = GetSysColor(COLOR_3DSHADOW);
         theme.separator = GetSysColor(COLOR_3DSHADOW);
