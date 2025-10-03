@@ -83,6 +83,7 @@ private:
     LRESULT HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw);
     void UpdateTheme();
     void ApplyThemeToToolbar();
+    void ApplyThemeToRibbonAncestors();
     bool PaintHostBackground(HDC dc) const;
     bool PaintToolbarBackground(HWND hwnd, HDC dc) const;
     bool ShouldUpdateThemeForSettingChange(LPARAM lParam) const;
@@ -105,7 +106,6 @@ private:
     TabLocation TabLocationFromPoint(const POINT& screenPt) const;
     UINT CurrentDpi() const;
     int GroupIndicatorWidth() const;
-    int GroupIndicatorExpandedWidth() const;
     int GroupIndicatorSpacing() const;
     int GroupIndicatorVisualWidth() const;
     COLORREF GroupIndicatorColor(const TabViewItem& item) const;
@@ -121,6 +121,8 @@ private:
     void ResetCloseTracking();
     void ResetCommandIgnore();
     int CalculateTabButtonWidth(const TabViewItem& item) const;
+    int CalculateGroupHeaderWidth(const TabViewItem& item) const;
+    std::wstring DisplayLabelForItem(const TabViewItem& item) const;
 
     struct DragState {
         bool tracking = false;
@@ -132,6 +134,7 @@ private:
         POINT startPoint{};
         HIMAGELIST dragImage = nullptr;
         bool dragImageVisible = false;
+        HWND dragImageWindow = nullptr;
     };
 
     struct CloseButtonState {
@@ -146,10 +149,13 @@ private:
         Microsoft::WRL::ComPtr<IContextMenu2> menu2;
         Microsoft::WRL::ComPtr<IContextMenu3> menu3;
         HMENU menuHandle = nullptr;
+        HMENU explorerSubMenu = nullptr;
         UINT idFirst = 0;
         UINT idLast = 0;
         TabLocation location{};
         POINT invokePoint{};
+
+        bool IsActive() const noexcept { return menu || menu2 || menu3; }
     };
 
     struct ToolbarTheme {

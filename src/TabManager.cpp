@@ -18,12 +18,7 @@ std::wstring TruncateTabLabel(const std::wstring& name) {
     if (name.size() <= kMaxTabLabelLength) {
         return name;
     }
-    if (kMaxTabLabelLength <= 1) {
-        return name.substr(0, kMaxTabLabelLength);
-    }
-    std::wstring truncated = name.substr(0, kMaxTabLabelLength - 1);
-    truncated.push_back(L'…');
-    return truncated;
+    return name.substr(0, kMaxTabLabelLength);
 }
 
 COLORREF BlendColors(COLORREF a, COLORREF b) {
