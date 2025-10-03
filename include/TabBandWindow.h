@@ -95,7 +95,9 @@ private:
     int ComputeGroupInsertIndex(const POINT& clientPt) const;
     const TabViewItem* ItemFromPoint(const POINT& screenPt) const;
     TabLocation TabLocationFromPoint(const POINT& screenPt) const;
+    UINT CurrentDpi() const;
     int GroupIndicatorWidth() const;
+    int GroupIndicatorHitWidth(bool collapsed) const;
     COLORREF GroupIndicatorColor(const TabViewItem& item) const;
 
     struct DragState {
