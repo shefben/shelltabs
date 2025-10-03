@@ -616,15 +616,16 @@ void TabBandWindow::RebuildToolbar() {
     }
 
     if (!groupIndicatorCommands.empty()) {
-        const int indicatorWidth = GroupIndicatorWidth();
+        const int expandedWidth = GroupIndicatorExpandedWidth();
+        const int collapsedWidth = GroupIndicatorWidth();
         for (const auto& entry : groupIndicatorCommands) {
-            const int hitWidth = GroupIndicatorHitWidth(entry.collapsed);
             TBBUTTONINFO info{};
             info.cbSize = sizeof(info);
             info.dwMask = TBIF_SIZE | TBIF_STYLE | TBIF_STATE;
             info.fsStyle = BTNS_BUTTON | BTNS_FIXEDSIZE;
             info.fsState = TBSTATE_ENABLED;
-            info.cx = static_cast<WORD>(entry.collapsed ? hitWidth : indicatorWidth);
+            const int width = entry.collapsed ? collapsedWidth : expandedWidth;
+            info.cx = static_cast<WORD>(width);
             SendMessageW(m_toolbar, TB_SETBUTTONINFO, entry.commandId, reinterpret_cast<LPARAM>(&info));
         }
     }
@@ -1613,17 +1614,11 @@ UINT TabBandWindow::CurrentDpi() const {
 }
 
 int TabBandWindow::GroupIndicatorWidth() const {
-    return GroupIndicatorVisualWidth() + GroupIndicatorSpacing();
+    return GroupIndicatorVisualWidth();
 }
 
-int TabBandWindow::GroupIndicatorHitWidth(bool collapsed) const {
-    const UINT dpi = CurrentDpi();
-    const int base = GroupIndicatorWidth();
-    if (!collapsed) {
-        return base;
-    }
-    const int minHit = MulDiv(12, static_cast<int>(dpi), 96);
-    return std::max(base, minHit);
+int TabBandWindow::GroupIndicatorExpandedWidth() const {
+    return GroupIndicatorVisualWidth() + GroupIndicatorSpacing();
 }
 
 int TabBandWindow::GroupIndicatorSpacing() const {

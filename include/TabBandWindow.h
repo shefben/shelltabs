@@ -105,7 +105,7 @@ private:
     TabLocation TabLocationFromPoint(const POINT& screenPt) const;
     UINT CurrentDpi() const;
     int GroupIndicatorWidth() const;
-    int GroupIndicatorHitWidth(bool collapsed) const;
+    int GroupIndicatorExpandedWidth() const;
     int GroupIndicatorSpacing() const;
     int GroupIndicatorVisualWidth() const;
     COLORREF GroupIndicatorColor(const TabViewItem& item) const;
