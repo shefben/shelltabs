@@ -24,6 +24,7 @@
 namespace shelltabs {
 
 class TabBand;
+class TabToolbarDropTarget;
 
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
 constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
@@ -47,6 +48,8 @@ public:
     void FocusTab();
 
 private:
+    friend class TabToolbarDropTarget;
+
     HWND m_hwnd = nullptr;
     HWND m_toolbar = nullptr;
     TabBand* m_owner = nullptr;

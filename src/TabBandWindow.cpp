@@ -247,6 +247,144 @@ private:
 
 }  // namespace
 
+class TabToolbarDropTarget : public IDropTarget {
+public:
+    explicit TabToolbarDropTarget(TabBandWindow* window) : m_window(window) {}
+
+    // IUnknown
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
+            *object = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override {
+        return m_refCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        const ULONG remaining = m_refCount.fetch_sub(1, std::memory_order_acq_rel) - 1;
+        if (remaining == 0) {
+            delete this;
+            return 0;
+        }
+        return remaining;
+    }
+
+    // IDropTarget
+    IFACEMETHODIMP DragEnter(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
+        m_hasFileData = SupportsFileDrop(dataObject);
+        return UpdateEffect(keyState, point, effect);
+    }
+
+    IFACEMETHODIMP DragOver(DWORD keyState, POINTL point, DWORD* effect) override {
+        return UpdateEffect(keyState, point, effect);
+    }
+
+    IFACEMETHODIMP DragLeave() override {
+        m_hasFileData = false;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP Drop(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!effect) {
+            return E_INVALIDARG;
+        }
+        *effect = DROPEFFECT_NONE;
+        if (!m_window || !m_hasFileData) {
+            return S_OK;
+        }
+
+        POINT screenPt{static_cast<LONG>(point.x), static_cast<LONG>(point.y)};
+        TabLocation location = m_window->TabLocationFromPoint(screenPt);
+        if (!location.IsValid()) {
+            return S_OK;
+        }
+
+        std::vector<std::wstring> paths;
+        if (!ExtractPaths(dataObject, &paths) || paths.empty()) {
+            return S_OK;
+        }
+
+        const bool move = (keyState & MK_SHIFT) != 0;
+        m_window->HandleFilesDropped(location, paths, move);
+        *effect = move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+        return S_OK;
+    }
+
+private:
+    HRESULT UpdateEffect(DWORD keyState, const POINTL& point, DWORD* effect) {
+        if (!effect) {
+            return E_INVALIDARG;
+        }
+        *effect = DROPEFFECT_NONE;
+        if (!m_window || !m_hasFileData) {
+            return S_OK;
+        }
+
+        POINT screenPt{static_cast<LONG>(point.x), static_cast<LONG>(point.y)};
+        const TabViewItem* item = m_window->ItemFromPoint(screenPt);
+        if (!item || item->type != TabViewItemType::kTab) {
+            return S_OK;
+        }
+
+        *effect = (keyState & MK_SHIFT) ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+        return S_OK;
+    }
+
+    bool ExtractPaths(IDataObject* dataObject, std::vector<std::wstring>* paths) const {
+        if (!dataObject || !paths) {
+            return false;
+        }
+
+        FORMATETC format{};
+        format.cfFormat = CF_HDROP;
+        format.dwAspect = DVASPECT_CONTENT;
+        format.lindex = -1;
+        format.tymed = TYMED_HGLOBAL;
+
+        STGMEDIUM medium{};
+        if (FAILED(dataObject->GetData(&format, &medium))) {
+            return false;
+        }
+
+        bool success = false;
+        if (medium.tymed == TYMED_HGLOBAL && medium.hGlobal) {
+            HDROP drop = static_cast<HDROP>(medium.hGlobal);
+            const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+            for (UINT i = 0; i < count; ++i) {
+                const UINT required = DragQueryFileW(drop, i, nullptr, 0);
+                if (required == 0) {
+                    continue;
+                }
+                std::wstring path;
+                path.resize(required + 1);
+                if (DragQueryFileW(drop, i, path.data(), static_cast<UINT>(path.size()))) {
+                    path.resize(wcsnlen_s(path.c_str(), path.size()));
+                    if (!path.empty()) {
+                        paths->emplace_back(std::move(path));
+                    }
+                }
+            }
+            success = !paths->empty();
+        }
+
+        ReleaseStgMedium(&medium);
+        return success;
+    }
+
+    std::atomic<ULONG> m_refCount{1};
+    TabBandWindow* m_window = nullptr;
+    bool m_hasFileData = false;
+};
+
 TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) {}
 
 TabBandWindow::~TabBandWindow() { Destroy(); }
