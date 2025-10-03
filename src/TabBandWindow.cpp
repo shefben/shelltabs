@@ -1943,15 +1943,17 @@ bool TabBandWindow::HandleShellContextMenuMessage(UINT msg, WPARAM wParam, LPARA
         switch (msg) {
             case WM_DRAWITEM: {
                 if (auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam)) {
-                    return dis->hwndItem == reinterpret_cast<HWND>(m_contextMenuState.menuHandle) ||
-                           dis->hwndItem == reinterpret_cast<HWND>(m_contextMenuState.explorerSubMenu);
+                    if (dis->CtlType != ODT_MENU) {
+                        return false;
+                    }
+                    const HMENU menu = reinterpret_cast<HMENU>(dis->hwndItem);
+                    return menu == m_contextMenuState.menuHandle || menu == m_contextMenuState.explorerSubMenu;
                 }
                 return false;
             }
             case WM_MEASUREITEM: {
                 if (auto* mis = reinterpret_cast<const MEASUREITEMSTRUCT*>(lParam)) {
-                    return mis->hwndItem == reinterpret_cast<HWND>(m_contextMenuState.menuHandle) ||
-                           mis->hwndItem == reinterpret_cast<HWND>(m_contextMenuState.explorerSubMenu);
+                    return mis->CtlType == ODT_MENU;
                 }
                 return false;
             }
@@ -2311,7 +2313,8 @@ LRESULT TabBandWindow::HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw) {
                 if (glyphRect.right > glyphRect.left) {
                     const int centerX = (glyphRect.left + glyphRect.right) / 2;
                     const int centerY = (glyphRect.top + glyphRect.bottom) / 2;
-                    const int half = std::max(2, (glyphRect.right - glyphRect.left) / 3);
+                    const int glyphWidth = static_cast<int>(glyphRect.right - glyphRect.left);
+                    const int half = std::max(2, glyphWidth / 3);
 
                     POINT arrow[3]{};
                     if (item->collapsed) {
