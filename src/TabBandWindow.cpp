@@ -33,8 +33,8 @@ constexpr int kButtonHeight = 22;
 constexpr int kButtonMargin = 6;
 constexpr int kItemMinWidth = 60;
 constexpr int kGroupMinWidth = 90;
-constexpr int kGroupGap = 16;
-constexpr int kTabGap = 6;
+constexpr int kGroupGap = 3;   // gap between “islands” (groups)
+constexpr int kTabGap   = 3;   // gap between adjacent tabs
 constexpr int kPaddingX = 12;
 constexpr int kGroupPaddingX = 16;
 constexpr int kToolbarGripWidth = 14;
@@ -428,9 +428,10 @@ void TabBandWindow::RebuildLayout() {
     const int bottom = bounds.bottom - 2;
     const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
     const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
-    const int bandWidth = static_cast<int>(bounds.right - bounds.left);
-    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-    int x = bounds.left + gripWidth + 4;
+	const int bandWidth = static_cast<int>(bounds.right - bounds.left);
+	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
+	int x = bounds.left + gripWidth - 3;   // 3px padding after the single dotted grip
+
     int currentGroup = -1;
     TabViewItem currentHeader{};
     bool headerMetadata = false;
@@ -1517,59 +1518,68 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-    if (!usedTheme) {
-        COLORREF backgroundColor = computedBackground;
-        textColor = ResolveTabTextColor(selected, backgroundColor);
-        COLORREF baseBorder = m_darkMode ? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
-                                         : BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
-        COLORREF borderColor = hasAccent ? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
-                                         : baseBorder;
+	if (!usedTheme) {
+		COLORREF backgroundColor = computedBackground;
+		textColor = ResolveTabTextColor(selected, backgroundColor);
+		COLORREF baseBorder = m_darkMode
+			? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
+			: BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
+		COLORREF borderColor = hasAccent
+			? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
+			: baseBorder;
 
-        RECT shapeRect = tabRect;
-        if (!selected) {
-            shapeRect.bottom -= 1;
-        }
+		RECT shapeRect = tabRect;
+		// Keep the fill inside the island outline for ALL states.
+		// The outline is drawn at rect.bottom - 1, so don’t paint the bottom row.
+		const LONG bottomLimit = rect.bottom - 1;
+		if (shapeRect.bottom > bottomLimit) {
+			shapeRect.bottom = bottomLimit;
+		}
 
-        const int radius = kTabCornerRadius;
-        POINT points[] = {{shapeRect.left, shapeRect.bottom},
-                          {shapeRect.left, shapeRect.top + radius},
-                          {shapeRect.left + radius, shapeRect.top},
-                          {shapeRect.right - radius, shapeRect.top},
-                          {shapeRect.right, shapeRect.top + radius},
-                          {shapeRect.right, shapeRect.bottom}};
+		const int radius = kTabCornerRadius;
+		POINT points[] = {
+			{shapeRect.left,        shapeRect.bottom},
+			{shapeRect.left,        shapeRect.top + radius},
+			{shapeRect.left + radius, shapeRect.top},
+			{shapeRect.right - radius,shapeRect.top},
+			{shapeRect.right,       shapeRect.top + radius},
+			{shapeRect.right,       shapeRect.bottom}
+		};
 
-        HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
-        if (region) {
-            HBRUSH brush = CreateSolidBrush(backgroundColor);
-            if (brush) {
-                FillRgn(dc, region, brush);
-                DeleteObject(brush);
-            }
-            HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-            if (pen) {
-                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-                HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-                Polygon(dc, points, ARRAYSIZE(points));
-                SelectObject(dc, oldBrush);
-                SelectObject(dc, oldPen);
-                DeleteObject(pen);
-            }
-            DeleteObject(region);
-        }
+		HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
+		if (region) {
+			HBRUSH brush = CreateSolidBrush(backgroundColor);
+			if (brush) {
+				FillRgn(dc, region, brush);
+				DeleteObject(brush);
+			}
+			HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
+			if (pen) {
+				HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+				HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+				Polygon(dc, points, ARRAYSIZE(points));
+				SelectObject(dc, oldBrush);
+				SelectObject(dc, oldPen);
+				DeleteObject(pen);
+			}
+			DeleteObject(region);
+		}
 
-        COLORREF bottomLineColor = selected ? backgroundColor
-                                            : (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
-                                                          : GetSysColor(COLOR_3DLIGHT));
-        HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
-        if (bottomPen) {
-            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
-            MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
-            LineTo(dc, rect.right - 1, rect.bottom - 1);
-            SelectObject(dc, oldPen);
-            DeleteObject(bottomPen);
-        }
-        computedBackground = backgroundColor;
-    }
+		// Bottom separator stays at rect.bottom - 1, which now aligns perfectly.
+		COLORREF bottomLineColor = selected ? backgroundColor
+			: (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
+				: GetSysColor(COLOR_3DLIGHT));
+		HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
+		if (bottomPen) {
+			HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
+			MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
+			LineTo(dc, rect.right - 1, rect.bottom - 1);
+			SelectObject(dc, oldPen);
+			DeleteObject(bottomPen);
+		}
+
+		computedBackground = backgroundColor;
+	}
 
     if (item.indicatorHandle) {
         RECT indicatorRect = tabRect;
