@@ -1,23 +1,13 @@
 #pragma once
 
 #include <windows.h>
-
-#ifndef _WIN32_IE
-#define _WIN32_IE 0x0601
-#elif _WIN32_IE < 0x0601
-#undef _WIN32_IE
-#define _WIN32_IE 0x0601
-#endif
-
-#include <CommCtrl.h>
-#include <OleIdl.h>
 #include <uxtheme.h>
 
-#include <optional>
+#include <limits>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
+
 #include <wrl/client.h>
 
 #include "TabManager.h"
@@ -25,13 +15,6 @@
 namespace shelltabs {
 
 class TabBand;
-class TabToolbarDropTarget;
-
-constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
-constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
-constexpr UINT WM_SHELLTABS_REFRESH_COLORIZER = WM_APP + 44;
-constexpr UINT WM_SHELLTABS_REFRESH_GIT_STATUS = WM_APP + 45;
-constexpr UINT WM_SHELLTABS_ENABLE_GIT_STATUS = WM_APP + 46;
 
 class TabBandWindow {
 public:
@@ -48,165 +31,236 @@ public:
     bool HasFocus() const;
     void FocusTab();
 
+    struct HitInfo {
+        bool hit = false;
+        size_t itemIndex = 0;
+        TabViewItemType type = TabViewItemType::kGroupHeader;
+        TabLocation location;
+        bool before = false;
+        bool after = false;
+        bool closeButton = false;
+    };
+
+    struct DropTarget {
+        bool active = false;
+        bool outside = false;
+        bool group = false;
+        int groupIndex = -1;
+        int tabIndex = -1;
+        int indicatorX = -1;
+        bool newGroup = false;
+        bool floating = false;
+    };
+
 private:
-    friend class TabToolbarDropTarget;
+    struct VisualItem {
+        TabViewItem data;
+        RECT bounds{};
+        bool firstInGroup = false;
+        int badgeWidth = 0;
+        HICON icon = nullptr;
+        int iconWidth = 0;
+        int iconHeight = 0;
+        bool hasGroupHeader = false;
+        TabViewItem groupHeader{};
+        bool collapsedPlaceholder = false;
+        bool indicatorHandle = false;
+        size_t index = 0;
+    };
 
-    HWND m_hwnd = nullptr;
-    HWND m_toolbar = nullptr;
-    TabBand* m_owner = nullptr;
-    std::vector<TabViewItem> m_tabData;
-    HIMAGELIST m_imageList = nullptr;
-    std::unordered_map<int, TabLocation> m_commandMap;
-    std::unordered_map<int, size_t> m_commandToIndex;
-    int m_nextCommandId = 41000;
+    struct GroupOutline {
+        int groupIndex = -1;
+        RECT bounds{};
+        COLORREF color = RGB(0, 0, 0);
+        bool initialized = false;
+        bool visible = false;
+    };
 
-    void EnsureToolbar();
-    void DestroyToolbar();
-    void RebuildToolbar();
-    void ClearToolbar();
-    void ClearImageList();
-    void ConfigureToolbarMetrics();
-    int AppendImage(HICON icon);
-    void UpdateCheckedState();
-    void HandleToolbarCommand(int commandId);
-    void HandleContextMenu(int commandId, const POINT& screenPt);
-    void HandleMiddleClick(int commandId);
-    void HandleLButtonDown(int commandId);
-    void HandleFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
-    void HandleMouseMove(const POINT& screenPt);
-    void HandleLButtonUp(const POINT& screenPt);
-    void HandleTooltipRequest(NMTTDISPINFOW* info);
-    void RelayFocusToToolbar();
-    int CommandIdFromButtonIndex(int index) const;
-    TabLocation LocationForCommand(int commandId) const;
-    const TabViewItem* ItemForCommand(int commandId) const;
-    LRESULT HandleToolbarCustomDraw(NMTBCUSTOMDRAW* customDraw);
-    void UpdateTheme();
-    void ApplyThemeToToolbar();
-    void ApplyThemeToRibbonAncestors();
-    bool PaintHostBackground(HDC dc) const;
-    bool PaintToolbarBackground(HWND hwnd, HDC dc) const;
-    bool ShouldUpdateThemeForSettingChange(LPARAM lParam) const;
-    bool ExplorerHostPrefersDarkMode() const;
-    bool IsDarkModePreferred() const;
-    bool IsAmbientDark() const;
-    void RegisterDropTarget();
-    void RevokeDropTarget();
-    void BeginDrag(int commandId, const POINT& screenPt);
-    void UpdateDrag(const POINT& screenPt);
-    void EndDrag(const POINT& screenPt, bool canceled);
-    void CancelDrag();
-    bool StartDragVisual(const POINT& screenPt);
-    void DestroyDragImage();
-    bool HandleShellContextMenuMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
-    void ResetContextMenuState();
-    bool IsPointInsideToolbar(const POINT& screenPt) const;
-    TabLocation ComputeTabInsertLocation(const POINT& clientPt) const;
-    int ComputeGroupInsertIndex(const POINT& clientPt) const;
-    const TabViewItem* ItemFromPoint(const POINT& screenPt) const;
-    TabLocation TabLocationFromPoint(const POINT& screenPt) const;
-    UINT CurrentDpi() const;
-    int GroupIndicatorWidth() const;
-    int GroupIndicatorSpacing() const;
-    int GroupIndicatorVisualWidth() const;
-    COLORREF GroupIndicatorColor(const TabViewItem& item) const;
-    int TabHorizontalPadding() const;
-    int IconTextSpacing() const;
-    int CloseButtonSpacing() const;
-    int CloseButtonSize() const;
-    RECT CloseButtonRect(const RECT& buttonRect) const;
-    bool GetButtonRect(int commandId, RECT* rect) const;
-    int GetButtonImage(int commandId) const;
-    void InvalidateButton(int commandId) const;
-    bool IsPointInCloseButton(int commandId, const POINT& screenPt, RECT* closeRectOut = nullptr) const;
-    void ResetCloseTracking();
-    void ResetCommandIgnore();
-    void CloseTabCommand(int commandId);
-    bool TryHandleCloseClick(const POINT& screenPt);
-    int CalculateTabButtonWidth(const TabViewItem& item) const;
-    int CalculateGroupHeaderWidth(const TabViewItem& item) const;
-    int MeasureTabTextWidth(const std::wstring& text) const;
-    std::wstring DisplayLabelForItem(const TabViewItem& item) const;
-    void UpdateInsertMark(const POINT& screenPt);
-    void ClearInsertMark();
+    struct ExplorerContext {
+        Microsoft::WRL::ComPtr<IContextMenu> menu;
+        Microsoft::WRL::ComPtr<IContextMenu2> menu2;
+        Microsoft::WRL::ComPtr<IContextMenu3> menu3;
+        TabLocation location;
+        UINT idFirst = 0;
+        UINT idLast = 0;
+    };
 
     struct DragState {
         bool tracking = false;
         bool dragging = false;
-        bool isGroup = false;
-        int commandId = -1;
-        TabLocation tabLocation{};
-        int groupIndex = -1;
-        POINT startPoint{};
-        HIMAGELIST dragImage = nullptr;
-        bool dragImageVisible = false;
-        HWND dragImageWindow = nullptr;
-        bool suppressCancel = false;
+        HitInfo origin;
+        POINT start{};
+        DropTarget target{};
+        POINT current{};
+        bool hasCurrent = false;
+        bool originSelected = false;
+        bool closeClick = false;
+        size_t closeItemIndex = 0;
+        TabLocation closeLocation{};
+        HWND overlay = nullptr;
+        bool overlayVisible = false;
     };
 
-    struct CloseButtonState {
-        bool tracking = false;
-        bool hot = false;
-        int commandId = -1;
-        RECT rect{};
+    struct ExternalDropState {
+        bool active = false;
+        DropTarget target{};
+        TabBandWindow* source = nullptr;
     };
 
-    struct ShellContextMenuState {
-        Microsoft::WRL::ComPtr<IContextMenu> menu;
-        Microsoft::WRL::ComPtr<IContextMenu2> menu2;
-        Microsoft::WRL::ComPtr<IContextMenu3> menu3;
-        HMENU menuHandle = nullptr;
-        HMENU explorerSubMenu = nullptr;
-        UINT idFirst = 0;
-        UINT idLast = 0;
-        TabLocation location{};
-        POINT invokePoint{};
-
-        bool IsActive() const noexcept { return menu || menu2 || menu3; }
+    struct ThemePalette {
+        COLORREF rebarBackground = 0;
+        COLORREF borderTop = 0;
+        COLORREF borderBottom = 0;
+        COLORREF tabBase = 0;
+        COLORREF tabSelectedBase = 0;
+        COLORREF tabText = 0;
+        COLORREF tabSelectedText = 0;
+        COLORREF groupBase = 0;
+        COLORREF groupText = 0;
+        bool tabTextValid = false;
+        bool tabSelectedTextValid = false;
+        bool groupTextValid = false;
     };
 
-    struct ToolbarTheme {
-        COLORREF background = RGB(249, 249, 249);
-        COLORREF hover = RGB(229, 229, 229);
-        COLORREF pressed = RGB(212, 212, 212);
-        COLORREF checked = RGB(200, 200, 200);
-        COLORREF text = RGB(32, 32, 32);
-        COLORREF textDisabled = RGB(150, 150, 150);
-        COLORREF groupHeaderBackground = RGB(240, 240, 240);
-        COLORREF groupHeaderHover = RGB(225, 225, 225);
-        COLORREF groupHeaderText = RGB(96, 96, 96);
-        COLORREF highlight = RGB(0, 120, 215);
-        COLORREF border = RGB(200, 200, 200);
-        COLORREF separator = RGB(220, 220, 220);
+    HWND m_hwnd = nullptr;
+    HWND m_newTabButton = nullptr;
+    HWND m_parentRebar = nullptr;
+    TabBand* m_owner = nullptr;
 
-        bool operator==(const ToolbarTheme& other) const noexcept {
-            return background == other.background && hover == other.hover && pressed == other.pressed &&
-                   checked == other.checked && text == other.text && textDisabled == other.textDisabled &&
-                   groupHeaderBackground == other.groupHeaderBackground &&
-                   groupHeaderHover == other.groupHeaderHover && groupHeaderText == other.groupHeaderText &&
-                   highlight == other.highlight && border == other.border && separator == other.separator;
-        }
+    RECT m_clientRect{};
+    std::vector<TabViewItem> m_tabData;
+    std::vector<VisualItem> m_items;
+    DragState m_drag;
+    HitInfo m_contextHit;
+    std::vector<std::pair<UINT, TabLocation>> m_hiddenTabCommands;
+    std::vector<std::pair<UINT, std::wstring>> m_savedGroupCommands;
+    ExplorerContext m_explorerContext;
+    POINT m_lastContextPoint{};
+    HTHEME m_tabTheme = nullptr;
+    HTHEME m_rebarTheme = nullptr;
+    HTHEME m_windowTheme = nullptr;
+    bool m_darkMode = false;
+    bool m_refreshingTheme = false;
+    bool m_windowDarkModeInitialized = false;
+    bool m_windowDarkModeValue = false;
+    bool m_buttonDarkModeInitialized = false;
+    bool m_buttonDarkModeValue = false;
+    COLORREF m_accentColor = RGB(0, 120, 215);
+    ExternalDropState m_externalDrop;
+    ThemePalette m_themePalette;
+    int m_toolbarGripWidth = 14;
+    size_t m_hotCloseIndex = std::numeric_limits<size_t>::max();
+    bool m_mouseTracking = false;
+    int m_rebarBandIndex = -1;
+    bool m_rebarSubclassed = false;
+    bool m_rebarZOrderTop = false;
 
-        bool operator!=(const ToolbarTheme& other) const noexcept { return !(*this == other); }
-    };
+    void Layout(int width, int height);
+    void RebuildLayout();
+    void Draw(HDC dc) const;
+    void PaintSurface(HDC dc, const RECT& windowRect) const;
+    void DrawBackground(HDC dc, const RECT& bounds) const;
+    void DrawGroupHeader(HDC dc, const VisualItem& item) const;
+    void DrawTab(HDC dc, const VisualItem& item) const;
+    void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
+    void DrawDropIndicator(HDC dc) const;
+    void DrawDragVisual(HDC dc) const;
+    void ClearVisualItems();
+    void ClearExplorerContext();
+    HICON LoadItemIcon(const TabViewItem& item) const;
+    bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
+    void EnsureMouseTracking();
+    void UpdateCloseButtonHover(const POINT& pt);
+    void ClearCloseButtonHover();
 
-    ToolbarTheme CalculateTheme(bool darkMode) const;
-    static void FillRectColor(HDC dc, const RECT& rect, COLORREF color);
-    static void FrameRectColor(HDC dc, const RECT& rect, COLORREF color);
+    void EnsureRebarIntegration();
+    void RefreshRebarMetrics();
+    int FindRebarBandIndex() const;
+    static bool IsRebarWindow(HWND hwnd);
+    bool DrawRebarBackground(HDC dc, const RECT& bounds) const;
+    void OnParentRebarMetricsChanged();
+    static LRESULT CALLBACK RebarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                              UINT_PTR id, DWORD_PTR refData);
+    void EnsureToolbarZOrder();
 
-    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR id,
-                                    DWORD_PTR refData);
-    static LRESULT CALLBACK ToolbarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR id,
-                                           DWORD_PTR refData);
+    void HandleCommand(WPARAM wParam, LPARAM lParam);
+    bool HandleMouseDown(const POINT& pt);
+    bool HandleMouseUp(const POINT& pt);
+    bool HandleMouseMove(const POINT& pt);
+    bool HandleDoubleClick(const POINT& pt);
+    void HandleFileDrop(HDROP drop);
+    void CancelDrag();
+    void UpdateDropTarget(const POINT& pt);
+    void CompleteDrop();
+    DropTarget ComputeDropTarget(const POINT& pt, const HitInfo& origin) const;
+    void UpdateExternalDrag(const POINT& screenPt);
+    bool TryCompleteExternalDrop();
+    void HandleExternalDragUpdate();
+    void HandleExternalDragLeave();
+    void HandleExternalDropExecute();
+    void RequestSelection(const HitInfo& hit);
+    HitInfo HitTest(const POINT& pt) const;
+    void ShowContextMenu(const POINT& pt);
+    void PopulateHiddenTabsMenu(HMENU menu, int groupIndex);
+    void PopulateSavedGroupsMenu(HMENU parent, bool addSeparator);
+    int ResolveInsertGroupIndex() const;
+    int GroupCount() const;
+    const VisualItem* FindLastGroupHeader() const;
+    const VisualItem* FindVisualForHit(const HitInfo& hit) const;
+    int MeasureBadgeWidth(const TabViewItem& item, HDC dc) const;
+    std::wstring BuildGitBadgeText(const TabViewItem& item) const;
+    COLORREF ResolveTabBackground(const TabViewItem& item) const;
+    COLORREF ResolveGroupBackground(const TabViewItem& item) const;
+    COLORREF ResolveTextColor(COLORREF background) const;
+    COLORREF ResolveTabTextColor(bool selected, COLORREF background) const;
+    COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
+    std::vector<GroupOutline> BuildGroupOutlines() const;
+    RECT ComputeCloseButtonRect(const VisualItem& item) const;
+    HBITMAP CreateDragVisualBitmap(const VisualItem& item, SIZE* size) const;
+    void UpdateDragOverlay(const POINT& clientPt, const POINT& screenPt);
+    void HideDragOverlay(bool destroy);
+    void RefreshTheme();
+    void CloseThemeHandles();
+    void UpdateNewTabButtonTheme();
+    bool IsSystemDarkMode() const;
+    void UpdateAccentColor();
+    void ResetThemePalette();
+    void UpdateThemePalette();
+    void UpdateToolbarMetrics();
 
-    ToolbarTheme m_theme{};
-    bool m_darkModeEnabled = false;
-    DragState m_dragState{};
-    bool m_ignoreNextCommand = false;
-    int m_ignoredCommandId = -1;
-    IDropTarget* m_dropTarget = nullptr;
-    CloseButtonState m_closeState{};
-    ShellContextMenuState m_contextMenuState{};
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+};
+
+constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
+constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
+constexpr UINT WM_SHELLTABS_REFRESH_COLORIZER = WM_APP + 44;
+constexpr UINT WM_SHELLTABS_REFRESH_GIT_STATUS = WM_APP + 45;
+constexpr UINT WM_SHELLTABS_ENABLE_GIT_STATUS = WM_APP + 46;
+
+enum : UINT_PTR {
+    IDC_NEW_TAB = 1001,
+    IDM_CLOSE_TAB = 40001,
+    IDM_HIDE_TAB = 40002,
+    IDM_DETACH_TAB = 40003,
+    IDM_CLONE_TAB = 40004,
+    IDM_TOGGLE_ISLAND = 40010,
+    IDM_UNHIDE_ALL = 40011,
+    IDM_NEW_ISLAND = 40012,
+    IDM_DETACH_ISLAND = 40013,
+    IDM_TOGGLE_SPLIT = 40014,
+    IDM_SET_SPLIT_SECONDARY = 40015,
+    IDM_CLEAR_SPLIT_SECONDARY = 40016,
+    IDM_SWAP_SPLIT = 40017,
+    IDM_OPEN_TERMINAL = 40018,
+    IDM_OPEN_VSCODE = 40019,
+    IDM_COPY_PATH = 40020,
+    IDM_TOGGLE_ISLAND_HEADER = 40021,
+    IDM_CREATE_SAVED_GROUP = 40022,
+    IDM_HIDDEN_TAB_BASE = 41000,
+    IDM_EXPLORER_CONTEXT_BASE = 42000,
+    IDM_EXPLORER_CONTEXT_LAST = 42999,
+    IDM_LOAD_SAVED_GROUP_BASE = 43000,
+    IDM_LOAD_SAVED_GROUP_LAST = 43999,
 };
 
 }  // namespace shelltabs

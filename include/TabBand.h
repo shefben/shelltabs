@@ -74,7 +74,6 @@ public:
     void OnBrowserQuit();
     bool OnBrowserNewWindow(const std::wstring& targetUrl);
     bool OnCtrlBeforeNavigate(const std::wstring& url);
-    void OnBandActivated();
 
     void OnTabSelected(TabLocation location);
     void OnNewTabRequested();
@@ -126,11 +125,6 @@ public:
     void OnGitStatusUpdated();
     void OnEnableGitStatus();
 
-    // Internal helpers used by the TabBand registry for managing Explorer window imports.
-    bool ImportExternalWindow(HWND hwnd, UniquePidl pidl, const std::wstring& url);
-    bool ConsumeAllowExternalNewWindow();
-    bool HasWindowHandle() const noexcept;
-
 private:
     std::atomic<long> m_refCount;
     DWORD m_bandId = 0;
@@ -179,7 +173,6 @@ private:
     std::wstring GetTabPath(TabLocation location) const;
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
-    std::optional<TabLocation> AddTabsForTargets(std::vector<UniquePidl> targets);
     void QueueNavigateTo(TabLocation location);
     void ScheduleColorizerRefresh();
     void ScheduleGitStatusEnable();

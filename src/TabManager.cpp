@@ -12,14 +12,6 @@ namespace shelltabs {
 
 namespace {
 constexpr wchar_t kDefaultGroupNamePrefix[] = L"Island ";
-constexpr size_t kMaxTabLabelLength = 35;
-
-std::wstring TruncateTabLabel(const std::wstring& name) {
-    if (name.size() <= kMaxTabLabelLength) {
-        return name;
-    }
-    return name.substr(0, kMaxTabLabelLength);
-}
 
 COLORREF BlendColors(COLORREF a, COLORREF b) {
     const int r = (GetRValue(a) + GetRValue(b)) / 2;
@@ -458,7 +450,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             TabViewItem item;
             item.type = TabViewItemType::kTab;
             item.location = {static_cast<int>(g), static_cast<int>(t)};
-            item.name = TruncateTabLabel(tab.name);
+            item.name = tab.name;
             item.tooltip = tab.tooltip.empty() ? tab.name : tab.tooltip;
             item.pidl = tab.pidl.get();
             item.selected = (m_selectedGroup == static_cast<int>(g) && m_selectedTab == static_cast<int>(t));
