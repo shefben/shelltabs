@@ -88,7 +88,6 @@ private:
     bool PaintToolbarBackground(HWND hwnd, HDC dc) const;
     bool ShouldUpdateThemeForSettingChange(LPARAM lParam) const;
     bool ExplorerHostPrefersDarkMode() const;
-    bool ExplorerThemeAppearsDark() const;
     bool IsDarkModePreferred() const;
     bool IsAmbientDark() const;
     void RegisterDropTarget();
@@ -202,7 +201,6 @@ private:
 
     ToolbarTheme m_theme{};
     bool m_darkModeEnabled = false;
-    bool m_darkAncestorsApplied = false;
     DragState m_dragState{};
     bool m_ignoreNextCommand = false;
     int m_ignoredCommandId = -1;
