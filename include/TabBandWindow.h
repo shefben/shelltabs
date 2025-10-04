@@ -182,6 +182,8 @@ private:
     static LRESULT CALLBACK RebarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                               UINT_PTR id, DWORD_PTR refData);
     void EnsureToolbarZOrder();
+    void UpdateRebarColors();
+	void AdjustBandHeightToRow();
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
     bool HandleMouseDown(const POINT& pt);
