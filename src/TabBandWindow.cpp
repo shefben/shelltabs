@@ -42,7 +42,8 @@ constexpr UINT kExplorerMenuLastCommand = kExplorerMenuFirstCommand + 0x03FF;
 constexpr BYTE kDragImageAlpha = 200;
 constexpr int kGroupIndicatorPixelWidth = 5;
 constexpr int kGroupIndicatorSpacingPixels = 4;
-constexpr size_t kMaxTabCaptionCharacters = 25;
+constexpr size_t kMaxTabCaptionCharacters = 256;
+constexpr int kMaxTabWidthDips = 360;
 constexpr UINT kTabButtonStyle = BTNS_BUTTON | BTNS_SHOWTEXT | BTNS_CHECKGROUP | BTNS_FIXEDSIZE;
 
 enum class PreferredAppMode {
@@ -589,8 +590,9 @@ void TabBandWindow::RebuildToolbar() {
             button.fsState = TBSTATE_ENABLED;
             button.iBitmap = I_IMAGENONE;
             button.dwData = static_cast<DWORD_PTR>(index);
-            button.iString = static_cast<INT_PTR>(SendMessageW(m_toolbar, TB_ADDSTRINGW, 0,
-                                                               reinterpret_cast<LPARAM>(item.name.c_str())));
+            const wchar_t* headerText = item.headerVisible ? item.name.c_str() : L"";
+            button.iString = static_cast<INT_PTR>(
+                SendMessageW(m_toolbar, TB_ADDSTRINGW, 0, reinterpret_cast<LPARAM>(headerText)));
             buttons.push_back(button);
             m_commandToIndex[commandId] = index;
             const int width = CalculateGroupHeaderWidth(item);
@@ -1017,7 +1019,9 @@ void TabBandWindow::HandleMouseMove(const POINT& screenPt) {
             m_ignoreNextCommand = true;
             m_ignoredCommandId = m_dragState.commandId;
             if (m_toolbar) {
+                m_dragState.suppressCancel = true;
                 SendMessageW(m_toolbar, WM_CANCELMODE, 0, 0);
+                m_dragState.suppressCancel = false;
                 SendMessageW(m_toolbar, TB_SETHOTITEM, static_cast<WPARAM>(-1), 0);
             }
             StartDragVisual(screenPt);
@@ -1415,6 +1419,9 @@ void TabBandWindow::EndDrag(const POINT& screenPt, bool canceled) {
 }
 
 void TabBandWindow::CancelDrag() {
+    if (m_dragState.suppressCancel) {
+        return;
+    }
     if (!m_toolbar) {
         ResetCloseTracking();
         return;
@@ -1944,9 +1951,16 @@ bool TabBandWindow::TryHandleCloseClick(const POINT& screenPt) {
 }
 
 std::wstring TabBandWindow::DisplayLabelForItem(const TabViewItem& item) const {
-    if (item.type != TabViewItemType::kTab || item.name.size() <= kMaxTabCaptionCharacters) {
+    if (item.type == TabViewItemType::kGroupHeader) {
+        if (!item.headerVisible) {
+            return {};
+        }
+    }
+
+    if (item.name.size() <= kMaxTabCaptionCharacters) {
         return item.name;
     }
+
     std::wstring trimmed = item.name.substr(0, kMaxTabCaptionCharacters);
     return trimmed;
 }
@@ -2006,17 +2020,19 @@ int TabBandWindow::CalculateTabButtonWidth(const TabViewItem& item) const {
     width += padding;  // right padding
 
     const int minWidth = MulDiv(80, static_cast<int>(dpi), 96);
-    return std::max(width, minWidth);
+    const int maxWidth = MulDiv(kMaxTabWidthDips, static_cast<int>(dpi), 96);
+    width = std::max(width, minWidth);
+    if (maxWidth > 0) {
+        width = std::min(width, maxWidth);
+    }
+    return width;
 }
 
 int TabBandWindow::CalculateGroupHeaderWidth(const TabViewItem& item) const {
     const int indicatorWidth = GroupIndicatorVisualWidth();
 
     if (!item.headerVisible) {
-        if (item.collapsed) {
-            return indicatorWidth;
-        }
-        return indicatorWidth + GroupIndicatorSpacing();
+        return indicatorWidth;
     }
 
     const UINT dpi = CurrentDpi();

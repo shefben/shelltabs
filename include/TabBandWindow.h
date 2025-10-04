@@ -141,6 +141,7 @@ private:
         HIMAGELIST dragImage = nullptr;
         bool dragImageVisible = false;
         HWND dragImageWindow = nullptr;
+        bool suppressCancel = false;
     };
 
     struct CloseButtonState {
