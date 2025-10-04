@@ -159,6 +159,17 @@ COLORREF GetSystemAccentColor() {
     return GetSysColor(COLOR_HIGHLIGHT);
 }
 
+double RelativeLuminance(COLORREF color) {
+    const double r = static_cast<double>(GetRValue(color)) / 255.0;
+    const double g = static_cast<double>(GetGValue(color)) / 255.0;
+    const double b = static_cast<double>(GetBValue(color)) / 255.0;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+bool IsDarkColor(COLORREF color) {
+    return RelativeLuminance(color) < 0.5;
+}
+
 int ToolbarHitTest(HWND toolbar, POINT pt) {
     if (!toolbar) {
         return -1;
@@ -2716,20 +2727,19 @@ void TabBandWindow::UpdateTheme() {
 void TabBandWindow::ApplyThemeToToolbar() {
     const wchar_t* themeName = m_darkModeEnabled ? L"DarkMode_Explorer" : L"Explorer";
     auto& themeApi = GetThemeApi();
+    const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
     if (m_hwnd) {
         SetWindowTheme(m_hwnd, themeName, nullptr);
         if (themeApi.allowDarkModeForWindow) {
-            themeApi.allowDarkModeForWindow(m_hwnd, m_darkModeEnabled ? TRUE : FALSE);
+            themeApi.allowDarkModeForWindow(m_hwnd, useDark);
         }
-        const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
         DwmSetWindowAttribute(m_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
     }
     if (m_toolbar) {
         SetWindowTheme(m_toolbar, themeName, nullptr);
         if (themeApi.allowDarkModeForWindow) {
-            themeApi.allowDarkModeForWindow(m_toolbar, m_darkModeEnabled ? TRUE : FALSE);
+            themeApi.allowDarkModeForWindow(m_toolbar, useDark);
         }
-        const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
         DwmSetWindowAttribute(m_toolbar, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
     }
 
@@ -2737,30 +2747,34 @@ void TabBandWindow::ApplyThemeToToolbar() {
 }
 
 void TabBandWindow::ApplyThemeToRibbonAncestors() {
-    const wchar_t* themeName = m_darkModeEnabled ? L"DarkMode_Explorer" : L"Explorer";
     auto& themeApi = GetThemeApi();
-    const BOOL useDark = m_darkModeEnabled ? TRUE : FALSE;
 
-    auto applyTheme = [&](HWND target) {
+    auto applyDark = [&](HWND target) {
         if (!target) {
             return;
         }
-        SetWindowTheme(target, themeName, nullptr);
+        SetWindowTheme(target, L"DarkMode_Explorer", nullptr);
         if (themeApi.allowDarkModeForWindow) {
-            themeApi.allowDarkModeForWindow(target, useDark);
+            themeApi.allowDarkModeForWindow(target, TRUE);
         }
-        DwmSetWindowAttribute(target, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
+        const BOOL dark = TRUE;
+        DwmSetWindowAttribute(target, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+    };
+
+    auto clearTheme = [&](HWND target) {
+        if (!target) {
+            return;
+        }
+        SetWindowTheme(target, nullptr, nullptr);
+        if (themeApi.allowDarkModeForWindow) {
+            themeApi.allowDarkModeForWindow(target, FALSE);
+        }
+        const BOOL dark = FALSE;
+        DwmSetWindowAttribute(target, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     };
 
     HWND host = m_hwnd ? GetParent(m_hwnd) : nullptr;
-    applyTheme(host);
-
     HWND root = host ? GetAncestor(host, GA_ROOT) : (m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr);
-    applyTheme(root);
-
-    if (!root) {
-        return;
-    }
 
     const std::array<const wchar_t*, 5> ribbonClasses = {
         L"UIRibbonCommandBarDock",
@@ -2770,11 +2784,30 @@ void TabBandWindow::ApplyThemeToRibbonAncestors() {
         L"ReBarWindow32",
     };
 
-    for (const auto* className : ribbonClasses) {
-        HWND child = nullptr;
-        while ((child = FindWindowExW(root, child, className, nullptr)) != nullptr) {
-            applyTheme(child);
+    if (m_darkModeEnabled) {
+        applyDark(host);
+        applyDark(root);
+        if (root) {
+            for (const auto* className : ribbonClasses) {
+                HWND child = nullptr;
+                while ((child = FindWindowExW(root, child, className, nullptr)) != nullptr) {
+                    applyDark(child);
+                }
+            }
         }
+        m_darkAncestorsApplied = true;
+    } else if (m_darkAncestorsApplied) {
+        clearTheme(host);
+        clearTheme(root);
+        if (root) {
+            for (const auto* className : ribbonClasses) {
+                HWND child = nullptr;
+                while ((child = FindWindowExW(root, child, className, nullptr)) != nullptr) {
+                    clearTheme(child);
+                }
+            }
+        }
+        m_darkAncestorsApplied = false;
     }
 }
 
@@ -2891,6 +2924,46 @@ bool TabBandWindow::ExplorerHostPrefersDarkMode() const {
     return false;
 }
 
+bool TabBandWindow::ExplorerThemeAppearsDark() const {
+    if (!m_hwnd || !IsThemeActive()) {
+        return false;
+    }
+
+    const std::array<HWND, 3> targets = {m_hwnd, GetParent(m_hwnd),
+                                         m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr};
+
+    for (HWND target : targets) {
+        if (!target) {
+            continue;
+        }
+        HTHEME theme = OpenThemeData(target, L"Rebar");
+        if (!theme) {
+            continue;
+        }
+
+        COLORREF fill = 0;
+        const HRESULT result = GetThemeColor(theme, RP_BAND, 0, TMT_FILLCOLOR, &fill);
+        CloseThemeData(theme);
+        if (SUCCEEDED(result) && IsDarkColor(fill)) {
+            return true;
+        }
+    }
+
+    if (m_toolbar) {
+        HTHEME theme = OpenThemeData(m_toolbar, L"Toolbar");
+        if (theme) {
+            COLORREF fill = 0;
+            const HRESULT result = GetThemeColor(theme, TP_BUTTON, TS_NORMAL, TMT_FILLCOLOR, &fill);
+            CloseThemeData(theme);
+            if (SUCCEEDED(result) && IsDarkColor(fill)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 bool TabBandWindow::IsDarkModePreferred() const {
     auto& themeApi = GetThemeApi();
     if (themeApi.shouldAppsUseDarkMode) {
@@ -2898,6 +2971,9 @@ bool TabBandWindow::IsDarkModePreferred() const {
             return true;
         }
         if (ExplorerHostPrefersDarkMode()) {
+            return true;
+        }
+        if (ExplorerThemeAppearsDark()) {
             return true;
         }
         return IsAmbientDark();
@@ -2913,9 +2989,15 @@ bool TabBandWindow::IsDarkModePreferred() const {
         if (ExplorerHostPrefersDarkMode()) {
             return true;
         }
+        if (ExplorerThemeAppearsDark()) {
+            return true;
+        }
         return IsAmbientDark();
     }
     if (ExplorerHostPrefersDarkMode()) {
+        return true;
+    }
+    if (ExplorerThemeAppearsDark()) {
         return true;
     }
     return IsAmbientDark();
@@ -2927,11 +3009,7 @@ bool TabBandWindow::IsAmbientDark() const {
     double luminanceSum = 0.0;
     int count = 0;
     for (COLORREF color : candidates) {
-        const double r = static_cast<double>(GetRValue(color)) / 255.0;
-        const double g = static_cast<double>(GetGValue(color)) / 255.0;
-        const double b = static_cast<double>(GetBValue(color)) / 255.0;
-        const double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        luminanceSum += luminance;
+        luminanceSum += RelativeLuminance(color);
         ++count;
     }
     if (count == 0) {
@@ -2973,7 +3051,7 @@ TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
         theme.separator = theme.border;
     }
 
-    if (!darkMode && IsThemeActive()) {
+    if (IsThemeActive()) {
         if (m_toolbar) {
             HTHEME toolbarTheme = OpenThemeData(m_toolbar, L"Toolbar");
             if (toolbarTheme) {
@@ -3003,22 +3081,30 @@ TabBandWindow::ToolbarTheme TabBandWindow::CalculateTheme(bool darkMode) const {
             }
         }
 
-        if (m_hwnd) {
-            HTHEME rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
-            if (rebarTheme) {
-                COLORREF color = 0;
-                if (SUCCEEDED(GetThemeColor(rebarTheme, RP_BAND, 0, TMT_FILLCOLOR, &color))) {
-                    theme.groupHeaderBackground = color;
-                    theme.background = color;
-                }
-                if (SUCCEEDED(GetThemeColor(rebarTheme, RP_BAND, 0, TMT_TEXTCOLOR, &color))) {
-                    theme.groupHeaderText = color;
-                }
-                if (SUCCEEDED(GetThemeColor(rebarTheme, RP_BAND, 0, TMT_BORDERCOLOR, &color))) {
-                    theme.border = color;
-                    theme.separator = color;
-                }
-                CloseThemeData(rebarTheme);
+        const std::array<HWND, 2> rebarTargets = {m_hwnd, m_hwnd ? GetParent(m_hwnd) : nullptr};
+        for (HWND target : rebarTargets) {
+            if (!target) {
+                continue;
+            }
+            HTHEME rebarTheme = OpenThemeData(target, L"Rebar");
+            if (!rebarTheme) {
+                continue;
+            }
+            COLORREF color = 0;
+            if (SUCCEEDED(GetThemeColor(rebarTheme, RP_BAND, 0, TMT_FILLCOLOR, &color))) {
+                theme.groupHeaderBackground = color;
+                theme.background = color;
+            }
+            if (SUCCEEDED(GetThemeColor(rebarTheme, RP_BAND, 0, TMT_TEXTCOLOR, &color))) {
+                theme.groupHeaderText = color;
+            }
+            if (SUCCEEDED(GetThemeColor(rebarTheme, RP_BAND, 0, TMT_BORDERCOLOR, &color))) {
+                theme.border = color;
+                theme.separator = color;
+            }
+            CloseThemeData(rebarTheme);
+            if (IsDarkColor(theme.background) || target == m_hwnd) {
+                break;
             }
         }
     }
