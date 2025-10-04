@@ -152,8 +152,13 @@ private:
     size_t m_hotCloseIndex = std::numeric_limits<size_t>::max();
     bool m_mouseTracking = false;
     int m_rebarBandIndex = -1;
-    bool m_rebarSubclassed = false;
     bool m_rebarZOrderTop = false;
+	// Rebar background control
+	void InstallRebarDarkSubclass();
+	static LRESULT CALLBACK RebarSubclassProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+
+	// track if we've installed the subclass
+	bool m_rebarSubclassed = false;
 
     void Layout(int width, int height);
     void RebuildLayout();
@@ -179,11 +184,10 @@ private:
     static bool IsRebarWindow(HWND hwnd);
     bool DrawRebarBackground(HDC dc, const RECT& bounds) const;
     void OnParentRebarMetricsChanged();
-    static LRESULT CALLBACK RebarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                              UINT_PTR id, DWORD_PTR refData);
     void EnsureToolbarZOrder();
     void UpdateRebarColors();
 	void AdjustBandHeightToRow();
+    bool BandHasRebarGrip() const;
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
     bool HandleMouseDown(const POINT& pt);

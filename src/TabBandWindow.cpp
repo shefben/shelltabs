@@ -300,7 +300,7 @@ HWND TabBandWindow::Create(HWND parent) {
     }
 
     WNDCLASSW wc{};
-    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.style = 0;
     wc.lpfnWndProc = TabBandWindow::WndProc;
     wc.hInstance = GetModuleHandleInstance();
     wc.lpszClassName = kWindowClassName;
@@ -362,7 +362,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     ClearExplorerContext();
     RebuildLayout();
     if (m_hwnd) {
-        InvalidateRect(m_hwnd, nullptr, TRUE);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
 
@@ -402,7 +402,7 @@ void TabBandWindow::Layout(int width, int height) {
 
     m_clientRect.right = std::max(0, buttonX - kButtonMargin);
     RebuildLayout();
-    InvalidateRect(m_hwnd, nullptr, TRUE);
+    InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void TabBandWindow::RebuildLayout() {
@@ -577,7 +577,6 @@ void TabBandWindow::RebuildLayout() {
     ReleaseDC(m_hwnd, dc);
 }
 
-// Add near ApplyImmersiveDarkMode:
 static bool QueryUserDarkMode() {
 	// Win10/11: HKCU\...\Personalize\AppsUseLightTheme (0=dark, 1=light)
 	// Win7/8: key/value not present -> treat as light (false).
@@ -590,48 +589,35 @@ static bool QueryUserDarkMode() {
 	return false; // legacy OS: no dark mode
 }
 
-static void ApplyDarkToHostRebar(HWND rebarHwnd, bool enabled) {
-	if (!rebarHwnd) return;
-
-	// Don’t force Explorer/DarkMode_Explorer resources; let our colors win.
-	SetWindowTheme(rebarHwnd, nullptr, nullptr);
-
-	// Hint DWM about dark captions/borders on Win10/11; no-op on Win7/8.
-	ApplyImmersiveDarkMode(rebarHwnd, enabled);
-
-	SendMessageW(rebarHwnd, WM_THEMECHANGED, 0, 0);
-	InvalidateRect(rebarHwnd, nullptr, TRUE);
+bool TabBandWindow::BandHasRebarGrip() const {
+	if (!m_parentRebar || m_rebarBandIndex < 0) return false;
+	REBARBANDINFOW bi{ sizeof(bi) };
+	bi.fMask = RBBIM_STYLE;
+	if (!SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&bi)))
+		return false;
+	const bool noGrip = (bi.fStyle & RBBS_NOGRIPPER) != 0;
+	const bool always = (bi.fStyle & RBBS_GRIPPERALWAYS) != 0;
+	return !noGrip && always;
 }
 
-
-// TabBandWindow.cpp
 void TabBandWindow::UpdateRebarColors() {
 	if (!m_parentRebar || !IsWindow(m_parentRebar)) return;
 
-	// 1) Bar-wide background (fills margins, right-side slack, etc.)
-	const COLORREF barBk = m_darkMode ? m_themePalette.rebarBackground : CLR_NONE; // CLR_NONE = default
-	SendMessageW(m_parentRebar, RB_SETBKCOLOR, 0, static_cast<LPARAM>(barBk));
-
-	// 2) Per-band background so each band matches.
-	const int bandCount = static_cast<int>(SendMessageW(m_parentRebar, RB_GETBANDCOUNT, 0, 0));
-	for (int i = 0; i < bandCount; ++i) {
+	// Revert to defaults so bands are transparent to the bar we paint.
+	// Do NOT set RB_SETBKCOLOR or a custom COLORSCHEME in dark;
+	// themed rebars ignore parts of it and it triggers extra invalidation.
+	const int count = (int)SendMessageW(m_parentRebar, RB_GETBANDCOUNT, 0, 0);
+	for (int i = 0; i < count; ++i) {
 		REBARBANDINFOW bi{ sizeof(bi) };
 		bi.fMask = RBBIM_COLORS;
+		bi.clrBack = CLR_DEFAULT; // transparent to bar
 		bi.clrFore = CLR_DEFAULT;
-		bi.clrBack = m_darkMode ? m_themePalette.rebarBackground : CLR_DEFAULT;
-		SendMessageW(m_parentRebar, RB_SETBANDINFO, i, reinterpret_cast<LPARAM>(&bi));
+		SendMessageW(m_parentRebar, RB_SETBANDINFO, i, (LPARAM)&bi);
 	}
 
-	// 3) Optional: darken the edge tints a bit so it doesn’t glow.
-	COLORSCHEME cs{};
-	cs.dwSize = sizeof(cs);
-	cs.clrBtnHighlight = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(255, 255, 255), 0.10) : CLR_DEFAULT;
-	cs.clrBtnShadow = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(0, 0, 0), 0.45) : CLR_DEFAULT;
-	SendMessageW(m_parentRebar, RB_SETCOLORSCHEME, 0, reinterpret_cast<LPARAM>(&cs));
-
-	RedrawWindow(m_parentRebar, nullptr, nullptr,
-		RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+	RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
 }
+
 
 void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 	if (!dc) return;
@@ -691,11 +677,10 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 
 	const int bandWidth = static_cast<int>(bounds.right - bounds.left);
 	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-	if (m_rebarTheme && gripWidth > 0) {
+	if (m_rebarTheme && gripWidth > 0 && !BandHasRebarGrip()) {
 		RECT gripRect{ bounds.left, bounds.top, bounds.left + gripWidth, bounds.bottom };
 		if (gripRect.right > gripRect.left) {
-			HRESULT gripResult = DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPER, 0, &gripRect, nullptr);
-			if (FAILED(gripResult)) {
+			if (FAILED(DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPER, 0, &gripRect, nullptr))) {
 				DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPERVERT, 0, &gripRect, nullptr);
 			}
 		}
@@ -975,47 +960,85 @@ void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& o
     }
 }
 
+// TabBandWindow.cpp
+LRESULT CALLBACK TabBandWindow::RebarSubclassProc(HWND hwnd, UINT msg,
+	WPARAM wParam, LPARAM lParam, UINT_PTR /*id*/, DWORD_PTR refData) {
+	auto* self = reinterpret_cast<TabBandWindow*>(refData);
+	switch (msg) {
+	case WM_ERASEBKGND: {
+		if (!self) return 1;
+		HDC hdc = reinterpret_cast<HDC>(wParam);
+		if (!hdc) return 1;
+		RECT rc{}; GetClientRect(hwnd, &rc);
+		HBRUSH br = CreateSolidBrush(self->m_themePalette.rebarBackground);
+		if (br) { FillRect(hdc, &rc, br); DeleteObject(br); }
+		return 1; // handled; prevents bright erase
+	}
+	case WM_PRINTCLIENT: {
+		// Some children ask the rebar to paint its bg via WM_PRINTCLIENT
+		if (!self) break;
+		HDC hdc = reinterpret_cast<HDC>(wParam);
+		if (hdc) {
+			RECT rc{}; GetClientRect(hwnd, &rc);
+			HBRUSH br = CreateSolidBrush(self->m_themePalette.rebarBackground);
+			if (br) { FillRect(hdc, &rc, br); DeleteObject(br); }
+		}
+		break; // let children continue drawing
+	}
+	case WM_NCDESTROY:
+		RemoveWindowSubclass(hwnd, RebarSubclassProc, 0);
+		if (self) self->m_rebarSubclassed = false;
+		break;
+	}
+	return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void TabBandWindow::InstallRebarDarkSubclass() {
+	if (!m_parentRebar || !IsWindow(m_parentRebar) || m_rebarSubclassed) return;
+
+	// Keep Explorer's theme resources; we only overpaint the bg.
+	SetWindowTheme(m_parentRebar, L"Explorer", nullptr);  // was nullptr, which destabilized the band site
+	ApplyImmersiveDarkMode(m_parentRebar, m_darkMode);
+
+	if (SetWindowSubclass(m_parentRebar, RebarSubclassProc, 0,
+		reinterpret_cast<DWORD_PTR>(this))) {
+		m_rebarSubclassed = true;
+		// Gentle repaint: no frame, no children, and no erase
+		RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
+	}
+}
+
+// TabBandWindow.cpp
 void TabBandWindow::AdjustBandHeightToRow() {
 	if (!m_parentRebar || !IsWindow(m_parentRebar)) return;
 	if (m_rebarBandIndex < 0) m_rebarBandIndex = FindRebarBandIndex();
 	if (m_rebarBandIndex < 0) return;
 
-	// How tall do we want? Use the current rebar row height, not our last layout guess.
-	RECT rbClient{};
-	GetClientRect(m_parentRebar, &rbClient);
+	RECT r{};
+	if (!SendMessageW(m_parentRebar, RB_GETRECT, m_rebarBandIndex, (LPARAM)&r))
+		GetClientRect(m_parentRebar, &r);
 
-	// Ask the rebar how tall our band currently is.
-	RECT bandRect{};
-	if (!SendMessageW(m_parentRebar, RB_GETRECT, m_rebarBandIndex, reinterpret_cast<LPARAM>(&bandRect))) {
-		bandRect = rbClient;
-	}
-	const int rowHeight = std::max(0, bandRect.bottom - bandRect.top);
-	const int desired = std::max(rowHeight, std::max(24, m_clientRect.bottom - m_clientRect.top));
+	const LONG row = r.bottom - r.top;
+	const int  h = (int)std::max<LONG>(row, 24L);
 
-	// Lock the band height to the row height so there’s no slack below our child.
 	REBARBANDINFOW bi{ sizeof(bi) };
 	bi.fMask = RBBIM_CHILDSIZE | RBBIM_STYLE;
-	bi.cyChild = desired;
-	bi.cyMinChild = desired;
+	bi.cyChild = h;
+	bi.cyMinChild = h;
 	bi.cyIntegral = 1;
 
-	// Don’t draw a bright etched edge in dark; keep it in light.
+	// Only show etched child edge in light; looks wrong in dark.
 	REBARBANDINFOW cur{ sizeof(cur) };
 	cur.fMask = RBBIM_STYLE;
-	if (SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&cur))) {
+	if (SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex, (LPARAM)&cur)) {
 		DWORD st = cur.fStyle;
 		if (m_darkMode) st &= ~RBBS_CHILDEDGE; else st |= RBBS_CHILDEDGE;
 		bi.fStyle = st;
 	}
-
-	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&bi));
-
-	// Ensure the band expands to its row so no bar area remains visible under it.
+	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, (LPARAM)&bi);
 	SendMessageW(m_parentRebar, RB_MAXIMIZEBAND, m_rebarBandIndex, 0);
-
-	// And make the rebar repaint without an erase to avoid flashing.
-	RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN);
 }
+
 
 
 void TabBandWindow::RefreshTheme() {
@@ -1027,7 +1050,7 @@ void TabBandWindow::RefreshTheme() {
 	m_toolbarGripWidth = kToolbarGripWidth;
 	if (!m_hwnd) { /* existing reset block unchanged */ return; }
 
-	SetWindowTheme(m_hwnd, L"Explorer", nullptr);
+	//SetWindowTheme(m_hwnd, L"Explorer", nullptr);
 	const bool darkMode = IsSystemDarkMode();
 	if (!m_windowDarkModeInitialized || darkMode != m_windowDarkModeValue) {
 		ApplyImmersiveDarkMode(m_hwnd, darkMode);
@@ -1040,8 +1063,8 @@ void TabBandWindow::RefreshTheme() {
 	EnsureRebarIntegration();
     AdjustBandHeightToRow();
 	if (m_parentRebar) {
-		ApplyDarkToHostRebar(m_parentRebar, m_darkMode);
-		UpdateRebarColors();  // NEW
+        InstallRebarDarkSubclass();   // NEW: we own the bar bg now
+        UpdateRebarColors();  // NEW
 	}
 
 	UpdateAccentColor();
@@ -1053,6 +1076,8 @@ void TabBandWindow::RefreshTheme() {
 	UpdateToolbarMetrics();
 	UpdateNewTabButtonTheme();
 	RebuildLayout();
+	AdjustBandHeightToRow();
+
 }
 
 
@@ -1181,47 +1206,73 @@ void TabBandWindow::RefreshRebarMetrics() {
 	if (m_rebarBandIndex < 0) m_rebarBandIndex = FindRebarBandIndex();
 	if (m_rebarBandIndex < 0) return;
 
+	// 1) Ensure the band style shows ONE rebar grip, and drop the etched edge in dark mode.
 	REBARBANDINFOW info{ sizeof(info) };
 	info.fMask = RBBIM_STYLE | RBBIM_CHILD;
-	if (!SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&info))) return;
-
-// 	DWORD desiredStyle = info.fStyle;
-// 	if (desiredStyle & RBBS_NOGRIPPER) desiredStyle &= ~RBBS_NOGRIPPER;
-// 	if (!(desiredStyle & RBBS_GRIPPERALWAYS)) desiredStyle |= RBBS_GRIPPERALWAYS;
-// 	if (!(desiredStyle & RBBS_CHILDEDGE)) desiredStyle |= RBBS_CHILDEDGE;
-// 	if (desiredStyle != info.fStyle) {
-// 		REBARBANDINFOW styleInfo{ sizeof(styleInfo) };
-// 		styleInfo.fMask = RBBIM_STYLE;
-// 		styleInfo.fStyle = desiredStyle;
-// 		SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&styleInfo));
-// 	}
-	DWORD desiredStyle = info.fStyle;
-	desiredStyle &= ~RBBS_NOGRIPPER;
-	desiredStyle |= RBBS_GRIPPERALWAYS;
-
-	// Only use the etched child edge in light mode.
-	if (m_darkMode) desiredStyle &= ~RBBS_CHILDEDGE;
-	else            desiredStyle |= RBBS_CHILDEDGE;
-
-	if (desiredStyle != info.fStyle) {
-		REBARBANDINFOW styleInfo{ sizeof(styleInfo) };
-		styleInfo.fMask = RBBIM_STYLE;
-		styleInfo.fStyle = desiredStyle;
-		SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&styleInfo));
+	if (!SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex,
+		reinterpret_cast<LPARAM>(&info))) {
+		return;
 	}
 
-	RECT borders{ 0,0,0,0 };
-	if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex, reinterpret_cast<LPARAM>(&borders))) {
-		const LONG candidate = std::max<LONG>(borders.left, 8L);
-		if (candidate > 0) m_toolbarGripWidth = candidate;
+	DWORD st = info.fStyle;
+	st &= ~RBBS_NOGRIPPER;      // allow a grip
+	st |= RBBS_GRIPPERALWAYS;  // and make it visible
+	if (m_darkMode) st &= ~RBBS_CHILDEDGE;
+	else            st |= RBBS_CHILDEDGE;
+
+	if (st != info.fStyle) {
+		REBARBANDINFOW s{ sizeof(s) };
+		s.fMask = RBBIM_STYLE;
+		s.fStyle = st;
+		SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex,
+			reinterpret_cast<LPARAM>(&s));
 	}
 
-	// Set band colors: explicit dark back when in dark mode; default otherwise.
+	// 2) Compute the actual grip/left-border width so tab layout starts AFTER the dots.
+	RECT borders{ 0, 0, 0, 0 };
+	LONG rbGrip = 0;
+	if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex,
+		reinterpret_cast<LPARAM>(&borders))) {
+		rbGrip = borders.left;  // includes grip + left padding
+	}
+
+	LONG themeGrip = 0;
+	if (m_rebarTheme) {
+		HDC hdc = GetDC(m_parentRebar);
+		if (hdc) {
+			SIZE part{};
+			if (SUCCEEDED(GetThemePartSize(m_rebarTheme, hdc,
+				RP_GRIPPERVERT, 0, nullptr, TS_TRUE, &part))) {
+				themeGrip = part.cx;
+			}
+			ReleaseDC(m_parentRebar, hdc);
+		}
+	}
+
+	const LONG want = std::max(std::max(rbGrip, themeGrip), 8L); // tiny safety margin
+	m_toolbarGripWidth = static_cast<int>(want);
+
+	// 3) Colors: set bar-wide bk color and per-band bk so NO bright area remains.
+	const COLORREF barBk = m_themePalette.rebarBackground; // explicit, even in light
+	SendMessageW(m_parentRebar, RB_SETBKCOLOR, 0, static_cast<LPARAM>(barBk));
+
 	REBARBANDINFOW colorInfo{ sizeof(colorInfo) };
 	colorInfo.fMask = RBBIM_COLORS;
 	colorInfo.clrFore = CLR_DEFAULT;
-	colorInfo.clrBack = m_darkMode ? m_themePalette.rebarBackground : CLR_DEFAULT;
-	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&colorInfo));
+	colorInfo.clrBack = barBk;
+	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex,
+		reinterpret_cast<LPARAM>(&colorInfo));
+
+	// Tone down etched highlights so the bar doesn't glow in dark mode.
+	COLORSCHEME cs{};
+	cs.dwSize = sizeof(cs);
+	cs.clrBtnHighlight = m_darkMode ? barBk : CLR_DEFAULT;
+	cs.clrBtnShadow = m_darkMode ? barBk : CLR_DEFAULT;
+	SendMessageW(m_parentRebar, RB_SETCOLORSCHEME, 0, reinterpret_cast<LPARAM>(&cs));
+
+	// Repaint without forcing an erase (prevents flicker).
+	RedrawWindow(m_parentRebar, nullptr, nullptr,
+		RDW_INVALIDATE | RDW_FRAME );
 }
 
 
@@ -1233,8 +1284,8 @@ void TabBandWindow::EnsureRebarIntegration() {
 		m_parentRebar = parent;
 		m_rebarBandIndex = -1;
 		if (m_parentRebar) {
-			ApplyDarkToHostRebar(m_parentRebar, m_darkMode);
-			UpdateRebarColors();  // NEW
+            InstallRebarDarkSubclass();   // NEW: we own the bar bg now
+            UpdateRebarColors();  // NEW
 		}
 	}
 
@@ -1243,8 +1294,8 @@ void TabBandWindow::EnsureRebarIntegration() {
 	const int index = FindRebarBandIndex();
 	if (index >= 0) {
 		m_rebarBandIndex = index;
-		RefreshRebarMetrics();
         AdjustBandHeightToRow();
+		RefreshRebarMetrics();
 	}
 }
 
@@ -1316,14 +1367,14 @@ void TabBandWindow::UpdateNewTabButtonTheme() {
         m_buttonDarkModeValue = false;
         return;
     }
-    SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
+    //SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
     if (!m_buttonDarkModeInitialized || m_buttonDarkModeValue != m_darkMode) {
         ApplyImmersiveDarkMode(m_newTabButton, m_darkMode);
         m_buttonDarkModeInitialized = true;
         m_buttonDarkModeValue = m_darkMode;
     }
     SendMessageW(m_newTabButton, WM_SETFONT, reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
-    InvalidateRect(m_newTabButton, nullptr, TRUE);
+    InvalidateRect(m_newTabButton, nullptr, FALSE);
 }
 
 bool TabBandWindow::IsSystemDarkMode() const {
@@ -3003,7 +3054,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                                                        0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
                                                        GetModuleHandleInstance(), nullptr);
                 if (self->m_newTabButton) {
-                    SetWindowTheme(self->m_newTabButton, L"Explorer", nullptr);
+                    //SetWindowTheme(self->m_newTabButton, L"Explorer", nullptr);
                     ApplyImmersiveDarkMode(self->m_newTabButton, self->m_darkMode);
                     SendMessageW(self->m_newTabButton, WM_SETFONT,
                                  reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
@@ -3104,7 +3155,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->HandleFileDrop(reinterpret_cast<HDROP>(wParam));
                 return 0;
             }
-            case WM_THEMECHANGED:
+            //case WM_THEMECHANGED:
             case WM_SETTINGCHANGE:
             case WM_SYSCOLORCHANGE: {
                 self->RefreshTheme();
