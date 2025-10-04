@@ -87,6 +87,7 @@ private:
     bool PaintHostBackground(HDC dc) const;
     bool PaintToolbarBackground(HWND hwnd, HDC dc) const;
     bool ShouldUpdateThemeForSettingChange(LPARAM lParam) const;
+    bool ExplorerHostPrefersDarkMode() const;
     bool IsDarkModePreferred() const;
     bool IsAmbientDark() const;
     void RegisterDropTarget();
@@ -120,9 +121,14 @@ private:
     bool IsPointInCloseButton(int commandId, const POINT& screenPt, RECT* closeRectOut = nullptr) const;
     void ResetCloseTracking();
     void ResetCommandIgnore();
+    void CloseTabCommand(int commandId);
+    bool TryHandleCloseClick(const POINT& screenPt);
     int CalculateTabButtonWidth(const TabViewItem& item) const;
     int CalculateGroupHeaderWidth(const TabViewItem& item) const;
+    int MeasureTabTextWidth(const std::wstring& text) const;
     std::wstring DisplayLabelForItem(const TabViewItem& item) const;
+    void UpdateInsertMark(const POINT& screenPt);
+    void ClearInsertMark();
 
     struct DragState {
         bool tracking = false;
