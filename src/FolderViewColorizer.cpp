@@ -3,6 +3,7 @@
 #include <ShlObj.h>
 
 #include "Tagging.h"
+#include "FileColorOverrides.h"
 
 namespace shelltabs {
 namespace {
@@ -136,36 +137,39 @@ bool FolderViewColorizer::HandleNotify(NMHDR* header, LRESULT* result) {
     return HandleCustomDraw(customDraw, result);
 }
 
-bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result) {
-    if (!customDraw || !result) {
-        return false;
-    }
+bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) {
+	if (!cd || !result) return false;
 
-    switch (customDraw->nmcd.dwDrawStage) {
-        case CDDS_PREPAINT:
-            *result = CDRF_NOTIFYITEMDRAW;
-            return true;
-        case CDDS_ITEMPREPAINT: {
-            const int index = static_cast<int>(customDraw->nmcd.dwItemSpec);
-            std::wstring path;
-            if (!GetItemPath(index, &path)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
+	switch (cd->nmcd.dwDrawStage) {
+	case CDDS_PREPAINT:
+		*result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
+		return true;
 
-            COLORREF color = RGB(0, 0, 0);
-            if (TagStore::Instance().TryGetColorForPath(path, &color)) {
-                customDraw->clrText = color;
-            }
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-        default:
-            break;
-    }
-
-    return false;
+	case CDDS_ITEMPREPAINT:
+	case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
+		const int iItem = static_cast<int>(cd->nmcd.dwItemSpec);
+		std::wstring fullPath;
+		if (!GetItemPath(iItem, &fullPath)) {
+			*result = CDRF_DODEFAULT;
+			return true;
+		}
+		COLORREF chosen;
+		if (FileColorOverrides::Instance().TryGetColor(fullPath, &chosen)) {
+			if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
+				cd->clrText = chosen;
+				*result = CDRF_NEWFONT;
+				return true;
+			}
+		}
+		*result = CDRF_DODEFAULT;
+		return true;
+	}
+	default:
+		break;
+	}
+	return false;
 }
+
 
 bool FolderViewColorizer::GetItemPath(int index, std::wstring* path) const {
     if (!path || !m_folderView) {

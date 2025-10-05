@@ -3,7 +3,11 @@
 #endif
 #include "TabBandWindow.h"
 
+#include "FileColorOverrides.h"
+#include "NamespaceTreeColorizer.h"
+
 #include <algorithm>  // for 2-arg std::max/std::min
+#include <CommDlg.h>
 
 #include <cmath>
 #include <memory>
@@ -18,6 +22,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <ShlObj.h>
+#include <Shlwapi.h>
 #include <vsstyle.h>
 #include <vssym32.h>
 #include <winreg.h>
@@ -26,6 +31,9 @@
 #include "Module.h"
 #include "TabBand.h"
 #include "Utilities.h"
+
+#pragma comment(lib, "Shlwapi.lib")
+using Microsoft::WRL::ComPtr;
 
 namespace shelltabs {
 
@@ -394,6 +402,174 @@ void TabBandWindow::FocusTab() {
         SetFocus(m_hwnd);
     }
 }
+STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
+	if (!pUnkSite) {
+		m_siteSp.Reset();
+		RemoveRightPaneHook();
+		if (m_treeColorizer) m_treeColorizer->Detach();
+		return S_OK;
+	}
+
+	Microsoft::WRL::ComPtr<IServiceProvider> sp;
+	if (FAILED(pUnkSite->QueryInterface(IID_PPV_ARGS(&sp)))) {
+		return E_NOINTERFACE;
+	}
+
+	m_siteSp = sp;
+
+	// Hook both panes now
+	HookTreeColorizer();    // left tree
+	RehookOnViewChange();   // right file list
+
+	return S_OK;
+}
+STDMETHODIMP TabBandWindow::GetSite(REFIID riid, void** ppvSite) {
+	if (!ppvSite) return E_POINTER;
+	*ppvSite = nullptr;
+
+	if (!m_siteSp) return E_FAIL;
+
+	// Return the requested interface from the stored site.
+	return m_siteSp->QueryInterface(riid, ppvSite);
+}
+
+void TabBandWindow::HookTreeColorizer() {
+	if (!m_siteSp) return;
+	m_treeColorizer.reset(new NamespaceTreeColorizer());
+	m_treeColorizer->Attach(m_siteSp);
+}
+
+bool TabBandWindow::GetDefViewAndList(HWND* outDefView, HWND* outList) const {
+	if (outDefView) *outDefView = nullptr;
+	if (outList)    *outList = nullptr;
+	if (!m_siteSp) return false;
+
+	ComPtr<IShellBrowser> browser;
+	if (FAILED(m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser) return false;
+
+	ComPtr<IShellView> view;
+	if (FAILED(browser->QueryActiveShellView(&view)) || !view) return false;
+
+	HWND hwndView = nullptr;
+	if (FAILED(view->GetWindow(&hwndView)) || !IsWindow(hwndView)) return false;  // SHELLDLL_DefView
+	HWND hwndList = FindWindowExW(hwndView, nullptr, L"SysListView32", nullptr);
+	if (!IsWindow(hwndList)) return false;
+
+	if (outDefView) *outDefView = hwndView;
+	if (outList)    *outList = hwndList;
+	return true;
+}
+
+void TabBandWindow::InstallRightPaneHook() {
+	if (m_isSubclassed) return;
+
+	if (!GetDefViewAndList(&m_hwndDefView, &m_hwndList)) {
+		m_hwndDefView = nullptr; m_hwndList = nullptr;
+		return;
+	}
+	if (SetWindowSubclass(m_hwndDefView, &TabBandWindow::DefViewSubclassProc, 0xDBEFC01, reinterpret_cast<DWORD_PTR>(this))) {
+		m_isSubclassed = true;
+		InvalidateRect(m_hwndDefView, nullptr, FALSE);
+	}
+}
+
+void TabBandWindow::RemoveRightPaneHook() {
+	if (m_isSubclassed && m_hwndDefView && IsWindow(m_hwndDefView)) {
+		RemoveWindowSubclass(m_hwndDefView, &TabBandWindow::DefViewSubclassProc, 0xDBEFC01);
+	}
+	m_isSubclassed = false;
+	m_hwndDefView = nullptr;
+	m_hwndList = nullptr;
+}
+
+void TabBandWindow::RehookOnViewChange() {
+	RemoveRightPaneHook();
+	InstallRightPaneHook();
+}
+
+LRESULT CALLBACK TabBandWindow::DefViewSubclassProc(
+	HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+	UINT_PTR id, DWORD_PTR refData)
+{
+	auto* self = reinterpret_cast<TabBandWindow*>(refData);
+
+	switch (msg) {
+	case WM_NOTIFY: {
+		auto* hdr = reinterpret_cast<NMHDR*>(lParam);
+		if (!self || !hdr) break;
+		if (hdr->hwndFrom == self->m_hwndList && hdr->code == NM_CUSTOMDRAW) {
+			return self->OnListViewCustomDraw(reinterpret_cast<NMLVCUSTOMDRAW*>(lParam));
+		}
+		break;
+	}
+	case WM_NCDESTROY:
+		RemoveWindowSubclass(hwnd, &TabBandWindow::DefViewSubclassProc, id);
+		return DefSubclassProc(hwnd, msg, wParam, lParam);
+	default:
+		break;
+	}
+	return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT TabBandWindow::OnListViewCustomDraw(NMLVCUSTOMDRAW* cd) {
+	if (!cd) return CDRF_DODEFAULT;
+
+	switch (cd->nmcd.dwDrawStage) {
+	case CDDS_PREPAINT:
+		return CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
+
+	case CDDS_ITEMPREPAINT:
+	case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
+		const int iItem = static_cast<int>(cd->nmcd.dwItemSpec);
+
+		std::wstring fullPath;
+		if (GetItemAbsolutePathViaIFolderView2(iItem, fullPath)) {
+			COLORREF chosen;
+			if (FileColorOverrides::Instance().TryGetColor(fullPath, &chosen)) {
+				// Don’t fight selection/hot state; keep it readable.
+				if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
+					cd->clrText = chosen;
+					return CDRF_NEWFONT;
+				}
+			}
+		}
+		return CDRF_DODEFAULT;
+	}
+	default:
+		return CDRF_DODEFAULT;
+	}
+}
+
+bool TabBandWindow::GetItemAbsolutePathViaIFolderView2(int iItem, std::wstring& outPath) const {
+	if (!m_siteSp) return false;
+
+	using Microsoft::WRL::ComPtr;
+	ComPtr<IShellBrowser> browser;
+	if (FAILED(m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser) return false;
+
+	ComPtr<IShellView> view;
+	if (FAILED(browser->QueryActiveShellView(&view)) || !view) return false;
+
+	ComPtr<IFolderView> fv;
+	if (FAILED(view.As(&fv)) || !fv) return false;
+
+	ComPtr<IShellFolder> psf;
+	if (FAILED(fv->GetFolder(IID_PPV_ARGS(&psf))) || !psf) return false;
+
+	PITEMID_CHILD pidlChild = nullptr;
+	if (FAILED(fv->Item(iItem, &pidlChild)) || !pidlChild) return false;
+
+	Microsoft::WRL::ComPtr<IShellItem> psi;
+	if (FAILED(SHCreateItemWithParent(nullptr, psf.Get(), pidlChild, IID_PPV_ARGS(&psi))) || !psi) return false;
+
+	PWSTR p = nullptr;
+	if (FAILED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p)) || !p) return false;
+
+	outPath.assign(p);
+	CoTaskMemFree(p);
+	return true;
+}
+
 
 void TabBandWindow::Layout(int width, int height) {
     m_clientRect = {0, 0, width, height};
@@ -3131,6 +3307,10 @@ void TabBandWindow::PopulateSavedGroupsMenu(HMENU parent, bool addSeparator) {
     }
     AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(groupsMenu), L"Groups");
     AppendMenuW(parent, MF_STRING, IDM_CREATE_SAVED_GROUP, L"Create Saved Group...");
+	AppendMenuW(parent, MF_SEPARATOR, 0, nullptr);
+	AppendMenuW(parent, MF_STRING, ID_CMD_SET_NAME_COLOR, L"Change specific file or folder filename color...");
+	AppendMenuW(parent, MF_STRING, ID_CMD_CLEAR_NAME_COLOR, L"Clear filename color for selected");
+
 }
 
 int TabBandWindow::ResolveInsertGroupIndex() const {
@@ -3198,6 +3378,88 @@ const TabBandWindow::VisualItem* TabBandWindow::FindVisualForHit(const HitInfo& 
     }
     return nullptr;
 }
+bool TabBandWindow::PickColor(COLORREF* color) {
+	if (!color) return false;
+
+	static COLORREF custom[16] = {};
+	CHOOSECOLORW cc{ sizeof(cc) };
+	cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+	cc.lpCustColors = custom;
+	cc.rgbResult = *color;
+
+	// Give the dialog a real owner so it won't hide behind Explorer.
+	cc.hwndOwner = m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr;
+
+	if (!ChooseColorW(&cc)) return false;
+	*color = cc.rgbResult;
+	return true;
+}
+
+
+bool TabBandWindow::GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths) {
+	if (!outPaths || !m_siteSp) return false;
+
+	using Microsoft::WRL::ComPtr;
+
+	ComPtr<IShellBrowser> browser;
+	if (FAILED(m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser) return false;
+
+	ComPtr<IShellView> view;
+	if (FAILED(browser->QueryActiveShellView(&view)) || !view) return false;
+
+	ComPtr<IShellItemArray> array;
+	// canonical, SDK-stable way to get the selection
+	if (FAILED(view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&array))) || !array) return false;
+
+	DWORD count = 0;
+	if (FAILED(array->GetCount(&count)) || count == 0) return false;
+
+	outPaths->clear();
+	outPaths->reserve(count);
+
+	for (DWORD i = 0; i < count; ++i) {
+		ComPtr<IShellItem> psi;
+		if (SUCCEEDED(array->GetItemAt(i, &psi)) && psi) {
+			PWSTR p = nullptr;
+			if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) {
+				outPaths->emplace_back(p);
+				CoTaskMemFree(p);
+			}
+		}
+	}
+	return !outPaths->empty();
+}
+
+
+
+void TabBandWindow::ApplyColorToSelection(bool clear) {
+	std::vector<std::wstring> paths;
+	if (!GetSelectedShellItemPaths(&paths)) return;
+
+	if (clear) {
+		FileColorOverrides::Instance().ClearColor(paths);
+	}
+	else {
+		COLORREF c = RGB(255, 128, 0);
+		if (!PickColor(&c)) return;
+		FileColorOverrides::Instance().SetColor(paths, c);
+	}
+
+	// right pane: repaint the current folder view
+	if (m_hwndDefView) {
+		InvalidateRect(m_hwndDefView, nullptr, FALSE);
+		UpdateWindow(m_hwndDefView);
+	}
+
+	// left pane: rehook/refresh the namespace tree colorizer
+	if (m_treeColorizer) {
+		m_treeColorizer->Detach();
+		m_treeColorizer->Attach(m_siteSp);
+    }
+    // also kick our owner so its FolderViewColorizer re-resolves
+    PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
+}
+
 
 LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     TabBandWindow* self = reinterpret_cast<TabBandWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -3270,8 +3532,19 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 return fallback();
             }
             case WM_COMMAND: {
-                self->HandleCommand(wParam, lParam);
-                return 0;
+                switch (LOWORD(wParam)) {
+                case ID_CMD_SET_NAME_COLOR:
+                    self->ApplyColorToSelection(false);
+                    self->RehookOnViewChange();  // ensure repaint if view handle changed
+                    return 0;
+                case ID_CMD_CLEAR_NAME_COLOR:
+                    self->ApplyColorToSelection(true);
+                    self->RehookOnViewChange();
+                    return 0;
+                default:
+                    self->HandleCommand(wParam, lParam);
+                    return 0;
+                }
             }
             case WM_LBUTTONDOWN: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};

@@ -1,5 +1,12 @@
 #pragma once
 
+// Ensure Windows 7+ APIs so INamespaceTreeControlCustomDraw and NSTCCUSTOMDRAW::clrText are available.
+#undef _WIN32_WINNT
+#define _WIN32_WINNT 0x0601
+#include <sdkddkver.h>  // NTDDI_* macros
+#undef NTDDI_VERSION
+#define NTDDI_VERSION NTDDI_WIN7
+
 #include <windows.h>
 #include <uxtheme.h>
 
@@ -8,12 +15,19 @@
 #include <utility>
 #include <vector>
 
+#include <commctrl.h>
 #include <wrl/client.h>
+#include <shobjidl.h>
 
 #include "TabManager.h"
 
+
+constexpr UINT ID_CMD_SET_NAME_COLOR = 0x9001;
+constexpr UINT ID_CMD_CLEAR_NAME_COLOR = 0x9002;
+
 namespace shelltabs {
 
+class NamespaceTreeColorizer;
 class TabBand;
 
 class TabBandWindow {
@@ -25,7 +39,8 @@ public:
     void Destroy();
 
     HWND GetHwnd() const noexcept { return m_hwnd; }
-
+	STDMETHOD(SetSite)(IUnknown* pUnkSite);
+	STDMETHOD(GetSite)(REFIID riid, void** ppvSite);
     void Show(bool show);
     void SetTabs(const std::vector<TabViewItem>& items);
     bool HasFocus() const;
@@ -163,7 +178,39 @@ private:
 
 	// Render-time cache of empty-island "+" hit targets
 	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
+	// Site/browser for current Explorer window
+	Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
 
+	// Left pane helper
+	std::unique_ptr<NamespaceTreeColorizer> m_treeColorizer;
+
+	// Right pane hook state
+	HWND m_hwndDefView = nullptr;   // SHELLDLL_DefView
+	HWND m_hwndList = nullptr;   // SysListView32 under DefView
+	bool m_isSubclassed = false;
+
+	// Hook management
+	void HookTreeColorizer();               // left pane
+	void InstallRightPaneHook();            // right pane
+	void RemoveRightPaneHook();             // right pane teardown
+	void RehookOnViewChange();              // call after navigation/site changes
+
+	// Utilities
+	bool GetDefViewAndList(HWND* outDefView, HWND* outList) const;
+	bool GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths);
+	bool PickColor(COLORREF* color);
+	void ApplyColorToSelection(bool clear);
+
+	// DefView subclass proc
+	static LRESULT CALLBACK DefViewSubclassProc(
+		HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+		UINT_PTR id, DWORD_PTR refData);
+
+	// Custom draw handler called from the subclass proc
+	LRESULT OnListViewCustomDraw(NMLVCUSTOMDRAW* cd);
+
+	// Helper to get absolute path for item index
+	bool GetItemAbsolutePathViaIFolderView2(int iItem, std::wstring& outPath) const;
 	// Helpers
 	bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
 	void DrawEmptyIslandPluses(HDC dc) const;

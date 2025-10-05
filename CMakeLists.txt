@@ -4,6 +4,9 @@ project(ShellTabs LANGUAGES CXX RC)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+add_compile_definitions(_WIN32_WINNT=0x0601 NTDDI_VERSION=0x06010000)
+# Global for the whole project
+add_definitions(-D_WIN32_WINNT=0x0601 -DNTDDI_VERSION=0x06010000)
 
 add_library(ShellTabs SHARED
     src/dllmain.cpp
@@ -13,10 +16,12 @@ add_library(ShellTabs SHARED
     src/TabBand.cpp
     src/TabBandWindow.cpp
     src/TabManager.cpp
+    src/FileColorOverrides.cpp
     src/FolderViewColorizer.cpp
     src/BrowserEvents.cpp
     src/Guids.cpp
     src/Module.cpp
+    src/NamespaceTreeColorizer.cpp
     src/TagColumnProvider.cpp
     src/Tagging.cpp
     src/SessionStore.cpp
@@ -63,6 +68,7 @@ target_link_libraries(ShellTabs PRIVATE
     dwmapi
     advapi32
     pathcch
+    Shlwapi
 )
 
 set_target_properties(ShellTabs PROPERTIES
