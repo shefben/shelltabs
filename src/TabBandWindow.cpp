@@ -40,6 +40,12 @@ using Microsoft::WRL::ComPtr;
 namespace shelltabs {
 
 namespace {
+// Older Windows SDKs used by consumers of the project might not expose the
+// SID_SDataObject symbol (the service identifier for the current data object).
+// Define the GUID locally so the build remains compatible with those SDKs.
+constexpr GUID kSidDataObject = {0x000214e8, 0x0000, 0x0000,
+                                 {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
+
 const wchar_t kWindowClassName[] = L"ShellTabsBandWindow";
 constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
 constexpr int kButtonWidth = 22;
@@ -3433,7 +3439,7 @@ bool TabBandWindow::GetSelectedShellItemPaths(std::vector<std::wstring>* outPath
 
         if (!array) {
                 ComPtr<IDataObject> dataObject;
-                if (SUCCEEDED(m_siteSp->QueryService(SID_SDataObject, IID_PPV_ARGS(&dataObject))) && dataObject) {
+                if (SUCCEEDED(m_siteSp->QueryService(kSidDataObject, IID_PPV_ARGS(&dataObject))) && dataObject) {
                         array = BuildArrayFromDataObject(dataObject.Get());
                 }
         }
