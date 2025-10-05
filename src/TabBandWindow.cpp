@@ -22,6 +22,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <ShlObj.h>
+#include <shobjidl_core.h>
 #include <Shlwapi.h>
 #include <vsstyle.h>
 #include <vssym32.h>
@@ -3396,49 +3397,98 @@ bool TabBandWindow::PickColor(COLORREF* color) {
 }
 
 
+namespace {
+
+ComPtr<IShellItemArray> BuildArrayFromDataObject(IDataObject* dataObject) {
+    ComPtr<IShellItemArray> array;
+    if (!dataObject) {
+        return array;
+    }
+
+    if (FAILED(SHCreateShellItemArrayFromDataObject(dataObject, IID_PPV_ARGS(&array)))) {
+        array.Reset();
+    }
+
+    return array;
+}
+
+}  // namespace
+
 bool TabBandWindow::GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths) {
-	if (!outPaths || !m_siteSp) return false;
+        if (!outPaths || !m_siteSp) return false;
 
-	using Microsoft::WRL::ComPtr;
+        using Microsoft::WRL::ComPtr;
 
-	ComPtr<IShellBrowser> browser;
-	if (FAILED(m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser) return false;
+        ComPtr<IShellItemArray> array;
 
-	ComPtr<IShellView> view;
-	if (FAILED(browser->QueryActiveShellView(&view)) || !view) return false;
+        // Try to query the current folder view directly, which is more reliable
+        // when the shell view has focus or when the tab band temporarily steals it.
+        ComPtr<IFolderView2> folderView;
+        if (SUCCEEDED(m_siteSp->QueryService(SID_SFolderView, IID_PPV_ARGS(&folderView))) && folderView) {
+                if (FAILED(folderView->GetSelection(TRUE, &array)) || !array) {
+                        array.Reset();
+                }
+        }
 
-	ComPtr<IShellItemArray> array;
-	// canonical, SDK-stable way to get the selection
-	if (FAILED(view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&array))) || !array) return false;
+        if (!array) {
+                ComPtr<IDataObject> dataObject;
+                if (SUCCEEDED(m_siteSp->QueryService(SID_SDataObject, IID_PPV_ARGS(&dataObject))) && dataObject) {
+                        array = BuildArrayFromDataObject(dataObject.Get());
+                }
+        }
 
-	DWORD count = 0;
-	if (FAILED(array->GetCount(&count)) || count == 0) return false;
+        if (!array) {
+                ComPtr<IShellBrowser> browser;
+                if (FAILED(m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser) return false;
 
-	outPaths->clear();
-	outPaths->reserve(count);
+                ComPtr<IShellView> view;
+                if (FAILED(browser->QueryActiveShellView(&view)) || !view) return false;
 
-	for (DWORD i = 0; i < count; ++i) {
-		ComPtr<IShellItem> psi;
-		if (SUCCEEDED(array->GetItemAt(i, &psi)) && psi) {
-			PWSTR p = nullptr;
-			if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) {
-				outPaths->emplace_back(p);
-				CoTaskMemFree(p);
-			}
-		}
-	}
-	return !outPaths->empty();
+                // canonical, SDK-stable way to get the selection
+                if (FAILED(view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&array))) || !array) {
+                        ComPtr<IDataObject> dataObject;
+                        if (SUCCEEDED(view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&dataObject))) && dataObject) {
+                                array = BuildArrayFromDataObject(dataObject.Get());
+                        }
+                        if (!array) return false;
+                }
+        }
+
+        DWORD count = 0;
+        if (FAILED(array->GetCount(&count)) || count == 0) return false;
+
+        outPaths->clear();
+        outPaths->reserve(count);
+
+        for (DWORD i = 0; i < count; ++i) {
+                ComPtr<IShellItem> psi;
+                if (SUCCEEDED(array->GetItemAt(i, &psi)) && psi) {
+                        PWSTR p = nullptr;
+                        if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) {
+                                outPaths->emplace_back(p);
+                                CoTaskMemFree(p);
+                        }
+                }
+        }
+        return !outPaths->empty();
 }
 
 
 
 void TabBandWindow::ApplyColorToSelection(bool clear) {
-	std::vector<std::wstring> paths;
-	if (!GetSelectedShellItemPaths(&paths)) return;
+        std::vector<std::wstring> paths;
+        if (!GetSelectedShellItemPaths(&paths)) {
+                HWND owner = m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr;
+                MessageBoxW(owner ? owner : m_hwnd,
+                            L"Select at least one file or folder to change its filename color.",
+                            L"ShellTabs",
+                            MB_ICONINFORMATION | MB_OK);
+                return;
+        }
 
-	if (clear) {
-		FileColorOverrides::Instance().ClearColor(paths);
-	}
+        if (clear) {
+                FileColorOverrides::Instance().ClearColor(paths);
+        }
 	else {
 		COLORREF c = RGB(255, 128, 0);
 		if (!PickColor(&c)) return;
