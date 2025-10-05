@@ -1,6 +1,10 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "TabBandWindow.h"
 
-#include <algorithm>
+#include <algorithm>  // for 2-arg std::max/std::min
+
 #include <cmath>
 #include <memory>
 #include <mutex>
@@ -55,6 +59,11 @@ constexpr int kCloseButtonEdgePadding = 6;
 constexpr int kCloseButtonSpacing = 6;
 constexpr int kCloseButtonVerticalPadding = 3;
 constexpr int kDropPreviewOffset = 12;
+// Small placeholder for empty island content
+constexpr int kEmptyIslandMinWidth = 36; // enough space for a centered "+"
+constexpr int kEmptyPlusSize = 14; // glyph size
+constexpr int kEmptyPlusInset = 8;  // padding from indicator to the "+"
+
 const wchar_t kThemePreferenceKey[] =
 L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
@@ -411,11 +420,21 @@ void TabBandWindow::Layout(int width, int height) {
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
+void TabBandWindow::ClearVisualItems() {
+	m_items.clear();
+	m_drag = {};
+	m_contextHit = {};
+	m_emptyIslandPlusButtons.clear();  // <-- add this
+}
+
 void TabBandWindow::RebuildLayout() {
 	ClearVisualItems();
 	if (!m_hwnd) {
 		return;
 	}
+
+	// NEW: make sure any previous '+' targets are gone for a fresh layout
+	m_emptyIslandPlusButtons.clear();
 
 	RECT bounds = m_clientRect;
 	const int availableWidth = bounds.right - bounds.left;
@@ -435,7 +454,7 @@ void TabBandWindow::RebuildLayout() {
 
 	const int bandWidth = bounds.right - bounds.left;
 	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-	int x = bounds.left + gripWidth - 3;   // your offset stays unchanged
+	int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
 
 	// row layout
 	const int rowHeight = (bounds.bottom - bounds.top) - 4; // leave 2px top/bottom
@@ -443,13 +462,13 @@ void TabBandWindow::RebuildLayout() {
 	const int maxX = bounds.right;
 
 	int row = 0;
-	auto rowTop = [&](int r) { return startY + r * (rowHeight + 2); };
+	auto rowTop = [&](int r) { return startY + r * (rowHeight + kRowGap); };
 	auto rowBottom = [&](int r) { return rowTop(r) + rowHeight; };
 
 	auto try_wrap = [&]() {
 		if (row + 1 < 5) { // max 5 rows
 			row++;
-			x = bounds.left + gripWidth - 3;
+			x = bounds.left + gripWidth - 3;  // DO NOT TOUCH
 			return true;
 		}
 		return false;
@@ -487,13 +506,45 @@ void TabBandWindow::RebuildLayout() {
 				if (!try_wrap()) break;
 			}
 
+			// Emit the island's indicator handle
 			VisualItem visual;
 			visual.data = item;
 			visual.firstInGroup = true;
 			visual.collapsedPlaceholder = collapsed;
+			visual.indicatorHandle = true;
 			visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
 			m_items.emplace_back(std::move(visual));
 			x += width;
+
+			// NEW: empty island => reserve a tiny body and register a '+' target
+			if (item.headerVisible && !collapsed && !hasVisibleTabs) {
+				const int remaining = maxX - x;
+				if (remaining > 0) {
+					const int placeholderWidth = std::min(std::max(kEmptyIslandMinWidth, 24), remaining);
+					RECT placeholder{ x, rowTop(row), x + placeholderWidth, rowBottom(row) };
+
+					// Emit a synthetic body so the island outline has a region to hug
+					VisualItem emptyBody;
+					emptyBody.data = item;               // tie to this group header
+					emptyBody.hasGroupHeader = true;
+					emptyBody.groupHeader = currentHeader;
+					emptyBody.bounds = placeholder;
+					m_items.emplace_back(std::move(emptyBody));
+
+					// '+' rect, inset from the indicator and vertically centered
+					const int h = placeholder.bottom - placeholder.top;
+					const int size = std::min(kEmptyPlusSize, std::max(10, h - 6));
+					RECT plus{
+						placeholder.left + kEmptyPlusInset,
+						placeholder.top + (h - size) / 2,
+						placeholder.left + kEmptyPlusInset + size,
+						placeholder.top + (h - size) / 2 + size
+					};
+					m_emptyIslandPlusButtons.push_back({ currentGroup, plus });
+
+					x = placeholder.right;
+				}
+			}
 			continue;
 		}
 
@@ -589,6 +640,7 @@ void TabBandWindow::RebuildLayout() {
 	ReleaseDC(m_hwnd, dc);
 	InvalidateRect(m_hwnd, nullptr, FALSE);
 }
+
 
 
 static bool QueryUserDarkMode() {
@@ -740,6 +792,40 @@ void TabBandWindow::Draw(HDC dc) const {
     DeleteDC(memDC);
 }
 
+void TabBandWindow::DrawEmptyIslandPluses(HDC dc) const {
+	if (!dc) return;
+
+	HPEN pen = CreatePen(PS_SOLID, 2,
+		m_themePalette.tabTextValid ? m_themePalette.tabText : RGB(220, 220, 220));
+	if (!pen) return;
+
+	HGDIOBJ old = SelectObject(dc, pen);
+
+	for (const auto& b : m_emptyIslandPlusButtons) {
+		// force integer math, no template weirdness, no Windows macros
+		const int w = static_cast<int>(b.rect.right - b.rect.left);
+		const int h = static_cast<int>(b.rect.bottom - b.rect.top);
+		const int cx = b.rect.left + w / 2;
+		const int cy = b.rect.top + h / 2;
+
+		// radius = min(w, h)/2 - 1, clamped to >= 1, done without std::min/std::max
+		int d = (w < h) ? w : h;
+		int r = (d / 2) - 1;
+		if (r < 1) r = 1;
+
+		// horizontal
+		MoveToEx(dc, cx - r, cy, nullptr);
+		LineTo(dc, cx + r, cy);
+		// vertical
+		MoveToEx(dc, cx, cy - r, nullptr);
+		LineTo(dc, cx, cy + r);
+	}
+
+	SelectObject(dc, old);
+	DeleteObject(pen);
+}
+
+
 void TabBandWindow::PaintSurface(HDC dc, const RECT& windowRect) const {
     if (!dc) {
         return;
@@ -818,13 +904,15 @@ void TabBandWindow::PaintSurface(HDC dc, const RECT& windowRect) const {
         }
     }
 
-    DrawGroupOutlines(dc, outlines);
-    DrawDropIndicator(dc);
-    DrawDragVisual(dc);
+	DrawGroupOutlines(dc, outlines);
+	DrawDropIndicator(dc);
+	DrawDragVisual(dc);
 
-    if (oldFont) {
-        SelectObject(dc, oldFont);
-    }
+	// draw the '+' on empty islands last so it’s on top
+	DrawEmptyIslandPluses(dc);
+
+	if (oldFont) SelectObject(dc, oldFont);
+
 }
 
 COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
@@ -883,57 +971,107 @@ COLORREF TabBandWindow::ResolveGroupTextColor(const TabViewItem& item, COLORREF 
     return ResolveTextColor(background);
 }
 
-std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
-    std::unordered_map<int, GroupOutline> outlines;
-    for (const auto& item : m_items) {
-        if (item.data.type != TabViewItemType::kTab) {
-            continue;
-        }
-        if (item.data.location.groupIndex < 0) {
-            continue;
-        }
-        if (!item.data.headerVisible) {
-            continue;
-        }
-
-        RECT rect = item.bounds;
-        if (item.indicatorHandle) {
-            rect.left = std::max(m_clientRect.left, rect.left - kIslandIndicatorWidth);
-        }
-
-        auto& outline = outlines[item.data.location.groupIndex];
-        COLORREF outlineColor = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
-        if (item.data.selected) {
-            outlineColor = DarkenColor(outlineColor, 0.2);
-        }
-        if (!outline.initialized) {
-            outline.groupIndex = item.data.location.groupIndex;
-            outline.bounds = rect;
-            outline.color = outlineColor;
-            outline.initialized = true;
-            outline.visible = true;
-        } else {
-            outline.bounds.left = std::min(outline.bounds.left, rect.left);
-            outline.bounds.top = std::min(outline.bounds.top, rect.top);
-            outline.bounds.right = std::max(outline.bounds.right, rect.right);
-            outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
-            outline.color = outlineColor;
-            outline.visible = outline.visible || item.data.headerVisible;
-        }
-    }
-
-    std::vector<GroupOutline> result;
-    result.reserve(outlines.size());
-    for (auto& entry : outlines) {
-        if (entry.second.initialized && entry.second.visible) {
-            result.emplace_back(entry.second);
-        }
-    }
-    std::sort(result.begin(), result.end(), [](const GroupOutline& a, const GroupOutline& b) {
-        return a.bounds.left < b.bounds.left;
-    });
-    return result;
+bool TabBandWindow::FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const {
+	for (const auto& b : m_emptyIslandPlusButtons) {
+		if (PtInRect(&b.rect, pt)) {
+			if (outGroupIndex) *outGroupIndex = b.groupIndex;
+			return true;
+		}
+	}
+	return false;
 }
+
+
+
+std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
+	std::unordered_map<int, GroupOutline> outlines;
+
+	// 1) Grow outlines from real tabs (existing behavior)
+	for (const auto& item : m_items) {
+		if (item.data.type != TabViewItemType::kTab) continue;
+		if (item.data.location.groupIndex < 0)       continue;
+		if (!item.data.headerVisible)                continue;
+
+		RECT rect = item.bounds;
+		if (item.indicatorHandle) {
+			rect.left = std::max(m_clientRect.left, rect.left - kIslandIndicatorWidth);
+		}
+
+		auto& outline = outlines[item.data.location.groupIndex];
+		COLORREF outlineColor = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
+		if (item.data.selected) {
+			outlineColor = DarkenColor(outlineColor, 0.2);
+		}
+		if (!outline.initialized) {
+			outline.groupIndex = item.data.location.groupIndex;
+			outline.bounds = rect;
+			outline.color = outlineColor;
+			outline.initialized = true;
+			outline.visible = true;
+		}
+		else {
+			outline.bounds.left = std::min(outline.bounds.left, rect.left);
+			outline.bounds.top = std::min(outline.bounds.top, rect.top);
+			outline.bounds.right = std::max(outline.bounds.right, rect.right);
+			outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
+			outline.color = outlineColor;
+			outline.visible = outline.visible || item.data.headerVisible;
+		}
+	}
+
+	// 2) Ensure empty islands still get a small outline body after the indicator
+	for (const auto& item : m_items) {
+		if (item.data.type != TabViewItemType::kGroupHeader) continue;
+
+		const int gi = item.data.location.groupIndex;
+		if (gi < 0) continue;
+		if (!item.data.headerVisible || item.collapsedPlaceholder) continue;
+
+		// NOTE: visibleTabs is a member of TabViewItem, not VisualItem
+		if (item.data.visibleTabs > 0) continue;
+
+		// We emitted the indicator as a group header VisualItem whose bounds are that indicator.
+		// Synthesize a tiny body area to the right of it so the island outline has width.
+		const RECT body = item.bounds;                // indicator rect
+		const LONG left = body.right;                // start immediately after indicator
+		const LONG right = left + std::max<LONG>(kEmptyIslandMinWidth, 24);
+
+		RECT rect{
+			std::max<LONG>(m_clientRect.left,  left - kIslandIndicatorWidth),
+			std::max<LONG>(m_clientRect.top,   body.top),
+			std::min<LONG>(m_clientRect.right, right),
+			std::min<LONG>(m_clientRect.bottom, body.bottom)
+		};
+
+		auto& outline = outlines[gi];
+		if (!outline.initialized) {
+			outline.groupIndex = gi;
+			outline.bounds = rect;
+			outline.color = ResolveIndicatorColor(&item.data, item.data);
+			outline.initialized = true;
+			outline.visible = true;
+		}
+		else {
+			outline.bounds.left = std::min(outline.bounds.left, rect.left);
+			outline.bounds.top = std::min(outline.bounds.top, rect.top);
+			outline.bounds.right = std::max(outline.bounds.right, rect.right);
+			outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
+		}
+	}
+
+
+	std::vector<GroupOutline> result;
+	result.reserve(outlines.size());
+	for (auto& entry : outlines) {
+		if (entry.second.initialized && entry.second.visible) {
+			result.emplace_back(entry.second);
+		}
+	}
+	std::sort(result.begin(), result.end(),
+		[](const GroupOutline& a, const GroupOutline& b) { return a.bounds.left < b.bounds.left; });
+	return result;
+}
+
 
 void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const {
     for (const auto& outline : outlines) {
@@ -1031,7 +1169,8 @@ void TabBandWindow::AdjustBandHeightToRow() {
 	int rowHeight = 0;
 	for (const auto& it : m_items) {
 		if (it.data.type != TabViewItemType::kTab) continue;
-		const int h = std::max(0, it.bounds.bottom - it.bounds.top);
+		// Fix: avoid LONG vs int ambiguity in std::max by casting to int
+		const int h = std::max(0, static_cast<int>(it.bounds.bottom - it.bounds.top));
 		rowHeight = std::max(rowHeight, h);
 	}
 	if (rowHeight <= 0) rowHeight = 24;
@@ -1050,6 +1189,7 @@ void TabBandWindow::AdjustBandHeightToRow() {
 	SendMessageW(m_parentRebar, RB_MAXIMIZEBAND, m_rebarBandIndex, 0);
 	RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
 }
+
 
 void TabBandWindow::RefreshTheme() {
 	if (m_refreshingTheme) return;
@@ -1089,6 +1229,7 @@ void TabBandWindow::RefreshTheme() {
 	AdjustBandHeightToRow();
 
 }
+
 
 
 void TabBandWindow::UpdateAccentColor() {
@@ -1259,7 +1400,7 @@ void TabBandWindow::RefreshRebarMetrics() {
 		}
 	}
 
-	const LONG want = std::max(std::max(rbGrip, themeGrip), 8L); // tiny safety margin
+	const LONG want = std::max<LONG>(rbGrip, themeGrip);// tiny safety margin
 	m_toolbarGripWidth = static_cast<int>(want);
 
 	// 3) Colors: set bar-wide bk color and per-band bk so NO bright area remains.
@@ -1976,17 +2117,6 @@ void TabBandWindow::HideDragOverlay(bool destroy) {
     }
 }
 
-void TabBandWindow::ClearVisualItems() {
-    for (auto& visual : m_items) {
-        if (visual.icon) {
-            DestroyIcon(visual.icon);
-            visual.icon = nullptr;
-        }
-    }
-    m_items.clear();
-    m_hotCloseIndex = kInvalidIndex;
-}
-
 void TabBandWindow::ClearExplorerContext() {
     m_explorerContext = {};
 }
@@ -2210,51 +2340,74 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
 }
 
 bool TabBandWindow::HandleMouseUp(const POINT& pt) {
-    UpdateCloseButtonHover(pt);
-    bool handled = false;
-    if (m_drag.closeClick) {
-        handled = true;
-        bool inside = false;
-        TabLocation closeLocation = m_drag.closeLocation;
-        if (m_drag.closeItemIndex < m_items.size()) {
-            const auto& item = m_items[m_drag.closeItemIndex];
-            RECT closeRect = ComputeCloseButtonRect(item);
-            if (closeRect.right > closeRect.left && PtInRect(&closeRect, pt)) {
-                inside = true;
-            }
-        }
-        CancelDrag();
-        if (inside && m_owner && closeLocation.IsValid()) {
-            m_owner->OnCloseTabRequested(closeLocation);
-        }
-        return handled;
-    }
-    if (m_drag.dragging) {
-        handled = true;
-        m_drag.current = pt;
-        m_drag.hasCurrent = true;
-        POINT screen = pt;
-        ClientToScreen(m_hwnd, &screen);
-        UpdateExternalDrag(screen);
-        TabBandWindow* targetWindow = FindWindowFromPoint(screen);
-        if (!targetWindow || targetWindow == this) {
-            UpdateDropTarget(pt);
-        } else {
-            m_drag.target = {};
-            m_drag.target.active = true;
-            m_drag.target.outside = true;
-        }
-        CompleteDrop();
-    } else if (m_drag.tracking) {
-        handled = true;
-        HitInfo hit = HitTest(pt);
-        if (hit.hit) {
-            RequestSelection(hit);
-        }
-    }
-    CancelDrag();
-    return handled;
+	// 1) Empty-island "+" click → open "This PC" and consume
+	int groupIndex = -1;
+	if (FindEmptyIslandPlusAt(pt, &groupIndex) && m_owner) {
+		m_owner->OnNewThisPCInGroupRequested(groupIndex);
+		return true; // handled; UI refresh hides the '+'
+	}
+
+	// 2) Usual UI paths
+	UpdateCloseButtonHover(pt);
+	bool handled = false;
+
+	// Close button release
+	if (m_drag.closeClick) {
+		handled = true;
+		bool inside = false;
+		const TabLocation closeLocation = m_drag.closeLocation;
+
+		if (m_drag.closeItemIndex < m_items.size()) {
+			const auto& item = m_items[m_drag.closeItemIndex];
+			const RECT closeRect = ComputeCloseButtonRect(item);
+			if (closeRect.right > closeRect.left && PtInRect(&closeRect, pt)) {
+				inside = true;
+			}
+		}
+
+		CancelDrag();
+
+		if (inside && m_owner && closeLocation.IsValid()) {
+			m_owner->OnCloseTabRequested(closeLocation);
+		}
+		return handled; // early return is fine here
+	}
+
+	// Drop/drag end
+	if (m_drag.dragging) {
+		handled = true;
+		m_drag.current = pt;
+		m_drag.hasCurrent = true;
+
+		POINT screen = pt;
+		ClientToScreen(m_hwnd, &screen);
+		UpdateExternalDrag(screen);
+
+		TabBandWindow* targetWindow = FindWindowFromPoint(screen);
+		if (!targetWindow || targetWindow == this) {
+			UpdateDropTarget(pt);
+		}
+		else {
+			m_drag.target = {};
+			m_drag.target.active = true;
+			m_drag.target.outside = true;
+		}
+
+		CompleteDrop();  // this typically finalizes the move
+	}
+	// Simple tracking release → click selection
+	else if (m_drag.tracking) {
+		handled = true;
+		const HitInfo hit = HitTest(pt);
+		if (hit.hit) {
+			RequestSelection(hit);
+		}
+	}
+
+	CancelDrag();
+	return handled;  // <-- IMPORTANT: return what actually happened
 }
+
 
 bool TabBandWindow::HandleMouseMove(const POINT& pt) {
     if (!m_drag.tracking) {

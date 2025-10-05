@@ -156,6 +156,17 @@ private:
 	int m_lastRowCount = 1;  // tracks wrapped rows for height calc
 	// track if we've installed the subclass
 	bool m_rebarSubclassed = false;
+	struct EmptyIslandPlus {
+		int   groupIndex = -1;
+		RECT  rect{};   // click target for "+"
+	};
+
+	// Render-time cache of empty-island "+" hit targets
+	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
+
+	// Helpers
+	bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
+	void DrawEmptyIslandPluses(HDC dc) const;
 
 	// Rebar background control
 	void InstallRebarDarkSubclass();

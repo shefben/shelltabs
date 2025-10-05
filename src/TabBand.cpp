@@ -422,6 +422,33 @@ IFACEMETHODIMP TabBand::GetSizeMax(ULARGE_INTEGER* pcbSize) {
     return S_OK;
 }
 
+void TabBand::OnNewThisPCInGroupRequested(int groupIndex) {
+	// Parse the shell namespace path for "This PC"
+	UniquePidl pidl = ParseExplorerUrl(L"shell:MyComputerFolder");
+	if (!pidl) {
+		// Fallback for older systems
+		LPITEMIDLIST raw = nullptr;
+		if (SUCCEEDED(SHGetSpecialFolderLocation(nullptr, CSIDL_DRIVES, &raw)) && raw) {
+			pidl.reset(raw);
+		}
+	}
+	if (!pidl) return;
+
+	std::wstring name = GetDisplayName(pidl.get());
+	if (name.empty()) name = L"This PC";
+	std::wstring tooltip = GetParsingName(pidl.get());
+	if (tooltip.empty()) tooltip = name;
+
+	if (groupIndex < 0) groupIndex = 0;
+
+	TabLocation loc = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
+	UpdateTabsUI();
+	SyncAllSavedGroups();
+	if (loc.IsValid()) {
+		NavigateToTab(loc);
+	}
+}
+
 void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
