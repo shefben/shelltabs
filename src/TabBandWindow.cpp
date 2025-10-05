@@ -23,6 +23,7 @@
 #include <shellapi.h>
 #include <ShlObj.h>
 #include <shobjidl_core.h>
+#include <shlguid.h>
 #include <Shlwapi.h>
 #include <vsstyle.h>
 #include <vssym32.h>
