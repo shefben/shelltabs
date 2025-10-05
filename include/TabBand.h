@@ -106,6 +106,7 @@ public:
     void OnOpenVSCode(TabLocation location);
     void OnCopyPath(TabLocation location);
     void OnFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
+    void OnOpenFolderInNewTab(const std::wstring& path);
     void CloseFrameWindowAsync();
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;

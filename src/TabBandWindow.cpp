@@ -2697,9 +2697,17 @@ void TabBandWindow::HandleFileDrop(HDROP drop) {
     }
 
     HitInfo hit = HitTest(pt);
+    bool handled = false;
     if (hit.hit && hit.type == TabViewItemType::kTab && hit.location.IsValid() && !paths.empty()) {
         const bool move = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         m_owner->OnFilesDropped(hit.location, paths, move);
+        handled = true;
+    }
+
+    if (!handled) {
+        for (const auto& path : paths) {
+            m_owner->OnOpenFolderInNewTab(path);
+        }
     }
 
     DragFinish(drop);
