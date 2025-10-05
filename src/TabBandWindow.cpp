@@ -3412,8 +3412,68 @@ ComPtr<IShellItemArray> BuildArrayFromDataObject(IDataObject* dataObject) {
         return array;
     }
 
-    if (FAILED(SHCreateShellItemArrayFromDataObject(dataObject, IID_PPV_ARGS(&array)))) {
+    if (SUCCEEDED(
+            SHCreateShellItemArrayFromDataObject(dataObject, IID_PPV_ARGS(&array))) &&
+        array) {
+        return array;
+    }
+
+    FORMATETC format = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM storage = {};
+    if (FAILED(dataObject->GetData(&format, &storage))) {
+        return array;
+    }
+
+    HDROP drop = static_cast<HDROP>(GlobalLock(storage.hGlobal));
+    if (!drop) {
+        ReleaseStgMedium(&storage);
+        return array;
+    }
+
+    UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+    std::vector<PIDLIST_ABSOLUTE> pidls;
+    pidls.reserve(count);
+
+    for (UINT i = 0; i < count; ++i) {
+        UINT length = DragQueryFileW(drop, i, nullptr, 0);
+        if (!length) {
+            continue;
+        }
+
+        std::wstring path(length + 1, L'\0');
+        UINT copied = DragQueryFileW(drop, i, path.data(), static_cast<UINT>(path.size()));
+        if (!copied) {
+            continue;
+        }
+        path.resize(copied);
+
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) &&
+            pidl) {
+            pidls.push_back(pidl);
+        }
+    }
+
+    GlobalUnlock(storage.hGlobal);
+    ReleaseStgMedium(&storage);
+
+    if (pidls.empty()) {
+        return array;
+    }
+
+    std::vector<PCIDLIST_ABSOLUTE> constPidls;
+    constPidls.reserve(pidls.size());
+    for (PIDLIST_ABSOLUTE pidl : pidls) {
+        constPidls.push_back(pidl);
+    }
+
+    if (FAILED(SHCreateShellItemArrayFromIDLists(static_cast<UINT>(constPidls.size()),
+                                                 constPidls.data(), &array))) {
         array.Reset();
+    }
+
+    for (PIDLIST_ABSOLUTE pidl : pidls) {
+        CoTaskMemFree(pidl);
     }
 
     return array;
