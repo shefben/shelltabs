@@ -64,6 +64,12 @@ constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
 const wchar_t kOverlayWindowClassName[] = L"ShellTabsDragOverlay";
 
+// How many rows of tabs max
+static constexpr int kMaxTabRows = 5;
+
+// Vertical gap between rows (keep it tight)
+static constexpr int kRowGap = 2;
+
 struct WindowRegistry {
     std::mutex mutex;
     std::unordered_map<HWND, TabBandWindow*> windows;
@@ -406,177 +412,184 @@ void TabBandWindow::Layout(int width, int height) {
 }
 
 void TabBandWindow::RebuildLayout() {
-    ClearVisualItems();
-    if (!m_hwnd) {
-        return;
-    }
+	ClearVisualItems();
+	if (!m_hwnd) {
+		return;
+	}
 
-    RECT bounds = m_clientRect;
-    const int availableWidth = bounds.right - bounds.left;
-    if (availableWidth <= 0) {
-        return;
-    }
+	RECT bounds = m_clientRect;
+	const int availableWidth = bounds.right - bounds.left;
+	if (availableWidth <= 0) {
+		return;
+	}
 
-    HDC dc = GetDC(m_hwnd);
-    if (!dc) {
-        return;
-    }
-    HFONT font = GetDefaultFont();
-    HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
+	HDC dc = GetDC(m_hwnd);
+	if (!dc) {
+		return;
+	}
+	HFONT font = GetDefaultFont();
+	HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
 
-    const int top = bounds.top + 2;
-    const int bottom = bounds.bottom - 2;
-    const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
-    const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
-	const int bandWidth = static_cast<int>(bounds.right - bounds.left);
+	const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
+	const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
+
+	const int bandWidth = bounds.right - bounds.left;
 	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-	int x = bounds.left + gripWidth - 3;   // 3px padding after the single dotted grip
+	int x = bounds.left + gripWidth - 3;   // your offset stays unchanged
 
-    int currentGroup = -1;
-    TabViewItem currentHeader{};
-    bool headerMetadata = false;
-    bool expectFirstTab = false;
-    bool pendingIndicator = false;
-    TabViewItem indicatorHeader{};
+	// row layout
+	const int rowHeight = (bounds.bottom - bounds.top) - 4; // leave 2px top/bottom
+	const int startY = bounds.top + 2;
+	const int maxX = bounds.right;
 
-    for (const auto& item : m_tabData) {
-        if (item.type == TabViewItemType::kGroupHeader) {
-            pendingIndicator = false;
-            currentGroup = item.location.groupIndex;
-            currentHeader = item;
-            headerMetadata = true;
-            expectFirstTab = true;
+	int row = 0;
+	auto rowTop = [&](int r) { return startY + r * (rowHeight + 2); };
+	auto rowBottom = [&](int r) { return rowTop(r) + rowHeight; };
 
-            const bool collapsed = item.collapsed;
-            const bool hasVisibleTabs = item.visibleTabs > 0;
-            if (!item.headerVisible && !collapsed && hasVisibleTabs) {
-                indicatorHeader = item;
-                pendingIndicator = true;
-                continue;
-            }
+	auto try_wrap = [&]() {
+		if (row + 1 < 5) { // max 5 rows
+			row++;
+			x = bounds.left + gripWidth - 3;
+			return true;
+		}
+		return false;
+		};
 
-            VisualItem visual;
-            visual.data = item;
-            visual.firstInGroup = true;
-            visual.collapsedPlaceholder = collapsed;
+	int currentGroup = -1;
+	TabViewItem currentHeader{};
+	bool headerMetadata = false;
+	bool expectFirstTab = false;
+	bool pendingIndicator = false;
+	TabViewItem indicatorHeader{};
 
-            if (currentGroup >= 0) {
-                x += kGroupGap;
-            }
+	for (const auto& item : m_tabData) {
+		if (item.type == TabViewItemType::kGroupHeader) {
+			pendingIndicator = false;
+			currentGroup = item.location.groupIndex;
+			currentHeader = item;
+			headerMetadata = true;
+			expectFirstTab = true;
 
-            int width = kIslandIndicatorWidth;
+			const bool collapsed = item.collapsed;
+			const bool hasVisibleTabs = item.visibleTabs > 0;
+			if (!item.headerVisible && !collapsed && hasVisibleTabs) {
+				indicatorHeader = item;
+				pendingIndicator = true;
+				continue;
+			}
 
-            const int remaining = bounds.right - x;
-            if (remaining <= 0) {
-                break;
-            }
-            width = std::min(width, remaining);
+			if (currentGroup >= 0 && x > bounds.left) {
+				x += kGroupGap;
+			}
 
-            visual.bounds = {x, top, x + width, bottom};
-            m_items.emplace_back(std::move(visual));
+			int width = kIslandIndicatorWidth;
+			if (x + width > maxX) {
+				if (!try_wrap()) break;
+			}
 
-            x += width;
-            continue;
-        }
+			VisualItem visual;
+			visual.data = item;
+			visual.firstInGroup = true;
+			visual.collapsedPlaceholder = collapsed;
+			visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
+			m_items.emplace_back(std::move(visual));
+			x += width;
+			continue;
+		}
 
-        VisualItem visual;
-        visual.data = item;
+		VisualItem visual;
+		visual.data = item;
 
-        if (currentGroup != item.location.groupIndex) {
-            currentGroup = item.location.groupIndex;
-            headerMetadata = false;
-            expectFirstTab = true;
-            if (!m_items.empty()) {
-                x += kGroupGap;
-            }
-            pendingIndicator = false;
-        } else if (!expectFirstTab) {
-            x += kTabGap;
-        }
+		if (currentGroup != item.location.groupIndex) {
+			currentGroup = item.location.groupIndex;
+			headerMetadata = false;
+			expectFirstTab = true;
+			if (!m_items.empty()) {
+				x += kGroupGap;
+			}
+			pendingIndicator = false;
+		}
+		else if (!expectFirstTab) {
+			x += kTabGap;
+		}
 
-        if (expectFirstTab) {
-            visual.firstInGroup = true;
-            expectFirstTab = false;
-        }
-        visual.hasGroupHeader = headerMetadata;
-        if (visual.hasGroupHeader) {
-            visual.groupHeader = currentHeader;
-        }
-        if (pendingIndicator && visual.firstInGroup) {
-            visual.hasGroupHeader = true;
-            visual.groupHeader = indicatorHeader;
-            visual.indicatorHandle = true;
-            pendingIndicator = false;
-            headerMetadata = true;
-        }
+		if (expectFirstTab) {
+			visual.firstInGroup = true;
+			expectFirstTab = false;
+		}
+		visual.hasGroupHeader = headerMetadata;
+		if (visual.hasGroupHeader) {
+			visual.groupHeader = currentHeader;
+		}
+		if (pendingIndicator && visual.firstInGroup) {
+			visual.hasGroupHeader = true;
+			visual.groupHeader = indicatorHeader;
+			visual.indicatorHandle = true;
+			pendingIndicator = false;
+			headerMetadata = true;
+		}
 
-        SIZE textSize{0, 0};
-        if (!item.name.empty()) {
-            GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
-        }
+		SIZE textSize{ 0, 0 };
+		if (!item.name.empty()) {
+			GetTextExtentPoint32W(dc, item.name.c_str(),
+				static_cast<int>(item.name.size()), &textSize);
+		}
 
-        int width = textSize.cx + kPaddingX * 2;
-        width = std::max(width, kItemMinWidth);
+		int width = textSize.cx + kPaddingX * 2;
+		width = std::max(width, kItemMinWidth);
 
-        visual.badgeWidth = MeasureBadgeWidth(item, dc);
-        width += visual.badgeWidth;
-        visual.icon = LoadItemIcon(item);
-        if (visual.icon) {
-            visual.iconWidth = baseIconWidth;
-            visual.iconHeight = baseIconHeight;
-            ICONINFO iconInfo{};
-            if (GetIconInfo(visual.icon, &iconInfo)) {
-                BITMAP bitmap{};
-                if (iconInfo.hbmColor &&
-                    GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-                    visual.iconWidth = bitmap.bmWidth;
-                    visual.iconHeight = bitmap.bmHeight;
-                } else if (iconInfo.hbmMask &&
-                           GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-                    visual.iconWidth = bitmap.bmWidth;
-                    visual.iconHeight = bitmap.bmHeight / 2;
-                }
-                if (iconInfo.hbmColor) {
-                    DeleteObject(iconInfo.hbmColor);
-                }
-                if (iconInfo.hbmMask) {
-                    DeleteObject(iconInfo.hbmMask);
-                }
-            }
-            if (visual.iconWidth <= 0) {
-                visual.iconWidth = baseIconWidth;
-            }
-            if (visual.iconHeight <= 0) {
-                visual.iconHeight = baseIconHeight;
-            }
-            width += visual.iconWidth + kIconGap;
-        }
+		visual.badgeWidth = MeasureBadgeWidth(item, dc);
+		width += visual.badgeWidth;
 
-        width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
+		visual.icon = LoadItemIcon(item);
+		if (visual.icon) {
+			visual.iconWidth = baseIconWidth;
+			visual.iconHeight = baseIconHeight;
+			ICONINFO iconInfo{};
+			if (GetIconInfo(visual.icon, &iconInfo)) {
+				BITMAP bitmap{};
+				if (iconInfo.hbmColor &&
+					GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+					visual.iconWidth = bitmap.bmWidth;
+					visual.iconHeight = bitmap.bmHeight;
+				}
+				else if (iconInfo.hbmMask &&
+					GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+					visual.iconWidth = bitmap.bmWidth;
+					visual.iconHeight = bitmap.bmHeight / 2;
+				}
+				if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
+				if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
+			}
+			if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
+			if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
+			width += visual.iconWidth + kIconGap;
+		}
 
-        const int remaining = bounds.right - x;
-        if (remaining <= 0) {
-            break;
-        }
+		width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
 
-        if (width > remaining) {
-            width = remaining;
-        }
-        if (width < 40) {
-            width = std::min(remaining, 40);
-        }
+		if (x + width > maxX) {
+			if (!try_wrap()) {
+				width = std::max(40, maxX - x);
+				if (width <= 0) break;
+			}
+		}
 
-        visual.bounds = {x, top, x + width, bottom};
-        visual.index = m_items.size();
-        m_items.emplace_back(std::move(visual));
-        x += width;
-    }
+		width = std::clamp(width, 40, maxX - x);
 
-    if (oldFont) {
-        SelectObject(dc, oldFont);
-    }
-    ReleaseDC(m_hwnd, dc);
+		visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
+		visual.index = m_items.size();
+		m_items.emplace_back(std::move(visual));
+		x += width;
+	}
+
+	m_lastRowCount = std::max(1, row + 1);
+
+	if (oldFont) SelectObject(dc, oldFont);
+	ReleaseDC(m_hwnd, dc);
+	InvalidateRect(m_hwnd, nullptr, FALSE);
 }
+
 
 static bool QueryUserDarkMode() {
 	// Win10/11: HKCU\...\Personalize\AppsUseLightTheme (0=dark, 1=light)
@@ -1009,38 +1022,34 @@ void TabBandWindow::InstallRebarDarkSubclass() {
 	}
 }
 
-// TabBandWindow.cpp
 void TabBandWindow::AdjustBandHeightToRow() {
 	if (!m_parentRebar || !IsWindow(m_parentRebar)) return;
 	if (m_rebarBandIndex < 0) m_rebarBandIndex = FindRebarBandIndex();
 	if (m_rebarBandIndex < 0) return;
 
-	RECT r{};
-	if (!SendMessageW(m_parentRebar, RB_GETRECT, m_rebarBandIndex, (LPARAM)&r))
-		GetClientRect(m_parentRebar, &r);
+	// Determine a row height similar to RebuildLayout
+	int rowHeight = 0;
+	for (const auto& it : m_items) {
+		if (it.data.type != TabViewItemType::kTab) continue;
+		const int h = std::max(0, it.bounds.bottom - it.bounds.top);
+		rowHeight = std::max(rowHeight, h);
+	}
+	if (rowHeight <= 0) rowHeight = 24;
 
-	const LONG row = r.bottom - r.top;
-	const int  h = (int)std::max<LONG>(row, 24L);
+	const int rows = std::clamp(m_lastRowCount, 1, kMaxTabRows);
+	const int desired = rows * rowHeight + (rows - 1) * kRowGap;
 
 	REBARBANDINFOW bi{ sizeof(bi) };
-	bi.fMask = RBBIM_CHILDSIZE | RBBIM_STYLE;
-	bi.cyChild = h;
-	bi.cyMinChild = h;
+	bi.fMask = RBBIM_CHILDSIZE;
+	bi.cyChild = desired;
+	bi.cyMinChild = desired;
 	bi.cyIntegral = 1;
+	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, reinterpret_cast<LPARAM>(&bi));
 
-	// Only show etched child edge in light; looks wrong in dark.
-	REBARBANDINFOW cur{ sizeof(cur) };
-	cur.fMask = RBBIM_STYLE;
-	if (SendMessageW(m_parentRebar, RB_GETBANDINFO, m_rebarBandIndex, (LPARAM)&cur)) {
-		DWORD st = cur.fStyle;
-		if (m_darkMode) st &= ~RBBS_CHILDEDGE; else st |= RBBS_CHILDEDGE;
-		bi.fStyle = st;
-	}
-	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex, (LPARAM)&bi);
+	// Expand the band to its full height without forcing an erase (flicker-free)
 	SendMessageW(m_parentRebar, RB_MAXIMIZEBAND, m_rebarBandIndex, 0);
+	RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
 }
-
-
 
 void TabBandWindow::RefreshTheme() {
 	if (m_refreshingTheme) return;

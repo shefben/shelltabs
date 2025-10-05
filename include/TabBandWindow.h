@@ -153,12 +153,13 @@ private:
     bool m_mouseTracking = false;
     int m_rebarBandIndex = -1;
     bool m_rebarZOrderTop = false;
+	int m_lastRowCount = 1;  // tracks wrapped rows for height calc
+	// track if we've installed the subclass
+	bool m_rebarSubclassed = false;
+
 	// Rebar background control
 	void InstallRebarDarkSubclass();
 	static LRESULT CALLBACK RebarSubclassProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
-
-	// track if we've installed the subclass
-	bool m_rebarSubclassed = false;
 
     void Layout(int width, int height);
     void RebuildLayout();
