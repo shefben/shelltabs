@@ -912,6 +912,38 @@ void TabBand::OnFilesDropped(TabLocation location, const std::vector<std::wstrin
     PerformFileOperation(location, paths, move);
 }
 
+void TabBand::OnOpenFolderInNewTab(const std::wstring& path) {
+    if (path.empty()) {
+        return;
+    }
+
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        return;
+    }
+
+    UniquePidl pidl = ParseDisplayName(path);
+    if (!pidl) {
+        return;
+    }
+
+    std::wstring name = GetDisplayName(pidl.get());
+    if (name.empty()) {
+        name = path;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const int targetGroup = selected.groupIndex >= 0 ? selected.groupIndex : 0;
+    TabLocation location = m_tabs.Add(std::move(pidl), name, name, true, targetGroup);
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    if (location.IsValid()) {
+        NavigateToTab(location);
+    }
+}
+
 void TabBand::CloseFrameWindowAsync() {
     HWND frame = GetFrameWindow();
     if (!frame) {
