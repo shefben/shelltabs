@@ -1,0 +1,56 @@
+#pragma once
+
+// Ensure Win7+ feature set regardless of who included Windows.h first.
+#include <sdkddkver.h>
+
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0601)
+#  undef _WIN32_WINNT
+#  define _WIN32_WINNT 0x0601
+#endif
+
+#if !defined(NTDDI_VERSION) || (NTDDI_VERSION < 0x06010000)
+#  undef NTDDI_VERSION
+#  define NTDDI_VERSION 0x06010000
+#endif
+
+#include <Windows.h>
+#include <servprov.h>   // IServiceProvider
+#include <shobjidl.h>   // INamespaceTreeControlCustomDraw, NSTCCUSTOMDRAW
+#include <wrl/client.h>
+#include <string>
+
+
+namespace shelltabs {
+
+	class NamespaceTreeColorizer :
+		public INameSpaceTreeControlCustomDraw
+	{
+	public:
+		NamespaceTreeColorizer();
+		virtual ~NamespaceTreeColorizer();
+
+		// Call with IServiceProvider for the current Explorer window.
+		bool Attach(Microsoft::WRL::ComPtr<IServiceProvider> sp);
+		void Detach();
+
+		// IUnknown
+		IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override;
+		IFACEMETHODIMP_(ULONG) AddRef() override;
+		IFACEMETHODIMP_(ULONG) Release() override;
+
+		// INameSpaceTreeControlCustomDraw
+		IFACEMETHODIMP PrePaint(HDC, RECT*, LRESULT*) override;
+		IFACEMETHODIMP PostPaint(HDC, RECT*) override;
+		IFACEMETHODIMP ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW*, COLORREF*, COLORREF*, LRESULT*) override;
+		IFACEMETHODIMP ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) override;
+
+	private:
+		ULONG ref_ = 1;
+		DWORD cookie_ = 0;
+		Microsoft::WRL::ComPtr<INameSpaceTreeControl> nstc_;
+
+		bool ResolveNSTC(Microsoft::WRL::ComPtr<IServiceProvider> sp);
+		bool ItemPathFromShellItem(IShellItem* psi, std::wstring* out) const;
+	};
+
+} // namespace shelltabs
