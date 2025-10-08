@@ -29,6 +29,8 @@ add_library(ShellTabs SHARED
     src/Utilities.cpp
     src/GitStatus.cpp
     src/Logging.cpp
+    src/SplitHost.cpp
+    src/ExplorerPane.cpp 
     src/resource.rc
 )
 

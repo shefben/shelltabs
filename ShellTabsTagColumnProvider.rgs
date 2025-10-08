@@ -1,0 +1,56 @@
+HKCR
+{
+	ShellTabs.TagColumnProvider.1 = s 'Shell Tabs Tags Column Provider Class'
+	{
+		CLSID = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
+	}
+	ShellTabs.TagColumnProvider = s 'Shell Tabs Tags Column Provider Class'
+	{
+		CLSID = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
+		CurVer = s 'ShellTabs.TagColumnProvider.1'
+	}
+	NoRemove CLSID
+	{
+		ForceRemove {7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C} = s 'Shell Tabs Tags Column'
+		{
+			InprocServer32 = s '%MODULE%'
+			{
+				val ThreadingModel = s 'Apartment'
+			}
+			ProgID = s 'ShellTabs.TagColumnProvider.1'
+			VersionIndependentProgID = s 'ShellTabs.TagColumnProvider'
+			TypeLib = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
+			Version = s '1.0'
+		}
+	}
+}
+
+HKCU
+{
+	NoRemove Software
+	{
+		NoRemove Microsoft
+		{
+			NoRemove Windows
+			{
+				NoRemove CurrentVersion
+				{
+					NoRemove Explorer
+					{
+						NoRemove ColumnHandlers
+						{
+							ForceRemove ShellTabsTags = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
+						}
+					}
+					NoRemove 'Shell Extensions'
+					{
+						NoRemove Approved
+						{
+							val {7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C} = s 'Shell Tabs Tags Column'
+						}
+					}
+				}
+			}
+		}
+	}
+}

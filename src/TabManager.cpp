@@ -22,6 +22,10 @@ COLORREF BlendColors(COLORREF a, COLORREF b) {
 }  // namespace
 
 TabManager::TabManager() { EnsureDefaultGroup(); }
+TabManager& TabManager::Get() {
+	static TabManager instance;
+	return instance;
+}
 
 int TabManager::TotalTabCount() const noexcept {
     int total = 0;

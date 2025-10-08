@@ -77,6 +77,7 @@ public:
     TabManager();
 
     int TotalTabCount() const noexcept;
+	static TabManager& Get();
 
     TabLocation SelectedLocation() const noexcept { return {m_selectedGroup, m_selectedTab}; }
     void SetSelectedLocation(TabLocation location);

@@ -33,6 +33,10 @@
 #include "Module.h"
 #include "TabBand.h"
 #include "Utilities.h"
+// === ShellTabs split apply message ===
+#ifndef WM_SHELLTABS_APPLY_SPLIT
+#define WM_SHELLTABS_APPLY_SPLIT (WM_APP + 0x3F1)
+#endif
 
 #pragma comment(lib, "Shlwapi.lib")
 using Microsoft::WRL::ComPtr;
@@ -2404,89 +2408,173 @@ void TabBandWindow::ClearCloseButtonHover() {
 }
 
 void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
-    if (!m_owner) {
-        return;
-    }
+	if (!m_owner) {
+		return;
+	}
 
-    const UINT id = LOWORD(wParam);
-    if (id == IDC_NEW_TAB) {
-        m_owner->OnNewTabRequested();
-        return;
-    }
+	const UINT id = LOWORD(wParam);
 
-    if (id == IDM_CREATE_SAVED_GROUP) {
-        const int insertAfter = ResolveInsertGroupIndex();
-        m_owner->OnCreateSavedGroup(insertAfter);
-        ClearExplorerContext();
-        return;
-    }
+	if (id == IDC_NEW_TAB) {
+		m_owner->OnNewTabRequested();
+		return;
+	}
 
-    if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
-        for (const auto& entry : m_savedGroupCommands) {
-            if (entry.first == id) {
-                const int insertAfter = ResolveInsertGroupIndex();
-                m_owner->OnLoadSavedGroup(entry.second, insertAfter);
-                break;
-            }
-        }
-        ClearExplorerContext();
-        return;
-    }
+	if (id == IDM_CREATE_SAVED_GROUP) {
+		const int insertAfter = ResolveInsertGroupIndex();
+		m_owner->OnCreateSavedGroup(insertAfter);
+		ClearExplorerContext();
+		return;
+	}
 
-    if (!m_contextHit.hit) {
-        ClearExplorerContext();
-        return;
-    }
+	if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
+		for (const auto& entry : m_savedGroupCommands) {
+			if (entry.first == id) {
+				const int insertAfter = ResolveInsertGroupIndex();
+				m_owner->OnLoadSavedGroup(entry.second, insertAfter);
+				break;
+			}
+		}
+		ClearExplorerContext();
+		return;
+	}
 
-    if (id == IDM_CLOSE_TAB && m_contextHit.location.IsValid()) {
-        m_owner->OnCloseTabRequested(m_contextHit.location);
-    } else if (id == IDM_HIDE_TAB && m_contextHit.location.IsValid()) {
-        m_owner->OnHideTabRequested(m_contextHit.location);
-    } else if (id == IDM_DETACH_TAB && m_contextHit.location.IsValid()) {
-        m_owner->OnDetachTabRequested(m_contextHit.location);
-    } else if (id == IDM_CLONE_TAB && m_contextHit.location.IsValid()) {
-        m_owner->OnCloneTabRequested(m_contextHit.location);
-    } else if (id == IDM_OPEN_TERMINAL && m_contextHit.location.IsValid()) {
-        m_owner->OnOpenTerminal(m_contextHit.location);
-    } else if (id == IDM_OPEN_VSCODE && m_contextHit.location.IsValid()) {
-        m_owner->OnOpenVSCode(m_contextHit.location);
-    } else if (id == IDM_COPY_PATH && m_contextHit.location.IsValid()) {
-        m_owner->OnCopyPath(m_contextHit.location);
-    } else if (id == IDM_TOGGLE_ISLAND_HEADER && m_contextHit.location.groupIndex >= 0) {
-        const bool visible = m_owner->IsGroupHeaderVisible(m_contextHit.location.groupIndex);
-        m_owner->OnSetGroupHeaderVisible(m_contextHit.location.groupIndex, !visible);
-    } else if (id == IDM_SET_SPLIT_SECONDARY && m_contextHit.location.IsValid()) {
-        m_owner->OnPromoteSplitSecondary(m_contextHit.location);
-    } else if (id == IDM_TOGGLE_ISLAND) {
-        m_owner->OnToggleGroupCollapsed(m_contextHit.location.groupIndex);
-    } else if (id == IDM_UNHIDE_ALL) {
-        m_owner->OnUnhideAllInGroup(m_contextHit.location.groupIndex);
-    } else if (id == IDM_NEW_ISLAND) {
-        m_owner->OnCreateIslandAfter(m_contextHit.location.groupIndex);
-    } else if (id == IDM_DETACH_ISLAND) {
-        m_owner->OnDetachGroupRequested(m_contextHit.location.groupIndex);
-    } else if (id == IDM_TOGGLE_SPLIT) {
-        m_owner->OnToggleSplitView(m_contextHit.location.groupIndex);
-    } else if (id == IDM_CLEAR_SPLIT_SECONDARY) {
-        m_owner->OnClearSplitSecondary(m_contextHit.location.groupIndex);
-    } else if (id == IDM_SWAP_SPLIT) {
-        m_owner->OnSwapSplitPanes(m_contextHit.location.groupIndex);
-    } else if (id >= IDM_HIDDEN_TAB_BASE) {
-        for (const auto& entry : m_hiddenTabCommands) {
-            if (entry.first == id) {
-                m_owner->OnUnhideTabRequested(entry.second);
-                break;
-            }
-        }
-    } else if (m_explorerContext.menu && id >= m_explorerContext.idFirst &&
-               id <= m_explorerContext.idLast) {
-        m_owner->InvokeExplorerContextCommand(m_explorerContext.location,
-                                              m_explorerContext.menu.Get(), id,
-                                              m_explorerContext.idFirst, m_lastContextPoint);
-    }
+	if (!m_contextHit.hit) {
+		ClearExplorerContext();
+		return;
+	}
 
-    ClearExplorerContext();
+	// Handle the bulk of tab/island commands with a switch.
+	switch (id) {
+	case IDM_CLOSE_TAB:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnCloseTabRequested(m_contextHit.location);
+		}
+		break;
+
+	case IDM_HIDE_TAB:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnHideTabRequested(m_contextHit.location);
+		}
+		break;
+
+	case IDM_DETACH_TAB:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnDetachTabRequested(m_contextHit.location);
+		}
+		break;
+
+	case IDM_CLONE_TAB:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnCloneTabRequested(m_contextHit.location);
+		}
+		break;
+
+	case IDM_OPEN_TERMINAL:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnOpenTerminal(m_contextHit.location);
+		}
+		break;
+
+	case IDM_OPEN_VSCODE:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnOpenVSCode(m_contextHit.location);
+		}
+		break;
+
+	case IDM_COPY_PATH:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnCopyPath(m_contextHit.location);
+		}
+		break;
+
+	case IDM_TOGGLE_ISLAND_HEADER: {
+		if (m_contextHit.location.groupIndex >= 0) {
+			const bool visible = m_owner->IsGroupHeaderVisible(m_contextHit.location.groupIndex);
+			m_owner->OnSetGroupHeaderVisible(m_contextHit.location.groupIndex, !visible);
+		}
+		break;
+	}
+
+	case IDM_SET_SPLIT_SECONDARY:
+		if (m_contextHit.location.IsValid()) {
+			m_owner->OnPromoteSplitSecondary(m_contextHit.location);
+			if (HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT)) {
+				// Tell the BHO to re-apply split immediately
+				PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 0, 0);
+			}
+		}
+		break;
+
+
+	case IDM_TOGGLE_ISLAND:
+		m_owner->OnToggleGroupCollapsed(m_contextHit.location.groupIndex);
+		break;
+
+	case IDM_UNHIDE_ALL:
+		m_owner->OnUnhideAllInGroup(m_contextHit.location.groupIndex);
+		break;
+
+	case IDM_NEW_ISLAND:
+		m_owner->OnCreateIslandAfter(m_contextHit.location.groupIndex);
+		break;
+
+	case IDM_DETACH_ISLAND:
+		m_owner->OnDetachGroupRequested(m_contextHit.location.groupIndex);
+		break;
+
+		// ====== SPLIT VIEW COMMANDS: update model, then signal Explorer to apply ======
+	case IDM_TOGGLE_SPLIT: {
+		m_owner->OnToggleSplitView(m_contextHit.location.groupIndex);
+		HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT);
+		if (hwndExplorer) {
+			PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 0, 0);
+		}
+		break;
+	}
+
+	case IDM_CLEAR_SPLIT_SECONDARY: {
+		m_owner->OnClearSplitSecondary(m_contextHit.location.groupIndex);
+		HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT);
+		if (hwndExplorer) {
+			PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 0, 0);
+		}
+		break;
+	}
+
+	case IDM_SWAP_SPLIT: {
+		m_owner->OnSwapSplitPanes(m_contextHit.location.groupIndex);
+		HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT);
+		if (hwndExplorer) {
+			// wParam = 1 signals "swap" to the BHO
+			PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 1, 0);
+		}
+		break;
+	}
+
+	default:
+		// Not handled in the switch; fall through to the hidden/explorer menu paths below.
+		break;
+	}
+
+	// Handle "unhide specific tab" and Explorer context menu delegation.
+	if (id >= IDM_HIDDEN_TAB_BASE) {
+		for (const auto& entry : m_hiddenTabCommands) {
+			if (entry.first == id) {
+				m_owner->OnUnhideTabRequested(entry.second);
+				break;
+			}
+		}
+	}
+	else if (m_explorerContext.menu && id >= m_explorerContext.idFirst &&
+		id <= m_explorerContext.idLast) {
+		m_owner->InvokeExplorerContextCommand(m_explorerContext.location,
+			m_explorerContext.menu.Get(), id,
+			m_explorerContext.idFirst, m_lastContextPoint);
+	}
+
+	ClearExplorerContext();
 }
+
 
 bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     UpdateCloseButtonHover(pt);
@@ -3246,12 +3334,16 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-            const bool splitAvailable = headerInfo && headerInfo->splitAvailable;
-            const bool splitEnabled = headerInfo && headerInfo->splitEnabled;
-            AppendMenuW(menu, MF_STRING | (splitAvailable ? 0 : MF_GRAYED), IDM_TOGGLE_SPLIT, L"Toggle Split View");
-            AppendMenuW(menu, MF_STRING | (splitEnabled ? 0 : MF_GRAYED), IDM_CLEAR_SPLIT_SECONDARY,
-                        L"Clear Split Companion");
-            AppendMenuW(menu, MF_STRING | (splitEnabled ? 0 : MF_GRAYED), IDM_SWAP_SPLIT, L"Swap Split Panes");
+			const bool splitAvailable = headerInfo && headerInfo->splitAvailable;
+			const bool splitEnabled = headerInfo && headerInfo->splitEnabled;
+
+			AppendMenuW(menu, MF_STRING | (splitAvailable ? 0 : MF_GRAYED),
+				IDM_TOGGLE_SPLIT,
+				splitEnabled ? L"Disable split view" : L"Enable split view with this tab");
+
+			AppendMenuW(menu, MF_STRING | (splitEnabled ? 0 : MF_GRAYED), IDM_CLEAR_SPLIT_SECONDARY, L"Clear split companion");
+			AppendMenuW(menu, MF_STRING | (splitEnabled ? 0 : MF_GRAYED), IDM_SWAP_SPLIT, L"Swap split panes");
+
 
             if (hiddenCount > 0) {
                 AppendMenuW(menu, MF_STRING, IDM_UNHIDE_ALL, L"Unhide All Tabs");
