@@ -2481,16 +2481,22 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		}
 		break;
 
-	case IDM_COPY_PATH:
-		if (m_contextHit.location.IsValid()) {
-			m_owner->OnCopyPath(m_contextHit.location);
-		}
-		break;
+        case IDM_COPY_PATH:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnCopyPath(m_contextHit.location);
+                }
+                break;
 
-	case IDM_TOGGLE_ISLAND_HEADER: {
-		if (m_contextHit.location.groupIndex >= 0) {
-			const bool visible = m_owner->IsGroupHeaderVisible(m_contextHit.location.groupIndex);
-			m_owner->OnSetGroupHeaderVisible(m_contextHit.location.groupIndex, !visible);
+        case IDM_EDIT_GROUP:
+                if (m_contextHit.location.groupIndex >= 0) {
+                        m_owner->OnEditGroupProperties(m_contextHit.location.groupIndex);
+                }
+                break;
+
+        case IDM_TOGGLE_ISLAND_HEADER: {
+                if (m_contextHit.location.groupIndex >= 0) {
+                        const bool visible = m_owner->IsGroupHeaderVisible(m_contextHit.location.groupIndex);
+                        m_owner->OnSetGroupHeaderVisible(m_contextHit.location.groupIndex, !visible);
 		}
 		break;
 	}
@@ -2785,8 +2791,9 @@ void TabBandWindow::HandleFileDrop(HDROP drop) {
     }
 
     HitInfo hit = HitTest(pt);
+    const bool dropOnTab = hit.hit && hit.type == TabViewItemType::kTab && hit.location.IsValid();
     bool handled = false;
-    if (hit.hit && hit.type == TabViewItemType::kTab && hit.location.IsValid() && !paths.empty()) {
+    if (dropOnTab && !paths.empty()) {
         const bool move = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         m_owner->OnFilesDropped(hit.location, paths, move);
         handled = true;
@@ -2794,6 +2801,10 @@ void TabBandWindow::HandleFileDrop(HDROP drop) {
 
     if (!handled) {
         for (const auto& path : paths) {
+            const DWORD attributes = GetFileAttributesW(path.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                continue;
+            }
             m_owner->OnOpenFolderInNewTab(path);
         }
     }
@@ -3239,6 +3250,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_OPEN_TERMINAL, L"Open Terminal Here");
             AppendMenuW(menu, MF_STRING, IDM_OPEN_VSCODE, L"Open in VS Code");
             AppendMenuW(menu, MF_STRING, IDM_COPY_PATH, L"Copy Path");
+            AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
 
             HMENU explorerMenu = CreatePopupMenu();
             bool explorerInserted = false;
@@ -3294,6 +3306,9 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
                 AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Clear Split Companion");
             }
 
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
+
             if (item.data.hiddenTabs > 0) {
                 HMENU hiddenMenu = CreatePopupMenu();
                 PopulateHiddenTabsMenu(hiddenMenu, item.data.location.groupIndex);
@@ -3334,7 +3349,10 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-			const bool splitAvailable = headerInfo && headerInfo->splitAvailable;
+            AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+            const bool splitAvailable = headerInfo && headerInfo->splitAvailable;
 			const bool splitEnabled = headerInfo && headerInfo->splitEnabled;
 
 			AppendMenuW(menu, MF_STRING | (splitAvailable ? 0 : MF_GRAYED),
