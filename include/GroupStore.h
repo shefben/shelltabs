@@ -26,6 +26,7 @@ public:
 
     bool Upsert(SavedGroup group);
     bool UpdateTabs(const std::wstring& name, const std::vector<std::wstring>& tabPaths);
+    bool UpdateColor(const std::wstring& name, COLORREF color);
     bool Remove(const std::wstring& name);
 
 private:

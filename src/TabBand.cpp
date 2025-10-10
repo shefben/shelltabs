@@ -78,6 +78,15 @@ void ReleaseGitStatusActivation() {
         GitStatusCache::Instance().SetEnabled(false);
     }
 }
+
+std::wstring TrimWhitespace(const std::wstring& value) {
+    const size_t first = value.find_first_not_of(L" \t\r\n");
+    if (first == std::wstring::npos) {
+        return {};
+    }
+    const size_t last = value.find_last_not_of(L" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
 }
 
 TabBand::TabBand() : m_refCount(1) {
@@ -652,6 +661,41 @@ void TabBand::OnCreateIslandAfter(int groupIndex) {
     m_tabs.CreateGroupAfter(groupIndex);
     UpdateTabsUI();
     SyncAllSavedGroups();
+}
+
+void TabBand::OnEditGroupProperties(int groupIndex) {
+    auto* group = m_tabs.GetGroup(groupIndex);
+    if (!group) {
+        return;
+    }
+
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    std::wstring name = group->name;
+    COLORREF color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
+
+    if (!PromptForTextInput(hwnd, L"Edit Island", L"Island name:", &name, &color)) {
+        return;
+    }
+
+    std::wstring trimmed = TrimWhitespace(name);
+    if (trimmed.empty()) {
+        trimmed = group->name.empty() ? std::wstring(L"Island") : group->name;
+    }
+
+    const bool colorChanged = !group->hasCustomOutline || group->outlineColor != color;
+
+    group->name = std::move(trimmed);
+    group->hasCustomOutline = true;
+    group->outlineColor = color;
+
+    UpdateTabsUI();
+    SyncSavedGroup(groupIndex);
+
+    if (!group->savedGroupId.empty() && colorChanged) {
+        auto& store = GroupStore::Instance();
+        store.Load();
+        store.UpdateColor(group->savedGroupId, color);
+    }
 }
 
 void TabBand::OnDetachGroupRequested(int groupIndex) {

@@ -305,6 +305,20 @@ bool GroupStore::UpdateTabs(const std::wstring& name, const std::vector<std::wst
     return false;
 }
 
+bool GroupStore::UpdateColor(const std::wstring& name, COLORREF color) {
+    if (!EnsureLoaded()) {
+        return false;
+    }
+
+    for (auto& group : m_groups) {
+        if (_wcsicmp(group.name.c_str(), name.c_str()) == 0) {
+            group.color = color;
+            return Save();
+        }
+    }
+    return false;
+}
+
 bool GroupStore::Remove(const std::wstring& name) {
     if (!EnsureLoaded()) {
         return false;
