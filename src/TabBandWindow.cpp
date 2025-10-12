@@ -563,18 +563,22 @@ void TabBandWindow::RebuildLayout() {
         const int startY = bounds.top + 2;
         const int maxX = bounds.right;
 
-	int row = 0;
-	auto rowTop = [&](int r) { return startY + r * (rowHeight + kRowGap); };
-	auto rowBottom = [&](int r) { return rowTop(r) + rowHeight; };
+        int row = 0;
+        int maxRowUsed = 0;
+        auto rowTop = [&](int r) { return startY + r * (rowHeight + kRowGap); };
+        auto rowBottom = [&](int r) { return rowTop(r) + rowHeight; };
 
-	auto try_wrap = [&]() {
-		if (row + 1 < 5) { // max 5 rows
-			row++;
-			x = bounds.left + gripWidth - 3;  // DO NOT TOUCH
-			return true;
-		}
-		return false;
-		};
+        auto try_wrap = [&]() {
+                if (row + 1 < kMaxTabRows) {
+                        ++row;
+                        if (row > maxRowUsed) {
+                                maxRowUsed = row;
+                        }
+                        x = bounds.left + gripWidth - 3;  // DO NOT TOUCH
+                        return true;
+                }
+                return false;
+        };
 
 	int currentGroup = -1;
 	TabViewItem currentHeader{};
@@ -614,12 +618,13 @@ void TabBandWindow::RebuildLayout() {
 			visual.firstInGroup = true;
 			visual.collapsedPlaceholder = collapsed;
 			visual.indicatorHandle = true;
-			visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
-			m_items.emplace_back(std::move(visual));
-			x += width;
+                        visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
+                        visual.row = row;
+                        m_items.emplace_back(std::move(visual));
+                        x += width;
 
-			// NEW: empty island => reserve a tiny body and register a '+' target
-			if (item.headerVisible && !collapsed && !hasVisibleTabs) {
+                        // NEW: empty island => reserve a tiny body and register a '+' target
+                        if (item.headerVisible && !collapsed && !hasVisibleTabs) {
 				const int remaining = maxX - x;
 				if (remaining > 0) {
 					const int placeholderWidth = std::min(std::max(kEmptyIslandMinWidth, 24), remaining);
@@ -628,10 +633,11 @@ void TabBandWindow::RebuildLayout() {
 					// Emit a synthetic body so the island outline has a region to hug
 					VisualItem emptyBody;
 					emptyBody.data = item;               // tie to this group header
-					emptyBody.hasGroupHeader = true;
-					emptyBody.groupHeader = currentHeader;
-					emptyBody.bounds = placeholder;
-					m_items.emplace_back(std::move(emptyBody));
+                                        emptyBody.hasGroupHeader = true;
+                                        emptyBody.groupHeader = currentHeader;
+                                        emptyBody.bounds = placeholder;
+                                        emptyBody.row = row;
+                                        m_items.emplace_back(std::move(emptyBody));
 
 					// '+' rect, inset from the indicator and vertically centered
 					const int h = placeholder.bottom - placeholder.top;
@@ -730,13 +736,17 @@ void TabBandWindow::RebuildLayout() {
 
 		width = std::clamp(width, 40, maxX - x);
 
-		visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
-		visual.index = m_items.size();
-		m_items.emplace_back(std::move(visual));
-		x += width;
-	}
+                visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
+                visual.row = row;
+                visual.index = m_items.size();
+                m_items.emplace_back(std::move(visual));
+                x += width;
+        }
 
-	m_lastRowCount = std::max(1, row + 1);
+        if (row > maxRowUsed) {
+                maxRowUsed = row;
+        }
+        m_lastRowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
 
 	if (oldFont) SelectObject(dc, oldFont);
 	ReleaseDC(m_hwnd, dc);
@@ -1269,15 +1279,22 @@ void TabBandWindow::AdjustBandHeightToRow() {
 
 	// Determine a row height similar to RebuildLayout
 	int rowHeight = 0;
+	int maxRowIndex = -1;
 	for (const auto& it : m_items) {
-		if (it.data.type != TabViewItemType::kTab) continue;
-		// Fix: avoid LONG vs int ambiguity in std::max by casting to int
 		const int h = std::max(0, static_cast<int>(it.bounds.bottom - it.bounds.top));
-		rowHeight = std::max(rowHeight, h);
+		if (h > rowHeight) {
+			rowHeight = h;
+		}
+		if (it.row > maxRowIndex) {
+			maxRowIndex = it.row;
+		}
 	}
 	if (rowHeight <= 0) rowHeight = 24;
 
-	const int rows = std::clamp(m_lastRowCount, 1, kMaxTabRows);
+	int rowsFromItems = (maxRowIndex >= 0) ? (maxRowIndex + 1) : 0;
+	int rows = std::max(rowsFromItems, m_lastRowCount);
+	rows = std::max(rows, 1);
+	rows = std::min(rows, kMaxTabRows);
 	const int desired = rows * rowHeight + (rows - 1) * kRowGap;
 
 	REBARBANDINFOW bi{ sizeof(bi) };
@@ -3570,7 +3587,13 @@ bool TabBandWindow::GetSelectedShellItemPaths(std::vector<std::wstring>* outPath
         // when the shell view has focus or when the tab band temporarily steals it.
         ComPtr<IFolderView2> folderView;
         if (SUCCEEDED(m_siteSp->QueryService(SID_SFolderView, IID_PPV_ARGS(&folderView))) && folderView) {
-                if (FAILED(folderView->GetSelection(TRUE, &array)) || !array) {
+                if (FAILED(folderView->Items(SVGIO_SELECTION, IID_PPV_ARGS(&array))) || !array) {
+                        array.Reset();
+                }
+                if (!array && (FAILED(folderView->GetSelection(FALSE, &array)) || !array)) {
+                        array.Reset();
+                }
+                if (!array && (FAILED(folderView->GetSelection(TRUE, &array)) || !array)) {
                         array.Reset();
                 }
         }
@@ -3609,7 +3632,11 @@ bool TabBandWindow::GetSelectedShellItemPaths(std::vector<std::wstring>* outPath
                 ComPtr<IShellItem> psi;
                 if (SUCCEEDED(array->GetItemAt(i, &psi)) && psi) {
                         PWSTR p = nullptr;
-                        if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) {
+                        HRESULT hr = psi->GetDisplayName(SIGDN_FILESYSPATH, &p);
+                        if (FAILED(hr) || !p) {
+                                hr = psi->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &p);
+                        }
+                        if (SUCCEEDED(hr) && p) {
                                 outPaths->emplace_back(p);
                                 CoTaskMemFree(p);
                         }
