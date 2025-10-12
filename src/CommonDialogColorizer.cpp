@@ -1,7 +1,10 @@
 #include "CommonDialogColorizer.h"
 
+#include <CommCtrl.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
+#include <ShObjIdl.h>
+#include <shlguid.h>
 #include <windowsx.h>
 
 #include <atomic>
@@ -13,39 +16,8 @@
 #include "NameColorProvider.h"
 
 namespace shelltabs {
-namespace {
 
-constexpr UINT_PTR kSubclassId = 0x4344434c;  // 'CDCL'
-
-std::mutex& RegistryMutex() {
-    static std::mutex mutex;
-    return mutex;
-}
-
-std::unordered_set<CommonDialogColorizer*>& Registry() {
-    static std::unordered_set<CommonDialogColorizer*> registry;
-    return registry;
-}
-
-void RegisterColorizer(CommonDialogColorizer* colorizer) {
-    if (!colorizer) {
-        return;
-    }
-    auto& registry = Registry();
-    std::scoped_lock lock(RegistryMutex());
-    registry.insert(colorizer);
-}
-
-void UnregisterColorizer(CommonDialogColorizer* colorizer) {
-    if (!colorizer) {
-        return;
-    }
-    auto& registry = Registry();
-    std::scoped_lock lock(RegistryMutex());
-    registry.erase(colorizer);
-}
-
-class DialogEvents : public IFileDialogEvents {
+class CommonDialogColorizer::DialogEvents : public IFileDialogEvents {
 public:
     explicit DialogEvents(CommonDialogColorizer* owner) : m_refCount(1), m_owner(owner) {}
 
@@ -76,7 +48,7 @@ public:
 
     IFACEMETHODIMP OnFolderChanging(IFileDialog*, IShellItem*) override { return S_OK; }
 
-    IFACEMETHODIMP OnFolderChange(IFileDialog* dialog) override {
+    IFACEMETHODIMP OnFolderChange(IFileDialog* /*dialog*/) override {
         if (m_owner) {
             m_owner->UpdateCurrentFolder();
             m_owner->Refresh();
@@ -116,6 +88,38 @@ private:
     std::atomic<ULONG> m_refCount;
     CommonDialogColorizer* m_owner;
 };
+
+namespace {
+
+constexpr UINT_PTR kSubclassId = 0x4344434c;  // 'CDCL'
+
+std::mutex& RegistryMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::unordered_set<CommonDialogColorizer*>& Registry() {
+    static std::unordered_set<CommonDialogColorizer*> registry;
+    return registry;
+}
+
+void RegisterColorizer(CommonDialogColorizer* colorizer) {
+    if (!colorizer) {
+        return;
+    }
+    auto& registry = Registry();
+    std::scoped_lock lock(RegistryMutex());
+    registry.insert(colorizer);
+}
+
+void UnregisterColorizer(CommonDialogColorizer* colorizer) {
+    if (!colorizer) {
+        return;
+    }
+    auto& registry = Registry();
+    std::scoped_lock lock(RegistryMutex());
+    registry.erase(colorizer);
+}
 
 std::wstring GetShellItemDisplayName(IShellItem* item) {
     if (!item) {
@@ -165,7 +169,7 @@ bool CommonDialogColorizer::Attach(IFileDialog* dialog) {
     m_dialog = dialog;
     UpdateCurrentFolder();
 
-    auto* events = new (std::nothrow) DialogEvents(this);
+    auto* events = new (std::nothrow) CommonDialogColorizer::DialogEvents(this);
     if (!events) {
         Detach();
         return false;
@@ -265,7 +269,12 @@ bool CommonDialogColorizer::ResolveView() {
     }
 
     HWND hwnd = nullptr;
-    if (FAILED(m_dialog->GetWindow(&hwnd)) || !IsWindow(hwnd)) {
+    Microsoft::WRL::ComPtr<IOleWindow> oleWindow;
+    if (FAILED(m_dialog.As(&oleWindow)) || !oleWindow) {
+        return false;
+    }
+
+    if (FAILED(oleWindow->GetWindow(&hwnd)) || !IsWindow(hwnd)) {
         return false;
     }
 
