@@ -6,7 +6,7 @@
 #include <atomic>
 #include <string>
 
-#include "FileColorOverrides.h"
+#include "NameColorProvider.h"
 #include "Utilities.h"
 
 #ifndef RETURN_IF_FAILED
@@ -335,7 +335,7 @@ bool ExplorerPane::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) {
             return true;
         }
         COLORREF chosen;
-        if (FileColorOverrides::Instance().TryGetColor(fullPath, &chosen)) {
+        if (NameColorProvider::Instance().TryGetColorForPath(fullPath, &chosen)) {
             if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
                 cd->clrText = chosen;
                 *result = CDRF_NEWFONT;

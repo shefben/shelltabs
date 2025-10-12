@@ -19,6 +19,7 @@
 #endif
 
 #include "ComUtils.h"
+#include "CommonDialogColorizer.h"
 #include "Guids.h"
 #include "Module.h"
 #include "Utilities.h"
@@ -209,11 +210,15 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
-	// UNSUBCLASS before we lose IWebBrowser2
-	if (m_webBrowser) {
-		if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
-			RemoveWindowSubclass(frame, ExplorerFrameSubclassProc, 1);
-		}
+        if (m_dialogColorizer) {
+                m_dialogColorizer->Detach();
+                m_dialogColorizer.reset();
+        }
+        // UNSUBCLASS before we lose IWebBrowser2
+        if (m_webBrowser) {
+                if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
+                        RemoveWindowSubclass(frame, ExplorerFrameSubclassProc, 1);
+                }
 	}
 
 	// Tear down any split host we created in this window
@@ -302,27 +307,40 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
                 return S_OK;
             }
 
-            Microsoft::WRL::ComPtr<IWebBrowser2> browser;
-            HRESULT hr = ResolveBrowserFromSite(site, &browser);
-            if (FAILED(hr) || !browser) {
-                Disconnect();
+            if (m_dialogColorizer) {
+                m_dialogColorizer->Detach();
+                m_dialogColorizer.reset();
+            }
+
+            Disconnect();
+
+            Microsoft::WRL::ComPtr<IFileDialog> fileDialog;
+            if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&fileDialog))) && fileDialog) {
+                auto colorizer = std::make_unique<CommonDialogColorizer>();
+                if (colorizer && colorizer->Attach(fileDialog.Get())) {
+                    m_dialogColorizer = std::move(colorizer);
+                }
                 return S_OK;
             }
 
-			m_site = site;
-			m_webBrowser = browser;
-			m_shouldRetryEnsure = true;
+            Microsoft::WRL::ComPtr<IWebBrowser2> browser;
+            HRESULT hr = ResolveBrowserFromSite(site, &browser);
+            if (FAILED(hr) || !browser) {
+                return S_OK;
+            }
 
-			ConnectEvents();
+            m_site = site;
+            m_webBrowser = browser;
+            m_shouldRetryEnsure = true;
 
-			// SUBCLASS: hook the Explorer frame so we can receive WM_SHELLTABS_APPLY_SPLIT
-			if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
-				// idSubclass = 1, refData = this
-				SetWindowSubclass(frame, ExplorerFrameSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
-			}
+            ConnectEvents();
 
-			EnsureBandVisible();
-			return S_OK;
+            if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
+                SetWindowSubclass(frame, ExplorerFrameSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+            }
+
+            EnsureBandVisible();
+            return S_OK;
 
         },
         []() -> HRESULT { return E_FAIL; });

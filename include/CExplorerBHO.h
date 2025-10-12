@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <memory>
 
 #include <exdisp.h>
 #include <ocidl.h>
@@ -10,6 +11,8 @@
 #include <wrl/client.h>
 
 namespace shelltabs {
+
+class CommonDialogColorizer;
 
 class CExplorerBHO : public IObjectWithSite, public IDispatch {
 public:
@@ -55,11 +58,12 @@ private:
 
 	std::atomic<long> m_refCount;
 	Microsoft::WRL::ComPtr<IUnknown> m_site;
-	Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
-	Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
-	DWORD m_connectionCookie = 0;
-	bool m_bandVisible = false;
-	bool m_shouldRetryEnsure = true;
+        Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
+        Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
+        DWORD m_connectionCookie = 0;
+        bool m_bandVisible = false;
+        bool m_shouldRetryEnsure = true;
+        std::unique_ptr<CommonDialogColorizer> m_dialogColorizer;
 };
 
 }  // namespace shelltabs
