@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <string>
+
 namespace shelltabs {
 
 struct ShellTabsOptions {
