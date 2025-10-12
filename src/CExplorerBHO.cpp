@@ -22,6 +22,7 @@
 #include "Guids.h"
 #include "Module.h"
 #include "Utilities.h"
+#include "FileColorOverrides.h"
 // --- CExplorerBHO private state (treat these as class members) ---
 
 namespace shelltabs {
@@ -74,13 +75,14 @@ static HWND FindDefViewParentFromBrowser(IServiceProvider* sp, HWND* outDefView)
 #endif
 // --- Implement teardown so we don't leave DefView hidden ---
 void CExplorerBHO::RemoveSplitIfAny() {
-	if (m_splitHost && IsWindow(m_splitHost)) {
-		DestroyWindow(m_splitHost);
-	}
-	m_splitHost = nullptr;
-	if (m_defView && IsWindow(m_defView)) {
-		ShowWindow(m_defView, SW_SHOW);
-	}
+        if (m_splitHost && IsWindow(m_splitHost)) {
+                DestroyWindow(m_splitHost);
+        }
+        m_splitHost = nullptr;
+        if (m_defView && IsWindow(m_defView)) {
+                ShowWindow(m_defView, SW_SHOW);
+        }
+        FileColorOverrides::Instance().ClearEphemeral();
 }
 
 // zero-arg overload for legacy callers

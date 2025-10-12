@@ -12,9 +12,15 @@ namespace shelltabs {
 	public:
 		static FileColorOverrides& Instance();
 
-		bool TryGetColor(const std::wstring& path, COLORREF* out) const;
-		void SetColor(const std::vector<std::wstring>& paths, COLORREF color);
-		void ClearColor(const std::vector<std::wstring>& paths);
+                bool TryGetColor(const std::wstring& path, COLORREF* out) const;
+                void SetColor(const std::vector<std::wstring>& paths, COLORREF color);
+                void ClearColor(const std::vector<std::wstring>& paths);
+
+                // Ephemeral overrides are kept in-memory only. They are ideal for transient
+                // visualisations such as folder comparisons where persisting colours to disk
+                // would be undesirable.
+                void SetEphemeralColor(const std::vector<std::wstring>& paths, COLORREF color);
+                void ClearEphemeral();
 
 	private:
 		FileColorOverrides() = default;
@@ -29,7 +35,8 @@ namespace shelltabs {
 
 		mutable std::mutex mtx_;
 		mutable bool loaded_ = false;
-		mutable std::unordered_map<std::wstring, COLORREF> map_; // lowercase absolute path -> color
+                mutable std::unordered_map<std::wstring, COLORREF> map_;       // persistent colours
+                mutable std::unordered_map<std::wstring, COLORREF> transient_; // in-memory only
 	};
 
 } // namespace shelltabs
