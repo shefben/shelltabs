@@ -396,6 +396,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_contextHit = {};
     ClearExplorerContext();
     RebuildLayout();
+    AdjustBandHeightToRow();
     if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
@@ -605,14 +606,21 @@ void TabBandWindow::Layout(int width, int height) {
 
     m_clientRect.right = std::max(0, buttonX - kButtonMargin);
     RebuildLayout();
+    AdjustBandHeightToRow();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void TabBandWindow::ClearVisualItems() {
-	m_items.clear();
-	m_drag = {};
-	m_contextHit = {};
-	m_emptyIslandPlusButtons.clear();  // <-- add this
+        for (auto& item : m_items) {
+                if (item.icon) {
+                        DestroyIcon(item.icon);
+                        item.icon = nullptr;
+                }
+        }
+        m_items.clear();
+        m_drag = {};
+        m_contextHit = {};
+        m_emptyIslandPlusButtons.clear();  // <-- add this
 }
 
 void TabBandWindow::RebuildLayout() {
@@ -624,30 +632,43 @@ void TabBandWindow::RebuildLayout() {
 	// NEW: make sure any previous '+' targets are gone for a fresh layout
 	m_emptyIslandPlusButtons.clear();
 
-	RECT bounds = m_clientRect;
-	const int availableWidth = bounds.right - bounds.left;
-	if (availableWidth <= 0) {
-		return;
-	}
+        RECT bounds = m_clientRect;
+        const int availableWidth = bounds.right - bounds.left;
+        if (availableWidth <= 0) {
+                return;
+        }
 
-	HDC dc = GetDC(m_hwnd);
-	if (!dc) {
-		return;
-	}
-	HFONT font = GetDefaultFont();
-	HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
+        HDC dc = GetDC(m_hwnd);
+        if (!dc) {
+                return;
+        }
+        HFONT font = GetDefaultFont();
+        HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
 
-	const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
-	const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
+        const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
+        const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
 
-	const int bandWidth = bounds.right - bounds.left;
-	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-	int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
+        TEXTMETRIC tm{};
+        GetTextMetrics(dc, &tm);
 
-	// row layout
-	const int rowHeight = (bounds.bottom - bounds.top) - 4; // leave 2px top/bottom
-	const int startY = bounds.top + 2;
-	const int maxX = bounds.right;
+        int rowHeight = static_cast<int>(tm.tmHeight);
+        if (rowHeight > 0) {
+                rowHeight += 6;  // give text breathing room
+        } else {
+                rowHeight = baseIconHeight + 8;
+        }
+        rowHeight = std::max(rowHeight, baseIconHeight + 8);
+        rowHeight = std::max(rowHeight, kBadgeHeight + 8);
+        rowHeight = std::max(rowHeight, kCloseButtonSize + kCloseButtonVerticalPadding * 2 + 4);
+        rowHeight = std::max(rowHeight, 24);
+
+        const int bandWidth = bounds.right - bounds.left;
+        const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
+        int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
+
+        // row layout
+        const int startY = bounds.top + 2;
+        const int maxX = bounds.right;
 
 	int row = 0;
 	auto rowTop = [&](int r) { return startY + r * (rowHeight + kRowGap); };
