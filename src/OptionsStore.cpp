@@ -1,8 +1,10 @@
 #include "OptionsStore.h"
 
 #include <ShlObj.h>
+#include <KnownFolders.h>
 #include <Shlwapi.h>
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -56,7 +58,8 @@ std::string WideToUtf8(const std::wstring& wide) {
     if (wide.empty()) {
         return {};
     }
-    const int length = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    const int length = WideCharToMultiByte(
+        CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
     if (length <= 0) {
         return {};
     }

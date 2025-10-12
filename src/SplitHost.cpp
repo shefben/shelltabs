@@ -336,7 +336,7 @@ void SplitHost::OnSize() { LayoutChildren(); }
 void SplitHost::LayoutChildren() {
     RECT rc{};
     GetClientRect(m_hwnd, &rc);
-    const int width = std::max(0, rc.right - rc.left);
+    const int width = std::max<int>(0, static_cast<int>(rc.right - rc.left));
     const int minPaneWidth = 150;
     const int usableWidth = std::max(width - kSplitterWidth, minPaneWidth * 2);
     const int maxSplit = usableWidth - minPaneWidth;
@@ -347,7 +347,7 @@ void SplitHost::LayoutChildren() {
     }
 
     const int rightStart = m_splitX + kSplitterWidth;
-    const int contentHeight = std::max(0, rc.bottom - kAddressBarHeight);
+    const int contentHeight = std::max<int>(0, static_cast<int>(rc.bottom - kAddressBarHeight));
 
     MoveWindow(m_leftAddress, 0, 0, std::max(m_splitX, 0), kAddressBarHeight, TRUE);
     MoveWindow(m_rightAddress, rightStart, 0, std::max(width - rightStart, 0), kAddressBarHeight, TRUE);

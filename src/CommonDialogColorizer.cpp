@@ -8,6 +8,7 @@
 #include <mutex>
 #include <unordered_set>
 #include <vector>
+#include <new>
 
 #include "NameColorProvider.h"
 
