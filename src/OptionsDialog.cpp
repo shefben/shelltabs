@@ -166,7 +166,7 @@ std::vector<BYTE> BuildGroupPageTemplate() {
     list->cy = 140;
     list->id = IDC_GROUP_LIST;
     AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0081);
+    AppendWord(data, 0x0083);
     AppendString(data, L"");
     AppendWord(data, 0);
 
@@ -347,7 +347,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     pathList->cy = 96;
     pathList->id = IDC_EDITOR_PATH_LIST;
     AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0081);
+    AppendWord(data, 0x0083);
     AppendString(data, L"");
     AppendWord(data, 0);
 
@@ -935,18 +935,20 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
 
     PROPSHEETPAGEW pages[2] = {};
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
-    pages[0].dwFlags = PSP_DLGINDIRECT;
+    pages[0].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[0].hInstance = GetModuleHandleInstance();
     pages[0].pResource = reinterpret_cast<DLGTEMPLATE*>(mainTemplate.data());
     pages[0].pfnDlgProc = MainOptionsPageProc;
     pages[0].lParam = reinterpret_cast<LPARAM>(&data);
+    pages[0].pszTitle = L"General";
 
     pages[1].dwSize = sizeof(PROPSHEETPAGEW);
-    pages[1].dwFlags = PSP_DLGINDIRECT;
+    pages[1].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[1].hInstance = GetModuleHandleInstance();
     pages[1].pResource = reinterpret_cast<DLGTEMPLATE*>(groupTemplate.data());
     pages[1].pfnDlgProc = GroupManagementPageProc;
     pages[1].lParam = reinterpret_cast<LPARAM>(&data);
+    pages[1].pszTitle = L"Groups";
 
     PROPSHEETHEADERW header{};
     header.dwSize = sizeof(PROPSHEETHEADERW);
