@@ -1,9 +1,10 @@
 #include "CommonDialogColorizer.h"
 
 #include <CommCtrl.h>
-#include <ExplorerBrowser.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
+#include <ShObjIdl.h>
+#include <shlguid.h>
 #include <windowsx.h>
 
 #include <atomic>
