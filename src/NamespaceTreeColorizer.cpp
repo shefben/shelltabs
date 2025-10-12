@@ -1,7 +1,11 @@
 #include "NamespaceTreeColorizer.h"
-#include "FileColorOverrides.h"
-#include <shlwapi.h>
+
+#include "NameColorProvider.h"
+
 #include <ShlObj.h>
+#include <shlwapi.h>
+
+#include <string>
 
 #pragma comment(lib, "Shlwapi.lib")
 
@@ -9,104 +13,132 @@ using Microsoft::WRL::ComPtr;
 
 namespace shelltabs {
 
-	NamespaceTreeColorizer::NamespaceTreeColorizer() {}
-	NamespaceTreeColorizer::~NamespaceTreeColorizer() { Detach(); }
+NamespaceTreeColorizer::NamespaceTreeColorizer() = default;
 
-	bool NamespaceTreeColorizer::Attach(ComPtr<IServiceProvider> sp) {
-		Detach();
-		if (!ResolveNSTC(sp)) return false;
+NamespaceTreeColorizer::~NamespaceTreeColorizer() { Detach(); }
 
-		// Get IUnknown for this sink (QI returns HRESULT, the OUT param gets the pointer)
-		Microsoft::WRL::ComPtr<IUnknown> unk;
-		HRESULT hr = this->QueryInterface(IID_PPV_ARGS(&unk));
-		if (FAILED(hr)) return false;
+bool NamespaceTreeColorizer::Attach(ComPtr<IServiceProvider> serviceProvider) {
+    Detach();
+    if (!ResolveNSTC(serviceProvider)) {
+        return false;
+    }
 
-		// Advise the sink
-		hr = nstc_->TreeAdvise(unk.Get(), &cookie_);
-		return SUCCEEDED(hr);
-	}
+    ComPtr<IUnknown> sink;
+    HRESULT hr = QueryInterface(IID_PPV_ARGS(&sink));
+    if (FAILED(hr) || !sink) {
+        return false;
+    }
 
-	void NamespaceTreeColorizer::Detach() {
-		if (nstc_ && cookie_) {
-			nstc_->TreeUnadvise(cookie_);
-			cookie_ = 0;
-		}
-		nstc_.Reset();
-	}
+    hr = nstc_->TreeAdvise(sink.Get(), &cookie_);
+    return SUCCEEDED(hr);
+}
 
+void NamespaceTreeColorizer::Detach() {
+    if (nstc_ && cookie_ != 0) {
+        nstc_->TreeUnadvise(cookie_);
+        cookie_ = 0;
+    }
+    nstc_.Reset();
+}
 
-	bool NamespaceTreeColorizer::ResolveNSTC(ComPtr<IServiceProvider> sp) {
-		if (!sp) return false;
-		ComPtr<IShellBrowser> browser;
-		if (FAILED(sp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser)))) return false;
+bool NamespaceTreeColorizer::ResolveNSTC(ComPtr<IServiceProvider> serviceProvider) {
+    if (!serviceProvider) {
+        return false;
+    }
 
-		ComPtr<IServiceProvider> bsp;
-		if (FAILED(browser.As(&bsp))) return false;
-		if (FAILED(bsp->QueryService(__uuidof(INameSpaceTreeControl), IID_PPV_ARGS(&nstc_)))) {
-			return false;
-		}
-		return nstc_ != nullptr;
-	}
+    ComPtr<IShellBrowser> browser;
+    if (FAILED(serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser) {
+        return false;
+    }
 
-	bool NamespaceTreeColorizer::ItemPathFromShellItem(IShellItem* psi, std::wstring* out) const {
-		if (!psi || !out) return false;
-		PWSTR p = nullptr;
-		if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) {
-			*out = p;
-			CoTaskMemFree(p);
-			return true;
-		}
-		return false;
-	}
+    ComPtr<IServiceProvider> browserProvider;
+    if (FAILED(browser.As(&browserProvider)) || !browserProvider) {
+        return false;
+    }
 
+    if (FAILED(browserProvider->QueryService(__uuidof(INameSpaceTreeControl), IID_PPV_ARGS(&nstc_))) || !nstc_) {
+        return false;
+    }
 
-	// IUnknown
-	IFACEMETHODIMP NamespaceTreeColorizer::QueryInterface(REFIID riid, void** ppv) {
-		if (!ppv) return E_POINTER;
-		if (riid == IID_IUnknown || riid == __uuidof(INameSpaceTreeControlCustomDraw)) {
-			*ppv = static_cast<INameSpaceTreeControlCustomDraw*>(this);
-			AddRef(); return S_OK;
-		}
-		*ppv = nullptr;
-		return E_NOINTERFACE;
-	}
-	IFACEMETHODIMP_(ULONG) NamespaceTreeColorizer::AddRef() { return ++ref_; }
+    return true;
+}
 
-	IFACEMETHODIMP_(ULONG) NamespaceTreeColorizer::Release() {
-		ULONG r = --ref_; if (!r) delete this; return r;
-	}
+bool NamespaceTreeColorizer::ItemPathFromShellItem(IShellItem* item, std::wstring* path) const {
+    if (!item || !path) {
+        return false;
+    }
 
-	// INameSpaceTreeControlCustomDraw
-	IFACEMETHODIMP NamespaceTreeColorizer::PrePaint(HDC, RECT*, LRESULT* lr) {
-		if (lr) *lr = CDRF_NOTIFYITEMDRAW;
-		return S_OK;
-	}
+    PWSTR buffer = nullptr;
+    HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
+    if (FAILED(hr) || !buffer) {
+        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
+    }
+    if (FAILED(hr) || !buffer) {
+        return false;
+    }
 
-	IFACEMETHODIMP NamespaceTreeColorizer::PostPaint(HDC, RECT*) {
-		return S_OK;
-	}
+    path->assign(buffer);
+    CoTaskMemFree(buffer);
+    return true;
+}
 
-	IFACEMETHODIMP NamespaceTreeColorizer::ItemPrePaint(
-		HDC, RECT*, NSTCCUSTOMDRAW* cd, COLORREF* pclrText, COLORREF* pclrTextBk, LRESULT* lr) {
-		if (!cd || !lr) return S_OK;
-		*lr = CDRF_DODEFAULT;
+// IUnknown
+IFACEMETHODIMP NamespaceTreeColorizer::QueryInterface(REFIID riid, void** object) {
+    if (!object) {
+        return E_POINTER;
+    }
+    if (riid == IID_IUnknown || riid == __uuidof(INameSpaceTreeControlCustomDraw)) {
+        *object = static_cast<INameSpaceTreeControlCustomDraw*>(this);
+        AddRef();
+        return S_OK;
+    }
+    *object = nullptr;
+    return E_NOINTERFACE;
+}
 
-		std::wstring path;
-		if (cd->psi && ItemPathFromShellItem(cd->psi, &path)) {
-			COLORREF col;
-			if (FileColorOverrides::Instance().TryGetColor(path, &col)) {
-				if (pclrText)   *pclrText = col;   // set text color
-				// leave background alone unless you want to force it:
-				// if (pclrTextBk) *pclrTextBk = RGB(...);
-				*lr = CDRF_NEWFONT;
-			}
-		}
-		return S_OK;
-	}
+IFACEMETHODIMP_(ULONG) NamespaceTreeColorizer::AddRef() { return ++ref_; }
 
-	IFACEMETHODIMP NamespaceTreeColorizer::ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) {
-		return S_OK;
-	}
+IFACEMETHODIMP_(ULONG) NamespaceTreeColorizer::Release() {
+    ULONG remaining = --ref_;
+    if (remaining == 0) {
+        delete this;
+    }
+    return remaining;
+}
 
+// INameSpaceTreeControlCustomDraw
+IFACEMETHODIMP NamespaceTreeColorizer::PrePaint(HDC, RECT*, LRESULT* result) {
+    if (result) {
+        *result = CDRF_NOTIFYITEMDRAW;
+    }
+    return S_OK;
+}
 
-} // namespace shelltabs
+IFACEMETHODIMP NamespaceTreeColorizer::PostPaint(HDC, RECT*) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* drawInfo,
+                                                    COLORREF* textColor, COLORREF*, LRESULT* result) {
+    if (!drawInfo || !result) {
+        return S_OK;
+    }
+
+    *result = CDRF_DODEFAULT;
+
+    std::wstring path;
+    if (drawInfo->psi && ItemPathFromShellItem(drawInfo->psi, &path)) {
+        COLORREF colour = 0;
+        if (NameColorProvider::Instance().TryGetColorForPath(path, &colour)) {
+            if (textColor) {
+                *textColor = colour;
+            }
+            *result = CDRF_NEWFONT;
+        }
+    }
+
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) { return S_OK; }
+
+}  // namespace shelltabs
+

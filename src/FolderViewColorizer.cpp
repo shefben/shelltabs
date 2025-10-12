@@ -4,8 +4,7 @@
 #include <CommCtrl.h>
 #include <string>
 
-#include "Tagging.h"
-#include "FileColorOverrides.h"
+#include "NameColorProvider.h"
 
 namespace shelltabs {
 namespace {
@@ -184,40 +183,45 @@ bool FolderViewColorizer::HandleNotify(NMHDR* header, LRESULT* result) {
 }
 
 bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) {
-	if (!cd || !result) return false;
+    if (!cd || !result) {
+        return false;
+    }
 
-        switch (cd->nmcd.dwDrawStage) {
+    switch (cd->nmcd.dwDrawStage) {
         case CDDS_PREPAINT:
-                *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
-                return true;
+            *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+            return true;
 
         case CDDS_ITEMPREPAINT:
         case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
-                const int iItem = static_cast<int>(cd->nmcd.dwItemSpec);
-                std::wstring fullPath;
-                if (!GetItemPath(iItem, &fullPath)) {
-                        *result = CDRF_DODEFAULT;
-                        return true;
-                }
-                COLORREF chosen;
-                if (FileColorOverrides::Instance().TryGetColor(fullPath, &chosen)) {
-                        if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
-                                cd->clrText = chosen;
-                                *result = CDRF_NEWFONT;
-                                return true;
-                        }
-                }
+            const int index = static_cast<int>(cd->nmcd.dwItemSpec);
+            std::wstring fullPath;
+            if (!GetItemPath(index, &fullPath)) {
                 *result = CDRF_DODEFAULT;
                 return true;
+            }
+            COLORREF chosen = 0;
+            if (NameColorProvider::Instance().TryGetColorForPath(fullPath, &chosen)) {
+                if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
+                    cd->clrText = chosen;
+                    *result = CDRF_NEWFONT;
+                    return true;
+                }
+            }
+            *result = CDRF_DODEFAULT;
+            return true;
         }
+
         case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
-                DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd);
-                *result = CDRF_DODEFAULT;
-                return true;
+            DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd);
+            *result = CDRF_DODEFAULT;
+            return true;
+
         default:
-                break;
-        }
-        return false;
+            break;
+    }
+
+    return false;
 }
 
 
@@ -234,7 +238,7 @@ bool FolderViewColorizer::GetItemPath(int index, std::wstring* path) const {
     PWSTR buffer = nullptr;
     HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
     if (FAILED(hr) || !buffer) {
-        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEEDITING, &buffer);
+        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
     }
     if (FAILED(hr) || !buffer) {
         return false;

@@ -185,32 +185,14 @@ private:
 	std::unique_ptr<NamespaceTreeColorizer> m_treeColorizer;
 
 	// Right pane hook state
-	HWND m_hwndDefView = nullptr;   // SHELLDLL_DefView
-	HWND m_hwndList = nullptr;   // SysListView32 under DefView
-	bool m_isSubclassed = false;
+        // Hook management
+        void HookTreeColorizer();               // left pane
 
-	// Hook management
-	void HookTreeColorizer();               // left pane
-	void InstallRightPaneHook();            // right pane
-	void RemoveRightPaneHook();             // right pane teardown
-	void RehookOnViewChange();              // call after navigation/site changes
-
-	// Utilities
-	bool GetDefViewAndList(HWND* outDefView, HWND* outList) const;
-	bool GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths);
-	bool PickColor(COLORREF* color);
-	void ApplyColorToSelection(bool clear);
-
-	// DefView subclass proc
-	static LRESULT CALLBACK DefViewSubclassProc(
-		HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-		UINT_PTR id, DWORD_PTR refData);
-
-	// Custom draw handler called from the subclass proc
-	LRESULT OnListViewCustomDraw(NMLVCUSTOMDRAW* cd);
-
-	// Helper to get absolute path for item index
-	bool GetItemAbsolutePathViaIFolderView2(int iItem, std::wstring& outPath) const;
+        // Utilities
+        bool GetDefViewAndList(HWND* outDefView, HWND* outList) const;
+        bool GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths);
+        bool PickColor(COLORREF* color);
+        void ApplyColorToSelection(bool clear);
 	// Helpers
 	bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
 	void DrawEmptyIslandPluses(HDC dc) const;

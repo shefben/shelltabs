@@ -6,7 +6,7 @@
 
 #include "GitStatus.h"
 #include "Logging.h"
-#include "Tagging.h"
+#include "NameColorProvider.h"
 
 namespace shelltabs {
 
@@ -400,7 +400,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             }
             ++visible;
             COLORREF color = 0;
-            if (!tab.path.empty() && TagStore::Instance().TryGetColorForPath(tab.path, &color)) {
+            if (!tab.path.empty() && NameColorProvider::Instance().TryGetColorForPath(tab.path, &color)) {
                 if (!groupHasColor) {
                     groupColor = color;
                     groupHasColor = true;
@@ -472,7 +472,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
 
             COLORREF color = 0;
             std::vector<std::wstring> tags;
-            if (!tab.path.empty() && TagStore::Instance().TryGetColorAndTags(tab.path, &color, &tags)) {
+            if (!tab.path.empty() && NameColorProvider::Instance().TryGetColorAndTags(tab.path, &color, &tags)) {
                 item.hasTagColor = true;
                 item.tagColor = color;
                 item.tags = std::move(tags);

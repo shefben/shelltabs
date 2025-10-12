@@ -1,4 +1,6 @@
 #include "FileColorOverrides.h"
+
+#include "CommonDialogColorizer.h"
 #include <ShlObj.h>
 #include <Shlwapi.h>
 #include <vector>
@@ -156,6 +158,7 @@ namespace shelltabs {
                         for (const auto& p : paths) map_[ToLowerCopy(p)] = color;
                 }
                 Save();
+                CommonDialogColorizer::NotifyColorDataChanged();
         }
 
         void FileColorOverrides::ClearColor(const std::vector<std::wstring>& paths) {
@@ -165,16 +168,19 @@ namespace shelltabs {
                         for (const auto& p : paths) map_.erase(ToLowerCopy(p));
                 }
                 Save();
+                CommonDialogColorizer::NotifyColorDataChanged();
         }
 
         void FileColorOverrides::SetEphemeralColor(const std::vector<std::wstring>& paths, COLORREF color) {
                 std::lock_guard<std::mutex> lock(mtx_);
                 for (const auto& p : paths) transient_[ToLowerCopy(p)] = color;
+                CommonDialogColorizer::NotifyColorDataChanged();
         }
 
         void FileColorOverrides::ClearEphemeral() {
                 std::lock_guard<std::mutex> lock(mtx_);
                 transient_.clear();
+                CommonDialogColorizer::NotifyColorDataChanged();
         }
 
 } // namespace shelltabs
