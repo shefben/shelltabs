@@ -25,6 +25,8 @@
 #include "Guids.h"
 #include "GroupStore.h"
 #include "GitStatus.h"
+#include "OptionsDialog.h"
+#include "OptionsStore.h"
 #include "Logging.h"
 #include "Module.h"
 #include "TabBandWindow.h"
@@ -1104,6 +1106,16 @@ void TabBand::EnsureWindow() {
     }
 }
 
+void TabBand::EnsureOptionsLoaded() const {
+    if (m_optionsLoaded) {
+        return;
+    }
+    auto& store = OptionsStore::Instance();
+    store.Load();
+    m_options = store.Get();
+    m_optionsLoaded = true;
+}
+
 void TabBand::EnsureGitStatusListener() {
     if (m_gitStatusListenerId != 0 || !m_window) {
         return;
@@ -1145,6 +1157,10 @@ void TabBand::RemoveGitStatusListener() {
 void TabBand::DisconnectSite() {
     LogMessage(LogLevel::Info, L"TabBand::DisconnectSite (this=%p)", this);
     SaveSession();
+    if (m_sessionMarkerActive) {
+        SessionStore::ClearSessionMarker();
+        m_sessionMarkerActive = false;
+    }
     ReleaseWindowToken();
 
     if (m_browserEvents) {
@@ -1186,7 +1202,20 @@ void TabBand::InitializeTabs() {
 
     GroupStore::Instance().Load();
     EnsureSessionStore();
-    const bool restored = RestoreSession();
+    EnsureOptionsLoaded();
+    m_lastSessionUnclean = SessionStore::WasPreviousSessionUnclean();
+    SessionStore::MarkSessionActive();
+    m_sessionMarkerActive = true;
+
+    bool shouldRestore = true;
+    if (m_lastSessionUnclean && !m_options.reopenOnCrash) {
+        shouldRestore = false;
+    }
+
+    bool restored = false;
+    if (shouldRestore) {
+        restored = RestoreSession();
+    }
 
     if (!restored || m_tabs.TotalTabCount() == 0) {
         UniquePidl pidl = QueryCurrentFolder();
@@ -1365,6 +1394,12 @@ void TabBand::SaveSession() {
     }
 
     m_sessionStore->Save(data);
+}
+
+void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
+    if (!previousOptions.persistGroupPaths && m_options.persistGroupPaths) {
+        SyncAllSavedGroups();
+    }
 }
 
 UniquePidl TabBand::QueryCurrentFolder() const {
@@ -1782,6 +1817,35 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     }
 }
 
+void TabBand::OnShowOptionsDialog(int initialTab) {
+    EnsureOptionsLoaded();
+    ShellTabsOptions previousOptions = m_options;
+
+    HWND owner = nullptr;
+    if (m_window) {
+        owner = m_window->GetHwnd();
+        if (owner) {
+            owner = GetAncestor(owner, GA_ROOT);
+        }
+    }
+
+    OptionsDialogResult dialog = ShowOptionsDialog(owner, initialTab);
+    if (!dialog.saved) {
+        return;
+    }
+
+    m_optionsLoaded = false;
+    EnsureOptionsLoaded();
+    if (dialog.optionsChanged) {
+        ApplyOptionsChanges(previousOptions);
+    }
+    if (dialog.groupsChanged) {
+        GroupStore::Instance().Load();
+        SyncAllSavedGroups();
+        UpdateTabsUI();
+    }
+}
+
 void TabBand::OnDeferredNavigate() {
     m_deferredNavigationPosted = false;
     TabLocation target = m_pendingNavigation;
@@ -1901,6 +1965,10 @@ void TabBand::ScheduleColorizerRefresh() {
 }
 
 void TabBand::SyncSavedGroup(int groupIndex) const {
+    EnsureOptionsLoaded();
+    if (!m_options.persistGroupPaths) {
+        return;
+    }
     const auto* group = m_tabs.GetGroup(groupIndex);
     if (!group || group->savedGroupId.empty()) {
         return;

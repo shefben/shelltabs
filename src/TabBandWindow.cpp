@@ -2419,14 +2419,14 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		return;
 	}
 
-	if (id == IDM_CREATE_SAVED_GROUP) {
-		const int insertAfter = ResolveInsertGroupIndex();
-		m_owner->OnCreateSavedGroup(insertAfter);
-		ClearExplorerContext();
-		return;
-	}
+        if (id == IDM_CREATE_SAVED_GROUP) {
+                const int insertAfter = ResolveInsertGroupIndex();
+                m_owner->OnCreateSavedGroup(insertAfter);
+                ClearExplorerContext();
+                return;
+        }
 
-	if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
+        if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
 		for (const auto& entry : m_savedGroupCommands) {
 			if (entry.first == id) {
 				const int insertAfter = ResolveInsertGroupIndex();
@@ -2434,14 +2434,38 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 				break;
 			}
 		}
-		ClearExplorerContext();
-		return;
-	}
+                ClearExplorerContext();
+                return;
+        }
 
-	if (!m_contextHit.hit) {
-		ClearExplorerContext();
-		return;
-	}
+        if (id == IDM_NEW_THISPC_TAB) {
+                if (m_owner) {
+                        m_owner->OnNewThisPCInGroupRequested(-1);
+                }
+                ClearExplorerContext();
+                return;
+        }
+
+        if (id == IDM_MANAGE_GROUPS) {
+                if (m_owner) {
+                        m_owner->OnShowOptionsDialog(1);
+                }
+                ClearExplorerContext();
+                return;
+        }
+
+        if (id == IDM_OPTIONS) {
+                if (m_owner) {
+                        m_owner->OnShowOptionsDialog(0);
+                }
+                ClearExplorerContext();
+                return;
+        }
+
+        if (!m_contextHit.hit) {
+                ClearExplorerContext();
+                return;
+        }
 
 	// Handle the bulk of tab/island commands with a switch.
 	switch (id) {
@@ -2799,7 +2823,7 @@ void TabBandWindow::HandleFileDrop(HDROP drop) {
         handled = true;
     }
 
-    if (!handled) {
+    if (!handled && !dropOnTab && !HasAnyTabs() && m_owner) {
         for (const auto& path : paths) {
             const DWORD attributes = GetFileAttributesW(path.c_str());
             if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
@@ -3372,7 +3396,20 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
         }
     }
 
-    PopulateSavedGroupsMenu(menu, hasItemCommands);
+    bool appendedBeforeOptions = hasItemCommands;
+    if (!hit.hit) {
+        AppendMenuW(menu, MF_STRING, IDM_NEW_THISPC_TAB, L"New Tab");
+        appendedBeforeOptions = true;
+        hasItemCommands = true;
+    }
+
+    if (appendedBeforeOptions) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    }
+    AppendMenuW(menu, MF_STRING, IDM_MANAGE_GROUPS, L"Manage Groups...");
+    AppendMenuW(menu, MF_STRING, IDM_OPTIONS, L"Options...");
+
+    PopulateSavedGroupsMenu(menu, true);
 
     TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, screenPt.x, screenPt.y, 0, m_hwnd, nullptr);
     DestroyMenu(menu);
@@ -3437,6 +3474,15 @@ void TabBandWindow::PopulateSavedGroupsMenu(HMENU parent, bool addSeparator) {
 	AppendMenuW(parent, MF_STRING, ID_CMD_SET_NAME_COLOR, L"Change specific file or folder filename color...");
 	AppendMenuW(parent, MF_STRING, ID_CMD_CLEAR_NAME_COLOR, L"Clear filename color for selected");
 
+}
+
+bool TabBandWindow::HasAnyTabs() const {
+    for (const auto& item : m_tabData) {
+        if (item.type == TabViewItemType::kTab) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int TabBandWindow::ResolveInsertGroupIndex() const {

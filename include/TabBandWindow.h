@@ -268,6 +268,7 @@ private:
     void ShowContextMenu(const POINT& pt);
     void PopulateHiddenTabsMenu(HMENU menu, int groupIndex);
     void PopulateSavedGroupsMenu(HMENU parent, bool addSeparator);
+    bool HasAnyTabs() const;
     int ResolveInsertGroupIndex() const;
     int GroupCount() const;
     const VisualItem* FindLastGroupHeader() const;
@@ -322,6 +323,9 @@ enum : UINT_PTR {
     IDM_TOGGLE_ISLAND_HEADER = 40021,
     IDM_CREATE_SAVED_GROUP = 40022,
     IDM_EDIT_GROUP = 40023,
+    IDM_NEW_THISPC_TAB = 40024,
+    IDM_MANAGE_GROUPS = 40025,
+    IDM_OPTIONS = 40026,
     IDM_HIDDEN_TAB_BASE = 41000,
     IDM_EXPLORER_CONTEXT_BASE = 42000,
     IDM_EXPLORER_CONTEXT_LAST = 42999,

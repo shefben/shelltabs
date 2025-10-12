@@ -26,6 +26,8 @@ add_library(ShellTabs SHARED
     src/Tagging.cpp
     src/SessionStore.cpp
     src/GroupStore.cpp
+    src/OptionsStore.cpp
+    src/OptionsDialog.cpp
     src/Utilities.cpp
     src/GitStatus.cpp
     src/Logging.cpp

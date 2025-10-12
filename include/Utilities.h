@@ -36,6 +36,7 @@ std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShell
 bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value,
                         COLORREF* color = nullptr);
 bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value);
+bool BrowseForFolder(HWND parent, std::wstring* path);
 
 void LogUnhandledException(const wchar_t* context, const wchar_t* details = nullptr);
 void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details);
