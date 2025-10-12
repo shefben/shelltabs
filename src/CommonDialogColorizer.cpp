@@ -303,6 +303,7 @@ bool CommonDialogColorizer::ResolveView() {
         }
 
         if (!m_folderView) {
+#ifdef SID_SExplorerBrowser
             Microsoft::WRL::ComPtr<IExplorerBrowser> explorerBrowser;
             if (SUCCEEDED(serviceProvider->QueryService(SID_SExplorerBrowser, IID_PPV_ARGS(&explorerBrowser))) && explorerBrowser) {
                 Microsoft::WRL::ComPtr<IShellView> view;
@@ -310,6 +311,7 @@ bool CommonDialogColorizer::ResolveView() {
                     view.As(&m_folderView);
                 }
             }
+#endif  // SID_SExplorerBrowser
         }
     }
 
@@ -403,8 +405,13 @@ bool CommonDialogColorizer::GetItemPath(int index, std::wstring* path) const {
 
     std::wstring text(256, L'\0');
     while (true) {
-        const int copied = ListView_GetItemTextW(m_listView, index, 0, text.data(),
-                                                 static_cast<int>(text.size()));
+        LVITEMW item = {};
+        item.iSubItem = 0;
+        item.pszText = text.data();
+        item.cchTextMax = static_cast<int>(text.size());
+        const int copied = static_cast<int>(SendMessageW(
+            m_listView, LVM_GETITEMTEXTW, static_cast<WPARAM>(index),
+            reinterpret_cast<LPARAM>(&item)));
         if (copied < 0) {
             return false;
         }
