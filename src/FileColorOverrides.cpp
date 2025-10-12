@@ -132,31 +132,49 @@ namespace shelltabs {
 		fout << ss.str();
 	}
 
-	bool FileColorOverrides::TryGetColor(const std::wstring& path, COLORREF* out) const {
-		Load();
-		std::lock_guard<std::mutex> lock(mtx_);
-		auto it = map_.find(ToLowerCopy(path));
-		if (it == map_.end()) return false;
-		if (out) *out = it->second;
-		return true;
-	}
+        bool FileColorOverrides::TryGetColor(const std::wstring& path, COLORREF* out) const {
+                Load();
+                std::lock_guard<std::mutex> lock(mtx_);
+                const auto key = ToLowerCopy(path);
 
-	void FileColorOverrides::SetColor(const std::vector<std::wstring>& paths, COLORREF color) {
-		Load();
-		{
-			std::lock_guard<std::mutex> lock(mtx_);
-			for (const auto& p : paths) map_[ToLowerCopy(p)] = color;
-		}
-		Save();
-	}
+                auto transientIt = transient_.find(key);
+                if (transientIt != transient_.end()) {
+                        if (out) *out = transientIt->second;
+                        return true;
+                }
 
-	void FileColorOverrides::ClearColor(const std::vector<std::wstring>& paths) {
-		Load();
-		{
-			std::lock_guard<std::mutex> lock(mtx_);
-			for (const auto& p : paths) map_.erase(ToLowerCopy(p));
-		}
-		Save();
-	}
+                auto it = map_.find(key);
+                if (it == map_.end()) return false;
+                if (out) *out = it->second;
+                return true;
+        }
+
+        void FileColorOverrides::SetColor(const std::vector<std::wstring>& paths, COLORREF color) {
+                Load();
+                {
+                        std::lock_guard<std::mutex> lock(mtx_);
+                        for (const auto& p : paths) map_[ToLowerCopy(p)] = color;
+                }
+                Save();
+        }
+
+        void FileColorOverrides::ClearColor(const std::vector<std::wstring>& paths) {
+                Load();
+                {
+                        std::lock_guard<std::mutex> lock(mtx_);
+                        for (const auto& p : paths) map_.erase(ToLowerCopy(p));
+                }
+                Save();
+        }
+
+        void FileColorOverrides::SetEphemeralColor(const std::vector<std::wstring>& paths, COLORREF color) {
+                std::lock_guard<std::mutex> lock(mtx_);
+                for (const auto& p : paths) transient_[ToLowerCopy(p)] = color;
+        }
+
+        void FileColorOverrides::ClearEphemeral() {
+                std::lock_guard<std::mutex> lock(mtx_);
+                transient_.clear();
+        }
 
 } // namespace shelltabs

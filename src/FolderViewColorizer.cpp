@@ -1,6 +1,8 @@
 #include "FolderViewColorizer.h"
 
 #include <ShlObj.h>
+#include <CommCtrl.h>
+#include <string>
 
 #include "Tagging.h"
 #include "FileColorOverrides.h"
@@ -8,6 +10,7 @@
 namespace shelltabs {
 namespace {
 constexpr UINT_PTR kSubclassId = 0x53485354;  // 'SHST'
+constexpr int kLineNumberMargin = 4;
 
 HWND FindFolderListView(HWND root) {
     if (!root) {
@@ -39,6 +42,49 @@ HWND FindFolderListView(HWND root) {
         reinterpret_cast<LPARAM>(&data));
 
     return data.result;
+}
+
+void DrawLineNumberOverlay(HWND listView, HDC hdc, const NMLVCUSTOMDRAW* cd) {
+    if (!listView || !cd) {
+        return;
+    }
+
+    if ((cd->nmcd.dwDrawStage & CDDS_SUBITEM) == 0 || cd->iSubItem != 0) {
+        return;
+    }
+
+    const int index = static_cast<int>(cd->nmcd.dwItemSpec);
+    RECT bounds{};
+    RECT label{};
+    if (!ListView_GetItemRect(listView, index, &bounds, LVIR_BOUNDS) ||
+        !ListView_GetSubItemRect(listView, index, 0, LVIR_LABEL, &label)) {
+        return;
+    }
+
+    RECT gutter = bounds;
+    gutter.left += kLineNumberMargin;
+    gutter.right = label.left - kLineNumberMargin;
+    if (gutter.right <= gutter.left) {
+        return;
+    }
+
+    const std::wstring text = std::to_wstring(index + 1);
+    const UINT format = DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS;
+
+    const bool selected = (cd->nmcd.uItemState & CDIS_SELECTED) != 0;
+    const bool hot = (cd->nmcd.uItemState & CDIS_HOT) != 0;
+    COLORREF foreground = GetSysColor(COLOR_WINDOWTEXT);
+    if (selected) {
+        foreground = GetSysColor(COLOR_HIGHLIGHTTEXT);
+    } else if (hot) {
+        foreground = GetSysColor(COLOR_HOTLIGHT);
+    }
+
+    const int previousBk = SetBkMode(hdc, TRANSPARENT);
+    const COLORREF previousText = SetTextColor(hdc, foreground);
+    DrawTextW(hdc, text.c_str(), static_cast<int>(text.size()), &gutter, format);
+    SetTextColor(hdc, previousText);
+    SetBkMode(hdc, previousBk);
 }
 }
 
@@ -140,34 +186,38 @@ bool FolderViewColorizer::HandleNotify(NMHDR* header, LRESULT* result) {
 bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) {
 	if (!cd || !result) return false;
 
-	switch (cd->nmcd.dwDrawStage) {
-	case CDDS_PREPAINT:
-		*result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
-		return true;
+        switch (cd->nmcd.dwDrawStage) {
+        case CDDS_PREPAINT:
+                *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+                return true;
 
-	case CDDS_ITEMPREPAINT:
-	case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
-		const int iItem = static_cast<int>(cd->nmcd.dwItemSpec);
-		std::wstring fullPath;
-		if (!GetItemPath(iItem, &fullPath)) {
-			*result = CDRF_DODEFAULT;
-			return true;
-		}
-		COLORREF chosen;
-		if (FileColorOverrides::Instance().TryGetColor(fullPath, &chosen)) {
-			if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
-				cd->clrText = chosen;
-				*result = CDRF_NEWFONT;
-				return true;
-			}
-		}
-		*result = CDRF_DODEFAULT;
-		return true;
-	}
-	default:
-		break;
-	}
-	return false;
+        case CDDS_ITEMPREPAINT:
+        case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
+                const int iItem = static_cast<int>(cd->nmcd.dwItemSpec);
+                std::wstring fullPath;
+                if (!GetItemPath(iItem, &fullPath)) {
+                        *result = CDRF_DODEFAULT;
+                        return true;
+                }
+                COLORREF chosen;
+                if (FileColorOverrides::Instance().TryGetColor(fullPath, &chosen)) {
+                        if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
+                                cd->clrText = chosen;
+                                *result = CDRF_NEWFONT;
+                                return true;
+                        }
+                }
+                *result = CDRF_DODEFAULT;
+                return true;
+        }
+        case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
+                DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd);
+                *result = CDRF_DODEFAULT;
+                return true;
+        default:
+                break;
+        }
+        return false;
 }
 
 
