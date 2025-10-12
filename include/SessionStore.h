@@ -43,6 +43,9 @@ public:
     bool Save(const SessionData& data) const;
 
     static std::wstring BuildPathForToken(const std::wstring& token);
+    static bool WasPreviousSessionUnclean();
+    static void MarkSessionActive();
+    static void ClearSessionMarker();
 
 private:
     std::wstring m_storagePath;

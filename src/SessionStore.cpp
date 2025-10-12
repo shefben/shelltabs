@@ -4,6 +4,7 @@
 #include <Shlwapi.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cwctype>
 #include <sstream>
 #include <string>
@@ -18,6 +19,7 @@ constexpr wchar_t kTabToken[] = L"tab";
 constexpr wchar_t kSelectedToken[] = L"selected";
 constexpr wchar_t kSequenceToken[] = L"sequence";
 constexpr wchar_t kCommentChar = L'#';
+constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
 
 std::wstring Trim(const std::wstring& value) {
     const auto begin = value.find_first_not_of(L" \t\r\n");
@@ -129,6 +131,8 @@ std::wstring ResolveStoragePath() {
  
 }  // namespace
 
+std::atomic<long> g_activeSessionCount{0};
+
 SessionStore::SessionStore() : SessionStore(ResolveStoragePath()) {}
 
 SessionStore::SessionStore(std::wstring storagePath) : m_storagePath(std::move(storagePath)) {
@@ -163,6 +167,58 @@ std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
     directory += sanitized;
     directory += L".db";
     return directory;
+}
+
+bool SessionStore::WasPreviousSessionUnclean() {
+    if (g_activeSessionCount.load(std::memory_order_acquire) > 0) {
+        return false;
+    }
+    std::wstring directory = ResolveStorageDirectory();
+    if (directory.empty()) {
+        return false;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    directory += kCrashMarkerFile;
+    return GetFileAttributesW(directory.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+void SessionStore::MarkSessionActive() {
+    std::wstring directory = ResolveStorageDirectory();
+    if (directory.empty()) {
+        return;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    const std::wstring path = directory + kCrashMarkerFile;
+    const long previous = g_activeSessionCount.fetch_add(1, std::memory_order_acq_rel);
+    if (previous > 0) {
+        return;
+    }
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+    }
+}
+
+void SessionStore::ClearSessionMarker() {
+    std::wstring directory = ResolveStorageDirectory();
+    if (directory.empty()) {
+        g_activeSessionCount.store(0, std::memory_order_release);
+        return;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    const std::wstring path = directory + kCrashMarkerFile;
+    long previous = g_activeSessionCount.fetch_sub(1, std::memory_order_acq_rel);
+    if (previous <= 1) {
+        g_activeSessionCount.store(0, std::memory_order_release);
+        DeleteFileW(path.c_str());
+    }
 }
 
 bool SessionStore::Load(SessionData& data) const {

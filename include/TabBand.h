@@ -17,6 +17,7 @@
 #include "TabManager.h"
 #include "FolderViewColorizer.h"
 #include "SessionStore.h"
+#include "OptionsStore.h"
 
 namespace shelltabs {
 
@@ -123,6 +124,7 @@ public:
     std::vector<std::wstring> GetSavedGroupNames() const;
     void OnCreateSavedGroup(int afterGroup);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
+    void OnShowOptionsDialog(int initialTab = 0);
     void OnDeferredNavigate();
     void OnColorizerRefresh();
     void OnGitStatusUpdated();
@@ -144,6 +146,10 @@ private:
     std::unique_ptr<SessionStore> m_sessionStore;
     bool m_restoringSession = false;
     std::wstring m_windowToken;
+    mutable ShellTabsOptions m_options{};
+    mutable bool m_optionsLoaded = false;
+    bool m_sessionMarkerActive = false;
+    bool m_lastSessionUnclean = false;
 
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
@@ -158,6 +164,7 @@ private:
     bool m_gitStatusActivationAcquired = false;
 
     void EnsureWindow();
+    void EnsureOptionsLoaded() const;
     void EnsureGitStatusListener();
     void RemoveGitStatusListener();
     void DisconnectSite();
@@ -166,6 +173,7 @@ private:
     void EnsureSessionStore();
     bool RestoreSession();
     void SaveSession();
+    void ApplyOptionsChanges(const ShellTabsOptions& previousOptions);
     UniquePidl QueryCurrentFolder() const;
     void NavigateToTab(TabLocation location);
     void EnsureTabForCurrentFolder();

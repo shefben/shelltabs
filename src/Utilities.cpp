@@ -667,5 +667,76 @@ bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value) {
     return false;
 }
 
+namespace {
+
+int CALLBACK BrowseCallbackProc(HWND hwnd, UINT message, LPARAM, LPARAM data) {
+    if (message == BFFM_INITIALIZED && data) {
+        const auto* initial = reinterpret_cast<const std::wstring*>(data);
+        if (initial && !initial->empty()) {
+            SendMessageW(hwnd, BFFM_SETSELECTIONW, TRUE, reinterpret_cast<LPARAM>(initial->c_str()));
+        }
+    }
+    return 0;
+}
+
+}  // namespace
+
+bool BrowseForFolder(HWND parent, std::wstring* path) {
+    if (!path) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IFileDialog> dialog;
+    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))) &&
+        dialog) {
+        DWORD options = 0;
+        if (SUCCEEDED(dialog->GetOptions(&options))) {
+            dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        }
+        if (!path->empty()) {
+            Microsoft::WRL::ComPtr<IShellItem> folder;
+            if (SUCCEEDED(SHCreateItemFromParsingName(path->c_str(), nullptr, IID_PPV_ARGS(&folder))) && folder) {
+                dialog->SetFolder(folder.Get());
+            }
+        }
+        if (SUCCEEDED(dialog->Show(parent))) {
+            Microsoft::WRL::ComPtr<IShellItem> result;
+            if (SUCCEEDED(dialog->GetResult(&result)) && result) {
+                PWSTR buffer = nullptr;
+                if (SUCCEEDED(result->GetDisplayName(SIGDN_FILESYSPATH, &buffer)) && buffer) {
+                    *path = buffer;
+                    CoTaskMemFree(buffer);
+                    return true;
+                }
+                if (buffer) {
+                    CoTaskMemFree(buffer);
+                }
+            }
+            return false;
+        }
+    }
+
+    std::wstring initial = *path;
+    BROWSEINFOW bi{};
+    bi.hwndOwner = parent;
+    bi.lpszTitle = L"Select Folder";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI | BIF_NONEWFOLDERBUTTON;
+    bi.lpfn = BrowseCallbackProc;
+    bi.lParam = reinterpret_cast<LPARAM>(&initial);
+
+    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+    if (!pidl) {
+        return false;
+    }
+
+    wchar_t buffer[MAX_PATH];
+    bool success = SHGetPathFromIDListW(pidl, buffer) != FALSE;
+    CoTaskMemFree(pidl);
+    if (success) {
+        *path = buffer;
+    }
+    return success;
+}
+
 }  // namespace shelltabs
 
