@@ -81,6 +81,7 @@ private:
         bool collapsedPlaceholder = false;
         bool indicatorHandle = false;
         size_t index = 0;
+        int row = 0;
     };
 
     struct GroupOutline {
