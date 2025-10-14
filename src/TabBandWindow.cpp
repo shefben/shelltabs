@@ -2768,7 +2768,13 @@ void TabBandWindow::HandleFileDrop(HDROP drop) {
 }
 
 void TabBandWindow::CancelDrag() {
-    if ((m_drag.dragging || m_drag.closeClick) && GetCapture() == m_hwnd) {
+    // The drag bookkeeping can be reset while a transfer is still in flight -
+    // for example when we rebuild the layout as part of detaching a tab to
+    // another window. In that case the window may still own the mouse capture
+    // even though m_drag.dragging has already been cleared. Always release the
+    // capture if we own it so we do not leave Explorer with a stale preview
+    // “stuck” on the band until some other window forces a repaint.
+    if (GetCapture() == m_hwnd) {
         ReleaseCapture();
     }
     HideDragOverlay(true);
