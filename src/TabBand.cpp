@@ -1374,7 +1374,10 @@ void TabBand::SaveSession() {
 
         for (const auto& tab : group->tabs) {
             SessionTab storedTab;
-            storedTab.path = GetParsingName(tab.pidl.get());
+            storedTab.path = tab.path;
+            if (storedTab.path.empty()) {
+                storedTab.path = GetParsingName(tab.pidl.get());
+            }
             if (storedTab.path.empty()) {
                 continue;
             }
@@ -1436,6 +1439,7 @@ void TabBand::EnsureTabForCurrentFolder() {
     if (name.empty()) {
         name = L"Tab";
     }
+    const std::wstring parsingName = GetParsingName(current.get());
 
     const TabLocation selected = m_tabs.SelectedLocation();
     if (selected.IsValid()) {
@@ -1444,7 +1448,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->name = name;
             tab->tooltip = name;
             tab->hidden = false;
-            tab->path = GetParsingName(tab->pidl.get());
+            tab->path = !parsingName.empty() ? parsingName : GetParsingName(tab->pidl.get());
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
             SyncSavedGroup(selected.groupIndex);
             return;
@@ -1457,7 +1461,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->hidden = false;
             tab->name = name;
             tab->tooltip = name;
-            tab->path = GetParsingName(tab->pidl.get());
+            tab->path = !parsingName.empty() ? parsingName : GetParsingName(tab->pidl.get());
         }
         m_tabs.SetGroupCollapsed(existing.groupIndex, false);
         m_tabs.SetSelectedLocation(existing);
