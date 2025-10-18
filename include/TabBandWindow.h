@@ -170,7 +170,11 @@ private:
     bool m_mouseTracking = false;
     int m_rebarBandIndex = -1;
     bool m_rebarZOrderTop = false;
-	int m_lastRowCount = 1;  // tracks wrapped rows for height calc
+    Microsoft::WRL::ComPtr<IDropTarget> m_dropTarget;
+    HitInfo m_dropHoverHit;
+    bool m_dropHoverHasFileData = false;
+    bool m_dropHoverTimerActive = false;
+        int m_lastRowCount = 1;  // tracks wrapped rows for height calc
 	// track if we've installed the subclass
 	bool m_rebarSubclassed = false;
 	struct EmptyIslandPlus {
@@ -237,7 +241,7 @@ private:
     bool HandleMouseUp(const POINT& pt);
     bool HandleMouseMove(const POINT& pt);
     bool HandleDoubleClick(const POINT& pt);
-    void HandleFileDrop(HDROP drop);
+    void HandleFileDrop(HDROP drop, bool ownsHandle);
     void CancelDrag();
     void UpdateDropTarget(const POINT& pt);
     void CompleteDrop();
@@ -277,6 +281,26 @@ private:
     void ResetThemePalette();
     void UpdateThemePalette();
     void UpdateToolbarMetrics();
+
+    void UpdateDropHoverState(const HitInfo& hit, bool hasFileData);
+    void ClearDropHoverState();
+    void StartDropHoverTimer();
+    void CancelDropHoverTimer();
+    void OnDropHoverTimer();
+    bool IsSameHit(const HitInfo& a, const HitInfo& b) const;
+    bool IsSelectedTabHit(const HitInfo& hit) const;
+    bool HasFileDropData(IDataObject* dataObject) const;
+    DWORD ComputeFileDropEffect(DWORD keyState, bool hasFileData) const;
+
+    HRESULT OnNativeDragEnter(IDataObject* dataObject, DWORD keyState, const POINTL& point, DWORD* effect);
+    HRESULT OnNativeDragOver(DWORD keyState, const POINTL& point, DWORD* effect);
+    HRESULT OnNativeDragLeave();
+    HRESULT OnNativeDrop(IDataObject* dataObject, DWORD keyState, const POINTL& point, DWORD* effect);
+
+    class BandDropTarget;
+    friend class BandDropTarget;
+
+    static constexpr UINT_PTR kDropHoverTimerId = 0x5348;  // 'SH'
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };
