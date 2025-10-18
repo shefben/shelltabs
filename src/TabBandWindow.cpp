@@ -504,6 +504,7 @@ void TabBandWindow::Layout(int width, int height) {
 }
 
 void TabBandWindow::ClearVisualItems() {
+        HideDragOverlay(true);
         for (auto& item : m_items) {
                 if (item.icon) {
                         DestroyIcon(item.icon);
@@ -2579,6 +2580,7 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     }
 
     SetFocus(m_hwnd);
+    HideDragOverlay(true);
     m_drag = {};
     if (hit.closeButton && hit.type == TabViewItemType::kTab) {
         m_drag.closeClick = true;
