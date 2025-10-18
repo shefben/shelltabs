@@ -356,6 +356,13 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
                 return E_FAIL;
             }
 
+            HRESULT setSiteHr = m_window->SetSite(pUnkSite);
+            if (FAILED(setSiteHr)) {
+                LogMessage(LogLevel::Warning,
+                           L"TabBand::SetSite TabBandWindow::SetSite failed (hr=0x%08X)",
+                           static_cast<unsigned int>(setSiteHr));
+            }
+
             m_browserEvents = std::make_unique<BrowserEvents>(this);
             if (m_browserEvents) {
                 hr = m_browserEvents->Connect(m_webBrowser);
@@ -1180,6 +1187,7 @@ void TabBand::DisconnectSite() {
     m_gitStatusEnablePosted = false;
     m_gitStatusEnablePending = false;
     if (m_window) {
+        m_window->SetSite(nullptr);
         m_window->Destroy();
         m_window.reset();
     }
