@@ -504,39 +504,39 @@ void TabBandWindow::Layout(int width, int height) {
 }
 
 void TabBandWindow::ClearVisualItems() {
-        for (auto& item : m_items) {
-                if (item.icon) {
-                        DestroyIcon(item.icon);
-                        item.icon = nullptr;
-                }
+    HideDragOverlay(true);
+
+    for (auto& item : m_items) {
+        if (item.icon) {
+            DestroyIcon(item.icon);
+            item.icon = nullptr;
         }
-        m_items.clear();
-        m_drag = {};
-        m_contextHit = {};
-        m_emptyIslandPlusButtons.clear();  // <-- add this
+    }
+
+    m_items.clear();
+    m_drag = {};
+    m_contextHit = {};
+    m_emptyIslandPlusButtons.clear();
 }
 
 void TabBandWindow::RebuildLayout() {
-	ClearVisualItems();
-	if (!m_hwnd) {
-		return;
-	}
+    ClearVisualItems();
+    if (!m_hwnd) {
+        return;
+    }
 
-	// NEW: make sure any previous '+' targets are gone for a fresh layout
-	m_emptyIslandPlusButtons.clear();
+    RECT bounds = m_clientRect;
+    const int availableWidth = bounds.right - bounds.left;
+    if (availableWidth <= 0) {
+        return;
+    }
 
-        RECT bounds = m_clientRect;
-        const int availableWidth = bounds.right - bounds.left;
-        if (availableWidth <= 0) {
-                return;
-        }
-
-        HDC dc = GetDC(m_hwnd);
-        if (!dc) {
-                return;
-        }
-        HFONT font = GetDefaultFont();
-        HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
+    HDC dc = GetDC(m_hwnd);
+    if (!dc) {
+        return;
+    }
+    HFONT font = GetDefaultFont();
+    HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
 
         const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
         const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
@@ -2579,6 +2579,7 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     }
 
     SetFocus(m_hwnd);
+    HideDragOverlay(true);
     m_drag = {};
     if (hit.closeButton && hit.type == TabViewItemType::kTab) {
         m_drag.closeClick = true;
