@@ -1096,42 +1096,83 @@ bool TabBandWindow::FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const {
 
 
 std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
-	std::unordered_map<int, GroupOutline> outlines;
+	struct OutlineKey {
+		int groupIndex;
+		int row;
+	};
+
+	struct OutlineKeyHasher {
+		size_t operator()(const OutlineKey& key) const noexcept {
+			return (static_cast<size_t>(key.groupIndex) << 16) ^ static_cast<size_t>(key.row & 0xFFFF);
+		}
+	};
+
+	struct OutlineKeyEqual {
+		bool operator()(const OutlineKey& left, const OutlineKey& right) const noexcept {
+			return left.groupIndex == right.groupIndex && left.row == right.row;
+		}
+	};
+
+	std::unordered_map<OutlineKey, GroupOutline, OutlineKeyHasher, OutlineKeyEqual> outlines;
+
+	auto accumulate = [&](const VisualItem& item, const RECT& bounds, COLORREF color, bool headerVisible,
+			       bool updateColor) {
+		OutlineKey key{ item.data.location.groupIndex, item.row };
+		auto& outline = outlines[key];
+		if (!outline.initialized) {
+			outline.groupIndex = key.groupIndex;
+			outline.row = key.row;
+			outline.bounds = bounds;
+			outline.color = color;
+			outline.initialized = true;
+			outline.visible = headerVisible;
+		} else {
+			outline.bounds.left = std::min(outline.bounds.left, bounds.left);
+			outline.bounds.top = std::min(outline.bounds.top, bounds.top);
+			outline.bounds.right = std::max(outline.bounds.right, bounds.right);
+			outline.bounds.bottom = std::max(outline.bounds.bottom, bounds.bottom);
+			if (updateColor) {
+				outline.color = color;
+			}
+			outline.visible = outline.visible || headerVisible;
+		}
+	};
 
 	// 1) Grow outlines from real tabs (existing behavior)
 	for (const auto& item : m_items) {
 		if (item.data.type != TabViewItemType::kTab) continue;
-		if (item.data.location.groupIndex < 0)       continue;
-		if (!item.data.headerVisible)                continue;
+		if (item.data.location.groupIndex < 0)	continue;
+		if (!item.data.headerVisible)		continue;
 
 		RECT rect = item.bounds;
 		if (item.indicatorHandle) {
 			rect.left = std::max(m_clientRect.left, rect.left - kIslandIndicatorWidth);
 		}
 
-		auto& outline = outlines[item.data.location.groupIndex];
 		COLORREF outlineColor = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
 		if (item.data.selected) {
 			outlineColor = DarkenColor(outlineColor, 0.2);
 		}
-		if (!outline.initialized) {
-			outline.groupIndex = item.data.location.groupIndex;
-			outline.bounds = rect;
-			outline.color = outlineColor;
-			outline.initialized = true;
-			outline.visible = true;
-		}
-		else {
-			outline.bounds.left = std::min(outline.bounds.left, rect.left);
-			outline.bounds.top = std::min(outline.bounds.top, rect.top);
-			outline.bounds.right = std::max(outline.bounds.right, rect.right);
-			outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
-			outline.color = outlineColor;
-			outline.visible = outline.visible || item.data.headerVisible;
-		}
+
+		accumulate(item, rect, outlineColor, item.data.headerVisible, true);
 	}
 
-	// 2) Ensure empty islands still get a small outline body after the indicator
+	// 2) Include visible indicators/placeholder bodies so outlines hug the handle too
+	for (const auto& item : m_items) {
+		if (item.data.type != TabViewItemType::kGroupHeader) continue;
+		if (item.data.location.groupIndex < 0)	continue;
+		if (!item.data.headerVisible || item.collapsedPlaceholder) continue;
+
+		RECT rect = item.bounds;
+		if (item.indicatorHandle) {
+			rect.left = std::max(rect.left, m_clientRect.left);
+			rect.right = std::max(rect.right, rect.left + kIslandIndicatorWidth);
+		}
+
+		accumulate(item, rect, ResolveIndicatorColor(&item.data, item.data), item.data.headerVisible, false);
+	}
+
+	// 3) Ensure empty islands still get a small outline body after the indicator
 	for (const auto& item : m_items) {
 		if (item.data.type != TabViewItemType::kGroupHeader) continue;
 
@@ -1144,8 +1185,8 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 
 		// We emitted the indicator as a group header VisualItem whose bounds are that indicator.
 		// Synthesize a tiny body area to the right of it so the island outline has width.
-		const RECT body = item.bounds;                // indicator rect
-		const LONG left = body.right;                // start immediately after indicator
+		const RECT body = item.bounds;		// indicator rect
+		const LONG left = body.right;		// start immediately after indicator
 		const LONG right = left + std::max<LONG>(kEmptyIslandMinWidth, 24);
 
 		RECT rect{
@@ -1155,22 +1196,8 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 			std::min<LONG>(m_clientRect.bottom, body.bottom)
 		};
 
-		auto& outline = outlines[gi];
-		if (!outline.initialized) {
-			outline.groupIndex = gi;
-			outline.bounds = rect;
-			outline.color = ResolveIndicatorColor(&item.data, item.data);
-			outline.initialized = true;
-			outline.visible = true;
-		}
-		else {
-			outline.bounds.left = std::min(outline.bounds.left, rect.left);
-			outline.bounds.top = std::min(outline.bounds.top, rect.top);
-			outline.bounds.right = std::max(outline.bounds.right, rect.right);
-			outline.bounds.bottom = std::max(outline.bounds.bottom, rect.bottom);
-		}
+		accumulate(item, rect, ResolveIndicatorColor(&item.data, item.data), item.data.headerVisible, true);
 	}
-
 
 	std::vector<GroupOutline> result;
 	result.reserve(outlines.size());
@@ -1180,10 +1207,17 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 		}
 	}
 	std::sort(result.begin(), result.end(),
-		[](const GroupOutline& a, const GroupOutline& b) { return a.bounds.left < b.bounds.left; });
+		[](const GroupOutline& a, const GroupOutline& b) {
+			if (a.bounds.top == b.bounds.top) {
+				if (a.bounds.left == b.bounds.left) {
+					return a.groupIndex < b.groupIndex;
+				}
+				return a.bounds.left < b.bounds.left;
+			}
+			return a.bounds.top < b.bounds.top;
+		});
 	return result;
 }
-
 
 void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const {
     for (const auto& outline : outlines) {
