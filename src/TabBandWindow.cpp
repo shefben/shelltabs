@@ -18,6 +18,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
 
 #include <CommCtrl.h>
 #include <windowsx.h>
@@ -26,6 +27,7 @@
 #include <shobjidl_core.h>
 #include <shlguid.h>
 #include <Shlwapi.h>
+#include <Ole2.h>
 #include <vsstyle.h>
 #include <vssym32.h>
 #include <winreg.h>
@@ -40,6 +42,7 @@
 #endif
 
 #pragma comment(lib, "Shlwapi.lib")
+#pragma comment(lib, "Ole32.lib")
 using Microsoft::WRL::ComPtr;
 
 namespace shelltabs {
@@ -195,6 +198,75 @@ SharedDragState& GetSharedDragState() {
     return state;
 }
 
+class TabBandWindow::BandDropTarget : public IDropTarget {
+public:
+    explicit BandDropTarget(TabBandWindow* owner) : m_refCount(1), m_owner(owner) {}
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
+            *ppv = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_refCount; }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG count = --m_refCount;
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    IFACEMETHODIMP DragEnter(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!m_owner) {
+            if (effect) {
+                *effect = DROPEFFECT_NONE;
+            }
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDragEnter(dataObject, keyState, point, effect);
+    }
+
+    IFACEMETHODIMP DragOver(DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!m_owner) {
+            if (effect) {
+                *effect = DROPEFFECT_NONE;
+            }
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDragOver(keyState, point, effect);
+    }
+
+    IFACEMETHODIMP DragLeave() override {
+        if (!m_owner) {
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDragLeave();
+    }
+
+    IFACEMETHODIMP Drop(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!m_owner) {
+            if (effect) {
+                *effect = DROPEFFECT_NONE;
+            }
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDrop(dataObject, keyState, point, effect);
+    }
+
+private:
+    std::atomic<ULONG> m_refCount;
+    TabBandWindow* m_owner = nullptr;
+};
+
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -326,7 +398,12 @@ HWND CreateDragOverlayWindow() {
 
 }  // namespace
 
-TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) { ResetThemePalette(); }
+TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) {
+    ResetThemePalette();
+    m_dropHoverHit = {};
+    m_dropHoverHasFileData = false;
+    m_dropHoverTimerActive = false;
+}
 
 TabBandWindow::~TabBandWindow() { Destroy(); }
 
@@ -353,6 +430,15 @@ HWND TabBandWindow::Create(HWND parent) {
     if (m_hwnd) {
         RegisterWindow(m_hwnd, this);
         EnsureRebarIntegration();
+        if (!m_dropTarget) {
+            m_dropTarget.Attach(new BandDropTarget(this));
+        }
+        if (m_dropTarget) {
+            const HRESULT hr = RegisterDragDrop(m_hwnd, m_dropTarget.Get());
+            if (FAILED(hr)) {
+                m_dropTarget.Reset();
+            }
+        }
     }
 
     return m_hwnd;
@@ -363,6 +449,11 @@ void TabBandWindow::Destroy() {
     ClearExplorerContext();
     ClearVisualItems();
     CloseThemeHandles();
+    ClearDropHoverState();
+    if (m_hwnd && m_dropTarget) {
+        RevokeDragDrop(m_hwnd);
+    }
+    m_dropTarget.Reset();
     m_darkMode = false;
     m_refreshingTheme = false;
     m_windowDarkModeInitialized = false;
@@ -2751,20 +2842,32 @@ bool TabBandWindow::HandleDoubleClick(const POINT& pt) {
     return false;
 }
 
-void TabBandWindow::HandleFileDrop(HDROP drop) {
+void TabBandWindow::HandleFileDrop(HDROP drop, bool ownsHandle) {
     if (!drop || !m_owner) {
+        if (drop && ownsHandle) {
+            DragFinish(drop);
+        }
         return;
     }
+
+    struct DropHandleCloser {
+        HDROP handle;
+        bool owns;
+        ~DropHandleCloser() {
+            if (handle && owns) {
+                DragFinish(handle);
+            }
+        }
+    } closer{drop, ownsHandle};
+
     POINT pt{};
     BOOL inside = DragQueryPoint(drop, &pt);
     if (!inside) {
-        DragFinish(drop);
         return;
     }
 
     UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
     if (count == 0) {
-        DragFinish(drop);
         return;
     }
 
@@ -2797,8 +2900,184 @@ void TabBandWindow::HandleFileDrop(HDROP drop) {
             m_owner->OnOpenFolderInNewTab(path);
         }
     }
+}
 
-    DragFinish(drop);
+bool TabBandWindow::HasFileDropData(IDataObject* dataObject) const {
+    if (!dataObject) {
+        return false;
+    }
+
+    FORMATETC format{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    if (SUCCEEDED(dataObject->QueryGetData(&format))) {
+        return true;
+    }
+
+    Microsoft::WRL::ComPtr<IShellItemArray> items;
+    if (SUCCEEDED(dataObject->QueryInterface(IID_PPV_ARGS(&items))) && items) {
+        DWORD count = 0;
+        if (SUCCEEDED(items->GetCount(&count))) {
+            return count > 0;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+DWORD TabBandWindow::ComputeFileDropEffect(DWORD keyState, bool hasFileData) const {
+    if (!hasFileData) {
+        return DROPEFFECT_NONE;
+    }
+
+    if (keyState & MK_SHIFT) {
+        return DROPEFFECT_MOVE;
+    }
+    if (keyState & MK_CONTROL) {
+        return DROPEFFECT_COPY;
+    }
+    if (keyState & MK_ALT) {
+        return DROPEFFECT_LINK;
+    }
+    return DROPEFFECT_COPY;
+}
+
+bool TabBandWindow::IsSameHit(const HitInfo& a, const HitInfo& b) const {
+    if (a.hit != b.hit) {
+        return false;
+    }
+    if (!a.hit) {
+        return true;
+    }
+    if (a.type != b.type) {
+        return false;
+    }
+    return a.location.groupIndex == b.location.groupIndex && a.location.tabIndex == b.location.tabIndex;
+}
+
+bool TabBandWindow::IsSelectedTabHit(const HitInfo& hit) const {
+    if (!hit.hit || hit.type != TabViewItemType::kTab || !hit.location.IsValid()) {
+        return false;
+    }
+    if (hit.itemIndex >= m_items.size()) {
+        return false;
+    }
+    return m_items[hit.itemIndex].data.selected;
+}
+
+void TabBandWindow::StartDropHoverTimer() {
+    if (!m_hwnd) {
+        return;
+    }
+    CancelDropHoverTimer();
+    if (SetTimer(m_hwnd, kDropHoverTimerId, 1500, nullptr)) {
+        m_dropHoverTimerActive = true;
+    }
+}
+
+void TabBandWindow::CancelDropHoverTimer() {
+    if (!m_dropHoverTimerActive) {
+        return;
+    }
+    if (m_hwnd) {
+        KillTimer(m_hwnd, kDropHoverTimerId);
+    }
+    m_dropHoverTimerActive = false;
+}
+
+void TabBandWindow::UpdateDropHoverState(const HitInfo& hit, bool hasFileData) {
+    const bool changed = !IsSameHit(hit, m_dropHoverHit) || hasFileData != m_dropHoverHasFileData;
+    m_dropHoverHit = hit;
+    m_dropHoverHasFileData = hasFileData;
+
+    const bool eligible = hasFileData && hit.hit && hit.type == TabViewItemType::kTab && hit.location.IsValid() &&
+                          !IsSelectedTabHit(hit);
+    if (!eligible) {
+        CancelDropHoverTimer();
+        return;
+    }
+
+    if (changed || !m_dropHoverTimerActive) {
+        StartDropHoverTimer();
+    }
+}
+
+void TabBandWindow::ClearDropHoverState() {
+    CancelDropHoverTimer();
+    m_dropHoverHit = {};
+    m_dropHoverHasFileData = false;
+}
+
+void TabBandWindow::OnDropHoverTimer() {
+    CancelDropHoverTimer();
+    if (!m_dropHoverHasFileData || !m_owner) {
+        return;
+    }
+    if (!m_dropHoverHit.hit || m_dropHoverHit.type != TabViewItemType::kTab || !m_dropHoverHit.location.IsValid()) {
+        return;
+    }
+    if (IsSelectedTabHit(m_dropHoverHit)) {
+        return;
+    }
+    m_owner->OnTabSelected(m_dropHoverHit.location);
+}
+
+HRESULT TabBandWindow::OnNativeDragEnter(IDataObject* dataObject, DWORD keyState, const POINTL& point, DWORD* effect) {
+    bool hasFileData = HasFileDropData(dataObject);
+    if (effect) {
+        *effect = ComputeFileDropEffect(keyState, hasFileData);
+    }
+    if (!m_hwnd) {
+        return S_OK;
+    }
+    POINT client{static_cast<LONG>(point.x), static_cast<LONG>(point.y)};
+    ScreenToClient(m_hwnd, &client);
+    HitInfo hit = HitTest(client);
+    UpdateDropHoverState(hit, hasFileData);
+    return hasFileData ? S_OK : S_FALSE;
+}
+
+HRESULT TabBandWindow::OnNativeDragOver(DWORD keyState, const POINTL& point, DWORD* effect) {
+    if (effect) {
+        *effect = ComputeFileDropEffect(keyState, m_dropHoverHasFileData);
+    }
+    if (!m_hwnd) {
+        return S_OK;
+    }
+    POINT client{static_cast<LONG>(point.x), static_cast<LONG>(point.y)};
+    ScreenToClient(m_hwnd, &client);
+    HitInfo hit = HitTest(client);
+    UpdateDropHoverState(hit, m_dropHoverHasFileData);
+    return m_dropHoverHasFileData ? S_OK : S_FALSE;
+}
+
+HRESULT TabBandWindow::OnNativeDragLeave() {
+    ClearDropHoverState();
+    return S_OK;
+}
+
+HRESULT TabBandWindow::OnNativeDrop(IDataObject* dataObject, DWORD keyState, const POINTL& point, DWORD* effect) {
+    bool hasFileData = HasFileDropData(dataObject);
+    if (effect) {
+        *effect = ComputeFileDropEffect(keyState, hasFileData);
+    }
+    if (m_hwnd) {
+        POINT client{static_cast<LONG>(point.x), static_cast<LONG>(point.y)};
+        ScreenToClient(m_hwnd, &client);
+        HitInfo hit = HitTest(client);
+        UpdateDropHoverState(hit, hasFileData);
+    }
+
+    if (hasFileData && dataObject) {
+        FORMATETC format{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM medium{};
+        if (SUCCEEDED(dataObject->GetData(&format, &medium))) {
+            HandleFileDrop(static_cast<HDROP>(medium.hGlobal), false);
+            ReleaseStgMedium(&medium);
+        }
+    }
+
+    ClearDropHoverState();
+    return hasFileData ? S_OK : S_FALSE;
 }
 
 void TabBandWindow::CancelDrag() {
@@ -3865,8 +4144,15 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 return fallback();
             }
             case WM_DROPFILES: {
-                self->HandleFileDrop(reinterpret_cast<HDROP>(wParam));
+                self->HandleFileDrop(reinterpret_cast<HDROP>(wParam), true);
                 return 0;
+            }
+            case WM_TIMER: {
+                if (wParam == TabBandWindow::kDropHoverTimerId) {
+                    self->OnDropHoverTimer();
+                    return 0;
+                }
+                return fallback();
             }
             //case WM_THEMECHANGED:
             case WM_SETTINGCHANGE:
@@ -3940,6 +4226,11 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();
+                self->ClearDropHoverState();
+                if (self->m_dropTarget) {
+                    RevokeDragDrop(hwnd);
+                    self->m_dropTarget.Reset();
+                }
                 self->m_parentRebar = nullptr;
                 self->m_rebarBandIndex = -1;
                 UnregisterWindow(hwnd, self);
