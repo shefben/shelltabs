@@ -197,8 +197,12 @@ private:
         // Utilities
         bool GetDefViewAndList(HWND* outDefView, HWND* outList) const;
         bool GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths);
+        bool ResolvePaneSelections(std::vector<std::wstring>* folderPaths, std::vector<std::wstring>* treePaths);
+        bool CollectFolderViewSelection(std::vector<std::wstring>* paths);
+        bool CollectTreeSelection(std::vector<std::wstring>* paths);
         bool PickColor(COLORREF* color);
         void ApplyColorToSelection(bool clear);
+        void ShowFilenameColorDialog();
 	// Helpers
 	bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
 	void DrawEmptyIslandPluses(HDC dc) const;
