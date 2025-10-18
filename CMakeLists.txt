@@ -19,6 +19,7 @@ add_library(ShellTabs SHARED
     src/FileColorOverrides.cpp
     src/NameColorProvider.cpp
     src/CommonDialogColorizer.cpp
+    src/ExplorerWindowHook.cpp
     src/FolderViewColorizer.cpp
     src/BrowserEvents.cpp
     src/Guids.cpp

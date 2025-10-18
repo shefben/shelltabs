@@ -20,6 +20,7 @@
 
 #include "ComUtils.h"
 #include "CommonDialogColorizer.h"
+#include "ExplorerWindowHook.h"
 #include "Guids.h"
 #include "Module.h"
 #include "Utilities.h"
@@ -214,6 +215,10 @@ void CExplorerBHO::Disconnect() {
                 m_dialogColorizer->Detach();
                 m_dialogColorizer.reset();
         }
+        if (m_windowHook) {
+                m_windowHook->Shutdown();
+                m_windowHook.reset();
+        }
         // UNSUBCLASS before we lose IWebBrowser2
         if (m_webBrowser) {
                 if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
@@ -334,6 +339,14 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             m_shouldRetryEnsure = true;
 
             ConnectEvents();
+
+            if (!m_windowHook) {
+                m_windowHook = std::make_unique<ExplorerWindowHook>();
+            }
+            if (m_windowHook && !m_windowHook->Initialize(site, browser.Get())) {
+                m_windowHook->Shutdown();
+                m_windowHook.reset();
+            }
 
             if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
                 SetWindowSubclass(frame, ExplorerFrameSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
