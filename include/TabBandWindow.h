@@ -86,6 +86,7 @@ private:
 
     struct GroupOutline {
         int groupIndex = -1;
+        int row = 0;
         RECT bounds{};
         COLORREF color = RGB(0, 0, 0);
         bool initialized = false;

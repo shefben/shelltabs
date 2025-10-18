@@ -158,7 +158,8 @@ std::vector<BYTE> BuildGroupPageTemplate() {
     size_t offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* list = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    list->style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL;
+    list->style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | LBS_NOTIFY |
+                  LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL;
     list->dwExtendedStyle = WS_EX_CLIENTEDGE;
     list->x = 10;
     list->y = 12;
@@ -339,7 +340,8 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* pathList = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    pathList->style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL;
+    pathList->style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | LBS_NOTIFY |
+                      LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL;
     pathList->dwExtendedStyle = WS_EX_CLIENTEDGE;
     pathList->x = 10;
     pathList->y = 76;
@@ -453,14 +455,61 @@ struct GroupEditorContext {
     const std::vector<SavedGroup>* existingGroups = nullptr;
 };
 
+void UpdateListBoxHorizontalExtent(HWND hwndList) {
+    if (!hwndList) {
+        return;
+    }
+    SendMessageW(hwndList, LB_SETHORIZONTALEXTENT, 0, 0);
+    const int count = static_cast<int>(SendMessageW(hwndList, LB_GETCOUNT, 0, 0));
+    if (count <= 0) {
+        return;
+    }
+
+    HDC dc = GetDC(hwndList);
+    if (!dc) {
+        return;
+    }
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwndList, WM_GETFONT, 0, 0));
+    HFONT oldFont = nullptr;
+    if (font) {
+        oldFont = static_cast<HFONT>(SelectObject(dc, font));
+    }
+
+    int maxWidth = 0;
+    for (int i = 0; i < count; ++i) {
+        LRESULT length = SendMessageW(hwndList, LB_GETTEXTLEN, i, 0);
+        if (length == LB_ERR || length <= 0) {
+            continue;
+        }
+        std::wstring text(static_cast<size_t>(length) + 1, L'\0');
+        LRESULT copied = SendMessageW(hwndList, LB_GETTEXT, i, reinterpret_cast<LPARAM>(text.data()));
+        if (copied == LB_ERR) {
+            continue;
+        }
+        text.resize(static_cast<size_t>(copied));
+        SIZE size{};
+        if (GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size)) {
+            maxWidth = std::max(maxWidth, size.cx);
+        }
+    }
+
+    if (oldFont) {
+        SelectObject(dc, oldFont);
+    }
+    ReleaseDC(hwndList, dc);
+    SendMessageW(hwndList, LB_SETHORIZONTALEXTENT, maxWidth + 12, 0);
+}
+
 void RefreshGroupList(HWND hwndList, const OptionsDialogData* data) {
     SendMessageW(hwndList, LB_RESETCONTENT, 0, 0);
+    SendMessageW(hwndList, LB_SETHORIZONTALEXTENT, 0, 0);
     if (!data) {
         return;
     }
     for (const auto& group : data->workingGroups) {
         SendMessageW(hwndList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(group.name.c_str()));
     }
+    UpdateListBoxHorizontalExtent(hwndList);
 }
 
 std::wstring GetSelectedGroupName(HWND hwndList) {
@@ -549,9 +598,11 @@ void UpdatePathButtons(HWND dialog, const GroupEditorContext& context) {
 void RefreshPathList(HWND dialog, const GroupEditorContext& context) {
     HWND list = GetDlgItem(dialog, IDC_EDITOR_PATH_LIST);
     SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    SendMessageW(list, LB_SETHORIZONTALEXTENT, 0, 0);
     for (const auto& path : context.working.tabPaths) {
         SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(path.c_str()));
     }
+    UpdateListBoxHorizontalExtent(list);
     UpdatePathButtons(dialog, context);
 }
 
@@ -948,11 +999,11 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     pages[1].pResource = reinterpret_cast<DLGTEMPLATE*>(groupTemplate.data());
     pages[1].pfnDlgProc = GroupManagementPageProc;
     pages[1].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[1].pszTitle = L"Groups";
+    pages[1].pszTitle = L"Groups && Islands";
 
     PROPSHEETHEADERW header{};
     header.dwSize = sizeof(PROPSHEETHEADERW);
-    header.dwFlags = PSH_PROPSHEETPAGE | PSH_NOAPPLYNOW;
+    header.dwFlags = PSH_PROPSHEETPAGE | PSH_NOAPPLYNOW | PSH_USECALLBACK;
     header.hwndParent = parent;
     header.hInstance = GetModuleHandleInstance();
     header.pszCaption = L"ShellTabs Options";
