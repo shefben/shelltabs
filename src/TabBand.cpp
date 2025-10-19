@@ -1803,6 +1803,95 @@ void TabBand::OnDeferredNavigate() {
     }
 }
 
+void TabBand::OnGitStatusUpdated() {
+    GuardExplorerCall(L"TabBand::OnGitStatusUpdated", [&]() {
+        if (!m_window) {
+            LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated ignored (no window)");
+            return;
+        }
+        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated refreshing view");
+        const auto items = m_tabs.BuildView();
+        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated applied %llu items",
+                   static_cast<unsigned long long>(items.size()));
+        m_window->SetTabs(items);
+    });
+}
+
+void TabBand::ScheduleGitStatusEnable() {
+    if (m_gitStatusActivationAcquired) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already active");
+        EnsureGitStatusListener();
+        return;
+    }
+    if (!m_window) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (no window)");
+        m_gitStatusEnablePending = true;
+        return;
+    }
+    HWND hwnd = m_window->GetHwnd();
+    if (!hwnd || !IsWindow(hwnd)) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (invalid hwnd)");
+        m_gitStatusEnablePending = true;
+        return;
+    }
+    if (m_gitStatusEnablePosted) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already posted");
+        return;
+    }
+    if (PostMessageW(hwnd, WM_SHELLTABS_ENABLE_GIT_STATUS, 0, 0)) {
+        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable posted enable message");
+        m_gitStatusEnablePosted = true;
+        m_gitStatusEnablePending = false;
+    } else {
+        const DWORD error = GetLastError();
+        LogMessage(LogLevel::Warning,
+                   L"TabBand::ScheduleGitStatusEnable PostMessage failed (error=%lu)", error);
+        m_gitStatusEnablePending = true;
+    }
+}
+
+void TabBand::OnEnableGitStatus() {
+    GuardExplorerCall(L"TabBand::OnEnableGitStatus", [&]() {
+        LogMessage(LogLevel::Info, L"TabBand::OnEnableGitStatus invoked (this=%p)", this);
+        m_gitStatusEnablePosted = false;
+        if (!m_window) {
+            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (no window)");
+            m_gitStatusEnablePending = true;
+            return;
+        }
+        HWND hwnd = m_window->GetHwnd();
+        if (!hwnd || !IsWindow(hwnd)) {
+            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (invalid hwnd)");
+            m_gitStatusEnablePending = true;
+            return;
+        }
+        if (!m_gitStatusActivationAcquired) {
+            AcquireGitStatusActivation();
+            m_gitStatusActivationAcquired = true;
+        }
+        m_gitStatusEnablePending = false;
+        EnsureGitStatusListener();
+        UpdateTabsUI();
+    });
+}
+
+void TabBand::QueueNavigateTo(TabLocation location) {
+    if (!location.IsValid() || !m_window) {
+        return;
+    }
+    m_pendingNavigation = location;
+    if (m_deferredNavigationPosted) {
+        return;
+    }
+    HWND hwnd = m_window->GetHwnd();
+    if (!hwnd) {
+        return;
+    }
+    if (PostMessageW(hwnd, WM_SHELLTABS_DEFER_NAVIGATE, 0, 0)) {
+        m_deferredNavigationPosted = true;
+    }
+}
+
 void TabBand::SyncSavedGroup(int groupIndex) const {
     EnsureOptionsLoaded();
     if (!m_options.persistGroupPaths) {

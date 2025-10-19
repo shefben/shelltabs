@@ -218,7 +218,6 @@ void ExplorerWindowHook::Shutdown() {
     DetachDefView();
 
     ResetFolderView();
-    ResetPendingListRename();
 
     treeFont_.Reset();
     listFont_.Reset();
