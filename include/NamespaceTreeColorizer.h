@@ -18,6 +18,8 @@
 #include <shobjidl.h>   // INamespaceTreeControlCustomDraw, NSTCCUSTOMDRAW
 #include <wrl/client.h>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 
 namespace shelltabs {
@@ -41,16 +43,25 @@ namespace shelltabs {
 		// INameSpaceTreeControlCustomDraw
 		IFACEMETHODIMP PrePaint(HDC, RECT*, LRESULT*) override;
 		IFACEMETHODIMP PostPaint(HDC, RECT*) override;
-		IFACEMETHODIMP ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW*, COLORREF*, COLORREF*, LRESULT*) override;
+                IFACEMETHODIMP ItemPrePaint(HDC hdc, RECT* bounds, NSTCCUSTOMDRAW* info,
+                                        COLORREF* textColor, COLORREF* backgroundColor,
+                                        LRESULT* result) override;
 		IFACEMETHODIMP ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) override;
 
-	private:
-		ULONG ref_ = 1;
-		DWORD cookie_ = 0;
-		Microsoft::WRL::ComPtr<INameSpaceTreeControl> nstc_;
+        private:
+                struct PendingItemPaint {
+                        bool fillBackground = false;
+                        COLORREF background = CLR_INVALID;
+                };
 
-		bool ResolveNSTC(Microsoft::WRL::ComPtr<IServiceProvider> sp);
-		bool ItemPathFromShellItem(IShellItem* psi, std::wstring* out) const;
-	};
+                ULONG ref_ = 1;
+                DWORD cookie_ = 0;
+                Microsoft::WRL::ComPtr<INameSpaceTreeControl> nstc_;
+                std::unordered_map<DWORD_PTR, PendingItemPaint> pending_paints_;
+                std::unordered_set<HFONT> owned_fonts_;
+
+                bool ResolveNSTC(Microsoft::WRL::ComPtr<IServiceProvider> sp);
+                bool ItemPathFromShellItem(IShellItem* psi, std::wstring* out) const;
+        };
 
 } // namespace shelltabs
