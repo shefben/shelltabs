@@ -237,12 +237,13 @@ void CExplorerBHO::Disconnect() {
 	m_defView = nullptr;
 	m_splitHost = nullptr;
 
-	// Event sink last
-	DisconnectEvents();
-	m_webBrowser.Reset();
-	m_site.Reset();
-	m_bandVisible = false;
-	m_shouldRetryEnsure = true;
+        // Event sink last
+        DisconnectEvents();
+        m_webBrowser.Reset();
+        m_shellBrowser.Reset();
+        m_site.Reset();
+        m_bandVisible = false;
+        m_shouldRetryEnsure = true;
 }
 
 
@@ -343,6 +344,8 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             m_webBrowser = browser;
             m_shouldRetryEnsure = true;
 
+            m_shellBrowser.Reset();
+
             ConnectEvents();
 
             if (!m_windowHook) {
@@ -354,11 +357,30 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             }
 
             Microsoft::WRL::ComPtr<IServiceProvider> siteProvider;
-            if (FAILED(site->QueryInterface(IID_PPV_ARGS(&siteProvider))) || !siteProvider) {
-                if (m_shellBrowser) {
-                    siteProvider = nullptr;
+            if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&siteProvider))) && siteProvider) {
+                if (!m_shellBrowser) {
+                    siteProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&m_shellBrowser));
+                }
+                if (!m_shellBrowser) {
+                    siteProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&m_shellBrowser));
+                }
+            } else {
+                Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
+                if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&shellBrowser))) && shellBrowser) {
+                    m_shellBrowser = shellBrowser;
                     m_shellBrowser.As(&siteProvider);
                 }
+            }
+
+            if (!m_shellBrowser) {
+                Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
+                if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&shellBrowser))) && shellBrowser) {
+                    m_shellBrowser = shellBrowser;
+                }
+            }
+
+            if (!siteProvider && m_shellBrowser) {
+                m_shellBrowser.As(&siteProvider);
             }
 
             if (siteProvider) {

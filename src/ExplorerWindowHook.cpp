@@ -296,8 +296,13 @@ void ExplorerWindowHook::Attach() {
         return;
     }
 
+    Microsoft::WRL::ComPtr<IShellView> shellView;
+    if (FAILED(folderView_.As(&shellView)) || !shellView) {
+        return;
+    }
+
     HWND defView = nullptr;
-    if (FAILED(folderView_->GetWindow(&defView)) || !IsWindow(defView)) {
+    if (FAILED(shellView->GetWindow(&defView)) || !IsWindow(defView)) {
         return;
     }
 
