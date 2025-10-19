@@ -203,6 +203,12 @@ bool ExplorerWindowHook::Initialize(IUnknown* site, IWebBrowser2* browser) {
 
     ApplyTreeTheme();
     ApplyListTheme();
+	// After successfully initializing the hook (e.g., before or after ApplyListTheme)
+	listTheme_.textColor = RGB(255, 0, 0);         // red for normal items
+	listTheme_.hotTextColor = RGB(255, 0, 0);      // red for hovered items
+	listTheme_.selectedTextColor = RGB(255, 0, 0); // red for selected items
+	// (Leave backgroundColor and others as CLR_INVALID to use default background)
+
     Attach();
     return true;
 }
@@ -457,8 +463,16 @@ void ExplorerWindowHook::OnListWindowCreated(HWND list) {
     DetachDefView();
 
     listView_ = list;
-
-    ApplyListTheme();
+	listTheme_.textColor = RGB(255, 0, 0);  // normal
+	listTheme_.hotTextColor = RGB(255, 0, 0);  // hot/hover
+	listTheme_.selectedTextColor = RGB(255, 0, 0);  // selected
+	ApplyListTheme();  // this will call ListView_SetTextColor with our RGB(255,0,0)
+	RedrawWindow(listView_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+	AttachDefView(defView);
+	listTheme_.backgroundColor = CLR_INVALID;     // keep OS bg
+	listTheme_.hotBackgroundColor = CLR_INVALID;
+	listTheme_.selectedBackgroundColor = CLR_INVALID;
+    //ApplyListTheme();
     AttachDefView(defView);
 }
 
@@ -617,9 +631,6 @@ ExplorerWindowHook::NotifyResult ExplorerWindowHook::HandleListCustomDraw(NMLVCU
             return NotifyResult::kModify;
         case CDDS_ITEMPREPAINT:
         case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
-            if (customDraw->iSubItem != 0) {
-                return NotifyResult::kUnhandled;
-            }
 
             const bool selected = (customDraw->nmcd.uItemState & CDIS_SELECTED) != 0;
             const bool hot = (customDraw->nmcd.uItemState & CDIS_HOT) != 0;

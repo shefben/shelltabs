@@ -71,6 +71,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
+    m_colorizer.Detach();
     if (m_windowHook) {
         m_windowHook->Shutdown();
         m_windowHook.reset();
@@ -206,6 +207,10 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
             }
+			// Colorize the active folder view
+			//m_colorizer.Attach(m_shellBrowser);
+			//m_colorizer.Refresh();
+
 
             EnsureBandVisible();
             return S_OK;

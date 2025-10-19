@@ -10,7 +10,7 @@
 #include <shlobj.h>
 
 #include <wrl/client.h>
-
+#include "FolderViewColorizer.h"
 namespace shelltabs {
 
 class ExplorerWindowHook;
@@ -19,7 +19,7 @@ class CExplorerBHO : public IObjectWithSite, public IDispatch {
 public:
     CExplorerBHO();
     ~CExplorerBHO();
-
+    shelltabs::FolderViewColorizer m_colorizer;
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
     IFACEMETHODIMP_(ULONG) AddRef() override;
