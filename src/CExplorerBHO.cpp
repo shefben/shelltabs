@@ -7,16 +7,8 @@
 #include <shlguid.h>
 
 #include <string>
-#include <CommCtrl.h>     // SetWindowSubclass, RemoveWindowSubclass
 #include <shobjidl.h>
 #include <wrl/client.h>
-
-#include "SplitHost.h"    // your new split host header
-#include "TabManager.h"   // for reading split state (group/tab indices)
-
-#ifndef WM_SHELLTABS_APPLY_SPLIT
-#define WM_SHELLTABS_APPLY_SPLIT (WM_APP + 0x3F1)
-#endif
 
 #include "ComUtils.h"
 #include "CommonDialogColorizer.h"
@@ -25,7 +17,6 @@
 #include "NamespaceTreeColorizer.h"
 #include "Module.h"
 #include "Utilities.h"
-#include "FileColorOverrides.h"
 // --- CExplorerBHO private state (treat these as class members) ---
 
 namespace shelltabs {
@@ -38,135 +29,6 @@ CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     ModuleRelease();
 }
-// Helper to get the Explorer frame HWND from IWebBrowser2
-static HWND GetExplorerFrameHwnd(IWebBrowser2* wb) {
-	SHANDLE_PTR h = 0;
-	if (wb && SUCCEEDED(wb->get_HWND(&h)) && h) {
-		return reinterpret_cast<HWND>(h);
-	}
-	return nullptr;
-}
-
-// Find DefView and content parent
-static HWND FindDefViewParent(HWND shellBrowserHwnd) {
-	UNREFERENCED_PARAMETER(shellBrowserHwnd);  // fixes C4100
-	return nullptr;
-}
-static HWND FindDefViewParentFromBrowser(IServiceProvider* sp, HWND* outDefView) {
-	if (outDefView) *outDefView = nullptr;
-	if (!sp) return nullptr;
-
-	Microsoft::WRL::ComPtr<IShellBrowser> browser;
-	if (FAILED(sp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) || !browser)
-		return nullptr;
-
-	Microsoft::WRL::ComPtr<IShellView> view;
-	if (FAILED(browser->QueryActiveShellView(&view)) || !view)
-		return nullptr;
-
-	HWND hwndDefView = nullptr;
-	if (FAILED(view->GetWindow(&hwndDefView)) || !IsWindow(hwndDefView))
-		return nullptr;
-
-	if (outDefView) *outDefView = hwndDefView;
-	return GetParent(hwndDefView);
-}
-
-// near top: keep the WM id you already defined
-#ifndef WM_SHELLTABS_APPLY_SPLIT
-#define WM_SHELLTABS_APPLY_SPLIT (WM_APP + 0x3F1)
-#endif
-// --- Implement teardown so we don't leave DefView hidden ---
-void CExplorerBHO::RemoveSplitIfAny() {
-        if (m_splitHost && IsWindow(m_splitHost)) {
-                DestroyWindow(m_splitHost);
-        }
-        m_splitHost = nullptr;
-        if (m_defView && IsWindow(m_defView)) {
-                ShowWindow(m_defView, SW_SHOW);
-        }
-        FileColorOverrides::Instance().ClearEphemeral();
-}
-
-// zero-arg overload for legacy callers
-void CExplorerBHO::ApplySplitIfNeeded() {
-	ApplySplitIfNeeded(false);
-}
-
-// main implementation; initialize consts where declared and use TabManager API that actually exists
-void CExplorerBHO::ApplySplitIfNeeded(bool doSwap) {
-	// ensure we know the hosting parent and the SHELLDLL_DefView
-	Microsoft::WRL::ComPtr<IServiceProvider> sp;
-	if ((!m_contentParent || !IsWindow(m_contentParent)) ||
-		(!m_defView || !IsWindow(m_defView))) {
-		if (m_site) m_site.As(&sp);
-		m_contentParent = FindDefViewParentFromBrowser(sp.Get(), &m_defView);
-	}
-	if (!m_contentParent || !IsWindow(m_contentParent) || !m_defView) {
-		RemoveSplitIfAny();
-		return;
-	}
-
-	// Use the singleton TabManager and existing API
-	auto& tm = shelltabs::TabManager::Get();
-
-	// Selected group = "active group"
-	const int g = tm.SelectedLocation().groupIndex;
-	if (g < 0) {
-		RemoveSplitIfAny();
-		return;
-	}
-
-	const shelltabs::TabGroup* group = tm.GetGroup(g);
-	if (!group || !group->splitView) {
-		RemoveSplitIfAny();
-		return;
-	}
-
-	// Create host if needed
-	if (!m_splitHost || !IsWindow(m_splitHost)) {
-		shelltabs::SplitHost::DestroyIfExistsOn(m_contentParent);
-		if (auto host = shelltabs::SplitHost::CreateAndAttach(m_contentParent)) {
-			m_splitHost = host->Hwnd();
-			ShowWindow(m_defView, SW_HIDE);
-		}
-		else {
-			return; // bail without hiding DefView
-		}
-	}
-
-	// Resolve left/right PIDLs from the group's tabs (no non-existent ResolveTabAbsolutePIDL calls)
-	const int leftIndex = group->splitPrimary;
-	const int rightIndex = (group->splitSecondary >= 0) ? group->splitSecondary : group->splitPrimary;
-
-	PCIDLIST_ABSOLUTE leftPIDL = nullptr;
-	PCIDLIST_ABSOLUTE rightPIDL = nullptr;
-
-	if (leftIndex >= 0 && leftIndex < static_cast<int>(group->tabs.size()))
-		leftPIDL = group->tabs[static_cast<size_t>(leftIndex)].pidl.get();
-
-	if (rightIndex >= 0 && rightIndex < static_cast<int>(group->tabs.size()))
-		rightPIDL = group->tabs[static_cast<size_t>(rightIndex)].pidl.get();
-
-	if (auto host = shelltabs::SplitHost::FromHwnd(m_splitHost)) {
-		if (doSwap) host->Swap();
-		else        host->SetFolders(leftPIDL, rightPIDL);
-	}
-}
-
-
-static LRESULT CALLBACK ExplorerFrameSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
-	UINT_PTR, DWORD_PTR refData) {
-	CExplorerBHO* self = reinterpret_cast<CExplorerBHO*>(refData);
-	if (!self) return DefSubclassProc(hwnd, msg, wp, lp);
-
-	if (msg == WM_SHELLTABS_APPLY_SPLIT) {
-		self->ApplySplitIfNeeded(wp == 1 /*swap*/);
-		return 0;
-	}
-	return DefSubclassProc(hwnd, msg, wp, lp);
-}
-
 IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
@@ -212,38 +74,25 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
-        if (m_dialogColorizer) {
-                m_dialogColorizer->Detach();
-                m_dialogColorizer.reset();
-        }
-        if (m_windowHook) {
-                m_windowHook->Shutdown();
-                m_windowHook.reset();
-        }
-        if (m_treeColorizer) {
-                m_treeColorizer->Detach();
-                m_treeColorizer.reset();
-        }
-        // UNSUBCLASS before we lose IWebBrowser2
-        if (m_webBrowser) {
-                if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
-                        RemoveWindowSubclass(frame, ExplorerFrameSubclassProc, 1);
-                }
-	}
+    if (m_dialogColorizer) {
+        m_dialogColorizer->Detach();
+        m_dialogColorizer.reset();
+    }
+    if (m_windowHook) {
+        m_windowHook->Shutdown();
+        m_windowHook.reset();
+    }
+    if (m_treeColorizer) {
+        m_treeColorizer->Detach();
+        m_treeColorizer.reset();
+    }
 
-	// Tear down any split host we created in this window
-	RemoveSplitIfAny();
-	m_contentParent = nullptr;
-	m_defView = nullptr;
-	m_splitHost = nullptr;
-
-        // Event sink last
-        DisconnectEvents();
-        m_webBrowser.Reset();
-        m_shellBrowser.Reset();
-        m_site.Reset();
-        m_bandVisible = false;
-        m_shouldRetryEnsure = true;
+    DisconnectEvents();
+    m_webBrowser.Reset();
+    m_shellBrowser.Reset();
+    m_site.Reset();
+    m_bandVisible = false;
+    m_shouldRetryEnsure = true;
 }
 
 
@@ -393,10 +242,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
                 }
             }
 
-            if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
-                SetWindowSubclass(frame, ExplorerFrameSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
-            }
-
             EnsureBandVisible();
             return S_OK;
 
@@ -518,10 +363,6 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
         L"CExplorerBHO::Invoke",
         [&]() -> HRESULT {
             switch (dispIdMember) {
-                case DISPID_DOCUMENTCOMPLETE:
-                case DISPID_NAVIGATECOMPLETE2:
-                    ApplySplitIfNeeded();
-                    break;
                 case DISPID_ONVISIBLE:
                 case DISPID_WINDOWSTATECHANGED:
                     if (!m_bandVisible) {
