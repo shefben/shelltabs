@@ -251,6 +251,7 @@ bool FolderViewColorizer::GetItemPath(int index, std::wstring* path) const {
 
 LRESULT CALLBACK FolderViewColorizer::SubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR id, DWORD_PTR refData) {
+    UNREFERENCED_PARAMETER(id);
     auto* self = reinterpret_cast<FolderViewColorizer*>(refData);
     if (!self) {
         return DefSubclassProc(hwnd, message, wParam, lParam);

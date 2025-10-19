@@ -470,6 +470,7 @@ HWND CommonDialogColorizer::FindDescendantByClass(HWND root, const wchar_t* clas
 
 LRESULT CALLBACK CommonDialogColorizer::SubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                                      UINT_PTR id, DWORD_PTR refData) {
+    UNREFERENCED_PARAMETER(id);
     auto* self = reinterpret_cast<CommonDialogColorizer*>(refData);
     if (!self) {
         return DefSubclassProc(hwnd, message, wParam, lParam);

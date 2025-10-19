@@ -43,7 +43,9 @@ namespace shelltabs {
 		// INameSpaceTreeControlCustomDraw
 		IFACEMETHODIMP PrePaint(HDC, RECT*, LRESULT*) override;
 		IFACEMETHODIMP PostPaint(HDC, RECT*) override;
-		IFACEMETHODIMP ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW*, COLORREF*, COLORREF*, LRESULT*) override;
+                IFACEMETHODIMP ItemPrePaint(HDC hdc, RECT* bounds, NSTCCUSTOMDRAW* info,
+                                        COLORREF* textColor, COLORREF* backgroundColor,
+                                        LRESULT* result) override;
 		IFACEMETHODIMP ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) override;
 
         private:

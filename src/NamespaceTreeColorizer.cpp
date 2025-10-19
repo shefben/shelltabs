@@ -6,10 +6,96 @@
 #include <shlwapi.h>
 
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #pragma comment(lib, "Shlwapi.lib")
 
 using Microsoft::WRL::ComPtr;
+
+namespace {
+
+template <typename T, typename = void>
+struct HasNmcd : std::false_type {};
+
+template <typename T>
+struct HasNmcd<T, std::void_t<decltype(std::declval<T&>().nmcd)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasDwItemSpec : std::false_type {};
+
+template <typename T>
+struct HasDwItemSpec<T, std::void_t<decltype(std::declval<T&>().dwItemSpec)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasUItemState : std::false_type {};
+
+template <typename T>
+struct HasUItemState<T, std::void_t<decltype(std::declval<T&>().uItemState)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasClrTextBk : std::false_type {};
+
+template <typename T>
+struct HasClrTextBk<T, std::void_t<decltype(std::declval<T&>().clrTextBk)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasHFont : std::false_type {};
+
+template <typename T>
+struct HasHFont<T, std::void_t<decltype(std::declval<T&>().hFont)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasHfont : std::false_type {};
+
+template <typename T>
+struct HasHfont<T, std::void_t<decltype(std::declval<T&>().hfont)>> : std::true_type {};
+
+template <typename T>
+DWORD_PTR ExtractItemSpec(const T* info) {
+    if constexpr (HasNmcd<T>::value) {
+        return info->nmcd.dwItemSpec;
+    } else if constexpr (HasDwItemSpec<T>::value) {
+        return info->dwItemSpec;
+    }
+    if (info && info->psi) {
+        return reinterpret_cast<DWORD_PTR>(info->psi);
+    }
+    return reinterpret_cast<DWORD_PTR>(info);
+}
+
+template <typename T>
+UINT ExtractItemState(const T* info) {
+    if constexpr (HasNmcd<T>::value) {
+        return info->nmcd.uItemState;
+    } else if constexpr (HasUItemState<T>::value) {
+        return info->uItemState;
+    }
+    return 0;
+}
+
+template <typename T>
+bool ApplyBackground(T* info, COLORREF color) {
+    if constexpr (HasClrTextBk<T>::value) {
+        info->clrTextBk = color;
+        return true;
+    }
+    return false;
+}
+
+template <typename T>
+bool ApplyFont(T* info, HFONT font) {
+    if constexpr (HasHFont<T>::value) {
+        info->hFont = font;
+        return true;
+    } else if constexpr (HasHfont<T>::value) {
+        info->hfont = font;
+        return true;
+    }
+    return false;
+}
+
+}  // namespace
 
 namespace shelltabs {
 
@@ -125,12 +211,13 @@ IFACEMETHODIMP NamespaceTreeColorizer::PrePaint(HDC, RECT*, LRESULT* result) {
 IFACEMETHODIMP NamespaceTreeColorizer::PostPaint(HDC, RECT*) { return S_OK; }
 
 IFACEMETHODIMP NamespaceTreeColorizer::ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* drawInfo,
-                                                    COLORREF* textColor, COLORREF*, LRESULT* result) {
+                                                    COLORREF* textColor, COLORREF* backgroundColor,
+                                                    LRESULT* result) {
     if (!drawInfo || !result) {
         return S_OK;
     }
 
-    const DWORD_PTR key = drawInfo->nmcd.dwItemSpec;
+    const DWORD_PTR key = ExtractItemSpec(drawInfo);
     pending_paints_.erase(key);
 
     std::wstring path;
@@ -140,7 +227,7 @@ IFACEMETHODIMP NamespaceTreeColorizer::ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* 
     }
 
     const auto appearance = NameColorProvider::Instance().GetAppearanceForPath(path);
-    if (!appearance.HasOverrides() || !appearance.AllowsForState(drawInfo->nmcd.uItemState)) {
+    if (!appearance.HasOverrides() || !appearance.AllowsForState(ExtractItemState(drawInfo))) {
         *result = CDRF_DODEFAULT;
         return S_OK;
     }
@@ -153,14 +240,19 @@ IFACEMETHODIMP NamespaceTreeColorizer::ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* 
     }
 
     if (appearance.backgroundColor.has_value()) {
-        drawInfo->clrTextBk = *appearance.backgroundColor;
+        if (ApplyBackground(drawInfo, *appearance.backgroundColor)) {
+            applied = true;
+        }
+        if (backgroundColor) {
+            *backgroundColor = *appearance.backgroundColor;
+            applied = true;
+        }
         pending_paints_[key] = PendingItemPaint{true, *appearance.backgroundColor};
         applied = true;
     }
 
     if (appearance.font) {
-        drawInfo->hfont = appearance.font;
-        applied = true;
+        applied = ApplyFont(drawInfo, appearance.font) || applied;
         if (appearance.ownsFont) {
             owned_fonts_.insert(appearance.font);
         }
@@ -180,7 +272,7 @@ IFACEMETHODIMP NamespaceTreeColorizer::ItemPostPaint(HDC hdc, RECT* rect, NSTCCU
         return S_OK;
     }
 
-    const DWORD_PTR key = drawInfo->nmcd.dwItemSpec;
+    const DWORD_PTR key = ExtractItemSpec(drawInfo);
     auto it = pending_paints_.find(key);
     if (it == pending_paints_.end()) {
         return S_OK;
