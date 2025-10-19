@@ -288,7 +288,7 @@ bool SessionStore::Load(SessionData& data) const {
                 return false;
             }
             version = std::max(1, _wtoi(tokens[1].c_str()));
-            if (version > 2) {
+            if (version > 3) {
                 return false;
             }
             versionSeen = true;
@@ -308,27 +308,34 @@ bool SessionStore::Load(SessionData& data) const {
             SessionGroup group;
             group.name = tokens[1];
             group.collapsed = ParseBool(tokens[2]);
-            if (tokens.size() >= 4) {
-                group.splitView = ParseBool(tokens[3]);
-            }
-            if (tokens.size() >= 5) {
-                group.splitPrimary = _wtoi(tokens[4].c_str());
-            }
-            if (tokens.size() >= 6) {
-                group.splitSecondary = _wtoi(tokens[5].c_str());
+            size_t index = 3;
+            if (version <= 2) {
+                if (tokens.size() > index) {
+                    ++index;  // legacy splitView flag
+                }
+                if (tokens.size() > index) {
+                    ++index;  // legacy splitPrimary
+                }
+                if (tokens.size() > index) {
+                    ++index;  // legacy splitSecondary
+                }
             }
             if (version >= 2) {
-                if (tokens.size() >= 7) {
-                    group.headerVisible = ParseBool(tokens[6]);
+                if (tokens.size() > index) {
+                    group.headerVisible = ParseBool(tokens[index]);
+                    ++index;
                 }
-                if (tokens.size() >= 8) {
-                    group.hasOutline = ParseBool(tokens[7]);
+                if (tokens.size() > index) {
+                    group.hasOutline = ParseBool(tokens[index]);
+                    ++index;
                 }
-                if (tokens.size() >= 9) {
-                    group.outlineColor = ParseColor(tokens[8], group.outlineColor);
+                if (tokens.size() > index) {
+                    group.outlineColor = ParseColor(tokens[index], group.outlineColor);
+                    ++index;
                 }
-                if (tokens.size() >= 10) {
-                    group.savedGroupId = tokens[9];
+                if (tokens.size() > index) {
+                    group.savedGroupId = tokens[index];
+                    ++index;
                 }
             }
             data.groups.emplace_back(std::move(group));
@@ -364,7 +371,7 @@ bool SessionStore::Save(const SessionData& data) const {
 
     std::wstring content;
     content += kVersionToken;
-    content += L"|2\n";
+    content += L"|3\n";
     content += kSelectedToken;
     content += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     content += kSequenceToken;
@@ -373,10 +380,8 @@ bool SessionStore::Save(const SessionData& data) const {
     for (const auto& group : data.groups) {
         content += kGroupToken;
         content += L"|" + group.name + L"|" + (group.collapsed ? L"1" : L"0") + L"|" +
-                   (group.splitView ? L"1" : L"0") + L"|" + std::to_wstring(group.splitPrimary) + L"|" +
-                   std::to_wstring(group.splitSecondary) + L"|" + (group.headerVisible ? L"1" : L"0") + L"|" +
-                   (group.hasOutline ? L"1" : L"0") + L"|" + ColorToString(group.outlineColor) + L"|" +
-                   group.savedGroupId + L"\n";
+                   (group.headerVisible ? L"1" : L"0") + L"|" + (group.hasOutline ? L"1" : L"0") + L"|" +
+                   ColorToString(group.outlineColor) + L"|" + group.savedGroupId + L"\n";
         for (const auto& tab : group.tabs) {
             content += kTabToken;
             content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path + L"\n";

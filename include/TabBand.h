@@ -99,10 +99,6 @@ public:
     std::optional<TabGroup> DetachGroupForTransfer(int groupIndex, bool* wasSelected);
     int InsertTransferredGroup(TabGroup group, int insertIndex, bool select);
     void OnSetGroupHeaderVisible(int groupIndex, bool visible);
-    void OnToggleSplitView(int groupIndex);
-    void OnPromoteSplitSecondary(TabLocation location);
-    void OnClearSplitSecondary(int groupIndex);
-    void OnSwapSplitPanes(int groupIndex);
     void OnOpenTerminal(TabLocation location);
     void OnOpenVSCode(TabLocation location);
     void OnCopyPath(TabLocation location);
@@ -176,7 +172,6 @@ private:
     void NavigateToTab(TabLocation location);
     void EnsureTabForCurrentFolder();
     void OpenTabInNewWindow(const TabInfo& tab);
-    void EnsureSplitViewWindows(int groupIndex);
     bool LaunchShellExecute(const std::wstring& application, const std::wstring& parameters,
                             const std::wstring& workingDirectory) const;
     std::wstring GetTabPath(TabLocation location) const;
