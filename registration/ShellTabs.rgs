@@ -35,29 +35,6 @@ HKCR
         {
             val CLSID = s '{A9C6F73E-43F4-47C3-8E45-59F80335277E}'
         }
-        ForceRemove '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}' = s 'Shell Tabs Tags Column'
-        {
-            ProgID = s 'ShellTabs.TagColumn.1'
-            VersionIndependentProgID = s 'ShellTabs.TagColumn'
-            val AppID = s '{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}'
-            InprocServer32 = s '%MODULE%'
-            {
-                val ThreadingModel = s 'Apartment'
-            }
-            'Implemented Categories'
-            {
-                '{00021494-0000-0000-C000-000000000046}'
-            }
-        }
-        ForceRemove 'ShellTabs.TagColumn' = s 'Shell Tabs Tags Column'
-        {
-            val CLSID = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
-            CurVer = s 'ShellTabs.TagColumn.1'
-        }
-        ForceRemove 'ShellTabs.TagColumn.1' = s 'Shell Tabs Tags Column'
-        {
-            val CLSID = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
-        }
         ForceRemove '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}' = s 'Shell Tabs Browser Helper'
         {
             ProgID = s 'ShellTabs.BrowserHelper.1'
@@ -109,12 +86,7 @@ HKLM
     NoRemove 'Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved'
     {
         val '{A9C6F73E-43F4-47C3-8E45-59F80335277E}' = s 'Shell Tabs'
-        val '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}' = s 'Shell Tabs Tags Column'
         val '{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}' = s 'Shell Tabs Browser Helper'
-    }
-    NoRemove 'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ColumnHandlers'
-    {
-        ForceRemove 'ShellTabsTags' = s '{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}'
     }
     NoRemove 'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects'
     {

@@ -22,12 +22,8 @@
 #include "TabManager.h"
 
 
-constexpr UINT ID_CMD_SET_NAME_COLOR = 0x9001;
-constexpr UINT ID_CMD_CLEAR_NAME_COLOR = 0x9002;
-
 namespace shelltabs {
 
-class NamespaceTreeColorizer;
 class TabBand;
 
 class TabBandWindow {
@@ -187,23 +183,8 @@ private:
 	// Site/browser for current Explorer window
 	Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
 
-	// Left pane helper
-	std::unique_ptr<NamespaceTreeColorizer> m_treeColorizer;
-
-	// Right pane hook state
-        // Hook management
-        void HookTreeColorizer();               // left pane
-
         // Utilities
-        bool GetDefViewAndList(HWND* outDefView, HWND* outList) const;
-        bool GetSelectedShellItemPaths(std::vector<std::wstring>* outPaths);
-        bool ResolvePaneSelections(std::vector<std::wstring>* folderPaths, std::vector<std::wstring>* treePaths);
-        bool CollectFolderViewSelection(std::vector<std::wstring>* paths);
-        bool CollectTreeSelection(std::vector<std::wstring>* paths);
-        bool PickColor(COLORREF* color);
-        void ApplyColorToSelection(bool clear);
-        void ShowFilenameColorDialog();
-	// Helpers
+        // Helpers
 	bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
 	void DrawEmptyIslandPluses(HDC dc) const;
 
@@ -311,9 +292,8 @@ private:
 
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
 constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
-constexpr UINT WM_SHELLTABS_REFRESH_COLORIZER = WM_APP + 44;
-constexpr UINT WM_SHELLTABS_REFRESH_GIT_STATUS = WM_APP + 45;
-constexpr UINT WM_SHELLTABS_ENABLE_GIT_STATUS = WM_APP + 46;
+constexpr UINT WM_SHELLTABS_REFRESH_GIT_STATUS = WM_APP + 44;
+constexpr UINT WM_SHELLTABS_ENABLE_GIT_STATUS = WM_APP + 45;
 
 enum : UINT_PTR {
     IDC_NEW_TAB = 1001,

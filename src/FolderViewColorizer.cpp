@@ -4,7 +4,6 @@
 #include <CommCtrl.h>
 #include <string>
 
-#include "NameColorProvider.h"
 #include "Utilities.h"
 
 namespace shelltabs {

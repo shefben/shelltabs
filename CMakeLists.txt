@@ -16,17 +16,11 @@ add_library(ShellTabs SHARED
     src/TabBand.cpp
     src/TabBandWindow.cpp
     src/TabManager.cpp
-    src/FileColorOverrides.cpp
-    src/NameColorProvider.cpp
-    src/CommonDialogColorizer.cpp
     src/ExplorerWindowHook.cpp
     src/FolderViewColorizer.cpp
     src/BrowserEvents.cpp
     src/Guids.cpp
     src/Module.cpp
-    src/NamespaceTreeColorizer.cpp
-    src/TagColumnProvider.cpp
-    src/Tagging.cpp
     src/SessionStore.cpp
     src/GroupStore.cpp
     src/OptionsStore.cpp

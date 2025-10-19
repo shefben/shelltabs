@@ -13,9 +13,7 @@
 
 namespace shelltabs {
 
-class CommonDialogColorizer;
 class ExplorerWindowHook;
-class NamespaceTreeColorizer;
 
 class CExplorerBHO : public IObjectWithSite, public IDispatch {
 public:
@@ -54,9 +52,7 @@ private:
     DWORD m_connectionCookie = 0;
     bool m_bandVisible = false;
     bool m_shouldRetryEnsure = true;
-    std::unique_ptr<CommonDialogColorizer> m_dialogColorizer;
     std::unique_ptr<ExplorerWindowHook> m_windowHook;
-    std::unique_ptr<NamespaceTreeColorizer> m_treeColorizer;
     Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
 };
 

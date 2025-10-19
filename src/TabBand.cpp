@@ -380,8 +380,6 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             LogMessage(LogLevel::Info, L"TabBand::SetSite UpdateTabsUI (initial)");
             UpdateTabsUI();
 
-            ScheduleColorizerRefresh();
-
             ScheduleGitStatusEnable();
 
             LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
@@ -464,7 +462,6 @@ void TabBand::OnNewThisPCInGroupRequested(int groupIndex) {
 void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
-    ScheduleColorizerRefresh();
     m_internalNavigation = false;
 }
 
@@ -1161,7 +1158,6 @@ void TabBand::DisconnectSite() {
     m_internalNavigation = false;
     m_allowExternalNewWindows = 0;
     m_sessionStore.reset();
-    m_colorizerRefreshPosted = false;
 }
 
 void TabBand::InitializeTabs() {
@@ -1804,138 +1800,6 @@ void TabBand::OnDeferredNavigate() {
     m_pendingNavigation = {};
     if (target.IsValid()) {
         NavigateToTab(target);
-    }
-}
-
-void TabBand::OnColorizerRefresh() {
-    m_colorizerRefreshPosted = false;
-    InvalidateActiveFolderView();
-}
-
-void TabBand::OnGitStatusUpdated() {
-    GuardExplorerCall(L"TabBand::OnGitStatusUpdated", [&]() {
-        if (!m_window) {
-            LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated ignored (no window)");
-            return;
-        }
-        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated refreshing view");
-        const auto items = m_tabs.BuildView();
-        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated applied %llu items",
-                   static_cast<unsigned long long>(items.size()));
-        m_window->SetTabs(items);
-    });
-}
-
-void TabBand::ScheduleGitStatusEnable() {
-    if (m_gitStatusActivationAcquired) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already active");
-        EnsureGitStatusListener();
-        return;
-    }
-    if (!m_window) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (no window)");
-        m_gitStatusEnablePending = true;
-        return;
-    }
-    HWND hwnd = m_window->GetHwnd();
-    if (!hwnd || !IsWindow(hwnd)) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (invalid hwnd)");
-        m_gitStatusEnablePending = true;
-        return;
-    }
-    if (m_gitStatusEnablePosted) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already posted");
-        return;
-    }
-    if (PostMessageW(hwnd, WM_SHELLTABS_ENABLE_GIT_STATUS, 0, 0)) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable posted enable message");
-        m_gitStatusEnablePosted = true;
-        m_gitStatusEnablePending = false;
-    } else {
-        const DWORD error = GetLastError();
-        LogMessage(LogLevel::Warning,
-                   L"TabBand::ScheduleGitStatusEnable PostMessage failed (error=%lu)", error);
-        m_gitStatusEnablePending = true;
-    }
-}
-
-void TabBand::OnEnableGitStatus() {
-    GuardExplorerCall(L"TabBand::OnEnableGitStatus", [&]() {
-        LogMessage(LogLevel::Info, L"TabBand::OnEnableGitStatus invoked (this=%p)", this);
-        m_gitStatusEnablePosted = false;
-        if (!m_window) {
-            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (no window)");
-            m_gitStatusEnablePending = true;
-            return;
-        }
-        HWND hwnd = m_window->GetHwnd();
-        if (!hwnd || !IsWindow(hwnd)) {
-            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (invalid hwnd)");
-            m_gitStatusEnablePending = true;
-            return;
-        }
-        if (!m_gitStatusActivationAcquired) {
-            AcquireGitStatusActivation();
-            m_gitStatusActivationAcquired = true;
-        }
-        m_gitStatusEnablePending = false;
-        EnsureGitStatusListener();
-        UpdateTabsUI();
-    });
-}
-
-void TabBand::QueueNavigateTo(TabLocation location) {
-    if (!location.IsValid() || !m_window) {
-        return;
-    }
-    m_pendingNavigation = location;
-    if (m_deferredNavigationPosted) {
-        return;
-    }
-    HWND hwnd = m_window->GetHwnd();
-    if (!hwnd) {
-        return;
-    }
-    if (PostMessageW(hwnd, WM_SHELLTABS_DEFER_NAVIGATE, 0, 0)) {
-        m_deferredNavigationPosted = true;
-    }
-}
-
-void TabBand::ScheduleColorizerRefresh() {
-    if (!m_window || m_colorizerRefreshPosted) {
-        return;
-    }
-    HWND hwnd = m_window->GetHwnd();
-    if (!hwnd) {
-        return;
-    }
-    if (PostMessageW(hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0)) {
-        m_colorizerRefreshPosted = true;
-    }
-}
-
-void TabBand::InvalidateActiveFolderView() const {
-    if (!m_shellBrowser) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<IShellView> view;
-    if (FAILED(m_shellBrowser->QueryActiveShellView(&view)) || !view) {
-        return;
-    }
-
-    HWND hwndView = nullptr;
-    if (FAILED(view->GetWindow(&hwndView)) || !IsWindow(hwndView)) {
-        return;
-    }
-
-    HWND hwndList = FindWindowExW(hwndView, nullptr, L"SysListView32", nullptr);
-    if (IsWindow(hwndList)) {
-        InvalidateRect(hwndList, nullptr, FALSE);
-        UpdateWindow(hwndList);
-    } else {
-        InvalidateRect(hwndView, nullptr, FALSE);
-        UpdateWindow(hwndView);
     }
 }
 
