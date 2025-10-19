@@ -489,7 +489,7 @@ void UpdateListBoxHorizontalExtent(HWND hwndList) {
         text.resize(static_cast<size_t>(copied));
         SIZE size{};
         if (GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size)) {
-            maxWidth = std::max(maxWidth, size.cx);
+            maxWidth = std::max(maxWidth, static_cast<int>(size.cx));
         }
     }
 
@@ -1049,4 +1049,3 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
 }
 
 }  // namespace shelltabs
-

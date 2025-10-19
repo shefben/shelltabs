@@ -1,0 +1,16 @@
+- create a new tab when draging and dropping an folder onto the tab bar (where no other tabs are present, if tabs are present where the folder is dropped, it should fall back to the copy/move routine).
+- there should be a group edit option in the main context menu of the toolbar for editing group colors and names.
+- add 'New Tab' option to the context menu whe right clicking in the empty space where no tabs are present on the toolbar which opens a new tab to 'My PC'.
+- add an 'Options' option to the context menu when right clicking in an empty space on the tool bar toolbar which opens an option dialog.
+-- the option dialog should have tabs for different option grouppings for the following features:
+--- tab 1 should have basic options.
+---- always re-open last session on crash or force closure of explorer
+---- save group tab paths when the group is closed to their current path instead of always opening to the default set path for each tab. (this means, if the user opens group 1 which originally opens tab1 to c:\test\  and the user opens the 'testsubfolder1' and closes the group, if checked the next time the group is opened, tab1 should open to c:\test1\testsubfolder1\  instead of c:\test1\. otherwise if unchecked, it should always open to c:\tab1\ when the group is re-opened.)
+---- 
+--- tab 2 should be 'group management' which lists all the currently available groups.
+---- when a user selects a group, it should open a secondary dialog that allows the user to add, edit or remove paths which correspond to what each tab should open up to when the group is opened.
+---- the secondary dialog should also allow the user to change the name of the group and the color of the group.
+---- tab 2 should also contain a button to add a new group which opens a dialog to set the name of the group and the color.  New groups should have a default single tab to 'My PC'.
+---- tab 2 should also contain a button to deleted the selected group.
+- implement session history which is saved periodically so if explorer crashes, is forced closed or any other issue happens which causes explorer to close, it will open up to the same tabs that where present before the forced closing of explorer.
+- 

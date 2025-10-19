@@ -814,7 +814,11 @@ bool ExplorerWindowHook::CollectSelection(std::vector<std::wstring>* folderViewP
                                                         IID_PPV_ARGS(&treeControl))) &&
                 treeControl) {
                 Microsoft::WRL::ComPtr<IShellItemArray> selection;
+#if defined(NSTCGNI_SELECTION)
                 if (SUCCEEDED(treeControl->GetSelectedItems(NSTCGNI_SELECTION, &selection)) && selection) {
+#else
+                if (SUCCEEDED(treeControl->GetSelectedItems(&selection)) && selection) {
+#endif
                     if (AppendPathsFromArray(selection.Get(), treePaths)) {
                         any = true;
                     }
