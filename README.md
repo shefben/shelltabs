@@ -14,8 +14,6 @@ ShellTabs is a Windows Explorer deskband extension that adds a lightweight tabbe
 - Tabs persist for the lifetime of the Explorer window and track the active folder.
 - Session persistence reloads your tabs and islands after Explorer restarts, keeping group collapse state and ordering intact.
 - Dragging tabs or islands shows a translucent preview under the cursor so you can place them precisely before dropping.
-- Optional tagging system that colors file and folder names according to assigned tags.
-- A **Tags** column for Details view that lists tag assignments as a comma-separated string.
 
 ## Building
 
@@ -60,23 +58,6 @@ An ATL-style registration script lives at `registration/ShellTabs.rgs`. You can 
 - **Browser event sink (`BrowserEvents`)** – Subscribes to `DWebBrowserEvents2` emitted by Explorer’s `IWebBrowser2` object so the deskband can react to navigation changes and window teardown.
 - **Browser Helper Object (`CExplorerBHO`)** – A lightweight `IObjectWithSite` implementation that loads alongside Explorer windows and calls `IWebBrowser2::ShowBrowserBar` so the Shell Tabs deskband is surfaced automatically for each process.
 - **Utilities** – Helper functions for cloning PIDLs, resolving display names, and querying the active folder via `IShellBrowser`/`IWebBrowser2`.
-- **Folder view colorizer** – Subclasses the Explorer folder view to apply tag-based colors during custom draw events.
-- **Tag column provider** – Implements `IColumnProvider` so the Explorer Details view can display the tags associated with each item.
-
-## Tagging System
-
-ShellTabs reads tag assignments from `%APPDATA%\ShellTabs\tags.db`. The file is encoded as UTF-8 and stores one entry per line
-using the following format:
-
-```
-<full-path>|<tag1>,<tag2>,...
-```
-
-- Paths are matched case-insensitively and should use backslashes.
-- Tags are trimmed of whitespace and can contain spaces; they are separated with either commas or semicolons.
-- During rendering, file and folder names are tinted using a palette derived from the assigned tags. Multiple tags blend their
-  palette colors for a stable, deterministic result.
-- The **Tags** column surfaces the comma-separated list exactly as stored so you can sort or group items directly inside Explorer.
 
 ## Development Tips
 

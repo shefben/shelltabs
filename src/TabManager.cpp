@@ -6,25 +6,18 @@
 
 #include "GitStatus.h"
 #include "Logging.h"
-#include "NameColorProvider.h"
 
 namespace shelltabs {
 
 namespace {
 constexpr wchar_t kDefaultGroupNamePrefix[] = L"Island ";
-
-COLORREF BlendColors(COLORREF a, COLORREF b) {
-    const int r = (GetRValue(a) + GetRValue(b)) / 2;
-    const int g = (GetGValue(a) + GetGValue(b)) / 2;
-    const int bValue = (GetBValue(a) + GetBValue(b)) / 2;
-    return RGB(r, g, bValue);
-}
 }  // namespace
 
 TabManager::TabManager() { EnsureDefaultGroup(); }
+
 TabManager& TabManager::Get() {
-	static TabManager instance;
-	return instance;
+    static TabManager instance;
+    return instance;
 }
 
 int TabManager::TotalTabCount() const noexcept {
@@ -348,8 +341,6 @@ std::vector<TabViewItem> TabManager::BuildView() const {
         const size_t total = group.tabs.size();
         size_t visible = 0;
         size_t hidden = 0;
-        bool groupHasColor = false;
-        COLORREF groupColor = 0;
 
         for (const auto& tab : group.tabs) {
             if (tab.hidden) {
@@ -357,15 +348,6 @@ std::vector<TabViewItem> TabManager::BuildView() const {
                 continue;
             }
             ++visible;
-            COLORREF color = 0;
-            if (!tab.path.empty() && NameColorProvider::Instance().TryGetColorForPath(tab.path, &color)) {
-                if (!groupHasColor) {
-                    groupColor = color;
-                    groupHasColor = true;
-                } else {
-                    groupColor = BlendColors(groupColor, color);
-                }
-            }
         }
 
         if (group.headerVisible) {
@@ -386,8 +368,6 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.totalTabs = total;
             header.visibleTabs = visible;
             header.hiddenTabs = hidden;
-            header.hasTagColor = groupHasColor;
-            header.tagColor = groupColor;
             header.hasCustomOutline = group.hasCustomOutline;
             header.outlineColor = group.outlineColor;
             header.savedGroupId = group.savedGroupId;
@@ -419,14 +399,6 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();
             item.headerVisible = group.headerVisible;
-
-            COLORREF color = 0;
-            std::vector<std::wstring> tags;
-            if (!tab.path.empty() && NameColorProvider::Instance().TryGetColorAndTags(tab.path, &color, &tags)) {
-                item.hasTagColor = true;
-                item.tagColor = color;
-                item.tags = std::move(tags);
-            }
 
             if (gitEnabled && !tab.path.empty()) {
                 const GitStatusInfo status = gitCache.Query(tab.path);

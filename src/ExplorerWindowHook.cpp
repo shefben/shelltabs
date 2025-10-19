@@ -4,7 +4,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <optional>
 #include <string>
 #include <cwchar>
 
@@ -12,8 +11,6 @@
 #include <ShlObj.h>
 #include <shellapi.h>
 
-#include "NameColorProvider.h"
-#include "FileColorOverrides.h"
 #include "Utilities.h"
 
 #pragma comment(lib, "Comctl32.lib")
@@ -27,52 +24,7 @@ std::unordered_map<HWND, ExplorerWindowHook*> g_hooksByFrame;
 constexpr wchar_t kTreeClassName[] = L"SysTreeView32";
 constexpr wchar_t kListClassName[] = L"SysListView32";
 constexpr wchar_t kDefViewClassName[] = L"SHELLDLL_DefView";
-constexpr GUID kSidDataObject = {0x000214e8, 0x0000, 0x0000,
-                                 {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 constexpr int kLineNumberMargin = 4;
-
-std::wstring DirectoryFromPath(const std::wstring& path) {
-    const size_t separator = path.find_last_of(L"\\/");
-    if (separator == std::wstring::npos) {
-        return {};
-    }
-    return path.substr(0, separator);
-}
-
-std::wstring CombineDirectoryAndLeaf(const std::wstring& directory, const std::wstring& leaf) {
-    if (leaf.empty()) {
-        return {};
-    }
-
-    if (directory.empty()) {
-        return leaf;
-    }
-
-    std::wstring combined = directory;
-    const wchar_t last = combined.empty() ? L'\0' : combined.back();
-    if (last != L'\\' && last != L'/') {
-        combined.push_back(L'\\');
-    }
-    combined.append(leaf);
-    return combined;
-}
-
-std::wstring AnsiToWide(const char* text) {
-    if (!text) {
-        return {};
-    }
-
-    const int required = MultiByteToWideChar(CP_ACP, 0, text, -1, nullptr, 0);
-    if (required <= 0) {
-        return {};
-    }
-
-    std::wstring wide(static_cast<size_t>(required - 1), L'\0');
-    if (!wide.empty()) {
-        MultiByteToWideChar(CP_ACP, 0, text, -1, wide.data(), required);
-    }
-    return wide;
-}
 
 bool IsWindowClass(HWND hwnd, const wchar_t* expected) {
     if (!hwnd || !expected) {
@@ -647,11 +599,6 @@ ExplorerWindowHook::NotifyResult ExplorerWindowHook::HandleListNotify(NMHDR* hea
             auto* custom = reinterpret_cast<NMLVCUSTOMDRAW*>(header);
             return HandleListCustomDraw(custom, result);
         }
-        case LVN_BEGINLABELEDITW:
-        case LVN_BEGINLABELEDITA:
-        case LVN_ENDLABELEDITW:
-        case LVN_ENDLABELEDITA:
-            return HandleListLabelEdit(header);
         default:
             break;
     }
@@ -675,21 +622,10 @@ ExplorerWindowHook::NotifyResult ExplorerWindowHook::HandleListCustomDraw(NMLVCU
                 return NotifyResult::kUnhandled;
             }
 
-            const int index = static_cast<int>(customDraw->nmcd.dwItemSpec);
             const bool selected = (customDraw->nmcd.uItemState & CDIS_SELECTED) != 0;
             const bool hot = (customDraw->nmcd.uItemState & CDIS_HOT) != 0;
 
             bool changed = false;
-
-            std::optional<NameColorProvider::ItemAppearance> appearance;
-            std::wstring path;
-            if (GetListViewItemPath(index, &path)) {
-                const auto resolved = NameColorProvider::Instance().GetAppearanceForPath(path);
-                if (resolved.HasOverrides() &&
-                    resolved.AllowsForState(customDraw->nmcd.uItemState)) {
-                    appearance = resolved;
-                }
-            }
 
             const PaneTheme& theme = listTheme_;
             if (selected) {
@@ -721,21 +657,6 @@ ExplorerWindowHook::NotifyResult ExplorerWindowHook::HandleListCustomDraw(NMLVCU
                 }
             }
 
-            if (appearance.has_value()) {
-                if (appearance->textColor.has_value()) {
-                    customDraw->clrText = *appearance->textColor;
-                    changed = true;
-                }
-                if (appearance->backgroundColor.has_value()) {
-                    customDraw->clrTextBk = *appearance->backgroundColor;
-                    changed = true;
-                }
-                if (appearance->font) {
-                    SelectObject(customDraw->nmcd.hdc, appearance->font);
-                    changed = true;
-                }
-            }
-
             if (changed || listFont_.Get()) {
                 *result |= CDRF_NEWFONT;
                 return NotifyResult::kHandled;
@@ -758,96 +679,6 @@ ExplorerWindowHook::NotifyResult ExplorerWindowHook::HandleListCustomDraw(NMLVCU
     return NotifyResult::kUnhandled;
 }
 
-ExplorerWindowHook::NotifyResult ExplorerWindowHook::HandleListLabelEdit(NMHDR* header) {
-    if (!header) {
-        return NotifyResult::kUnhandled;
-    }
-
-    switch (header->code) {
-        case LVN_BEGINLABELEDITW: {
-            const auto* edit = reinterpret_cast<const NMLVDISPINFOW*>(header);
-            if (edit) {
-                RememberListItemForRename(edit->item.iItem);
-            } else {
-                ResetPendingListRename();
-            }
-            break;
-        }
-        case LVN_BEGINLABELEDITA: {
-            const auto* edit = reinterpret_cast<const NMLVDISPINFOA*>(header);
-            if (edit) {
-                RememberListItemForRename(edit->item.iItem);
-            } else {
-                ResetPendingListRename();
-            }
-            break;
-        }
-        case LVN_ENDLABELEDITW: {
-            const auto* edit = reinterpret_cast<const NMLVDISPINFOW*>(header);
-            if (edit && edit->item.pszText) {
-                CommitListRename(edit->item.pszText);
-            } else {
-                ResetPendingListRename();
-            }
-            break;
-        }
-        case LVN_ENDLABELEDITA: {
-            const auto* edit = reinterpret_cast<const NMLVDISPINFOA*>(header);
-            if (edit && edit->item.pszText) {
-                CommitListRename(AnsiToWide(edit->item.pszText));
-            } else {
-                ResetPendingListRename();
-            }
-            break;
-        }
-        default:
-            break;
-    }
-
-    return NotifyResult::kUnhandled;
-}
-
-void ExplorerWindowHook::RememberListItemForRename(int index) {
-    ResetPendingListRename();
-
-    if (index < 0) {
-        return;
-    }
-
-    std::wstring path;
-    if (!GetListViewItemPath(index, &path) || path.empty()) {
-        return;
-    }
-
-    pendingListRenameOriginalPath_ = path;
-    pendingListRenameDirectory_ = DirectoryFromPath(path);
-}
-
-void ExplorerWindowHook::CommitListRename(const std::wstring& newName) {
-    if (pendingListRenameOriginalPath_.empty() || newName.empty()) {
-        ResetPendingListRename();
-        return;
-    }
-
-    std::wstring directory = pendingListRenameDirectory_;
-    if (directory.empty()) {
-        directory = DirectoryFromPath(pendingListRenameOriginalPath_);
-    }
-
-    const std::wstring newPath = CombineDirectoryAndLeaf(directory, newName);
-    if (!newPath.empty() &&
-        (_wcsicmp(pendingListRenameOriginalPath_.c_str(), newPath.c_str()) != 0)) {
-        FileColorOverrides::Instance().TransferColor(pendingListRenameOriginalPath_, newPath);
-    }
-
-    ResetPendingListRename();
-}
-
-void ExplorerWindowHook::ResetPendingListRename() {
-    pendingListRenameOriginalPath_.clear();
-    pendingListRenameDirectory_.clear();
-}
-
 bool ExplorerWindowHook::EnsureFolderView() {
     if (folderView_) {
         return true;
@@ -866,142 +697,6 @@ bool ExplorerWindowHook::EnsureFolderView() {
 }
 
 void ExplorerWindowHook::ResetFolderView() { folderView_.Reset(); }
-
-bool ExplorerWindowHook::GetListViewItemPath(int index, std::wstring* path) const {
-    if (!path) {
-        return false;
-    }
-
-    if (!const_cast<ExplorerWindowHook*>(this)->EnsureFolderView()) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IShellItem> item;
-    if (FAILED(folderView_->GetItem(index, IID_PPV_ARGS(&item))) || !item) {
-        return false;
-    }
-
-    return ItemPathFromShellItem(item.Get(), path);
-}
-
-bool ExplorerWindowHook::ItemPathFromShellItem(IShellItem* item, std::wstring* path) {
-    if (!item || !path) {
-        return false;
-    }
-
-    return TryGetFileSystemPath(item, path);
-}
-
-Microsoft::WRL::ComPtr<IShellItemArray> ExplorerWindowHook::BuildArrayFromDataObject(IDataObject* dataObject) {
-    Microsoft::WRL::ComPtr<IShellItemArray> array;
-    if (!dataObject) {
-        return array;
-    }
-
-    if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(dataObject, IID_PPV_ARGS(&array))) && array) {
-        return array;
-    }
-
-    FORMATETC format = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
-    STGMEDIUM storage = {};
-    if (FAILED(dataObject->GetData(&format, &storage))) {
-        return array;
-    }
-
-    HDROP drop = static_cast<HDROP>(GlobalLock(storage.hGlobal));
-    if (!drop) {
-        ReleaseStgMedium(&storage);
-        return array;
-    }
-
-    UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
-    std::vector<PIDLIST_ABSOLUTE> pidls;
-    pidls.reserve(count);
-
-    for (UINT i = 0; i < count; ++i) {
-        UINT length = DragQueryFileW(drop, i, nullptr, 0);
-        if (!length) {
-            continue;
-        }
-
-        std::wstring path(length + 1, L'\0');
-        UINT copied = DragQueryFileW(drop, i, path.data(), static_cast<UINT>(path.size()));
-        if (!copied) {
-            continue;
-        }
-        path.resize(copied);
-
-        PIDLIST_ABSOLUTE pidl = nullptr;
-        if (SUCCEEDED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) && pidl) {
-            pidls.push_back(pidl);
-        }
-    }
-
-    GlobalUnlock(storage.hGlobal);
-    ReleaseStgMedium(&storage);
-
-    if (pidls.empty()) {
-        return array;
-    }
-
-    std::vector<PCIDLIST_ABSOLUTE> constPidls;
-    constPidls.reserve(pidls.size());
-    for (PIDLIST_ABSOLUTE pidl : pidls) {
-        constPidls.push_back(pidl);
-    }
-
-    if (FAILED(SHCreateShellItemArrayFromIDLists(static_cast<UINT>(constPidls.size()), constPidls.data(), &array))) {
-        array.Reset();
-    }
-
-    for (PIDLIST_ABSOLUTE pidl : pidls) {
-        CoTaskMemFree(pidl);
-    }
-
-    return array;
-}
-
-bool ExplorerWindowHook::AppendPathsFromArray(IShellItemArray* array, std::vector<std::wstring>* outPaths) {
-    if (!array || !outPaths) {
-        return false;
-    }
-
-    DWORD count = 0;
-    if (FAILED(array->GetCount(&count)) || count == 0) {
-        return false;
-    }
-
-    bool any = false;
-    for (DWORD i = 0; i < count; ++i) {
-        Microsoft::WRL::ComPtr<IShellItem> item;
-        if (SUCCEEDED(array->GetItemAt(i, &item)) && item) {
-            std::wstring path;
-            if (ItemPathFromShellItem(item.Get(), &path)) {
-                outPaths->push_back(std::move(path));
-                any = true;
-            }
-        }
-    }
-    return any;
-}
-
-void ExplorerWindowHook::UpdateListTheme(const PaneTheme& theme) {
-    listTheme_ = theme;
-    listFont_.Adopt(CreateFontFromTheme(listTheme_));
-    ApplyListTheme();
-    if (listView_) {
-        InvalidateRect(listView_, nullptr, TRUE);
-    }
-}
-
-void ExplorerWindowHook::UpdateTreeTheme(const PaneTheme& theme) {
-    treeTheme_ = theme;
-    treeFont_.Adopt(CreateFontFromTheme(treeTheme_));
-    ApplyTreeTheme();
-    if (tree_) {
-        InvalidateRect(tree_, nullptr, TRUE);
-    }
-}
 
 void ExplorerWindowHook::ApplyTreeTheme() {
     if (!tree_) {
@@ -1043,99 +738,6 @@ HFONT ExplorerWindowHook::CreateFontFromTheme(const PaneTheme& theme) {
         return nullptr;
     }
     return CreateFontIndirectW(&theme.font);
-}
-
-bool ExplorerWindowHook::CollectSelection(std::vector<std::wstring>* folderViewPaths,
-                                          std::vector<std::wstring>* treePaths) const {
-    bool any = false;
-
-    if (folderViewPaths) {
-        folderViewPaths->clear();
-        Microsoft::WRL::ComPtr<IShellItemArray> array;
-
-        if (const_cast<ExplorerWindowHook*>(this)->EnsureFolderView()) {
-            if (FAILED(folderView_->Items(SVGIO_SELECTION, IID_PPV_ARGS(&array))) || !array) {
-                array.Reset();
-            }
-            if (!array && FAILED(folderView_->GetSelection(FALSE, &array))) {
-                array.Reset();
-            }
-            if (!array && FAILED(folderView_->GetSelection(TRUE, &array))) {
-                array.Reset();
-            }
-        }
-
-        if (!array && serviceProvider_) {
-            Microsoft::WRL::ComPtr<IDataObject> dataObject;
-            if (SUCCEEDED(serviceProvider_->QueryService(kSidDataObject, IID_PPV_ARGS(&dataObject))) && dataObject) {
-                array = BuildArrayFromDataObject(dataObject.Get());
-            }
-        }
-
-        if (!array && shellBrowser_) {
-            Microsoft::WRL::ComPtr<IShellView> view;
-            if (SUCCEEDED(shellBrowser_->QueryActiveShellView(&view)) && view) {
-                if (FAILED(view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&array))) || !array) {
-                    Microsoft::WRL::ComPtr<IDataObject> dataObject;
-                    if (SUCCEEDED(view->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&dataObject))) && dataObject) {
-                        array = BuildArrayFromDataObject(dataObject.Get());
-                    }
-                }
-            }
-        }
-
-        if (AppendPathsFromArray(array.Get(), folderViewPaths)) {
-            any = true;
-        }
-    }
-
-    if (treePaths) {
-        treePaths->clear();
-
-        Microsoft::WRL::ComPtr<IShellBrowser> browser = shellBrowser_;
-        if (!browser && serviceProvider_) {
-            serviceProvider_->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser));
-        }
-
-        Microsoft::WRL::ComPtr<IServiceProvider> browserProvider;
-        if (browser && SUCCEEDED(browser.As(&browserProvider)) && browserProvider) {
-            Microsoft::WRL::ComPtr<INameSpaceTreeControl> treeControl;
-            if (SUCCEEDED(browserProvider->QueryService(__uuidof(INameSpaceTreeControl),
-                                                        IID_PPV_ARGS(&treeControl))) &&
-                treeControl) {
-                Microsoft::WRL::ComPtr<IShellItemArray> selection;
-#if defined(NSTCGNI_SELECTION)
-                if (SUCCEEDED(treeControl->GetSelectedItems(NSTCGNI_SELECTION, &selection)) && selection) {
-#else
-                if (SUCCEEDED(treeControl->GetSelectedItems(&selection)) && selection) {
-#endif
-                    if (AppendPathsFromArray(selection.Get(), treePaths)) {
-                        any = true;
-                    }
-                }
-            }
-        }
-    }
-
-    return any;
-}
-
-bool ExplorerWindowHook::CollectSelectionForExplorer(HWND explorer, std::vector<std::wstring>* folderViewPaths,
-                                                     std::vector<std::wstring>* treePaths) {
-    ExplorerWindowHook* hook = nullptr;
-    {
-        std::lock_guard<std::mutex> guard(g_hookMutex);
-        auto it = g_hooksByFrame.find(explorer);
-        if (it != g_hooksByFrame.end()) {
-            hook = it->second;
-        }
-    }
-
-    if (!hook) {
-        return false;
-    }
-
-    return hook->CollectSelection(folderViewPaths, treePaths);
 }
 
 void ExplorerWindowHook::AttachForExplorer(HWND explorer) {

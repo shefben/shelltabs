@@ -39,8 +39,6 @@ public:
     void UpdateListTheme(const PaneTheme& theme);
     void UpdateTreeTheme(const PaneTheme& theme);
 
-    static bool CollectSelectionForExplorer(HWND explorer, std::vector<std::wstring>* folderViewPaths,
-                                            std::vector<std::wstring>* treePaths);
     static void AttachForExplorer(HWND explorer);
 
 private:
@@ -79,23 +77,12 @@ private:
     NotifyResult HandleTreeCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result);
     NotifyResult HandleListNotify(NMHDR* header, LRESULT* result);
     NotifyResult HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
-    NotifyResult HandleListLabelEdit(NMHDR* header);
-    void RememberListItemForRename(int index);
-    void CommitListRename(const std::wstring& newName);
-    void ResetPendingListRename();
-
     bool EnsureFolderView();
     void ResetFolderView();
-    bool GetListViewItemPath(int index, std::wstring* path) const;
-    static bool ItemPathFromShellItem(IShellItem* item, std::wstring* path);
-    static Microsoft::WRL::ComPtr<IShellItemArray> BuildArrayFromDataObject(IDataObject* dataObject);
-    static bool AppendPathsFromArray(IShellItemArray* array, std::vector<std::wstring>* outPaths);
 
     void ApplyTreeTheme();
     void ApplyListTheme();
     static HFONT CreateFontFromTheme(const PaneTheme& theme);
-
-    bool CollectSelection(std::vector<std::wstring>* folderViewPaths, std::vector<std::wstring>* treePaths) const;
     void RegisterFrameHook();
     void UnregisterFrameHook();
 
@@ -126,8 +113,6 @@ private:
     ScopedFont listFont_{};
     ScopedFont treeFont_{};
 
-    std::wstring pendingListRenameOriginalPath_;
-    std::wstring pendingListRenameDirectory_;
 };
 
 }  // namespace shelltabs

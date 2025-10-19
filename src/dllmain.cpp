@@ -40,19 +40,11 @@ std::wstring CurrentProcessImageName() {
     } while (false)
 
 constexpr wchar_t kBandFriendlyName[] = L"Shell Tabs";
-constexpr wchar_t kColumnFriendlyName[] = L"Shell Tabs Tags Column";
 constexpr wchar_t kBhoFriendlyName[] = L"Shell Tabs Browser Helper";
 constexpr wchar_t kBandProgId[] = L"ShellTabs.Band";
 constexpr wchar_t kBandProgIdVersion[] = L"ShellTabs.Band.1";
-constexpr wchar_t kColumnProgId[] = L"ShellTabs.TagColumn";
-constexpr wchar_t kColumnProgIdVersion[] = L"ShellTabs.TagColumn.1";
 constexpr wchar_t kBhoProgId[] = L"ShellTabs.BrowserHelper";
 constexpr wchar_t kBhoProgIdVersion[] = L"ShellTabs.BrowserHelper.1";
-
-const GUID kColumnProviderCategory = {0x0BAEC501,
-                                      0xE94C,
-                                      0x11D2,
-                                      {0xB1, 0xEF, 0x00, 0xC0, 0x4F, 0x8E, 0xED, 0xB4}};
 
 struct ScopedRegKey {
     ScopedRegKey() = default;
@@ -648,22 +640,6 @@ HRESULT RegisterExplorerApproved(const std::wstring& clsidString, const wchar_t*
         /*allowUserFallback=*/false);
 }
 
-HRESULT RegisterColumnHandler(const std::wstring& clsidString) {
-    const std::wstring keyPath =
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ColumnHandlers\\ShellTabsTags";
-    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
-
-    return WriteWithMachinePreference(
-        [&](const RegistryTarget& target) -> HRESULT {
-            ScopedRegKey key;
-            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            return WriteRegistryStringValue(key.get(), nullptr, clsidString.c_str());
-        });
-}
-
 HRESULT ClearExplorerBandCache() {
     constexpr std::array<const wchar_t*, 2> kCacheKeys = {
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Discardable\\PostSetup\\Component Categories\\{00021493-0000-0000-C000-000000000046}\\Enum",
@@ -711,12 +687,6 @@ HRESULT UnregisterExplorerBar(const std::wstring& clsidString) {
 
 HRESULT UnregisterDeskBandKey(const std::wstring& clsidString) {
     const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\DeskBand\\" + clsidString;
-    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
-}
-
-HRESULT UnregisterColumnHandler() {
-    const std::wstring keyPath =
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ColumnHandlers\\ShellTabsTags";
     return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
 }
 
@@ -785,9 +755,6 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     if (rclsid == CLSID_ShellTabsBand) {
         return CreateTabBandClassFactory(riid, object);
     }
-    if (rclsid == CLSID_ShellTabsTagColumnProvider) {
-        return CreateTagColumnProviderClassFactory(riid, object);
-    }
     if (rclsid == CLSID_ShellTabsBrowserHelper) {
         return CreateBrowserHelperClassFactory(riid, object);
     }
@@ -817,14 +784,6 @@ STDAPI DllRegisterServer(void) {
     RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (band)", RegisterExplorerApproved(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterToolbarValue", RegisterToolbarValue(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
-
-    const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
-    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (column)",
-                         RegisterInprocServer(modulePath, columnClsid, kColumnFriendlyName, appIdString.c_str(),
-                                              kColumnProgIdVersion, kColumnProgId, {kColumnProviderCategory}));
-    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (column)",
-                         RegisterExplorerApproved(columnClsid, kColumnFriendlyName));
-    RETURN_IF_FAILED_LOG(L"RegisterColumnHandler", RegisterColumnHandler(columnClsid));
 
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
     RETURN_IF_FAILED_LOG(L"RegisterInprocServer (BHO)",
@@ -857,14 +816,6 @@ STDAPI DllUnregisterServer(void) {
     RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (band)", UnregisterApprovedExtension(bandClsid));
     RETURN_IF_FAILED_LOG(L"UnregisterToolbarValue", UnregisterToolbarValue(bandClsid));
     RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
-
-    const std::wstring columnClsid = GuidToString(CLSID_ShellTabsTagColumnProvider);
-    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (column CLSID)",
-                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + columnClsid,
-                                                     /*ignoreAccessDenied=*/true));
-    RETURN_IF_FAILED_LOG(L"UnregisterProgIds (column)", UnregisterProgIds(kColumnProgIdVersion, kColumnProgId));
-    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (column)", UnregisterApprovedExtension(columnClsid));
-    RETURN_IF_FAILED_LOG(L"UnregisterColumnHandler", UnregisterColumnHandler());
 
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
     RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (BHO CLSID)",

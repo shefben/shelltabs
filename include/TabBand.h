@@ -121,7 +121,6 @@ public:
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(int initialTab = 0);
     void OnDeferredNavigate();
-    void OnColorizerRefresh();
     void OnGitStatusUpdated();
     void OnEnableGitStatus();
 
@@ -151,7 +150,6 @@ private:
     int m_allowExternalNewWindows = 0;
     TabLocation m_pendingNavigation;
     bool m_deferredNavigationPosted = false;
-    bool m_colorizerRefreshPosted = false;
     size_t m_gitStatusListenerId = 0;
     bool m_gitStatusEnablePosted = false;
     bool m_gitStatusEnablePending = false;
@@ -178,8 +176,6 @@ private:
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
     void QueueNavigateTo(TabLocation location);
-    void ScheduleColorizerRefresh();
-    void InvalidateActiveFolderView() const;
     void ScheduleGitStatusEnable();
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;

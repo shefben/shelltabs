@@ -38,16 +38,3 @@ Windows Registry Editor Version 5.00
 ; Approved Shell Extensions
 [HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved]
 "{A9C6F73E-43F4-47C3-8E45-59F80335277E}"="Shell Tabs"
-"{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}"="Shell Tabs Tags Column"
-
-; ShellTabs Tags Column Provider Registration
-[HKEY_CLASSES_ROOT\CLSID\{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}]
-@="Shell Tabs Tags Column"
-
-[HKEY_CLASSES_ROOT\CLSID\{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}\InprocServer32]
-@="F:\\development\\steam\\emulator_bot\\shelltabs\\build\\bin\\Release\\ShellTabs.dll"
-"ThreadingModel"="Apartment"
-
-; Column Handler Registration
-[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\ColumnHandlers\ShellTabsTags]
-@="{7C68AD82-5F7C-4D05-9E45-4F5316A6DF6C}"
