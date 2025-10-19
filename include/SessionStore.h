@@ -18,9 +18,6 @@ struct SessionGroup {
     std::wstring name;
     bool collapsed = false;
     std::vector<SessionTab> tabs;
-    bool splitView = false;
-    int splitPrimary = -1;
-    int splitSecondary = -1;
     bool headerVisible = true;
     bool hasOutline = false;
     COLORREF outlineColor = RGB(0, 120, 215);

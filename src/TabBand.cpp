@@ -868,35 +868,6 @@ void TabBand::OnSetGroupHeaderVisible(int groupIndex, bool visible) {
     UpdateTabsUI();
 }
 
-void TabBand::OnToggleSplitView(int groupIndex) {
-    m_tabs.ToggleSplitView(groupIndex);
-    UpdateTabsUI();
-    if (m_tabs.IsSplitViewEnabled(groupIndex)) {
-        EnsureSplitViewWindows(groupIndex);
-    }
-}
-
-void TabBand::OnPromoteSplitSecondary(TabLocation location) {
-    m_tabs.SetSplitSecondary(location);
-    UpdateTabsUI();
-    EnsureSplitViewWindows(location.groupIndex);
-}
-
-void TabBand::OnClearSplitSecondary(int groupIndex) {
-    m_tabs.ClearSplitSecondary(groupIndex);
-    UpdateTabsUI();
-}
-
-void TabBand::OnSwapSplitPanes(int groupIndex) {
-    m_tabs.SwapSplitSelection(groupIndex);
-    UpdateTabsUI();
-    const TabLocation selection = m_tabs.SelectedLocation();
-    if (selection.IsValid()) {
-        NavigateToTab(selection);
-    }
-    EnsureSplitViewWindows(groupIndex);
-}
-
 void TabBand::OnOpenTerminal(TabLocation location) {
     const std::wstring path = GetTabPath(location);
     if (path.empty()) {
@@ -1294,9 +1265,6 @@ bool TabBand::RestoreSession() {
         TabGroup group;
         group.name = groupData.name.empty() ? L"Island" : groupData.name;
         group.collapsed = groupData.collapsed;
-        group.splitView = groupData.splitView;
-        group.splitPrimary = groupData.splitPrimary;
-        group.splitSecondary = groupData.splitSecondary;
         group.headerVisible = groupData.headerVisible;
         group.hasCustomOutline = groupData.hasOutline;
         group.outlineColor = groupData.outlineColor;
@@ -1361,9 +1329,6 @@ void TabBand::SaveSession() {
         SessionGroup storedGroup;
         storedGroup.name = group->name;
         storedGroup.collapsed = group->collapsed;
-        storedGroup.splitView = group->splitView;
-        storedGroup.splitPrimary = group->splitPrimary;
-        storedGroup.splitSecondary = group->splitSecondary;
         storedGroup.headerVisible = group->headerVisible;
         storedGroup.hasOutline = group->hasCustomOutline;
         storedGroup.outlineColor = group->outlineColor;
@@ -1423,7 +1388,6 @@ void TabBand::NavigateToTab(TabLocation location) {
     if (FAILED(hr)) {
         m_internalNavigation = false;
     }
-    EnsureSplitViewWindows(location.groupIndex);
 }
 
 void TabBand::EnsureTabForCurrentFolder() {
@@ -1582,19 +1546,6 @@ bool TabBand::InvokeExplorerContextCommand(TabLocation location, IContextMenu* m
     info.ptInvoke = ptInvoke;
 
     return SUCCEEDED(menu->InvokeCommand(reinterpret_cast<LPCMINVOKECOMMANDINFO>(&info)));
-}
-
-void TabBand::EnsureSplitViewWindows(int groupIndex) {
-    if (!m_tabs.IsSplitViewEnabled(groupIndex)) {
-        return;
-    }
-    TabLocation secondary = m_tabs.GetSplitSecondary(groupIndex);
-    if (!secondary.IsValid()) {
-        return;
-    }
-    if (const auto* tab = m_tabs.Get(secondary)) {
-        OpenTabInNewWindow(*tab);
-    }
 }
 
 bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {

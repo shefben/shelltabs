@@ -34,9 +34,6 @@ struct TabGroup {
     std::wstring name;
     bool collapsed = false;
     std::vector<TabInfo> tabs;
-    bool splitView = false;
-    int splitPrimary = -1;
-    int splitSecondary = -1;
     bool headerVisible = true;
     std::wstring savedGroupId;
     bool hasCustomOutline = false;
@@ -59,11 +56,6 @@ struct TabViewItem {
     std::vector<std::wstring> tags;
     bool hasGitStatus = false;
     GitStatusInfo gitStatus;
-    bool splitActive = false;
-    bool splitPrimary = false;
-    bool splitSecondary = false;
-    bool splitAvailable = false;
-    bool splitEnabled = false;
     std::wstring path;
     bool hasCustomOutline = false;
     COLORREF outlineColor = 0;
@@ -116,21 +108,11 @@ public:
     void SetGroupHeaderVisible(int groupIndex, bool visible);
     bool IsGroupHeaderVisible(int groupIndex) const;
 
-    void ToggleSplitView(int groupIndex);
-    void SetSplitSecondary(TabLocation location);
-    void ClearSplitSecondary(int groupIndex);
-    TabLocation GetSplitSecondary(int groupIndex) const;
-    bool IsSplitViewEnabled(int groupIndex) const;
-    void SwapSplitSelection(int groupIndex);
-
     int NextGroupSequence() const noexcept { return m_groupSequence; }
 
 private:
     void EnsureDefaultGroup();
     void EnsureVisibleSelection();
-    void EnsureSplitIntegrity(int groupIndex);
-    void EnsureSplitIntegrity(TabGroup& group);
-    bool NextVisibleTabIndex(const TabGroup& group, int* index) const;
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;

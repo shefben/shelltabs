@@ -50,13 +50,6 @@ void TabManager::SetSelectedLocation(TabLocation location) {
     }
     m_selectedGroup = location.groupIndex;
     m_selectedTab = location.tabIndex;
-    if (group.splitView) {
-        group.splitPrimary = location.tabIndex;
-        if (group.splitSecondary == group.splitPrimary) {
-            group.splitSecondary = -1;
-        }
-        EnsureSplitIntegrity(location.groupIndex);
-    }
     EnsureVisibleSelection();
 }
 
@@ -146,7 +139,6 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
         group.collapsed = false;
     }
 
-    EnsureSplitIntegrity(groupIndex);
     EnsureVisibleSelection();
     return location;
 }
@@ -165,17 +157,6 @@ void TabManager::Remove(TabLocation location) {
     }
 
     const bool wasSelected = (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex);
-
-    if (group.splitPrimary == location.tabIndex) {
-        group.splitPrimary = -1;
-    } else if (group.splitPrimary > location.tabIndex) {
-        --group.splitPrimary;
-    }
-    if (group.splitSecondary == location.tabIndex) {
-        group.splitSecondary = -1;
-    } else if (group.splitSecondary > location.tabIndex) {
-        --group.splitSecondary;
-    }
 
     group.tabs.erase(group.tabs.begin() + location.tabIndex);
 
@@ -208,7 +189,6 @@ void TabManager::Remove(TabLocation location) {
         }
     }
 
-    EnsureSplitIntegrity(location.groupIndex);
     EnsureVisibleSelection();
 }
 
@@ -226,17 +206,6 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
     }
 
     TabInfo removed = std::move(group.tabs[static_cast<size_t>(location.tabIndex)]);
-
-    if (group.splitPrimary == location.tabIndex) {
-        group.splitPrimary = -1;
-    } else if (group.splitPrimary > location.tabIndex) {
-        --group.splitPrimary;
-    }
-    if (group.splitSecondary == location.tabIndex) {
-        group.splitSecondary = -1;
-    } else if (group.splitSecondary > location.tabIndex) {
-        --group.splitSecondary;
-    }
 
     const bool wasSelected = (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex);
 
@@ -273,9 +242,6 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
         }
     }
 
-    if (!removedGroup) {
-        EnsureSplitIntegrity(location.groupIndex);
-    }
     EnsureVisibleSelection();
 
     return removed;
@@ -294,13 +260,6 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
     const int insertIndex = std::clamp(tabIndex, 0, static_cast<int>(group.tabs.size()));
 
-    if (group.splitPrimary >= insertIndex && group.splitPrimary >= 0) {
-        ++group.splitPrimary;
-    }
-    if (group.splitSecondary >= insertIndex && group.splitSecondary >= 0) {
-        ++group.splitSecondary;
-    }
-
     group.tabs.insert(group.tabs.begin() + insertIndex, std::move(tab));
 
     if (select) {
@@ -311,7 +270,6 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
         ++m_selectedTab;
     }
 
-    EnsureSplitIntegrity(groupIndex);
     EnsureVisibleSelection();
 
     return {groupIndex, insertIndex};
@@ -430,9 +388,6 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.hiddenTabs = hidden;
             header.hasTagColor = groupHasColor;
             header.tagColor = groupColor;
-            header.splitActive = group.splitView;
-            header.splitEnabled = group.splitView;
-            header.splitAvailable = visible > 1;
             header.hasCustomOutline = group.hasCustomOutline;
             header.outlineColor = group.outlineColor;
             header.savedGroupId = group.savedGroupId;
@@ -459,11 +414,6 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.pidl = tab.pidl.get();
             item.selected = (m_selectedGroup == static_cast<int>(g) && m_selectedTab == static_cast<int>(t));
             item.path = tab.path;
-            item.splitActive = group.splitView;
-            item.splitEnabled = group.splitView;
-            item.splitAvailable = visible > 1;
-            item.splitPrimary = group.splitView && static_cast<int>(t) == group.splitPrimary;
-            item.splitSecondary = group.splitView && static_cast<int>(t) == group.splitSecondary;
             item.hasCustomOutline = group.hasCustomOutline;
             item.outlineColor = group.outlineColor;
             item.savedGroupId = group.savedGroupId;
@@ -524,16 +474,6 @@ void TabManager::HideTab(TabLocation location) {
         return;
     }
     tab->hidden = true;
-    auto* group = GetGroup(location.groupIndex);
-    if (group) {
-        if (group->splitPrimary == location.tabIndex) {
-            group->splitPrimary = -1;
-        }
-        if (group->splitSecondary == location.tabIndex) {
-            group->splitSecondary = -1;
-        }
-        EnsureSplitIntegrity(location.groupIndex);
-    }
     if (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex) {
         EnsureVisibleSelection();
     }
@@ -549,7 +489,6 @@ void TabManager::UnhideTab(TabLocation location) {
         m_selectedGroup = location.groupIndex;
         m_selectedTab = location.tabIndex;
     }
-    EnsureSplitIntegrity(location.groupIndex);
     EnsureVisibleSelection();
 }
 
@@ -565,7 +504,6 @@ void TabManager::UnhideAllInGroup(int groupIndex) {
         m_selectedGroup = groupIndex;
         m_selectedTab = group->tabs.empty() ? -1 : 0;
     }
-    EnsureSplitIntegrity(groupIndex);
     EnsureVisibleSelection();
 }
 
@@ -639,17 +577,6 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
         return;
     }
 
-    if (sourceGroup.splitPrimary == from.tabIndex) {
-        sourceGroup.splitPrimary = -1;
-    } else if (sourceGroup.splitPrimary > from.tabIndex) {
-        --sourceGroup.splitPrimary;
-    }
-    if (sourceGroup.splitSecondary == from.tabIndex) {
-        sourceGroup.splitSecondary = -1;
-    } else if (sourceGroup.splitSecondary > from.tabIndex) {
-        --sourceGroup.splitSecondary;
-    }
-
     TabInfo movingTab = std::move(sourceGroup.tabs[static_cast<size_t>(from.tabIndex)]);
     const bool wasSelected = (m_selectedGroup == from.groupIndex && m_selectedTab == from.tabIndex);
 
@@ -685,12 +612,6 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
     }
 
     destinationGroup.tabs.insert(destinationGroup.tabs.begin() + to.tabIndex, std::move(movingTab));
-    if (destinationGroup.splitPrimary >= to.tabIndex && destinationGroup.splitPrimary != -1) {
-        ++destinationGroup.splitPrimary;
-    }
-    if (destinationGroup.splitSecondary >= to.tabIndex && destinationGroup.splitSecondary != -1) {
-        ++destinationGroup.splitSecondary;
-    }
 
     if (wasSelected) {
         m_selectedGroup = to.groupIndex;
@@ -699,8 +620,6 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
         ++m_selectedTab;
     }
 
-    EnsureSplitIntegrity(from.groupIndex);
-    EnsureSplitIntegrity(to.groupIndex);
     EnsureVisibleSelection();
 }
 
@@ -751,83 +670,6 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
     }
 
     EnsureVisibleSelection();
-}
-
-void TabManager::ToggleSplitView(int groupIndex) {
-    auto* group = GetGroup(groupIndex);
-    if (!group) {
-        return;
-    }
-    group->splitView = !group->splitView;
-    if (!group->splitView) {
-        group->splitPrimary = -1;
-        group->splitSecondary = -1;
-    } else {
-        if (group->splitPrimary == -1) {
-            group->splitPrimary = m_selectedGroup == groupIndex ? m_selectedTab : -1;
-        }
-        EnsureSplitIntegrity(groupIndex);
-    }
-}
-
-void TabManager::SetSplitSecondary(TabLocation location) {
-    if (!location.IsValid()) {
-        return;
-    }
-    auto* group = GetGroup(location.groupIndex);
-    if (!group) {
-        return;
-    }
-    if (!group->splitView) {
-        group->splitView = true;
-    }
-    group->splitSecondary = location.tabIndex;
-    EnsureSplitIntegrity(location.groupIndex);
-}
-
-void TabManager::ClearSplitSecondary(int groupIndex) {
-    auto* group = GetGroup(groupIndex);
-    if (!group) {
-        return;
-    }
-    group->splitSecondary = -1;
-    EnsureSplitIntegrity(groupIndex);
-}
-
-TabLocation TabManager::GetSplitSecondary(int groupIndex) const {
-    const auto* group = GetGroup(groupIndex);
-    if (!group || group->splitSecondary < 0 || group->splitSecondary >= static_cast<int>(group->tabs.size())) {
-        return {};
-    }
-    if (group->splitSecondary >= 0 && group->splitSecondary < static_cast<int>(group->tabs.size()) &&
-        !group->tabs[static_cast<size_t>(group->splitSecondary)].hidden) {
-        return {groupIndex, group->splitSecondary};
-    }
-    return {};
-}
-
-bool TabManager::IsSplitViewEnabled(int groupIndex) const {
-    const auto* group = GetGroup(groupIndex);
-    return group && group->splitView;
-}
-
-void TabManager::SwapSplitSelection(int groupIndex) {
-    auto* group = GetGroup(groupIndex);
-    if (!group || !group->splitView) {
-        return;
-    }
-    if (group->splitSecondary < 0 || group->splitSecondary >= static_cast<int>(group->tabs.size())) {
-        return;
-    }
-    if (group->tabs[static_cast<size_t>(group->splitSecondary)].hidden) {
-        return;
-    }
-
-    std::swap(group->splitPrimary, group->splitSecondary);
-    if (groupIndex == m_selectedGroup && group->splitPrimary >= 0) {
-        m_selectedTab = group->splitPrimary;
-    }
-    EnsureSplitIntegrity(groupIndex);
 }
 
 void TabManager::EnsureDefaultGroup() {
@@ -912,102 +754,6 @@ void TabManager::EnsureVisibleSelection() {
         return;
     }
 
-    EnsureSplitIntegrity(m_selectedGroup);
-}
-
-void TabManager::EnsureSplitIntegrity(int groupIndex) {
-    if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
-        return;
-    }
-    auto& group = m_groups[static_cast<size_t>(groupIndex)];
-    EnsureSplitIntegrity(group);
-    if (group.splitView && group.splitPrimary >= 0 && groupIndex == m_selectedGroup) {
-        m_selectedTab = group.splitPrimary;
-    }
-}
-
-void TabManager::EnsureSplitIntegrity(TabGroup& group) {
-    if (!group.splitView) {
-        group.splitPrimary = -1;
-        group.splitSecondary = -1;
-        return;
-    }
-
-    const int tabCount = static_cast<int>(group.tabs.size());
-    if (tabCount == 0) {
-        group.splitView = false;
-        group.splitPrimary = -1;
-        group.splitSecondary = -1;
-        return;
-    }
-
-    auto findVisible = [&](int skip) -> int {
-        for (int i = 0; i < tabCount; ++i) {
-            if (group.tabs[static_cast<size_t>(i)].hidden) {
-                continue;
-            }
-            if (skip >= 0 && i == skip) {
-                continue;
-            }
-            return i;
-        }
-        return -1;
-    };
-
-    if (group.splitPrimary < 0 || group.splitPrimary >= tabCount ||
-        group.tabs[static_cast<size_t>(group.splitPrimary)].hidden) {
-        group.splitPrimary = findVisible(-1);
-    }
-
-    const int visibleCount = static_cast<int>(std::count_if(group.tabs.begin(), group.tabs.end(), [](const TabInfo& tab) {
-        return !tab.hidden;
-    }));
-
-    if (group.splitPrimary < 0) {
-        group.splitView = false;
-        group.splitSecondary = -1;
-        return;
-    }
-
-    if (visibleCount < 2) {
-        group.splitSecondary = -1;
-        if (visibleCount < 1) {
-            group.splitView = false;
-            group.splitPrimary = -1;
-        }
-        return;
-    }
-
-    if (group.splitSecondary < 0 || group.splitSecondary >= tabCount ||
-        group.tabs[static_cast<size_t>(group.splitSecondary)].hidden || group.splitSecondary == group.splitPrimary) {
-        group.splitSecondary = findVisible(group.splitPrimary);
-    }
-
-    if (group.splitSecondary == group.splitPrimary) {
-        group.splitSecondary = findVisible(group.splitPrimary);
-    }
-
-    if (group.splitSecondary < 0) {
-        group.splitView = false;
-    }
-}
-
-bool TabManager::NextVisibleTabIndex(const TabGroup& group, int* index) const {
-    if (!index) {
-        return false;
-    }
-    const int skip = *index;
-    for (size_t i = 0; i < group.tabs.size(); ++i) {
-        if (group.tabs[i].hidden) {
-            continue;
-        }
-        if (static_cast<int>(i) == skip) {
-            continue;
-        }
-        *index = static_cast<int>(i);
-        return true;
-    }
-    return false;
 }
 
 }  // namespace shelltabs

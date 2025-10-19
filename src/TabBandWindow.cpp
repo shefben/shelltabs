@@ -38,10 +38,6 @@
 #include "Module.h"
 #include "TabBand.h"
 #include "Utilities.h"
-// === ShellTabs split apply message ===
-#ifndef WM_SHELLTABS_APPLY_SPLIT
-#define WM_SHELLTABS_APPLY_SPLIT (WM_APP + 0x3F1)
-#endif
 
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "Ole32.lib")
@@ -72,7 +68,6 @@ constexpr int kDragThreshold = 4;
 constexpr int kBadgePaddingX = 8;
 constexpr int kBadgePaddingY = 2;
 constexpr int kBadgeHeight = 18;
-constexpr int kSplitIndicatorWidth = 14;
 constexpr double kTagLightenFactor = 0.35;
 constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
@@ -1824,9 +1819,6 @@ int TabBandWindow::MeasureBadgeWidth(const TabViewItem& item, HDC dc) const {
             width += badgeSize.cx + kBadgePaddingX * 2;
         }
     }
-    if (item.splitSecondary || item.splitPrimary) {
-        width += kSplitIndicatorWidth;
-    }
     return width;
 }
 
@@ -1864,8 +1856,7 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
     if (height <= kCloseButtonVerticalPadding * 2) {
         return rect;
     }
-    const int indicatorWidth = (item.data.splitSecondary || item.data.splitPrimary) ? kSplitIndicatorWidth : 0;
-    const int badgeWidth = std::max(0, item.badgeWidth - indicatorWidth);
+    const int badgeWidth = std::max(0, item.badgeWidth);
     const int availableWidth = item.bounds.right - item.bounds.left;
     const int minimumWidth = kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing + badgeWidth + kPaddingX + 8;
     if (availableWidth < minimumWidth) {
@@ -1888,7 +1879,7 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
     if (size <= 0) {
         return rect;
     }
-    const int right = item.bounds.right - indicatorWidth - kCloseButtonEdgePadding;
+    const int right = item.bounds.right - kCloseButtonEdgePadding;
     const int left = right - size;
     const int top = item.bounds.top + (height - size) / 2;
     rect = {left, top, right, top + size};
@@ -2004,11 +1995,10 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-    const int indicatorWidth = (item.data.splitSecondary || item.data.splitPrimary) ? kSplitIndicatorWidth : 0;
-    const int badgeWidth = item.badgeWidth - indicatorWidth;
+    const int badgeWidth = item.badgeWidth;
     RECT closeRect = ComputeCloseButtonRect(item);
 
-    int trailingBoundary = rect.right - indicatorWidth - kPaddingX;
+    int trailingBoundary = rect.right - kPaddingX;
     if (closeRect.right > closeRect.left) {
         const int closeLeft = static_cast<int>(closeRect.left);
         trailingBoundary = std::min(trailingBoundary, closeLeft - kCloseButtonSpacing);
@@ -2079,24 +2069,6 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     textRect.right = std::max(textLeft + 1, textRight);
     DrawTextW(dc, item.data.name.c_str(), static_cast<int>(item.data.name.size()), &textRect,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
-
-    if (indicatorWidth > 0) {
-        RECT indicator = rect;
-        indicator.left = rect.right - indicatorWidth;
-        indicator.top += 4;
-        indicator.bottom -= 2;
-        COLORREF indicatorColor = item.data.splitSecondary ? RGB(90, 140, 220) : RGB(120, 120, 120);
-        HBRUSH indicatorBrush = CreateSolidBrush(indicatorColor);
-        if (indicatorBrush) {
-            FillRect(dc, &indicator, indicatorBrush);
-            DeleteObject(indicatorBrush);
-        }
-        SetTextColor(dc, RGB(255, 255, 255));
-        std::wstring marker = item.data.splitSecondary ? L"R" : L"L";
-        DrawTextW(dc, marker.c_str(), static_cast<int>(marker.size()), &indicator,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-        SetTextColor(dc, textColor);
-    }
 
     if (closeRect.right > closeRect.left) {
         const bool closeHot = (m_hotCloseIndex != kInvalidIndex && m_hotCloseIndex == item.index);
@@ -2592,20 +2564,9 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		break;
 	}
 
-	case IDM_SET_SPLIT_SECONDARY:
-		if (m_contextHit.location.IsValid()) {
-			m_owner->OnPromoteSplitSecondary(m_contextHit.location);
-			if (HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT)) {
-				// Tell the BHO to re-apply split immediately
-				PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 0, 0);
-			}
-		}
-		break;
-
-
-	case IDM_TOGGLE_ISLAND:
-		m_owner->OnToggleGroupCollapsed(m_contextHit.location.groupIndex);
-		break;
+        case IDM_TOGGLE_ISLAND:
+                m_owner->OnToggleGroupCollapsed(m_contextHit.location.groupIndex);
+                break;
 
 	case IDM_UNHIDE_ALL:
 		m_owner->OnUnhideAllInGroup(m_contextHit.location.groupIndex);
@@ -2615,41 +2576,12 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		m_owner->OnCreateIslandAfter(m_contextHit.location.groupIndex);
 		break;
 
-	case IDM_DETACH_ISLAND:
-		m_owner->OnDetachGroupRequested(m_contextHit.location.groupIndex);
-		break;
+        case IDM_DETACH_ISLAND:
+                m_owner->OnDetachGroupRequested(m_contextHit.location.groupIndex);
+                break;
 
-		// ====== SPLIT VIEW COMMANDS: update model, then signal Explorer to apply ======
-	case IDM_TOGGLE_SPLIT: {
-		m_owner->OnToggleSplitView(m_contextHit.location.groupIndex);
-		HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT);
-		if (hwndExplorer) {
-			PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 0, 0);
-		}
-		break;
-	}
-
-	case IDM_CLEAR_SPLIT_SECONDARY: {
-		m_owner->OnClearSplitSecondary(m_contextHit.location.groupIndex);
-		HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT);
-		if (hwndExplorer) {
-			PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 0, 0);
-		}
-		break;
-	}
-
-	case IDM_SWAP_SPLIT: {
-		m_owner->OnSwapSplitPanes(m_contextHit.location.groupIndex);
-		HWND hwndExplorer = GetAncestor(m_hwnd, GA_ROOT);
-		if (hwndExplorer) {
-			// wParam = 1 signals "swap" to the BHO
-			PostMessageW(hwndExplorer, WM_SHELLTABS_APPLY_SPLIT, 1, 0);
-		}
-		break;
-	}
-
-	default:
-		// Not handled in the switch; fall through to the hidden/explorer menu paths below.
+        default:
+                // Not handled in the switch; fall through to the hidden/explorer menu paths below.
 		break;
 	}
 
@@ -3566,16 +3498,6 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
                 AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"Explorer Context");
             }
 
-            const auto& data = m_items[hit.itemIndex].data;
-            if (data.splitAvailable) {
-                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-                if (data.splitSecondary) {
-                    AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Remove Split Companion");
-                } else {
-                    AppendMenuW(menu, MF_STRING, IDM_SET_SPLIT_SECONDARY,
-                                data.splitEnabled ? L"Set as Split Companion" : L"Enable Split View with This Tab");
-                }
-            }
             hasItemCommands = true;
         } else if (hit.type == TabViewItemType::kGroupHeader && hit.itemIndex >= 0) {
             const auto& item = m_items[hit.itemIndex];
@@ -3584,13 +3506,6 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             const bool headerVisible = m_owner->IsGroupHeaderVisible(item.data.location.groupIndex);
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND_HEADER,
                         headerVisible ? L"Hide Island Indicator" : L"Show Island Indicator");
-
-            AppendMenuW(menu, MF_STRING, IDM_TOGGLE_SPLIT,
-                        item.data.splitEnabled ? L"Disable Split View" : L"Enable Split View");
-            if (item.data.splitEnabled) {
-                AppendMenuW(menu, MF_STRING, IDM_SWAP_SPLIT, L"Swap Split Panes");
-                AppendMenuW(menu, MF_STRING, IDM_CLEAR_SPLIT_SECONDARY, L"Clear Split Companion");
-            }
 
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
@@ -3615,16 +3530,13 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
             bool collapsed = false;
             size_t hiddenCount = 0;
-            const TabViewItem* headerInfo = nullptr;
             if (hitVisual) {
                 if (hitVisual->data.type == TabViewItemType::kGroupHeader) {
                     collapsed = hitVisual->data.collapsed;
                     hiddenCount = hitVisual->data.hiddenTabs;
-                    headerInfo = &hitVisual->data;
                 } else if (hitVisual->hasGroupHeader) {
                     collapsed = hitVisual->groupHeader.collapsed;
                     hiddenCount = hitVisual->groupHeader.hiddenTabs;
-                    headerInfo = &hitVisual->groupHeader;
                 }
             }
 
@@ -3637,16 +3549,6 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-
-            const bool splitAvailable = headerInfo && headerInfo->splitAvailable;
-			const bool splitEnabled = headerInfo && headerInfo->splitEnabled;
-
-			AppendMenuW(menu, MF_STRING | (splitAvailable ? 0 : MF_GRAYED),
-				IDM_TOGGLE_SPLIT,
-				splitEnabled ? L"Disable split view" : L"Enable split view with this tab");
-
-			AppendMenuW(menu, MF_STRING | (splitEnabled ? 0 : MF_GRAYED), IDM_CLEAR_SPLIT_SECONDARY, L"Clear split companion");
-			AppendMenuW(menu, MF_STRING | (splitEnabled ? 0 : MF_GRAYED), IDM_SWAP_SPLIT, L"Swap split panes");
 
 
             if (hiddenCount > 0) {
