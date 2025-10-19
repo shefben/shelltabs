@@ -311,13 +311,13 @@ bool SessionStore::Load(SessionData& data) const {
             size_t index = 3;
             if (version <= 2) {
                 if (tokens.size() > index) {
-                    ++index;  // legacy splitView flag
+                    ++index;  // legacy placeholder flag
                 }
                 if (tokens.size() > index) {
-                    ++index;  // legacy splitPrimary
+                    ++index;  // legacy placeholder primary tab
                 }
                 if (tokens.size() > index) {
-                    ++index;  // legacy splitSecondary
+                    ++index;  // legacy placeholder secondary tab
                 }
             }
             if (version >= 2) {
