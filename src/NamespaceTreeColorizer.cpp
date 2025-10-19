@@ -332,12 +332,9 @@ IFACEMETHODIMP NamespaceTreeColorizer::OnEndLabelEdit(IShellItem* psi) {
     return S_OK;
 }
 
-IFACEMETHODIMP NamespaceTreeColorizer::OnGetToolTip(IShellItem*, LPWSTR tip, int cch, int* flags) {
+IFACEMETHODIMP NamespaceTreeColorizer::OnGetToolTip(IShellItem*, LPWSTR tip, int cch) {
     if (tip && cch > 0) {
         tip[0] = L'\0';
-    }
-    if (flags) {
-        *flags = 0;
     }
     return S_OK;
 }

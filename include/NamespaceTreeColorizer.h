@@ -60,7 +60,7 @@ namespace shelltabs {
                 IFACEMETHODIMP OnAfterExpand(IShellItem*) override;
                 IFACEMETHODIMP OnBeginLabelEdit(IShellItem*) override;
                 IFACEMETHODIMP OnEndLabelEdit(IShellItem*) override;
-                IFACEMETHODIMP OnGetToolTip(IShellItem*, LPWSTR, int, int*) override;
+                IFACEMETHODIMP OnGetToolTip(IShellItem*, LPWSTR, int) override;
                 IFACEMETHODIMP OnBeforeItemDelete(IShellItem*) override;
                 IFACEMETHODIMP OnItemAdded(IShellItem*, BOOL) override;
                 IFACEMETHODIMP OnItemDeleted(IShellItem*, BOOL) override;
