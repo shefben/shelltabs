@@ -48,6 +48,12 @@ private:
         HFONT Get() const { return handle; }
     };
 
+    enum class NotifyResult {
+        kUnhandled,
+        kModify,
+        kHandled,
+    };
+
     void RegisterThreadHook();
     void UnregisterThreadHook();
 
@@ -66,10 +72,14 @@ private:
     void AttachDefView(HWND defView);
     void DetachDefView();
 
-    bool HandleTreeNotify(NMHDR* header, LRESULT* result);
-    bool HandleTreeCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result);
-    bool HandleListNotify(NMHDR* header, LRESULT* result);
-    bool HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
+    NotifyResult HandleTreeNotify(NMHDR* header, LRESULT* result);
+    NotifyResult HandleTreeCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result);
+    NotifyResult HandleListNotify(NMHDR* header, LRESULT* result);
+    NotifyResult HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
+    NotifyResult HandleListLabelEdit(NMHDR* header);
+    void RememberListItemForRename(int index);
+    void CommitListRename(const std::wstring& newName);
+    void ResetPendingListRename();
 
     bool EnsureFolderView();
     void ResetFolderView();
@@ -112,6 +122,9 @@ private:
 
     ScopedFont listFont_{};
     ScopedFont treeFont_{};
+
+    std::wstring pendingListRenameOriginalPath_;
+    std::wstring pendingListRenameDirectory_;
 };
 
 }  // namespace shelltabs

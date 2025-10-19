@@ -183,4 +183,47 @@ namespace shelltabs {
                 CommonDialogColorizer::NotifyColorDataChanged();
         }
 
+        void FileColorOverrides::TransferColor(const std::wstring& fromPath, const std::wstring& toPath) {
+                if (fromPath.empty() || toPath.empty()) {
+                        return;
+                }
+
+                const auto fromKey = ToLowerCopy(fromPath);
+                const auto toKey = ToLowerCopy(toPath);
+                if (fromKey == toKey) {
+                        return;
+                }
+
+                Load();
+
+                bool persistentChanged = false;
+                bool transientChanged = false;
+                {
+                        std::lock_guard<std::mutex> lock(mtx_);
+
+                        auto mapIt = map_.find(fromKey);
+                        if (mapIt != map_.end()) {
+                                COLORREF color = mapIt->second;
+                                map_.erase(mapIt);
+                                map_[toKey] = color;
+                                persistentChanged = true;
+                        }
+
+                        auto transientIt = transient_.find(fromKey);
+                        if (transientIt != transient_.end()) {
+                                COLORREF color = transientIt->second;
+                                transient_.erase(transientIt);
+                                transient_[toKey] = color;
+                                transientChanged = true;
+                        }
+                }
+
+                if (persistentChanged) {
+                        Save();
+                }
+                if (persistentChanged || transientChanged) {
+                        CommonDialogColorizer::NotifyColorDataChanged();
+                }
+        }
+
 } // namespace shelltabs

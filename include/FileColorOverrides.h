@@ -15,6 +15,7 @@ namespace shelltabs {
                 bool TryGetColor(const std::wstring& path, COLORREF* out) const;
                 void SetColor(const std::vector<std::wstring>& paths, COLORREF color);
                 void ClearColor(const std::vector<std::wstring>& paths);
+                void TransferColor(const std::wstring& fromPath, const std::wstring& toPath);
 
                 // Ephemeral overrides are kept in-memory only. They are ideal for transient
                 // visualisations such as folder comparisons where persisting colours to disk

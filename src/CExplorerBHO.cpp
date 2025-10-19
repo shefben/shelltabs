@@ -22,6 +22,7 @@
 #include "CommonDialogColorizer.h"
 #include "ExplorerWindowHook.h"
 #include "Guids.h"
+#include "NamespaceTreeColorizer.h"
 #include "Module.h"
 #include "Utilities.h"
 #include "FileColorOverrides.h"
@@ -219,6 +220,10 @@ void CExplorerBHO::Disconnect() {
                 m_windowHook->Shutdown();
                 m_windowHook.reset();
         }
+        if (m_treeColorizer) {
+                m_treeColorizer->Detach();
+                m_treeColorizer.reset();
+        }
         // UNSUBCLASS before we lose IWebBrowser2
         if (m_webBrowser) {
                 if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {
@@ -346,6 +351,24 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (m_windowHook && !m_windowHook->Initialize(site, browser.Get())) {
                 m_windowHook->Shutdown();
                 m_windowHook.reset();
+            }
+
+            Microsoft::WRL::ComPtr<IServiceProvider> siteProvider;
+            if (FAILED(site->QueryInterface(IID_PPV_ARGS(&siteProvider))) || !siteProvider) {
+                if (m_shellBrowser) {
+                    siteProvider = nullptr;
+                    m_shellBrowser.As(&siteProvider);
+                }
+            }
+
+            if (siteProvider) {
+                if (!m_treeColorizer) {
+                    m_treeColorizer = std::make_unique<NamespaceTreeColorizer>();
+                }
+                if (m_treeColorizer) {
+                    m_treeColorizer->Detach();
+                    m_treeColorizer->Attach(siteProvider);
+                }
             }
 
             if (HWND frame = GetExplorerFrameHwnd(m_webBrowser.Get())) {

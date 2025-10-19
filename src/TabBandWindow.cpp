@@ -4178,8 +4178,8 @@ void TabBandWindow::ShowFilenameColorDialog() {
 		m_treeColorizer->Detach();
 		m_treeColorizer->Attach(m_siteSp);
 	}
-	// also kick our owner so its FolderViewColorizer re-resolves
-	PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
+        // also notify the owner so it can invalidate the folder view on the UI thread
+        PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
 }
 
 
@@ -4220,7 +4220,7 @@ void TabBandWindow::ApplyColorToSelection(bool clear) {
 		m_treeColorizer->Detach();
 		m_treeColorizer->Attach(m_siteSp);
     }
-    // also kick our owner so its FolderViewColorizer re-resolves
+    // also notify the owner so it can invalidate the folder view on the UI thread
     PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
 }
 
