@@ -6,7 +6,6 @@
 #include <atomic>
 #include <string>
 
-#include "NameColorProvider.h"
 #include "Utilities.h"
 
 #ifndef RETURN_IF_FAILED

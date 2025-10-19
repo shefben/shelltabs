@@ -51,9 +51,6 @@ struct TabViewItem {
     size_t totalTabs = 0;
     size_t visibleTabs = 0;
     size_t hiddenTabs = 0;
-    bool hasTagColor = false;
-    COLORREF tagColor = 0;
-    std::vector<std::wstring> tags;
     bool hasGitStatus = false;
     GitStatusInfo gitStatus;
     std::wstring path;
@@ -69,7 +66,7 @@ public:
     TabManager();
 
     int TotalTabCount() const noexcept;
-	static TabManager& Get();
+    static TabManager& Get();
 
     TabLocation SelectedLocation() const noexcept { return {m_selectedGroup, m_selectedTab}; }
     void SetSelectedLocation(TabLocation location);

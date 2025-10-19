@@ -380,8 +380,6 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             LogMessage(LogLevel::Info, L"TabBand::SetSite UpdateTabsUI (initial)");
             UpdateTabsUI();
 
-            ScheduleColorizerRefresh();
-
             ScheduleGitStatusEnable();
 
             LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
@@ -464,7 +462,6 @@ void TabBand::OnNewThisPCInGroupRequested(int groupIndex) {
 void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
-    ScheduleColorizerRefresh();
     m_internalNavigation = false;
 }
 
@@ -1161,7 +1158,6 @@ void TabBand::DisconnectSite() {
     m_internalNavigation = false;
     m_allowExternalNewWindows = 0;
     m_sessionStore.reset();
-    m_colorizerRefreshPosted = false;
 }
 
 void TabBand::InitializeTabs() {
@@ -1807,11 +1803,6 @@ void TabBand::OnDeferredNavigate() {
     }
 }
 
-void TabBand::OnColorizerRefresh() {
-    m_colorizerRefreshPosted = false;
-    InvalidateActiveFolderView();
-}
-
 void TabBand::OnGitStatusUpdated() {
     GuardExplorerCall(L"TabBand::OnGitStatusUpdated", [&]() {
         if (!m_window) {
@@ -1898,44 +1889,6 @@ void TabBand::QueueNavigateTo(TabLocation location) {
     }
     if (PostMessageW(hwnd, WM_SHELLTABS_DEFER_NAVIGATE, 0, 0)) {
         m_deferredNavigationPosted = true;
-    }
-}
-
-void TabBand::ScheduleColorizerRefresh() {
-    if (!m_window || m_colorizerRefreshPosted) {
-        return;
-    }
-    HWND hwnd = m_window->GetHwnd();
-    if (!hwnd) {
-        return;
-    }
-    if (PostMessageW(hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0)) {
-        m_colorizerRefreshPosted = true;
-    }
-}
-
-void TabBand::InvalidateActiveFolderView() const {
-    if (!m_shellBrowser) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<IShellView> view;
-    if (FAILED(m_shellBrowser->QueryActiveShellView(&view)) || !view) {
-        return;
-    }
-
-    HWND hwndView = nullptr;
-    if (FAILED(view->GetWindow(&hwndView)) || !IsWindow(hwndView)) {
-        return;
-    }
-
-    HWND hwndList = FindWindowExW(hwndView, nullptr, L"SysListView32", nullptr);
-    if (IsWindow(hwndList)) {
-        InvalidateRect(hwndList, nullptr, FALSE);
-        UpdateWindow(hwndList);
-    } else {
-        InvalidateRect(hwndView, nullptr, FALSE);
-        UpdateWindow(hwndView);
     }
 }
 

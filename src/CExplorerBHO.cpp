@@ -7,14 +7,11 @@
 #include <shlguid.h>
 
 #include <string>
-#include <shobjidl.h>
 #include <wrl/client.h>
 
 #include "ComUtils.h"
-#include "CommonDialogColorizer.h"
 #include "ExplorerWindowHook.h"
 #include "Guids.h"
-#include "NamespaceTreeColorizer.h"
 #include "Module.h"
 #include "Utilities.h"
 // --- CExplorerBHO private state (treat these as class members) ---
@@ -74,17 +71,9 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
-    if (m_dialogColorizer) {
-        m_dialogColorizer->Detach();
-        m_dialogColorizer.reset();
-    }
     if (m_windowHook) {
         m_windowHook->Shutdown();
         m_windowHook.reset();
-    }
-    if (m_treeColorizer) {
-        m_treeColorizer->Detach();
-        m_treeColorizer.reset();
     }
 
     DisconnectEvents();
@@ -167,21 +156,7 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
                 return S_OK;
             }
 
-            if (m_dialogColorizer) {
-                m_dialogColorizer->Detach();
-                m_dialogColorizer.reset();
-            }
-
             Disconnect();
-
-            Microsoft::WRL::ComPtr<IFileDialog> fileDialog;
-            if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&fileDialog))) && fileDialog) {
-                auto colorizer = std::make_unique<CommonDialogColorizer>();
-                if (colorizer && colorizer->Attach(fileDialog.Get())) {
-                    m_dialogColorizer = std::move(colorizer);
-                }
-                return S_OK;
-            }
 
             Microsoft::WRL::ComPtr<IWebBrowser2> browser;
             HRESULT hr = ResolveBrowserFromSite(site, &browser);
@@ -230,16 +205,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
-            }
-
-            if (siteProvider) {
-                if (!m_treeColorizer) {
-                    m_treeColorizer = std::make_unique<NamespaceTreeColorizer>();
-                }
-                if (m_treeColorizer) {
-                    m_treeColorizer->Detach();
-                    m_treeColorizer->Attach(siteProvider);
-                }
             }
 
             EnsureBandVisible();
