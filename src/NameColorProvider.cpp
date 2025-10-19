@@ -39,6 +39,8 @@ NameColorProvider::ItemAppearance NameColorProvider::GetAppearanceForPath(
     COLORREF tagColor = 0;
     if (TagStore::Instance().TryGetColorForPath(path, &tagColor)) {
         appearance.textColor = tagColor;
+        appearance.applyWhenHot = true;
+        appearance.applyWhenSelected = true;
     }
 
     return appearance;
