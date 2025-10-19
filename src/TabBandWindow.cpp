@@ -200,75 +200,6 @@ SharedDragState& GetSharedDragState() {
     return state;
 }
 
-class TabBandWindow::BandDropTarget : public IDropTarget {
-public:
-    explicit BandDropTarget(TabBandWindow* owner) : m_refCount(1), m_owner(owner) {}
-
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
-        if (!ppv) {
-            return E_POINTER;
-        }
-        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
-            *ppv = static_cast<IDropTarget*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_refCount; }
-
-    IFACEMETHODIMP_(ULONG) Release() override {
-        ULONG count = --m_refCount;
-        if (count == 0) {
-            delete this;
-        }
-        return count;
-    }
-
-    IFACEMETHODIMP DragEnter(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
-        if (!m_owner) {
-            if (effect) {
-                *effect = DROPEFFECT_NONE;
-            }
-            return E_FAIL;
-        }
-        return m_owner->OnNativeDragEnter(dataObject, keyState, point, effect);
-    }
-
-    IFACEMETHODIMP DragOver(DWORD keyState, POINTL point, DWORD* effect) override {
-        if (!m_owner) {
-            if (effect) {
-                *effect = DROPEFFECT_NONE;
-            }
-            return E_FAIL;
-        }
-        return m_owner->OnNativeDragOver(keyState, point, effect);
-    }
-
-    IFACEMETHODIMP DragLeave() override {
-        if (!m_owner) {
-            return E_FAIL;
-        }
-        return m_owner->OnNativeDragLeave();
-    }
-
-    IFACEMETHODIMP Drop(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
-        if (!m_owner) {
-            if (effect) {
-                *effect = DROPEFFECT_NONE;
-            }
-            return E_FAIL;
-        }
-        return m_owner->OnNativeDrop(dataObject, keyState, point, effect);
-    }
-
-private:
-    std::atomic<ULONG> m_refCount;
-    TabBandWindow* m_owner = nullptr;
-};
-
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -399,6 +330,75 @@ HWND CreateDragOverlayWindow() {
 }
 
 }  // namespace
+
+class TabBandWindow::BandDropTarget : public IDropTarget {
+public:
+    explicit BandDropTarget(TabBandWindow* owner) : m_refCount(1), m_owner(owner) {}
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
+            *ppv = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_refCount; }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG count = --m_refCount;
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    IFACEMETHODIMP DragEnter(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!m_owner) {
+            if (effect) {
+                *effect = DROPEFFECT_NONE;
+            }
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDragEnter(dataObject, keyState, point, effect);
+    }
+
+    IFACEMETHODIMP DragOver(DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!m_owner) {
+            if (effect) {
+                *effect = DROPEFFECT_NONE;
+            }
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDragOver(keyState, point, effect);
+    }
+
+    IFACEMETHODIMP DragLeave() override {
+        if (!m_owner) {
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDragLeave();
+    }
+
+    IFACEMETHODIMP Drop(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override {
+        if (!m_owner) {
+            if (effect) {
+                *effect = DROPEFFECT_NONE;
+            }
+            return E_FAIL;
+        }
+        return m_owner->OnNativeDrop(dataObject, keyState, point, effect);
+    }
+
+private:
+    std::atomic<ULONG> m_refCount;
+    TabBandWindow* m_owner = nullptr;
+};
 
 TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) {
     ResetThemePalette();
@@ -4079,13 +4079,19 @@ bool TabBandWindow::CollectTreeSelection(std::vector<std::wstring>* paths) {
                 return false;
         }
 
-        ComPtr<IShellItemArray> selection;
-        if (FAILED(tree->GetSelectedItems(NSTCGNI_SELECTION, &selection)) || !selection) {
-                return false;
-        }
+    ComPtr<IShellItemArray> selection;
+#if defined(NSTCGNI_SELECTION)
+    if (FAILED(tree->GetSelectedItems(NSTCGNI_SELECTION, &selection)) || !selection) {
+        return false;
+    }
+#else
+    if (FAILED(tree->GetSelectedItems(&selection)) || !selection) {
+        return false;
+    }
+#endif
 
-        paths->clear();
-        return AppendPathsFromArray(selection.Get(), paths);
+    paths->clear();
+    return AppendPathsFromArray(selection.Get(), paths);
 }
 
 
