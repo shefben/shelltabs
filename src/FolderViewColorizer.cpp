@@ -193,6 +193,12 @@ bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) 
             *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
             return true;
 
+        case CDDS_SUBITEM | CDDS_ITEMPREPAINT:
+            cd->clrText = RGB(255, 0, 0);
+            cd->clrTextBk = CLR_DEFAULT;
+            *result = CDRF_NEWFONT;
+            return true;
+
         case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
             if (DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd)) {
                 *result = CDRF_DODEFAULT;
