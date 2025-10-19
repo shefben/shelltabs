@@ -66,6 +66,7 @@ namespace shelltabs {
                 IFACEMETHODIMP OnItemDeleted(IShellItem*, BOOL) override;
                 IFACEMETHODIMP OnBeforeContextMenu(IShellItem*, REFIID, void**) override;
                 IFACEMETHODIMP OnAfterContextMenu(IShellItem*, IContextMenu*, REFIID, void**) override;
+                IFACEMETHODIMP OnGetDefaultIconIndex(IShellItem*, int*, int*) override;
                 IFACEMETHODIMP OnBeforeStateImageChange(IShellItem*) override;
 
         private:

@@ -351,6 +351,16 @@ IFACEMETHODIMP NamespaceTreeColorizer::OnAfterContextMenu(IShellItem*, IContextM
     return S_OK;
 }
 
+IFACEMETHODIMP NamespaceTreeColorizer::OnGetDefaultIconIndex(IShellItem*, int* iconIndex, int* openIconIndex) {
+    if (iconIndex) {
+        *iconIndex = -1;
+    }
+    if (openIconIndex) {
+        *openIconIndex = -1;
+    }
+    return S_OK;
+}
+
 IFACEMETHODIMP NamespaceTreeColorizer::OnBeforeStateImageChange(IShellItem*) { return S_OK; }
 
 }  // namespace shelltabs
