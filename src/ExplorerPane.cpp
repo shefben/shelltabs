@@ -323,44 +323,15 @@ bool ExplorerPane::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) {
 
     switch (cd->nmcd.dwDrawStage) {
     case CDDS_PREPAINT:
-        *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+        *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
         return true;
 
-    case CDDS_ITEMPREPAINT:
-    case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
-        const int index = static_cast<int>(cd->nmcd.dwItemSpec);
-        std::wstring fullPath;
-        if (!GetItemPath(index, &fullPath)) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-        const auto appearance = NameColorProvider::Instance().GetAppearanceForPath(fullPath);
-        if (!appearance.HasOverrides() || !appearance.AllowsForState(cd->nmcd.uItemState)) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        bool applied = false;
-        if (appearance.textColor.has_value()) {
-            cd->clrText = *appearance.textColor;
-            applied = true;
-        }
-        if (appearance.backgroundColor.has_value()) {
-            cd->clrTextBk = *appearance.backgroundColor;
-            applied = true;
-        }
-        if (appearance.font) {
-            SelectObject(cd->nmcd.hdc, appearance.font);
-            applied = true;
-        }
-
-        *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
-        return true;
-    }
     case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
-        DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd);
-        *result = CDRF_DODEFAULT;
-        return true;
+        if (DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd)) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+        break;
     default:
         break;
     }
@@ -378,18 +349,7 @@ bool ExplorerPane::GetItemPath(int index, std::wstring* path) const {
         return false;
     }
 
-    PWSTR buffer = nullptr;
-    HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
-    if (FAILED(hr) || !buffer) {
-        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
-    }
-    if (FAILED(hr) || !buffer) {
-        return false;
-    }
-
-    path->assign(buffer);
-    CoTaskMemFree(buffer);
-    return true;
+    return TryGetFileSystemPath(item.Get(), path);
 }
 
 LRESULT CALLBACK ExplorerPane::ViewSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR refData) {

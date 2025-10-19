@@ -1,5 +1,7 @@
 #include "CommonDialogColorizer.h"
 
+#include "Utilities.h"
+
 #include <CommCtrl.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
@@ -122,35 +124,15 @@ void UnregisterColorizer(CommonDialogColorizer* colorizer) {
 }
 
 std::wstring GetShellItemDisplayName(IShellItem* item) {
-    if (!item) {
+    std::wstring path;
+    if (!TryGetFileSystemPath(item, &path)) {
         return {};
     }
-
-    PWSTR buffer = nullptr;
-    HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
-    if (FAILED(hr) || !buffer) {
-        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
-    }
-    if (FAILED(hr) || !buffer) {
-        return {};
-    }
-
-    std::wstring value(buffer);
-    CoTaskMemFree(buffer);
-    return value;
+    return path;
 }
 
 std::wstring NormalizeFolderPath(const std::wstring& folder) {
-    if (folder.empty()) {
-        return folder;
-    }
-    std::wstring normalized = folder;
-    if (!normalized.empty() && normalized.back() == L'\\') {
-        while (!normalized.empty() && normalized.back() == L'\\') {
-            normalized.pop_back();
-        }
-    }
-    return normalized;
+    return NormalizeFileSystemPath(folder);
 }
 
 }  // namespace

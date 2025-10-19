@@ -14,6 +14,7 @@
 
 #include "NameColorProvider.h"
 #include "FileColorOverrides.h"
+#include "Utilities.h"
 
 #pragma comment(lib, "Comctl32.lib")
 
@@ -93,6 +94,39 @@ HWND FindAncestorWithClass(HWND hwnd, const wchar_t* className) {
         current = GetParent(current);
     }
     return nullptr;
+}
+
+HWND FindDescendantWithClass(HWND parent, const wchar_t* className) {
+    if (!parent || !className) {
+        return nullptr;
+    }
+
+    HWND child = FindWindowExW(parent, nullptr, className, nullptr);
+    if (child) {
+        return child;
+    }
+
+    struct EnumData {
+        const wchar_t* targetClass = nullptr;
+        HWND result = nullptr;
+    } data{className, nullptr};
+
+    EnumChildWindows(parent,
+                     [](HWND hwnd, LPARAM param) -> BOOL {
+                         auto* data = reinterpret_cast<EnumData*>(param);
+                         if (!data || data->result) {
+                             return FALSE;
+                         }
+                         HWND found = FindDescendantWithClass(hwnd, data->targetClass);
+                         if (found) {
+                             data->result = found;
+                             return FALSE;
+                         }
+                         return TRUE;
+                     },
+                     reinterpret_cast<LPARAM>(&data));
+
+    return data.result;
 }
 
 bool DrawLineNumberOverlay(HWND listView, HDC hdc, const NMLVCUSTOMDRAW* cd) {
@@ -217,6 +251,7 @@ bool ExplorerWindowHook::Initialize(IUnknown* site, IWebBrowser2* browser) {
 
     ApplyTreeTheme();
     ApplyListTheme();
+    Attach();
     return true;
 }
 
@@ -250,6 +285,26 @@ void ExplorerWindowHook::Shutdown() {
     browser_.Reset();
     site_.Reset();
     threadId_ = 0;
+}
+
+void ExplorerWindowHook::Attach() {
+    if (!frame_) {
+        return;
+    }
+
+    if (!EnsureFolderView()) {
+        return;
+    }
+
+    HWND defView = nullptr;
+    if (FAILED(folderView_->GetWindow(&defView)) || !IsWindow(defView)) {
+        return;
+    }
+
+    HWND list = FindDescendantWithClass(defView, kListClassName);
+    if (list) {
+        OnListWindowCreated(list);
+    }
 }
 
 void ExplorerWindowHook::RegisterThreadHook() {
@@ -829,18 +884,7 @@ bool ExplorerWindowHook::ItemPathFromShellItem(IShellItem* item, std::wstring* p
         return false;
     }
 
-    PWSTR buffer = nullptr;
-    HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
-    if (FAILED(hr) || !buffer) {
-        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
-    }
-    if (FAILED(hr) || !buffer) {
-        return false;
-    }
-
-    path->assign(buffer);
-    CoTaskMemFree(buffer);
-    return true;
+    return TryGetFileSystemPath(item, path);
 }
 
 Microsoft::WRL::ComPtr<IShellItemArray> ExplorerWindowHook::BuildArrayFromDataObject(IDataObject* dataObject) {
@@ -1087,6 +1131,21 @@ bool ExplorerWindowHook::CollectSelectionForExplorer(HWND explorer, std::vector<
     }
 
     return hook->CollectSelection(folderViewPaths, treePaths);
+}
+
+void ExplorerWindowHook::AttachForExplorer(HWND explorer) {
+    ExplorerWindowHook* hook = nullptr;
+    {
+        std::lock_guard<std::mutex> guard(g_hookMutex);
+        auto it = g_hooksByFrame.find(explorer);
+        if (it != g_hooksByFrame.end()) {
+            hook = it->second;
+        }
+    }
+
+    if (hook) {
+        hook->Attach();
+    }
 }
 
 }  // namespace shelltabs

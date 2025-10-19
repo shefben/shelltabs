@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <functional>
 
+#include "Utilities.h"
+
 namespace shelltabs {
 namespace {
 constexpr wchar_t kStorageFileName[] = L"tags.db";
@@ -15,11 +17,6 @@ std::wstring ToLowerCopy(std::wstring value) {
     if (!value.empty()) {
         CharLowerBuffW(value.data(), static_cast<DWORD>(value.size()));
     }
-    return value;
-}
-
-std::wstring NormalizeSeparators(std::wstring value) {
-    std::replace(value.begin(), value.end(), L'/', L'\\');
     return value;
 }
 
@@ -90,9 +87,11 @@ std::wstring TagStore::NormalizeKey(const std::wstring& path) const {
     if (path.empty()) {
         return {};
     }
-    std::wstring normalized = NormalizeSeparators(path);
-    normalized = ToLowerCopy(normalized);
-    return normalized;
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    if (normalized.empty()) {
+        return {};
+    }
+    return ToLowerCopy(std::move(normalized));
 }
 
 void TagStore::EnsureLoadedLocked() const {

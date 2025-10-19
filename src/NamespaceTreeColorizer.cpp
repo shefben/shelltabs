@@ -2,6 +2,7 @@
 
 #include "NameColorProvider.h"
 #include "FileColorOverrides.h"
+#include "Utilities.h"
 
 #include <ShlObj.h>
 #include <shlwapi.h>
@@ -165,18 +166,7 @@ bool NamespaceTreeColorizer::ItemPathFromShellItem(IShellItem* item, std::wstrin
         return false;
     }
 
-    PWSTR buffer = nullptr;
-    HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
-    if (FAILED(hr) || !buffer) {
-        hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
-    }
-    if (FAILED(hr) || !buffer) {
-        return false;
-    }
-
-    path->assign(buffer);
-    CoTaskMemFree(buffer);
-    return true;
+    return TryGetFileSystemPath(item, path);
 }
 
 // IUnknown
