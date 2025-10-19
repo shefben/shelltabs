@@ -29,6 +29,8 @@ std::wstring GetDisplayName(PCIDLIST_ABSOLUTE pidl);
 std::wstring GetParsingName(PCIDLIST_ABSOLUTE pidl);
 UniquePidl ParseDisplayName(const std::wstring& parsingName);
 UniquePidl ParseExplorerUrl(const std::wstring& url);
+std::wstring NormalizeFileSystemPath(const std::wstring& path);
+bool TryGetFileSystemPath(IShellItem* item, std::wstring* path);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
 std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser);

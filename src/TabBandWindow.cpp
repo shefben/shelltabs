@@ -527,6 +527,11 @@ STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
         // driven from the parent TabBand via WM_SHELLTABS_REFRESH_COLORIZER.
         HookTreeColorizer();
         if (m_hwnd) {
+                if (HWND frame = GetAncestor(m_hwnd, GA_ROOT)) {
+                        ExplorerWindowHook::AttachForExplorer(frame);
+                }
+        }
+        if (m_hwnd) {
                 PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
         }
 
@@ -543,9 +548,13 @@ STDMETHODIMP TabBandWindow::GetSite(REFIID riid, void** ppvSite) {
 }
 
 void TabBandWindow::HookTreeColorizer() {
-	if (!m_siteSp) return;
-	m_treeColorizer.reset(new NamespaceTreeColorizer());
-	m_treeColorizer->Attach(m_siteSp);
+        if (!m_siteSp) return;
+        if (!m_treeColorizer) {
+                m_treeColorizer = std::make_unique<NamespaceTreeColorizer>();
+        }
+        if (m_treeColorizer) {
+                m_treeColorizer->Attach(m_siteSp);
+        }
 }
 
 bool TabBandWindow::GetDefViewAndList(HWND* outDefView, HWND* outList) const {
@@ -3910,14 +3919,9 @@ bool AppendPathsFromArray(IShellItemArray* array, std::vector<std::wstring>* out
     for (DWORD i = 0; i < count; ++i) {
         ComPtr<IShellItem> item;
         if (SUCCEEDED(array->GetItemAt(i, &item)) && item) {
-            PWSTR buffer = nullptr;
-            HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
-            if (FAILED(hr) || !buffer) {
-                hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &buffer);
-            }
-            if (SUCCEEDED(hr) && buffer) {
-                outPaths->emplace_back(buffer);
-                CoTaskMemFree(buffer);
+            std::wstring path;
+            if (TryGetFileSystemPath(item.Get(), &path)) {
+                outPaths->push_back(std::move(path));
                 any = true;
             }
         }
@@ -3930,12 +3934,16 @@ void AddUniquePath(const std::wstring& path, std::vector<std::wstring>* containe
     if (!container) {
         return;
     }
+    const std::wstring normalized = NormalizeFileSystemPath(path);
+    if (normalized.empty()) {
+        return;
+    }
     for (const auto& existing : *container) {
-        if (_wcsicmp(existing.c_str(), path.c_str()) == 0) {
+        if (_wcsicmp(existing.c_str(), normalized.c_str()) == 0) {
             return;
         }
     }
-    container->push_back(path);
+    container->push_back(normalized);
 }
 
 constexpr size_t kMaxPreviewEntries = 6;
@@ -4173,11 +4181,11 @@ void TabBandWindow::ShowFilenameColorDialog() {
 		UpdateWindow(defView);
 	}
 
-	// left pane: rehook/refresh the namespace tree colorizer
-	if (m_treeColorizer) {
-		m_treeColorizer->Detach();
-		m_treeColorizer->Attach(m_siteSp);
-	}
+        // left pane: ensure the namespace tree colourizer is attached
+        HookTreeColorizer();
+        if (HWND frame = m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr) {
+                ExplorerWindowHook::AttachForExplorer(frame);
+        }
         // also notify the owner so it can invalidate the folder view on the UI thread
         PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
 }
@@ -4215,13 +4223,13 @@ void TabBandWindow::ApplyColorToSelection(bool clear) {
                 UpdateWindow(defView);
         }
 
-	// left pane: rehook/refresh the namespace tree colorizer
-	if (m_treeColorizer) {
-		m_treeColorizer->Detach();
-		m_treeColorizer->Attach(m_siteSp);
-    }
-    // also notify the owner so it can invalidate the folder view on the UI thread
-    PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
+        // left pane: ensure the namespace tree colourizer is attached
+        HookTreeColorizer();
+        if (HWND frame = m_hwnd ? GetAncestor(m_hwnd, GA_ROOT) : nullptr) {
+                ExplorerWindowHook::AttachForExplorer(frame);
+        }
+        // also notify the owner so it can invalidate the folder view on the UI thread
+        PostMessageW(m_hwnd, WM_SHELLTABS_REFRESH_COLORIZER, 0, 0);
 }
 
 

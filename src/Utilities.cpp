@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 #include <cwchar>
+#include <algorithm>
+#include <PathCch.h>
 
 #include "Logging.h"
 #include "Module.h"
@@ -151,6 +153,51 @@ UniquePidl ParseExplorerUrl(const std::wstring& url) {
     }
 
     return nullptr;
+}
+
+std::wstring NormalizeFileSystemPath(const std::wstring& path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring normalized = path;
+    std::replace(normalized.begin(), normalized.end(), L'/', L'\\');
+
+    // Ensure the buffer is null-terminated for PathCchRemoveBackslashEx.
+    normalized.push_back(L'\0');
+    PWSTR end = nullptr;
+    size_t remaining = 0;
+    if (SUCCEEDED(PathCchRemoveBackslashEx(normalized.data(), normalized.size(), &end, &remaining)) && end) {
+        *end = L'\0';
+    }
+
+    normalized.resize(wcslen(normalized.c_str()));
+    return normalized;
+}
+
+bool TryGetFileSystemPath(IShellItem* item, std::wstring* path) {
+    if (!item || !path) {
+        return false;
+    }
+
+    PWSTR buffer = nullptr;
+    const HRESULT hr = item->GetDisplayName(SIGDN_FILESYSPATH, &buffer);
+    if (FAILED(hr) || !buffer) {
+        if (buffer) {
+            CoTaskMemFree(buffer);
+        }
+        return false;
+    }
+
+    std::wstring normalized = NormalizeFileSystemPath(buffer);
+    CoTaskMemFree(buffer);
+
+    if (normalized.empty()) {
+        return false;
+    }
+
+    *path = std::move(normalized);
+    return true;
 }
 
 namespace {

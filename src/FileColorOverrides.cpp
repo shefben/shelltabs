@@ -1,6 +1,7 @@
 #include "FileColorOverrides.h"
 
 #include "CommonDialogColorizer.h"
+#include "Utilities.h"
 #include <ShlObj.h>
 #include <Shlwapi.h>
 #include <vector>
@@ -49,10 +50,13 @@ namespace shelltabs {
 		return inst;
 	}
 
-	std::wstring FileColorOverrides::ToLowerCopy(std::wstring s) {
-		if (!s.empty()) CharLowerBuffW(s.data(), static_cast<DWORD>(s.size()));
-		return s;
-	}
+        std::wstring FileColorOverrides::ToLowerCopy(std::wstring s) {
+                if (s.empty()) return s;
+                s = NormalizeFileSystemPath(s);
+                if (s.empty()) return s;
+                CharLowerBuffW(s.data(), static_cast<DWORD>(s.size()));
+                return s;
+        }
 
 	std::wstring FileColorOverrides::StoragePath() {
 		PWSTR roaming = nullptr;
@@ -104,9 +108,14 @@ namespace shelltabs {
 			auto key = readstr();
 			skipws(); if (i >= json.size() || json[i] != L':') break; ++i;
 			skipws();
-			auto val = readstr();
-			COLORREF c;
-			if (!key.empty() && HexToColor(val, &c)) tmp.emplace(ToLowerCopy(key), c);
+                        auto val = readstr();
+                        COLORREF c;
+                        if (!key.empty() && HexToColor(val, &c)) {
+                                auto normalized = ToLowerCopy(key);
+                                if (!normalized.empty()) {
+                                        tmp.emplace(std::move(normalized), c);
+                                }
+                        }
 			skipws();
 			if (i < json.size() && json[i] == L',') { ++i; continue; }
 			if (i < json.size() && json[i] == L'}') { ++i; break; }
@@ -138,6 +147,7 @@ namespace shelltabs {
                 Load();
                 std::lock_guard<std::mutex> lock(mtx_);
                 const auto key = ToLowerCopy(path);
+                if (key.empty()) return false;
 
                 auto transientIt = transient_.find(key);
                 if (transientIt != transient_.end()) {
@@ -155,7 +165,12 @@ namespace shelltabs {
                 Load();
                 {
                         std::lock_guard<std::mutex> lock(mtx_);
-                        for (const auto& p : paths) map_[ToLowerCopy(p)] = color;
+                        for (const auto& p : paths) {
+                                const auto key = ToLowerCopy(p);
+                                if (!key.empty()) {
+                                        map_[key] = color;
+                                }
+                        }
                 }
                 Save();
                 CommonDialogColorizer::NotifyColorDataChanged();
@@ -165,7 +180,12 @@ namespace shelltabs {
                 Load();
                 {
                         std::lock_guard<std::mutex> lock(mtx_);
-                        for (const auto& p : paths) map_.erase(ToLowerCopy(p));
+                        for (const auto& p : paths) {
+                                const auto key = ToLowerCopy(p);
+                                if (!key.empty()) {
+                                        map_.erase(key);
+                                }
+                        }
                 }
                 Save();
                 CommonDialogColorizer::NotifyColorDataChanged();
@@ -173,7 +193,12 @@ namespace shelltabs {
 
         void FileColorOverrides::SetEphemeralColor(const std::vector<std::wstring>& paths, COLORREF color) {
                 std::lock_guard<std::mutex> lock(mtx_);
-                for (const auto& p : paths) transient_[ToLowerCopy(p)] = color;
+                for (const auto& p : paths) {
+                        const auto key = ToLowerCopy(p);
+                        if (!key.empty()) {
+                                transient_[key] = color;
+                        }
+                }
                 CommonDialogColorizer::NotifyColorDataChanged();
         }
 
@@ -190,6 +215,9 @@ namespace shelltabs {
 
                 const auto fromKey = ToLowerCopy(fromPath);
                 const auto toKey = ToLowerCopy(toPath);
+                if (fromKey.empty() || toKey.empty()) {
+                        return;
+                }
                 if (fromKey == toKey) {
                         return;
                 }

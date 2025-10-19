@@ -34,11 +34,14 @@ public:
     bool Initialize(IUnknown* site, IWebBrowser2* browser);
     void Shutdown();
 
+    void Attach();
+
     void UpdateListTheme(const PaneTheme& theme);
     void UpdateTreeTheme(const PaneTheme& theme);
 
     static bool CollectSelectionForExplorer(HWND explorer, std::vector<std::wstring>* folderViewPaths,
                                             std::vector<std::wstring>* treePaths);
+    static void AttachForExplorer(HWND explorer);
 
 private:
     struct ScopedFont {
