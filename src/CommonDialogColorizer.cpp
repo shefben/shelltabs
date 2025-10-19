@@ -365,15 +365,28 @@ bool CommonDialogColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result
                 *result = CDRF_DODEFAULT;
                 return true;
             }
-            COLORREF colour = 0;
-            if (NameColorProvider::Instance().TryGetColorForPath(path, &colour)) {
-                if ((cd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) == 0) {
-                    cd->clrText = colour;
-                    *result = CDRF_NEWFONT;
-                    return true;
-                }
+            const auto appearance = NameColorProvider::Instance().GetAppearanceForPath(path);
+            if (!appearance.HasOverrides() ||
+                !appearance.AllowsForState(cd->nmcd.uItemState)) {
+                *result = CDRF_DODEFAULT;
+                return true;
             }
-            *result = CDRF_DODEFAULT;
+
+            bool applied = false;
+            if (appearance.textColor.has_value()) {
+                cd->clrText = *appearance.textColor;
+                applied = true;
+            }
+            if (appearance.backgroundColor.has_value()) {
+                cd->clrTextBk = *appearance.backgroundColor;
+                applied = true;
+            }
+            if (appearance.font) {
+                SelectObject(cd->nmcd.hdc, appearance.font);
+                applied = true;
+            }
+
+            *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
             return true;
         }
         default:

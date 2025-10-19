@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <optional>
+
 #include <Ole2.h>
 #include <ShlObj.h>
 #include <shellapi.h>
@@ -492,14 +494,13 @@ bool ExplorerWindowHook::HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESUL
 
             bool changed = false;
 
-            if (!selected && !hot) {
-                std::wstring path;
-                if (GetListViewItemPath(index, &path)) {
-                    COLORREF chosen = 0;
-                    if (NameColorProvider::Instance().TryGetColorForPath(path, &chosen)) {
-                        customDraw->clrText = chosen;
-                        changed = true;
-                    }
+            std::optional<NameColorProvider::ItemAppearance> appearance;
+            std::wstring path;
+            if (GetListViewItemPath(index, &path)) {
+                const auto resolved = NameColorProvider::Instance().GetAppearanceForPath(path);
+                if (resolved.HasOverrides() &&
+                    resolved.AllowsForState(customDraw->nmcd.uItemState)) {
+                    appearance = resolved;
                 }
             }
 
@@ -529,6 +530,21 @@ bool ExplorerWindowHook::HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESUL
                 }
                 if (theme.backgroundColor != CLR_INVALID) {
                     customDraw->clrTextBk = theme.backgroundColor;
+                    changed = true;
+                }
+            }
+
+            if (appearance.has_value()) {
+                if (appearance->textColor.has_value()) {
+                    customDraw->clrText = *appearance->textColor;
+                    changed = true;
+                }
+                if (appearance->backgroundColor.has_value()) {
+                    customDraw->clrTextBk = *appearance->backgroundColor;
+                    changed = true;
+                }
+                if (appearance->font) {
+                    SelectObject(customDraw->nmcd.hdc, appearance->font);
                     changed = true;
                 }
             }
