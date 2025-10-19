@@ -190,7 +190,19 @@ bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) 
 
     switch (cd->nmcd.dwDrawStage) {
         case CDDS_PREPAINT:
+            *result = CDRF_NOTIFYITEMDRAW;
+            return true;
+
+        case CDDS_ITEMPREPAINT:
+            cd->clrText = RGB(255, 0, 0);
+            cd->clrTextBk = CLR_DEFAULT;
             *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+            return true;
+
+        case CDDS_SUBITEM | CDDS_ITEMPREPAINT:
+            cd->clrText = RGB(255, 0, 0);
+            cd->clrTextBk = CLR_DEFAULT;
+            *result = CDRF_NEWFONT;
             return true;
 
         case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
