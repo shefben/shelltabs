@@ -59,13 +59,13 @@ HWND FindFolderListView(HWND root) {
     return data.result;
 }
 
-void DrawLineNumberOverlay(HWND listView, HDC hdc, const NMLVCUSTOMDRAW* cd) {
+bool DrawLineNumberOverlay(HWND listView, HDC hdc, const NMLVCUSTOMDRAW* cd) {
     if (!listView || !cd) {
-        return;
+        return false;
     }
 
     if ((cd->nmcd.dwDrawStage & CDDS_SUBITEM) == 0 || cd->iSubItem != 0) {
-        return;
+        return false;
     }
 
     const int index = static_cast<int>(cd->nmcd.dwItemSpec);
@@ -73,14 +73,14 @@ void DrawLineNumberOverlay(HWND listView, HDC hdc, const NMLVCUSTOMDRAW* cd) {
     RECT label{};
     if (!ListView_GetItemRect(listView, index, &bounds, LVIR_BOUNDS) ||
         !ListView_GetSubItemRect(listView, index, 0, LVIR_LABEL, &label)) {
-        return;
+        return false;
     }
 
     RECT gutter = bounds;
     gutter.left += kLineNumberMargin;
     gutter.right = label.left - kLineNumberMargin;
     if (gutter.right <= gutter.left) {
-        return;
+        return false;
     }
 
     const std::wstring text = std::to_wstring(index + 1);
@@ -100,6 +100,7 @@ void DrawLineNumberOverlay(HWND listView, HDC hdc, const NMLVCUSTOMDRAW* cd) {
     DrawTextW(hdc, text.c_str(), static_cast<int>(text.size()), &gutter, format);
     SetTextColor(hdc, previousText);
     SetBkMode(hdc, previousBk);
+    return true;
 }
 
 }  // namespace

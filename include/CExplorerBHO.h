@@ -7,6 +7,7 @@
 
 #include <exdisp.h>
 #include <ocidl.h>
+#include <shlobj.h>
 
 #include <wrl/client.h>
 
@@ -68,6 +69,7 @@ private:
         std::unique_ptr<CommonDialogColorizer> m_dialogColorizer;
         std::unique_ptr<ExplorerWindowHook> m_windowHook;
         std::unique_ptr<NamespaceTreeColorizer> m_treeColorizer;
+        Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
 };
 
 }  // namespace shelltabs
