@@ -39,6 +39,14 @@ void NamespaceTreeColorizer::Detach() {
         cookie_ = 0;
     }
     nstc_.Reset();
+
+    for (HFONT font : owned_fonts_) {
+        if (font) {
+            DeleteObject(font);
+        }
+    }
+    owned_fonts_.clear();
+    pending_paints_.clear();
 }
 
 bool NamespaceTreeColorizer::ResolveNSTC(ComPtr<IServiceProvider> serviceProvider) {
@@ -122,23 +130,74 @@ IFACEMETHODIMP NamespaceTreeColorizer::ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* 
         return S_OK;
     }
 
-    *result = CDRF_DODEFAULT;
+    const DWORD_PTR key = drawInfo->nmcd.dwItemSpec;
+    pending_paints_.erase(key);
 
     std::wstring path;
-    if (drawInfo->psi && ItemPathFromShellItem(drawInfo->psi, &path)) {
-        COLORREF colour = 0;
-        if (NameColorProvider::Instance().TryGetColorForPath(path, &colour)) {
-            if (textColor) {
-                *textColor = colour;
-            }
-            *result = CDRF_NEWFONT;
+    if (!drawInfo->psi || !ItemPathFromShellItem(drawInfo->psi, &path)) {
+        *result = CDRF_DODEFAULT;
+        return S_OK;
+    }
+
+    const auto appearance = NameColorProvider::Instance().GetAppearanceForPath(path);
+    if (!appearance.HasOverrides() || !appearance.AllowsForState(drawInfo->nmcd.uItemState)) {
+        *result = CDRF_DODEFAULT;
+        return S_OK;
+    }
+
+    bool applied = false;
+
+    if (appearance.textColor.has_value() && textColor) {
+        *textColor = *appearance.textColor;
+        applied = true;
+    }
+
+    if (appearance.backgroundColor.has_value()) {
+        drawInfo->clrTextBk = *appearance.backgroundColor;
+        pending_paints_[key] = PendingItemPaint{true, *appearance.backgroundColor};
+        applied = true;
+    }
+
+    if (appearance.font) {
+        drawInfo->hfont = appearance.font;
+        applied = true;
+        if (appearance.ownsFont) {
+            owned_fonts_.insert(appearance.font);
         }
+    }
+
+    if (applied) {
+        *result = CDRF_NEWFONT | CDRF_NOTIFYPOSTPAINT;
+    } else {
+        *result = CDRF_DODEFAULT;
     }
 
     return S_OK;
 }
 
-IFACEMETHODIMP NamespaceTreeColorizer::ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) { return S_OK; }
+IFACEMETHODIMP NamespaceTreeColorizer::ItemPostPaint(HDC hdc, RECT* rect, NSTCCUSTOMDRAW* drawInfo) {
+    if (!drawInfo) {
+        return S_OK;
+    }
+
+    const DWORD_PTR key = drawInfo->nmcd.dwItemSpec;
+    auto it = pending_paints_.find(key);
+    if (it == pending_paints_.end()) {
+        return S_OK;
+    }
+
+    if (it->second.fillBackground && rect) {
+        const RECT fillRect = *rect;
+        HBRUSH brush = CreateSolidBrush(it->second.background);
+        if (brush) {
+            FillRect(hdc, &fillRect, brush);
+            DeleteObject(brush);
+        }
+    }
+
+    pending_paints_.erase(it);
+    return S_OK;
+}
 
 }  // namespace shelltabs
 
