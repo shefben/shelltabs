@@ -4,8 +4,6 @@
 #include <CommCtrl.h>
 #include <string>
 
-#include "NameColorProvider.h"
-
 namespace shelltabs {
 namespace {
 constexpr UINT_PTR kSubclassId = 0x53485354;  // 'SHST'
@@ -189,46 +187,17 @@ bool FolderViewColorizer::HandleCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) 
 
     switch (cd->nmcd.dwDrawStage) {
         case CDDS_PREPAINT:
-            *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
-            return true;
+            *result = CDRF_NOTIFYPOSTPAINT;
+            return false;
 
         case CDDS_ITEMPREPAINT:
-        case CDDS_SUBITEM | CDDS_ITEMPREPAINT: {
-            const int index = static_cast<int>(cd->nmcd.dwItemSpec);
-            std::wstring fullPath;
-            if (!GetItemPath(index, &fullPath)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-            const auto appearance = NameColorProvider::Instance().GetAppearanceForPath(fullPath);
-            if (!appearance.HasOverrides() ||
-                !appearance.AllowsForState(cd->nmcd.uItemState)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            bool applied = false;
-            if (appearance.textColor.has_value()) {
-                cd->clrText = *appearance.textColor;
-                applied = true;
-            }
-            if (appearance.backgroundColor.has_value()) {
-                cd->clrTextBk = *appearance.backgroundColor;
-                applied = true;
-            }
-            if (appearance.font) {
-                SelectObject(cd->nmcd.hdc, appearance.font);
-                applied = true;
-            }
-
-            *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
-            return true;
-        }
+        case CDDS_SUBITEM | CDDS_ITEMPREPAINT:
+            return false;
 
         case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
             DrawLineNumberOverlay(m_listView, cd->nmcd.hdc, cd);
-            *result = CDRF_DODEFAULT;
-            return true;
+            *result = 0;
+            return false;
 
         default:
             break;
@@ -273,10 +242,15 @@ LRESULT CALLBACK FolderViewColorizer::SubclassProc(HWND hwnd, UINT message, WPAR
     switch (message) {
         case WM_NOTIFY: {
             LRESULT result = 0;
-            if (self->HandleNotify(reinterpret_cast<NMHDR*>(lParam), &result)) {
+            const bool handled = self->HandleNotify(reinterpret_cast<NMHDR*>(lParam), &result);
+            if (handled) {
                 return result;
             }
-            break;
+            const LRESULT defResult = DefSubclassProc(hwnd, message, wParam, lParam);
+            if (result != 0) {
+                return defResult | result;
+            }
+            return defResult;
         }
         case WM_DESTROY:
         case WM_NCDESTROY:

@@ -488,18 +488,20 @@ bool ExplorerWindowHook::HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESUL
                 return true;
             }
 
+            const UINT itemState = customDraw->nmcd.uItemState;
             const int index = static_cast<int>(customDraw->nmcd.dwItemSpec);
-            const bool selected = (customDraw->nmcd.uItemState & CDIS_SELECTED) != 0;
-            const bool hot = (customDraw->nmcd.uItemState & CDIS_HOT) != 0;
+            const bool selected =
+                (itemState & (CDIS_SELECTED | CDIS_MARKED | CDIS_DROPHILITED)) != 0;
+            const bool hot = (itemState & CDIS_HOT) != 0;
 
             bool changed = false;
+            bool appliedFont = false;
 
             std::optional<NameColorProvider::ItemAppearance> appearance;
             std::wstring path;
             if (GetListViewItemPath(index, &path)) {
                 const auto resolved = NameColorProvider::Instance().GetAppearanceForPath(path);
-                if (resolved.HasOverrides() &&
-                    resolved.AllowsForState(customDraw->nmcd.uItemState)) {
+                if (resolved.HasOverrides() && resolved.AllowsForState(itemState)) {
                     appearance = resolved;
                 }
             }
@@ -544,12 +546,23 @@ bool ExplorerWindowHook::HandleListCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESUL
                     changed = true;
                 }
                 if (appearance->font) {
-                    SelectObject(customDraw->nmcd.hdc, appearance->font);
-                    changed = true;
+                    if (SelectObject(customDraw->nmcd.hdc, appearance->font) != nullptr) {
+                        appliedFont = true;
+                        changed = true;
+                    }
                 }
             }
 
-            if (changed || listFont_.Get()) {
+            if (!changed) {
+                if (listFont_.Get()) {
+                    *result = CDRF_NEWFONT;
+                    return true;
+                }
+                *result = CDRF_DODEFAULT;
+                return false;
+            }
+
+            if (appliedFont || listFont_.Get()) {
                 *result = CDRF_NEWFONT;
             } else {
                 *result = CDRF_DODEFAULT;
@@ -591,7 +604,7 @@ bool ExplorerWindowHook::GetListViewItemPath(int index, std::wstring* path) cons
         return false;
     }
 
-Microsoft::WRL::ComPtr<IShellItem> item;
+    Microsoft::WRL::ComPtr<IShellItem> item;
     if (FAILED(folderView_->GetItem(index, IID_PPV_ARGS(&item))) || !item) {
         return false;
     }
