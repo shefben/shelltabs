@@ -24,12 +24,13 @@
 
 namespace shelltabs {
 
-	class NamespaceTreeColorizer :
-		public INameSpaceTreeControlCustomDraw
-	{
-	public:
-		NamespaceTreeColorizer();
-		virtual ~NamespaceTreeColorizer();
+        class NamespaceTreeColorizer :
+                public INameSpaceTreeControlCustomDraw,
+                public INameSpaceTreeControlEvents
+        {
+        public:
+                NamespaceTreeColorizer();
+                virtual ~NamespaceTreeColorizer();
 
 		// Call with IServiceProvider for the current Explorer window.
 		bool Attach(Microsoft::WRL::ComPtr<IServiceProvider> sp);
@@ -40,13 +41,32 @@ namespace shelltabs {
 		IFACEMETHODIMP_(ULONG) AddRef() override;
 		IFACEMETHODIMP_(ULONG) Release() override;
 
-		// INameSpaceTreeControlCustomDraw
-		IFACEMETHODIMP PrePaint(HDC, RECT*, LRESULT*) override;
-		IFACEMETHODIMP PostPaint(HDC, RECT*) override;
+                // INameSpaceTreeControlCustomDraw
+                IFACEMETHODIMP PrePaint(HDC, RECT*, LRESULT*) override;
+                IFACEMETHODIMP PostPaint(HDC, RECT*) override;
                 IFACEMETHODIMP ItemPrePaint(HDC hdc, RECT* bounds, NSTCCUSTOMDRAW* info,
                                         COLORREF* textColor, COLORREF* backgroundColor,
                                         LRESULT* result) override;
-		IFACEMETHODIMP ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) override;
+                IFACEMETHODIMP ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) override;
+
+                // INameSpaceTreeControlEvents
+                IFACEMETHODIMP OnItemClick(IShellItem*, NSTCEHITTEST, NSTCECLICKTYPE) override;
+                IFACEMETHODIMP OnPropertyItemCommit(IShellItem*) override;
+                IFACEMETHODIMP OnItemStateChanging(IShellItem*, NSTCITEMSTATE, NSTCITEMSTATE) override;
+                IFACEMETHODIMP OnItemStateChanged(IShellItem*, NSTCITEMSTATE, NSTCITEMSTATE) override;
+                IFACEMETHODIMP OnSelectionChanged(IShellItemArray*) override;
+                IFACEMETHODIMP OnKeyboardInput(UINT, WPARAM, LPARAM) override;
+                IFACEMETHODIMP OnBeforeExpand(IShellItem*) override;
+                IFACEMETHODIMP OnAfterExpand(IShellItem*) override;
+                IFACEMETHODIMP OnBeginLabelEdit(IShellItem*) override;
+                IFACEMETHODIMP OnEndLabelEdit(IShellItem*) override;
+                IFACEMETHODIMP OnGetToolTip(IShellItem*, LPWSTR*, int*, int*) override;
+                IFACEMETHODIMP OnBeforeItemDelete(IShellItem*) override;
+                IFACEMETHODIMP OnItemAdded(IShellItem*, BOOL) override;
+                IFACEMETHODIMP OnItemDeleted(IShellItem*, BOOL) override;
+                IFACEMETHODIMP OnBeforeContextMenu(IShellItem*, REFIID, void**) override;
+                IFACEMETHODIMP OnAfterContextMenu(IShellItem*, IContextMenu*, REFIID, void**) override;
+                IFACEMETHODIMP OnBeforeStateImageChange(IShellItem*) override;
 
         private:
                 struct PendingItemPaint {
@@ -59,6 +79,7 @@ namespace shelltabs {
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> nstc_;
                 std::unordered_map<DWORD_PTR, PendingItemPaint> pending_paints_;
                 std::unordered_set<HFONT> owned_fonts_;
+                std::wstring pending_tree_rename_;
 
                 bool ResolveNSTC(Microsoft::WRL::ComPtr<IServiceProvider> sp);
                 bool ItemPathFromShellItem(IShellItem* psi, std::wstring* out) const;

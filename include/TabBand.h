@@ -15,7 +15,6 @@
 
 #include "BrowserEvents.h"
 #include "TabManager.h"
-#include "FolderViewColorizer.h"
 #include "SessionStore.h"
 #include "OptionsStore.h"
 
@@ -142,7 +141,6 @@ private:
 
     std::unique_ptr<TabBandWindow> m_window;
     TabManager m_tabs;
-    std::unique_ptr<FolderViewColorizer> m_viewColorizer;
     std::unique_ptr<SessionStore> m_sessionStore;
     bool m_restoringSession = false;
     std::wstring m_windowToken;
@@ -186,6 +184,7 @@ private:
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
     void QueueNavigateTo(TabLocation location);
     void ScheduleColorizerRefresh();
+    void InvalidateActiveFolderView() const;
     void ScheduleGitStatusEnable();
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;

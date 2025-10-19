@@ -1,9 +1,11 @@
 #include "NamespaceTreeColorizer.h"
 
 #include "NameColorProvider.h"
+#include "FileColorOverrides.h"
 
 #include <ShlObj.h>
 #include <shlwapi.h>
+#include <cwchar>
 
 #include <string>
 #include <type_traits>
@@ -122,9 +124,10 @@ bool NamespaceTreeColorizer::Attach(ComPtr<IServiceProvider> serviceProvider) {
 void NamespaceTreeColorizer::Detach() {
     if (nstc_ && cookie_ != 0) {
         nstc_->TreeUnadvise(cookie_);
-        cookie_ = 0;
     }
+    cookie_ = 0;
     nstc_.Reset();
+    pending_tree_rename_.clear();
 
     for (HFONT font : owned_fonts_) {
         if (font) {
@@ -183,6 +186,11 @@ IFACEMETHODIMP NamespaceTreeColorizer::QueryInterface(REFIID riid, void** object
     }
     if (riid == IID_IUnknown || riid == __uuidof(INameSpaceTreeControlCustomDraw)) {
         *object = static_cast<INameSpaceTreeControlCustomDraw*>(this);
+        AddRef();
+        return S_OK;
+    }
+    if (riid == __uuidof(INameSpaceTreeControlEvents)) {
+        *object = static_cast<INameSpaceTreeControlEvents*>(this);
         AddRef();
         return S_OK;
     }
@@ -290,6 +298,76 @@ IFACEMETHODIMP NamespaceTreeColorizer::ItemPostPaint(HDC hdc, RECT* rect, NSTCCU
     pending_paints_.erase(it);
     return S_OK;
 }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnItemClick(IShellItem*, NSTCEHITTEST, NSTCECLICKTYPE) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnPropertyItemCommit(IShellItem*) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnItemStateChanging(IShellItem*, NSTCITEMSTATE, NSTCITEMSTATE) {
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnItemStateChanged(IShellItem*, NSTCITEMSTATE, NSTCITEMSTATE) {
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnSelectionChanged(IShellItemArray*) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnKeyboardInput(UINT, WPARAM, LPARAM) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnBeforeExpand(IShellItem*) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnAfterExpand(IShellItem*) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnBeginLabelEdit(IShellItem* psi) {
+    pending_tree_rename_.clear();
+    if (psi) {
+        ItemPathFromShellItem(psi, &pending_tree_rename_);
+    }
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnEndLabelEdit(IShellItem* psi) {
+    std::wstring newPath;
+    if (psi) {
+        ItemPathFromShellItem(psi, &newPath);
+    }
+
+    if (!pending_tree_rename_.empty() && !newPath.empty() &&
+        _wcsicmp(pending_tree_rename_.c_str(), newPath.c_str()) != 0) {
+        FileColorOverrides::Instance().TransferColor(pending_tree_rename_, newPath);
+    }
+
+    pending_tree_rename_.clear();
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnGetToolTip(IShellItem*, LPWSTR* tip, int* delay, int* duration) {
+    if (tip) {
+        *tip = nullptr;
+    }
+    if (delay) {
+        *delay = 0;
+    }
+    if (duration) {
+        *duration = 0;
+    }
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnBeforeItemDelete(IShellItem*) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnItemAdded(IShellItem*, BOOL) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnItemDeleted(IShellItem*, BOOL) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnBeforeContextMenu(IShellItem*, REFIID, void**) { return S_OK; }
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnAfterContextMenu(IShellItem*, IContextMenu*, REFIID, void**) {
+    return S_OK;
+}
+
+IFACEMETHODIMP NamespaceTreeColorizer::OnBeforeStateImageChange(IShellItem*) { return S_OK; }
 
 }  // namespace shelltabs
 
