@@ -1,11 +1,15 @@
 #pragma once
 
 // Ensure Windows 7+ APIs so INamespaceTreeControlCustomDraw and NSTCCUSTOMDRAW::clrText are available.
+#if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0601
 #undef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601
+#endif
 #include <sdkddkver.h>  // NTDDI_* macros
+#if !defined(NTDDI_VERSION) || NTDDI_VERSION < NTDDI_WIN7
 #undef NTDDI_VERSION
 #define NTDDI_VERSION NTDDI_WIN7
+#endif
 
 #include <windows.h>
 #include <uxtheme.h>

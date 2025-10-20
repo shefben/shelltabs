@@ -1463,7 +1463,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     }
 
     Gdiplus::StringFormat format;
-    format.SetAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetAlignment(Gdiplus::StringAlignmentNear);
     format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
     format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
     format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
@@ -1559,10 +1559,12 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 text.resize(static_cast<size_t>(copied));
 
                 RECT textRect = itemRect;
+                RECT clearRect = itemRect;
                 constexpr int kPadding = 8;
                 textRect.left += kPadding;
                 textRect.right -= kPadding;
                 if ((button.fsStyle & BTNS_DROPDOWN) != 0) {
+                    clearRect.right -= 12;
                     textRect.right -= 12;
                 }
 
@@ -1581,13 +1583,19 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                              static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
 
                     if (shouldClearDefaultText && !backgroundGradientVisible) {
-                        const COLORREF averageBackground = SampleAverageColor(drawDc, textRect);
-                        Gdiplus::SolidBrush clearBrush(Gdiplus::Color(255, GetRValue(averageBackground),
-                                                                      GetGValue(averageBackground),
-                                                                      GetBValue(averageBackground)));
-                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-                        graphics.FillRectangle(&clearBrush, textRectF);
-                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+                        if (clearRect.right > clearRect.left) {
+                            const COLORREF averageBackground = SampleAverageColor(drawDc, clearRect);
+                            Gdiplus::RectF clearRectF(static_cast<Gdiplus::REAL>(clearRect.left),
+                                                      static_cast<Gdiplus::REAL>(clearRect.top),
+                                                      static_cast<Gdiplus::REAL>(clearRect.right - clearRect.left),
+                                                      static_cast<Gdiplus::REAL>(clearRect.bottom - clearRect.top));
+                            Gdiplus::SolidBrush clearBrush(Gdiplus::Color(255, GetRValue(averageBackground),
+                                                                          GetGValue(averageBackground),
+                                                                          GetBValue(averageBackground)));
+                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+                            graphics.FillRectangle(&clearBrush, clearRectF);
+                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+                        }
                     }
 
                     if (textAlpha > 0) {
