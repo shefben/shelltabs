@@ -928,7 +928,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     ClearPendingOpenInNewTabState();
 }
 
-bool CExplorerBHO::HandleExplorerViewMessage(HWND /*source*/, UINT msg, WPARAM wParam, LPARAM lParam,
+bool CExplorerBHO::HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam,
                                              LRESULT* result) {
     if (!result) {
         return false;
@@ -937,7 +937,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND /*source*/, UINT msg, WPARAM w
     switch (msg) {
         case WM_INITMENUPOPUP: {
             if (lParam == 0) {
-                HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
+                HandleExplorerContextMenuInit(source, reinterpret_cast<HMENU>(wParam));
             }
             break;
         }
