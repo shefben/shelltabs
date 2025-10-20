@@ -43,7 +43,14 @@ private:
     void UpdateBreadcrumbSubclass();
     void RemoveBreadcrumbSubclass();
     HWND FindBreadcrumbToolbar() const;
+    HWND FindBreadcrumbToolbarInWindow(HWND root) const;
     HWND GetTopLevelExplorerWindow() const;
+    bool InstallBreadcrumbSubclass(HWND toolbar);
+    void EnsureBreadcrumbHook();
+    void RemoveBreadcrumbHook();
+    bool IsBreadcrumbToolbarCandidate(HWND hwnd) const;
+    bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
+    bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
     bool HandleBreadcrumbPaint(HWND hwnd);
     enum class BreadcrumbDiscoveryStage {
         None,
@@ -57,6 +64,7 @@ private:
         Discovered,
     };
     void LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const;
+    static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
 
@@ -71,6 +79,7 @@ private:
     HWND m_breadcrumbToolbar = nullptr;
     bool m_breadcrumbSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
+    bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,
         Disabled,
