@@ -30,6 +30,7 @@
 #include "OptionsStore.h"
 #include "Logging.h"
 #include "Module.h"
+#include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
 
@@ -1369,6 +1370,17 @@ void TabBand::SaveSession() {
 void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
     if (!previousOptions.persistGroupPaths && m_options.persistGroupPaths) {
         SyncAllSavedGroups();
+    }
+
+    const bool backgroundChanged =
+        previousOptions.enableBreadcrumbGradient != m_options.enableBreadcrumbGradient;
+    const bool fontChanged =
+        previousOptions.enableBreadcrumbFontGradient != m_options.enableBreadcrumbFontGradient;
+    if (backgroundChanged || fontChanged) {
+        const UINT message = GetOptionsChangedMessage();
+        if (message != 0) {
+            SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);
+        }
     }
 }
 
