@@ -1,7 +1,6 @@
 #pragma once
 
 #include <windows.h>
-#include <CommCtrl.h>
 
 #include <atomic>
 #include <memory>
@@ -51,11 +50,8 @@ private:
     bool InstallBreadcrumbSubclass(HWND toolbar);
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
-    bool InstallExplorerViewSubclass(HWND listView, HWND treeView, HWND defView);
+    bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
     bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
-    bool HandleExplorerViewNotify(HWND source, NMHDR* notifyHeader, LRESULT* result);
-    bool HandleListViewCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
-    void ApplyExplorerViewTextColor(HWND hwnd) const;
     void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
     void HandleExplorerCommand(UINT commandId);
     void HandleExplorerMenuDismiss(HMENU menu);
@@ -85,12 +81,6 @@ private:
                                                    UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                      UINT_PTR subclassId, DWORD_PTR refData);
-    static LRESULT CALLBACK ExplorerListViewParentSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
-                                                               LPARAM lParam, UINT_PTR subclassId,
-                                                               DWORD_PTR refData);
-    static LRESULT CALLBACK ExplorerListViewNotifySubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
-                                                               LPARAM lParam, UINT_PTR subclassId,
-                                                               DWORD_PTR refData);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -120,20 +110,16 @@ private:
     mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
     Microsoft::WRL::ComPtr<IShellView> m_shellView;
     HWND m_shellViewWindow = nullptr;
+    bool m_shellViewWindowSubclassInstalled = false;
     HWND m_listView = nullptr;
     HWND m_treeView = nullptr;
-    HWND m_listViewParent = nullptr;
-    HWND m_listViewNotifyParent = nullptr;
     bool m_listViewSubclassInstalled = false;
     bool m_treeViewSubclassInstalled = false;
-    bool m_listViewParentSubclassInstalled = false;
-    bool m_listViewNotifyParentSubclassInstalled = false;
     HMENU m_trackedContextMenu = nullptr;
     std::vector<std::wstring> m_pendingOpenInNewTabPaths;
     bool m_contextMenuInserted = false;
     static constexpr UINT kOpenInNewTabCommandId = 0xE170;
     static constexpr UINT kMaxTrackedSelection = 16;
-    static constexpr COLORREF kFolderViewTextColor = RGB(255, 0, 0);
 };
 
 }  // namespace shelltabs
