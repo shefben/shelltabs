@@ -88,6 +88,9 @@ private:
     static LRESULT CALLBACK ExplorerListViewParentSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                                                                LPARAM lParam, UINT_PTR subclassId,
                                                                DWORD_PTR refData);
+    static LRESULT CALLBACK ExplorerListViewNotifySubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                                               LPARAM lParam, UINT_PTR subclassId,
+                                                               DWORD_PTR refData);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -120,9 +123,11 @@ private:
     HWND m_listView = nullptr;
     HWND m_treeView = nullptr;
     HWND m_listViewParent = nullptr;
+    HWND m_listViewNotifyParent = nullptr;
     bool m_listViewSubclassInstalled = false;
     bool m_treeViewSubclassInstalled = false;
     bool m_listViewParentSubclassInstalled = false;
+    bool m_listViewNotifyParentSubclassInstalled = false;
     HMENU m_trackedContextMenu = nullptr;
     std::vector<std::wstring> m_pendingOpenInNewTabPaths;
     bool m_contextMenuInserted = false;
