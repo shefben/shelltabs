@@ -735,13 +735,13 @@ void TabBandWindow::RebuildLayout() {
 		if (visual.hasGroupHeader) {
 			visual.groupHeader = currentHeader;
 		}
-		if (pendingIndicator && visual.firstInGroup) {
-			visual.hasGroupHeader = true;
-			visual.groupHeader = indicatorHeader;
-			visual.indicatorHandle = true;
-			pendingIndicator = false;
-			headerMetadata = true;
-		}
+                if (pendingIndicator && visual.firstInGroup) {
+                        visual.hasGroupHeader = true;
+                        visual.groupHeader = indicatorHeader;
+                        visual.indicatorHandle = indicatorHeader.headerVisible;
+                        pendingIndicator = false;
+                        headerMetadata = true;
+                }
 
 		SIZE textSize{ 0, 0 };
 		if (!item.name.empty()) {
