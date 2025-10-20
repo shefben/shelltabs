@@ -910,7 +910,15 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
 
     HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
 
-    if (!InstallExplorerViewSubclass(listView, treeView)) {
+    HWND defView = nullptr;
+    for (HWND parent = GetParent(listView); parent; parent = GetParent(parent)) {
+        if (MatchesClass(parent, L"SHELLDLL_DefView")) {
+            defView = parent;
+            break;
+        }
+    }
+
+    if (!InstallExplorerViewSubclass(listView, treeView, defView)) {
         return;
     }
 
@@ -918,7 +926,7 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
     m_shellViewWindow = viewWindow;
 }
 
-bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
+bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView, HWND defView) {
     bool installed = false;
 
     if (listView && IsWindow(listView)) {
@@ -926,6 +934,7 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
             m_listView = listView;
             m_listViewSubclassInstalled = true;
             installed = true;
+            ApplyExplorerViewTextColor(listView);
         } else {
             LogLastError(L"SetWindowSubclass(list view)", GetLastError());
         }
@@ -935,14 +944,27 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
         if (SetWindowSubclass(treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_treeView = treeView;
             m_treeViewSubclassInstalled = true;
+            installed = true;
+            ApplyExplorerViewTextColor(treeView);
         } else {
             LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
         }
     }
 
+    if (defView && defView != listView && IsWindow(defView)) {
+        if (SetWindowSubclass(defView, ExplorerListViewParentSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            m_listViewParent = defView;
+            m_listViewParentSubclassInstalled = true;
+            installed = true;
+        } else {
+            LogLastError(L"SetWindowSubclass(def view)", GetLastError());
+        }
+    }
+
     if (installed) {
         ClearPendingOpenInNewTabState();
-        LogMessage(LogLevel::Info, L"Installed explorer view subclass (list=%p tree=%p)", listView, treeView);
+        LogMessage(LogLevel::Info, L"Installed explorer view subclass (list=%p tree=%p def=%p)", listView,
+                   treeView, defView);
     }
 
     return installed;
@@ -955,14 +977,42 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
         RemoveWindowSubclass(m_treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
+    if (m_listViewParent && m_listViewParentSubclassInstalled && IsWindow(m_listViewParent)) {
+        RemoveWindowSubclass(m_listViewParent, ExplorerListViewParentSubclassProc,
+                             reinterpret_cast<UINT_PTR>(this));
+    }
 
     m_listView = nullptr;
     m_treeView = nullptr;
+    m_listViewParent = nullptr;
     m_listViewSubclassInstalled = false;
     m_treeViewSubclassInstalled = false;
+    m_listViewParentSubclassInstalled = false;
     m_shellViewWindow = nullptr;
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
+}
+
+void CExplorerBHO::ApplyExplorerViewTextColor(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    wchar_t className[64]{};
+    const int length = GetClassNameW(hwnd, className, ARRAYSIZE(className));
+    if (length <= 0) {
+        return;
+    }
+
+    if (_wcsicmp(className, L"SysListView32") == 0) {
+        ListView_SetTextColor(hwnd, kFolderViewTextColor);
+    } else if (_wcsicmp(className, L"SysTreeView32") == 0) {
+        TreeView_SetTextColor(hwnd, kFolderViewTextColor);
+    } else {
+        return;
+    }
+
+    InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -1005,6 +1055,47 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             HandleExplorerMenuDismiss(m_trackedContextMenu);
             break;
         }
+        default:
+            break;
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::HandleExplorerViewNotify(HWND source, NMHDR* notifyHeader, LRESULT* result) {
+    if (!notifyHeader || !result) {
+        return false;
+    }
+
+    UNREFERENCED_PARAMETER(source);
+
+    if (notifyHeader->hwndFrom == m_listView && notifyHeader->code == NM_CUSTOMDRAW) {
+        auto* customDraw = reinterpret_cast<NMLVCUSTOMDRAW*>(notifyHeader);
+        if (HandleListViewCustomDraw(customDraw, result)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::HandleListViewCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result) {
+    if (!customDraw || !result) {
+        return false;
+    }
+
+    switch (customDraw->nmcd.dwDrawStage) {
+        case CDDS_PREPAINT:
+            *result = CDRF_NOTIFYITEMDRAW;
+            return true;
+        case CDDS_ITEMPREPAINT:
+            customDraw->clrText = kFolderViewTextColor;
+            *result = CDRF_NOTIFYSUBITEMDRAW;
+            return true;
+        case CDDS_ITEMPREPAINT | CDDS_SUBITEM:
+            customDraw->clrText = kFolderViewTextColor;
+            *result = CDRF_DODEFAULT;
+            return true;
         default:
             break;
     }
@@ -1675,6 +1766,16 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         return result;
     }
 
+    switch (msg) {
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+        case WM_SETTINGCHANGE:
+            self->ApplyExplorerViewTextColor(hwnd);
+            break;
+        default:
+            break;
+    }
+
     if (msg == WM_NCDESTROY) {
         if (hwnd == self->m_listView) {
             self->m_listView = nullptr;
@@ -1691,6 +1792,49 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         }
 
         RemoveWindowSubclass(hwnd, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::ExplorerListViewParentSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                                                  LPARAM lParam, UINT_PTR subclassId,
+                                                                  DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    LRESULT result = 0;
+    if (self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result)) {
+        return result;
+    }
+
+    if (msg == WM_NOTIFY) {
+        auto* notifyHeader = reinterpret_cast<NMHDR*>(lParam);
+        if (self->HandleExplorerViewNotify(hwnd, notifyHeader, &result)) {
+            return result;
+        }
+    }
+
+    switch (msg) {
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+        case WM_SETTINGCHANGE:
+            if (self->m_listView && IsWindow(self->m_listView)) {
+                InvalidateRect(self->m_listView, nullptr, TRUE);
+            }
+            break;
+        default:
+            break;
+    }
+
+    if (msg == WM_NCDESTROY) {
+        if (hwnd == self->m_listViewParent) {
+            self->m_listViewParent = nullptr;
+            self->m_listViewParentSubclassInstalled = false;
+        }
+        RemoveWindowSubclass(hwnd, ExplorerListViewParentSubclassProc, reinterpret_cast<UINT_PTR>(self));
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
