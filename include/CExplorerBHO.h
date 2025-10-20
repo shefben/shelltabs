@@ -79,6 +79,7 @@ private:
     HWND m_breadcrumbToolbar = nullptr;
     bool m_breadcrumbSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
+    bool m_breadcrumbFontGradientEnabled = false;
     bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,

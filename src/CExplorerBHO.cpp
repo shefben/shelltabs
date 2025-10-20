@@ -799,16 +799,19 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     store.Load();
     const ShellTabsOptions options = store.Get();
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
+    m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
 
-    if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
+    const bool gradientsEnabled = (m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled);
+    if (!gradientsEnabled || !m_gdiplusInitialized) {
         if (m_breadcrumbLogState != BreadcrumbLogState::Disabled) {
             LogMessage(LogLevel::Info,
-                       L"Breadcrumb gradient inactive (enabled=%d gdiplus=%d); ensuring subclass removed",
-                       m_breadcrumbGradientEnabled ? 1 : 0, m_gdiplusInitialized ? 1 : 0);
+                       L"Breadcrumb gradients inactive (background=%d text=%d gdiplus=%d); ensuring subclass removed",
+                       m_breadcrumbGradientEnabled ? 1 : 0, m_breadcrumbFontGradientEnabled ? 1 : 0,
+                       m_gdiplusInitialized ? 1 : 0);
             m_breadcrumbLogState = BreadcrumbLogState::Disabled;
         }
         if (m_breadcrumbSubclassInstalled) {
-            LogMessage(LogLevel::Info, L"Breadcrumb gradient disabled; removing subclass");
+            LogMessage(LogLevel::Info, L"Breadcrumb gradients disabled; removing subclass");
         }
         RemoveBreadcrumbHook();
         RemoveBreadcrumbSubclass();
@@ -819,8 +822,10 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     EnsureBreadcrumbHook();
 
     if (m_breadcrumbLogState != BreadcrumbLogState::Searching) {
-        LogMessage(LogLevel::Info, L"Breadcrumb gradient enabled; locating toolbar (installed=%d)",
-                   m_breadcrumbSubclassInstalled ? 1 : 0);
+        LogMessage(LogLevel::Info,
+                   L"Breadcrumb gradients enabled; locating toolbar (installed=%d background=%d text=%d)",
+                   m_breadcrumbSubclassInstalled ? 1 : 0, m_breadcrumbGradientEnabled ? 1 : 0,
+                   m_breadcrumbFontGradientEnabled ? 1 : 0);
         m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
         m_breadcrumbLogState = BreadcrumbLogState::Searching;
     }
@@ -852,7 +857,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
-    if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
+    if ((!m_breadcrumbGradientEnabled && !m_breadcrumbFontGradientEnabled) || !m_gdiplusInitialized) {
         return false;
     }
 
@@ -954,6 +959,17 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         const COLORREF startRgb = kRainbowColors[startIndex];
         const COLORREF endRgb = kRainbowColors[endIndex];
 
+        auto darkenChannel = [](BYTE channel) -> BYTE {
+            return static_cast<BYTE>(std::clamp<int>(static_cast<int>(channel) * 35 / 100, 0, 255));
+        };
+        auto lightenChannel = [](BYTE channel) -> BYTE {
+            const int boosted = channel + ((255 - channel) * 3) / 4;
+            return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
+        };
+        auto averageChannel = [](BYTE a, BYTE b) -> BYTE {
+            return static_cast<BYTE>((static_cast<int>(a) + static_cast<int>(b)) / 2);
+        };
+
         Gdiplus::RectF rectF(static_cast<Gdiplus::REAL>(itemRect.left),
                              static_cast<Gdiplus::REAL>(itemRect.top),
                              static_cast<Gdiplus::REAL>(itemRect.right - itemRect.left),
@@ -966,13 +982,19 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             baseAlpha = 220;
         }
 
-        Gdiplus::LinearGradientBrush backgroundBrush(
-            rectF,
-            Gdiplus::Color(baseAlpha, GetRValue(startRgb), GetGValue(startRgb), GetBValue(startRgb)),
-            Gdiplus::Color(baseAlpha, GetRValue(endRgb), GetGValue(endRgb), GetBValue(endRgb)),
-            Gdiplus::LinearGradientModeHorizontal);
-        backgroundBrush.SetGammaCorrection(TRUE);
-        graphics.FillRectangle(&backgroundBrush, rectF);
+        const BYTE scaledAlpha = static_cast<BYTE>(std::clamp<int>(baseAlpha * 55 / 100, 0, 255));
+
+        if (m_breadcrumbGradientEnabled) {
+            const Gdiplus::Color startColor(scaledAlpha, darkenChannel(GetRValue(startRgb)),
+                                            darkenChannel(GetGValue(startRgb)),
+                                            darkenChannel(GetBValue(startRgb)));
+            const Gdiplus::Color endColor(scaledAlpha, darkenChannel(GetRValue(endRgb)),
+                                          darkenChannel(GetGValue(endRgb)), darkenChannel(GetBValue(endRgb)));
+            Gdiplus::LinearGradientBrush backgroundBrush(rectF, startColor, endColor,
+                                                         Gdiplus::LinearGradientModeHorizontal);
+            backgroundBrush.SetGammaCorrection(TRUE);
+            graphics.FillRectangle(&backgroundBrush, rectF);
+        }
 
         LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, 0);
         if (textLength > 0) {
@@ -991,20 +1013,23 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 }
 
                 if (textRect.right > textRect.left) {
-                    auto lighten = [](BYTE channel) -> BYTE {
-                        return static_cast<BYTE>((static_cast<int>(channel) + 255) / 2);
-                    };
+                    const BYTE lightStartRed = lightenChannel(GetRValue(startRgb));
+                    const BYTE lightStartGreen = lightenChannel(GetGValue(startRgb));
+                    const BYTE lightStartBlue = lightenChannel(GetBValue(startRgb));
+                    const BYTE lightEndRed = lightenChannel(GetRValue(endRgb));
+                    const BYTE lightEndGreen = lightenChannel(GetGValue(endRgb));
+                    const BYTE lightEndBlue = lightenChannel(GetBValue(endRgb));
 
-                    const BYTE red = lighten(GetRValue(startRgb));
-                    const BYTE green = lighten(GetGValue(startRgb));
-                    const BYTE blue = lighten(GetBValue(startRgb));
-
-                    if (theme && compositionEnabled) {
+                    const bool useFontGradient = m_breadcrumbFontGradientEnabled;
+                    if (theme && compositionEnabled && !useFontGradient) {
+                        const BYTE avgRed = averageChannel(lightStartRed, lightEndRed);
+                        const BYTE avgGreen = averageChannel(lightStartGreen, lightEndGreen);
+                        const BYTE avgBlue = averageChannel(lightStartBlue, lightEndBlue);
                         RECT themedRect = textRect;
                         DTTOPTS opts{};
                         opts.dwSize = sizeof(opts);
                         opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
-                        opts.crText = RGB(red, green, blue);
+                        opts.crText = RGB(avgRed, avgGreen, avgBlue);
                         DrawThemeTextEx(theme, drawDc, 0, 0, text.c_str(), static_cast<int>(text.size()),
                                         DT_NOPREFIX | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, &themedRect,
                                         &opts);
@@ -1013,10 +1038,23 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                                  static_cast<Gdiplus::REAL>(textRect.top),
                                                  static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
                                                  static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
-                        const Gdiplus::Color textColor(255, red, green, blue);
-                        Gdiplus::SolidBrush textBrush(textColor);
-                        graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
-                                            &textBrush);
+                        if (useFontGradient) {
+                            Gdiplus::LinearGradientBrush textBrush(
+                                textRectF,
+                                Gdiplus::Color(255, lightStartRed, lightStartGreen, lightStartBlue),
+                                Gdiplus::Color(255, lightEndRed, lightEndGreen, lightEndBlue),
+                                Gdiplus::LinearGradientModeHorizontal);
+                            textBrush.SetGammaCorrection(TRUE);
+                            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                                &textBrush);
+                        } else {
+                            const BYTE avgRed = averageChannel(lightStartRed, lightEndRed);
+                            const BYTE avgGreen = averageChannel(lightStartGreen, lightEndGreen);
+                            const BYTE avgBlue = averageChannel(lightStartBlue, lightEndBlue);
+                            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, avgRed, avgGreen, avgBlue));
+                            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                                &textBrush);
+                        }
                     }
                 }
             }
@@ -1088,7 +1126,9 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
 
         if (!observers.empty()) {
             for (CExplorerBHO* observer : observers) {
-                if (!observer || !observer->m_breadcrumbGradientEnabled || !observer->m_gdiplusInitialized) {
+                if (!observer ||
+                    (!observer->m_breadcrumbGradientEnabled && !observer->m_breadcrumbFontGradientEnabled) ||
+                    !observer->m_gdiplusInitialized) {
                     continue;
                 }
 
