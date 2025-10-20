@@ -8,7 +8,6 @@
 #include <CommCtrl.h>
 #include <uxtheme.h>
 #include <OleIdl.h>
-#include <dwmapi.h>
 #include <gdiplus.h>
 
 #include <algorithm>
@@ -88,6 +87,44 @@ std::wstring NormalizeMenuText(const std::wstring& value) {
     }
     const size_t last = normalized.find_last_not_of(L" \t\r\n");
     return normalized.substr(first, last - first + 1);
+}
+
+COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
+    if (!dc || rect.left >= rect.right || rect.top >= rect.bottom) {
+        return GetSysColor(COLOR_WINDOW);
+    }
+
+    const int left = std::max(rect.left, 0);
+    const int top = std::max(rect.top, 0);
+    const int right = std::max(rect.right - 1, left);
+    const int bottom = std::max(rect.bottom - 1, top);
+
+    const std::array<POINT, 4> samplePoints = {{{left, top},
+                                               {right, top},
+                                               {left, bottom},
+                                               {right, bottom}}};
+
+    int totalRed = 0;
+    int totalGreen = 0;
+    int totalBlue = 0;
+    int count = 0;
+
+    for (const auto& point : samplePoints) {
+        const COLORREF pixel = GetPixel(dc, point.x, point.y);
+        if (pixel == CLR_INVALID) {
+            continue;
+        }
+        totalRed += GetRValue(pixel);
+        totalGreen += GetGValue(pixel);
+        totalBlue += GetBValue(pixel);
+        ++count;
+    }
+
+    if (count == 0) {
+        return GetSysColor(COLOR_WINDOW);
+    }
+
+    return RGB(totalRed / count, totalGreen / count, totalBlue / count);
 }
 
 bool TryGetMenuItemText(HMENU menu, UINT position, std::wstring& text) {
@@ -1233,6 +1270,8 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     const ShellTabsOptions options = store.Get();
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
+    m_breadcrumbGradientTransparency = std::clamp(options.breadcrumbGradientTransparency, 0, 100);
+    m_breadcrumbFontTransparency = std::clamp(options.breadcrumbFontTransparency, 0, 100);
 
     const bool gradientsEnabled = (m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled);
     if (!gradientsEnabled || !m_gdiplusInitialized) {
@@ -1336,9 +1375,6 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         }
     }
 
-    BOOL dwmEnabled = FALSE;
-    const bool compositionEnabled = SUCCEEDED(DwmIsCompositionEnabled(&dwmEnabled)) && dwmEnabled;
-
     HFONT fontHandle = reinterpret_cast<HFONT>(SendMessage(hwnd, WM_GETFONT, 0, 0));
     if (!fontHandle) {
         fontHandle = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
@@ -1358,6 +1394,13 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
     format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
     format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+
+    const int gradientTransparency = std::clamp(m_breadcrumbGradientTransparency, 0, 100);
+    const int gradientOpacityPercent = 100 - gradientTransparency;
+    const int fontTransparency = m_breadcrumbFontGradientEnabled ? std::clamp(m_breadcrumbFontTransparency, 0, 100) : 0;
+    const int fontOpacityPercent = 100 - fontTransparency;
+    const BYTE textAlphaBase = static_cast<BYTE>(std::clamp(fontOpacityPercent * 255 / 100, 0, 255));
+    const bool shouldClearDefaultText = m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled;
 
     static const std::array<COLORREF, 7> kRainbowColors = {
         RGB(255, 59, 48),   // red
@@ -1415,9 +1458,10 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             baseAlpha = 220;
         }
 
-        const BYTE scaledAlpha = static_cast<BYTE>(std::clamp<int>(baseAlpha * 55 / 100, 0, 255));
+        const BYTE scaledAlpha = static_cast<BYTE>(std::clamp<int>(baseAlpha * gradientOpacityPercent / 100, 0, 255));
+        const bool backgroundGradientVisible = (m_breadcrumbGradientEnabled && scaledAlpha > 0);
 
-        if (m_breadcrumbGradientEnabled) {
+        if (backgroundGradientVisible) {
             const Gdiplus::Color startColor(scaledAlpha, darkenChannel(GetRValue(startRgb)),
                                             darkenChannel(GetGValue(startRgb)),
                                             darkenChannel(GetBValue(startRgb)));
@@ -1426,8 +1470,12 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             Gdiplus::LinearGradientBrush backgroundBrush(rectF, startColor, endColor,
                                                          Gdiplus::LinearGradientModeHorizontal);
             backgroundBrush.SetGammaCorrection(TRUE);
+            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
             graphics.FillRectangle(&backgroundBrush, rectF);
+            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
         }
+
+        const BYTE textAlpha = textAlphaBase;
 
         LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, 0);
         if (textLength > 0) {
@@ -1454,28 +1502,27 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                     const BYTE lightEndBlue = lightenChannel(GetBValue(endRgb));
 
                     const bool useFontGradient = m_breadcrumbFontGradientEnabled;
-                    if (theme && compositionEnabled && !useFontGradient) {
-                        const BYTE avgRed = averageChannel(lightStartRed, lightEndRed);
-                        const BYTE avgGreen = averageChannel(lightStartGreen, lightEndGreen);
-                        const BYTE avgBlue = averageChannel(lightStartBlue, lightEndBlue);
-                        RECT themedRect = textRect;
-                        DTTOPTS opts{};
-                        opts.dwSize = sizeof(opts);
-                        opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
-                        opts.crText = RGB(avgRed, avgGreen, avgBlue);
-                        DrawThemeTextEx(theme, drawDc, 0, 0, text.c_str(), static_cast<int>(text.size()),
-                                        DT_NOPREFIX | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, &themedRect,
-                                        &opts);
-                    } else {
-                        Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
-                                                 static_cast<Gdiplus::REAL>(textRect.top),
-                                                 static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
-                                                 static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
+                    Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
+                                             static_cast<Gdiplus::REAL>(textRect.top),
+                                             static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
+                                             static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
+
+                    if (shouldClearDefaultText && !backgroundGradientVisible) {
+                        const COLORREF averageBackground = SampleAverageColor(drawDc, textRect);
+                        Gdiplus::SolidBrush clearBrush(Gdiplus::Color(255, GetRValue(averageBackground),
+                                                                      GetGValue(averageBackground),
+                                                                      GetBValue(averageBackground)));
+                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+                        graphics.FillRectangle(&clearBrush, textRectF);
+                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+                    }
+
+                    if (textAlpha > 0) {
                         if (useFontGradient) {
                             Gdiplus::LinearGradientBrush textBrush(
                                 textRectF,
-                                Gdiplus::Color(255, lightStartRed, lightStartGreen, lightStartBlue),
-                                Gdiplus::Color(255, lightEndRed, lightEndGreen, lightEndBlue),
+                                Gdiplus::Color(textAlpha, lightStartRed, lightStartGreen, lightStartBlue),
+                                Gdiplus::Color(textAlpha, lightEndRed, lightEndGreen, lightEndBlue),
                                 Gdiplus::LinearGradientModeHorizontal);
                             textBrush.SetGammaCorrection(TRUE);
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
@@ -1484,7 +1531,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                             const BYTE avgRed = averageChannel(lightStartRed, lightEndRed);
                             const BYTE avgGreen = averageChannel(lightStartGreen, lightEndGreen);
                             const BYTE avgBlue = averageChannel(lightStartBlue, lightEndBlue);
-                            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, avgRed, avgGreen, avgBlue));
+                            Gdiplus::SolidBrush textBrush(Gdiplus::Color(textAlpha, avgRed, avgGreen, avgBlue));
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
                                                 &textBrush);
                         }

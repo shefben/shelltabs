@@ -4,6 +4,7 @@
 #include <KnownFolders.h>
 #include <Shlwapi.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -17,6 +18,8 @@ constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
 constexpr wchar_t kPersistToken[] = L"persist_group_paths";
 constexpr wchar_t kBreadcrumbGradientToken[] = L"breadcrumb_gradient";
 constexpr wchar_t kBreadcrumbFontGradientToken[] = L"breadcrumb_font_gradient";
+constexpr wchar_t kBreadcrumbGradientTransparencyToken[] = L"breadcrumb_gradient_transparency";
+constexpr wchar_t kBreadcrumbFontTransparencyToken[] = L"breadcrumb_font_transparency";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -89,6 +92,20 @@ std::wstring ResolveDirectory() {
 
 bool ParseBool(const std::wstring& token) {
     return token == L"1" || token == L"true" || token == L"TRUE" || token == L"yes" || token == L"on";
+}
+
+int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+    int value = _wtoi(token.c_str());
+    if (value < minimum) {
+        return minimum;
+    }
+    if (value > maximum) {
+        return maximum;
+    }
+    return value;
 }
 
 }  // namespace
@@ -221,6 +238,22 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kBreadcrumbGradientTransparencyToken) {
+            if (tokens.size() >= 2) {
+                m_options.breadcrumbGradientTransparency =
+                    ParseIntInRange(tokens[1], 0, 100, m_options.breadcrumbGradientTransparency);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kBreadcrumbFontTransparencyToken) {
+            if (tokens.size() >= 2) {
+                m_options.breadcrumbFontTransparency =
+                    ParseIntInRange(tokens[1], 0, 100, m_options.breadcrumbFontTransparency);
+            }
+            continue;
+        }
     }
 
     return true;
@@ -253,6 +286,14 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += m_options.enableBreadcrumbFontGradient ? L"1" : L"0";
     content += L"\n";
+    content += kBreadcrumbGradientTransparencyToken;
+    content += L"|";
+    content += std::to_wstring(std::clamp(m_options.breadcrumbGradientTransparency, 0, 100));
+    content += L"\n";
+    content += kBreadcrumbFontTransparencyToken;
+    content += L"|";
+    content += std::to_wstring(std::clamp(m_options.breadcrumbFontTransparency, 0, 100));
+    content += L"\n";
 
     const std::string utf8 = WideToUtf8(content);
 
@@ -271,7 +312,9 @@ bool OptionsStore::Save() const {
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
     return left.reopenOnCrash == right.reopenOnCrash && left.persistGroupPaths == right.persistGroupPaths &&
            left.enableBreadcrumbGradient == right.enableBreadcrumbGradient &&
-           left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient;
+           left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
+           left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&
+           left.breadcrumbFontTransparency == right.breadcrumbFontTransparency;
 }
 
 }  // namespace shelltabs
