@@ -246,8 +246,6 @@ private:
     int GroupCount() const;
     const VisualItem* FindLastGroupHeader() const;
     const VisualItem* FindVisualForHit(const HitInfo& hit) const;
-    int MeasureBadgeWidth(const TabViewItem& item, HDC dc) const;
-    std::wstring BuildGitBadgeText(const TabViewItem& item) const;
     COLORREF ResolveTabBackground(const TabViewItem& item) const;
     COLORREF ResolveGroupBackground(const TabViewItem& item) const;
     COLORREF ResolveTextColor(COLORREF background) const;
@@ -292,9 +290,6 @@ private:
 
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
 constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
-constexpr UINT WM_SHELLTABS_REFRESH_GIT_STATUS = WM_APP + 44;
-constexpr UINT WM_SHELLTABS_ENABLE_GIT_STATUS = WM_APP + 45;
-
 enum : UINT_PTR {
     IDC_NEW_TAB = 1001,
     IDM_CLOSE_TAB = 40001,

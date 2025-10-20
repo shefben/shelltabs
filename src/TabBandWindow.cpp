@@ -3,8 +3,6 @@
 #endif
 #include "TabBandWindow.h"
 
-#include "ExplorerWindowHook.h"
-
 #include <algorithm>  // for 2-arg std::max/std::min
 
 #include <cmath>
@@ -61,9 +59,6 @@ constexpr int kPaddingX = 12;
 constexpr int kGroupPaddingX = 16;
 constexpr int kToolbarGripWidth = 14;
 constexpr int kDragThreshold = 4;
-constexpr int kBadgePaddingX = 8;
-constexpr int kBadgePaddingY = 2;
-constexpr int kBadgeHeight = 18;
 constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
@@ -506,12 +501,6 @@ STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
 
         m_siteSp = sp;
 
-        if (m_hwnd) {
-                if (HWND frame = GetAncestor(m_hwnd, GA_ROOT)) {
-                        ExplorerWindowHook::AttachForExplorer(frame);
-                }
-        }
-
         return S_OK;
 }
 STDMETHODIMP TabBandWindow::GetSite(REFIID riid, void** ppvSite) {
@@ -599,7 +588,6 @@ void TabBandWindow::RebuildLayout() {
                 rowHeight = baseIconHeight + 8;
         }
         rowHeight = std::max(rowHeight, baseIconHeight + 8);
-        rowHeight = std::max(rowHeight, kBadgeHeight + 8);
         rowHeight = std::max(rowHeight, kCloseButtonSize + kCloseButtonVerticalPadding * 2 + 4);
         rowHeight = std::max(rowHeight, 24);
 
@@ -745,8 +733,7 @@ void TabBandWindow::RebuildLayout() {
 		int width = textSize.cx + kPaddingX * 2;
 		width = std::max(width, kItemMinWidth);
 
-		visual.badgeWidth = MeasureBadgeWidth(item, dc);
-		width += visual.badgeWidth;
+                visual.badgeWidth = 0;
 
 		visual.icon = LoadItemIcon(item);
 		if (visual.icon) {
@@ -1736,39 +1723,6 @@ bool TabBandWindow::IsSystemDarkMode() const {
     return value == 0;
 }
 
-std::wstring TabBandWindow::BuildGitBadgeText(const TabViewItem& item) const {
-    if (!item.hasGitStatus) {
-        return {};
-    }
-    std::wstring text = item.gitStatus.branch.empty() ? L"git" : item.gitStatus.branch;
-    if (item.gitStatus.hasChanges) {
-        text += L"*";
-    }
-    if (item.gitStatus.hasUntracked) {
-        text += L"+";
-    }
-    if (item.gitStatus.ahead > 0) {
-        text += L" ↑" + std::to_wstring(item.gitStatus.ahead);
-    }
-    if (item.gitStatus.behind > 0) {
-        text += L" ↓" + std::to_wstring(item.gitStatus.behind);
-    }
-    return text;
-}
-
-int TabBandWindow::MeasureBadgeWidth(const TabViewItem& item, HDC dc) const {
-    int width = 0;
-    if (item.hasGitStatus) {
-        const std::wstring badge = BuildGitBadgeText(item);
-        if (!badge.empty()) {
-            SIZE badgeSize{};
-            GetTextExtentPoint32W(dc, badge.c_str(), static_cast<int>(badge.size()), &badgeSize);
-            width += badgeSize.cx + kBadgePaddingX * 2;
-        }
-    }
-    return width;
-}
-
 void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
     RECT indicator = rect;
@@ -1940,7 +1894,6 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-    const int badgeWidth = item.badgeWidth;
     RECT closeRect = ComputeCloseButtonRect(item);
 
     int trailingBoundary = rect.right - kPaddingX;
@@ -1966,50 +1919,6 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     textRect.top += 3;
 
     SetTextColor(dc, textColor);
-
-    if (badgeWidth > 0) {
-        RECT badgeRect = rect;
-        badgeRect.right = trailingBoundary;
-        badgeRect.left = badgeRect.right - badgeWidth + kBadgePaddingX;
-        if (badgeRect.left < textLeft + 4) {
-            badgeRect.left = textLeft + 4;
-        }
-        if (badgeRect.right <= badgeRect.left) {
-            badgeRect.right = badgeRect.left + 4;
-        }
-        badgeRect.top = rect.top + 4;
-        badgeRect.bottom = badgeRect.top + kBadgeHeight;
-        COLORREF badgeColor = item.data.gitStatus.hasChanges ? RGB(200, 130, 60) : RGB(90, 150, 90);
-        COLORREF badgeFillColor = m_darkMode ? BlendColors(computedBackground, badgeColor, 0.55)
-                                             : LightenColor(badgeColor, 0.15);
-        HBRUSH badgeBrush = CreateSolidBrush(badgeFillColor);
-        if (badgeBrush) {
-            RECT badgeFill = badgeRect;
-            badgeFill.left -= kBadgePaddingX;
-            badgeFill.right += kBadgePaddingX;
-            FillRect(dc, &badgeFill, badgeBrush);
-            DeleteObject(badgeBrush);
-            COLORREF badgeOutline = m_darkMode ? RGB(70, 70, 74) : GetSysColor(COLOR_3DSHADOW);
-            HPEN badgePen = CreatePen(PS_SOLID, 1, badgeOutline);
-            if (badgePen) {
-                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, badgePen));
-                MoveToEx(dc, badgeFill.left, badgeFill.top, nullptr);
-                LineTo(dc, badgeFill.right, badgeFill.top);
-                LineTo(dc, badgeFill.right, badgeFill.bottom);
-                LineTo(dc, badgeFill.left, badgeFill.bottom);
-                LineTo(dc, badgeFill.left, badgeFill.top);
-                SelectObject(dc, oldPen);
-                DeleteObject(badgePen);
-            }
-        }
-        SetTextColor(dc, ResolveTextColor(badgeFillColor));
-        const std::wstring badgeText = BuildGitBadgeText(item.data);
-        DrawTextW(dc, badgeText.c_str(), static_cast<int>(badgeText.size()), &badgeRect,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-        SetTextColor(dc, textColor);
-        const int badgeLeft = static_cast<int>(badgeRect.left);
-        textRight = std::max(textLeft + 1, badgeLeft - kBadgePaddingX);
-    }
 
     textRect.right = std::max(textLeft + 1, textRight);
     DrawTextW(dc, item.data.name.c_str(), static_cast<int>(item.data.name.size()), &textRect,
@@ -3811,18 +3720,6 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_SHELLTABS_DEFER_NAVIGATE: {
                 if (self->m_owner) {
                     self->m_owner->OnDeferredNavigate();
-                }
-                return 0;
-            }
-            case WM_SHELLTABS_ENABLE_GIT_STATUS: {
-                if (self->m_owner) {
-                    self->m_owner->OnEnableGitStatus();
-                }
-                return 0;
-            }
-            case WM_SHELLTABS_REFRESH_GIT_STATUS: {
-                if (self->m_owner) {
-                    self->m_owner->OnGitStatusUpdated();
                 }
                 return 0;
             }

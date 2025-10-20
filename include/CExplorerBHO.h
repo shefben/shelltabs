@@ -10,16 +10,12 @@
 #include <shlobj.h>
 
 #include <wrl/client.h>
-#include "FolderViewColorizer.h"
 namespace shelltabs {
-
-class ExplorerWindowHook;
 
 class CExplorerBHO : public IObjectWithSite, public IDispatch {
 public:
     CExplorerBHO();
     ~CExplorerBHO();
-    shelltabs::FolderViewColorizer m_colorizer;
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
     IFACEMETHODIMP_(ULONG) AddRef() override;
@@ -52,7 +48,6 @@ private:
     DWORD m_connectionCookie = 0;
     bool m_bandVisible = false;
     bool m_shouldRetryEnsure = true;
-    std::unique_ptr<ExplorerWindowHook> m_windowHook;
     Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
 };
 

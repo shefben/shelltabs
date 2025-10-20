@@ -24,7 +24,6 @@
 
 #include "Guids.h"
 #include "GroupStore.h"
-#include "GitStatus.h"
 #include "OptionsDialog.h"
 #include "OptionsStore.h"
 #include "Logging.h"
@@ -45,40 +44,6 @@ struct WindowTokenState {
 WindowTokenState& GetWindowTokenState() {
     static auto* state = new WindowTokenState();
     return *state;
-}
-
-struct GitStatusActivationState {
-    std::atomic<long> clients{0};
-};
-
-GitStatusActivationState& GetGitStatusActivationState() {
-    static auto* state = new GitStatusActivationState();
-    return *state;
-}
-
-void AcquireGitStatusActivation() {
-    auto& state = GetGitStatusActivationState();
-    const long previous = state.clients.fetch_add(1, std::memory_order_acq_rel);
-    const long current = previous + 1;
-    LogMessage(LogLevel::Info, L"TabBand acquiring git status activation (count=%ld)", current);
-    if (previous == 0) {
-        GitStatusCache::Instance().SetEnabled(true);
-    }
-}
-
-void ReleaseGitStatusActivation() {
-    auto& state = GetGitStatusActivationState();
-    long previous = state.clients.fetch_sub(1, std::memory_order_acq_rel);
-    if (previous <= 0) {
-        state.clients.store(0, std::memory_order_release);
-        LogMessage(LogLevel::Warning, L"TabBand release git status activation underflow");
-        return;
-    }
-    const long remaining = previous - 1;
-    LogMessage(LogLevel::Info, L"TabBand releasing git status activation (remaining=%ld)", remaining);
-    if (remaining == 0) {
-        GitStatusCache::Instance().SetEnabled(false);
-    }
 }
 
 std::wstring TrimWhitespace(const std::wstring& value) {
@@ -379,8 +344,6 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             InitializeTabs();
             LogMessage(LogLevel::Info, L"TabBand::SetSite UpdateTabsUI (initial)");
             UpdateTabsUI();
-
-            ScheduleGitStatusEnable();
 
             LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
 
@@ -1064,12 +1027,6 @@ void TabBand::EnsureWindow() {
         m_window = std::move(window);
         LogMessage(LogLevel::Info, L"TabBand::EnsureWindow created window hwnd=%p",
                    m_window ? m_window->GetHwnd() : nullptr);
-        if (m_gitStatusActivationAcquired) {
-            EnsureGitStatusListener();
-        } else if (m_gitStatusEnablePending || m_gitStatusEnablePosted) {
-            m_gitStatusEnablePosted = false;
-            ScheduleGitStatusEnable();
-        }
     } else {
         LogMessage(LogLevel::Error, L"TabBand::EnsureWindow failed to create window");
     }
@@ -1083,44 +1040,6 @@ void TabBand::EnsureOptionsLoaded() const {
     store.Load();
     m_options = store.Get();
     m_optionsLoaded = true;
-}
-
-void TabBand::EnsureGitStatusListener() {
-    if (m_gitStatusListenerId != 0 || !m_window) {
-        return;
-    }
-    if (!GitStatusCache::Instance().IsEnabled()) {
-        LogMessage(LogLevel::Info, L"TabBand::EnsureGitStatusListener skipped (git disabled)");
-        return;
-    }
-    LogMessage(LogLevel::Info, L"TabBand::EnsureGitStatusListener registering listener (this=%p)", this);
-    HWND hwnd = m_window->GetHwnd();
-    if (!hwnd) {
-        m_gitStatusEnablePending = true;
-        return;
-    }
-    m_gitStatusListenerId = GitStatusCache::Instance().AddListener([hwnd]() {
-        if (hwnd && IsWindow(hwnd)) {
-            PostMessageW(hwnd, WM_SHELLTABS_REFRESH_GIT_STATUS, 0, 0);
-        }
-    });
-    if (m_gitStatusListenerId == 0) {
-        LogMessage(LogLevel::Warning, L"TabBand::EnsureGitStatusListener failed to register listener");
-        m_gitStatusEnablePending = true;
-        return;
-    }
-    LogMessage(LogLevel::Info, L"TabBand::EnsureGitStatusListener listener id=%llu",
-               static_cast<unsigned long long>(m_gitStatusListenerId));
-}
-
-void TabBand::RemoveGitStatusListener() {
-    if (m_gitStatusListenerId == 0) {
-        return;
-    }
-    LogMessage(LogLevel::Info, L"TabBand::RemoveGitStatusListener id=%llu",
-               static_cast<unsigned long long>(m_gitStatusListenerId));
-    GitStatusCache::Instance().RemoveListener(m_gitStatusListenerId);
-    m_gitStatusListenerId = 0;
 }
 
 void TabBand::DisconnectSite() {
@@ -1141,13 +1060,6 @@ void TabBand::DisconnectSite() {
     m_shellBrowser.Reset();
     m_site.Reset();
 
-    RemoveGitStatusListener();
-    if (m_gitStatusActivationAcquired) {
-        ReleaseGitStatusActivation();
-        m_gitStatusActivationAcquired = false;
-    }
-    m_gitStatusEnablePosted = false;
-    m_gitStatusEnablePending = false;
     if (m_window) {
         m_window->SetSite(nullptr);
         m_window->Destroy();
@@ -1206,9 +1118,8 @@ void TabBand::InitializeTabs() {
 
 void TabBand::UpdateTabsUI() {
     const auto items = m_tabs.BuildView();
-    LogMessage(LogLevel::Info, L"TabBand::UpdateTabsUI applying %llu items (git=%ls)",
-               static_cast<unsigned long long>(items.size()),
-               GitStatusCache::Instance().IsEnabled() ? L"enabled" : L"disabled");
+    LogMessage(LogLevel::Info, L"TabBand::UpdateTabsUI applying %llu items",
+               static_cast<unsigned long long>(items.size()));
     if (m_window) {
         m_window->SetTabs(items);
     }
@@ -1801,78 +1712,6 @@ void TabBand::OnDeferredNavigate() {
     if (target.IsValid()) {
         NavigateToTab(target);
     }
-}
-
-void TabBand::OnGitStatusUpdated() {
-    GuardExplorerCall(L"TabBand::OnGitStatusUpdated", [&]() {
-        if (!m_window) {
-            LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated ignored (no window)");
-            return;
-        }
-        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated refreshing view");
-        const auto items = m_tabs.BuildView();
-        LogMessage(LogLevel::Info, L"TabBand::OnGitStatusUpdated applied %llu items",
-                   static_cast<unsigned long long>(items.size()));
-        m_window->SetTabs(items);
-    });
-}
-
-void TabBand::ScheduleGitStatusEnable() {
-    if (m_gitStatusActivationAcquired) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already active");
-        EnsureGitStatusListener();
-        return;
-    }
-    if (!m_window) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (no window)");
-        m_gitStatusEnablePending = true;
-        return;
-    }
-    HWND hwnd = m_window->GetHwnd();
-    if (!hwnd || !IsWindow(hwnd)) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable deferring (invalid hwnd)");
-        m_gitStatusEnablePending = true;
-        return;
-    }
-    if (m_gitStatusEnablePosted) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable already posted");
-        return;
-    }
-    if (PostMessageW(hwnd, WM_SHELLTABS_ENABLE_GIT_STATUS, 0, 0)) {
-        LogMessage(LogLevel::Info, L"TabBand::ScheduleGitStatusEnable posted enable message");
-        m_gitStatusEnablePosted = true;
-        m_gitStatusEnablePending = false;
-    } else {
-        const DWORD error = GetLastError();
-        LogMessage(LogLevel::Warning,
-                   L"TabBand::ScheduleGitStatusEnable PostMessage failed (error=%lu)", error);
-        m_gitStatusEnablePending = true;
-    }
-}
-
-void TabBand::OnEnableGitStatus() {
-    GuardExplorerCall(L"TabBand::OnEnableGitStatus", [&]() {
-        LogMessage(LogLevel::Info, L"TabBand::OnEnableGitStatus invoked (this=%p)", this);
-        m_gitStatusEnablePosted = false;
-        if (!m_window) {
-            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (no window)");
-            m_gitStatusEnablePending = true;
-            return;
-        }
-        HWND hwnd = m_window->GetHwnd();
-        if (!hwnd || !IsWindow(hwnd)) {
-            LogMessage(LogLevel::Warning, L"TabBand::OnEnableGitStatus deferring (invalid hwnd)");
-            m_gitStatusEnablePending = true;
-            return;
-        }
-        if (!m_gitStatusActivationAcquired) {
-            AcquireGitStatusActivation();
-            m_gitStatusActivationAcquired = true;
-        }
-        m_gitStatusEnablePending = false;
-        EnsureGitStatusListener();
-        UpdateTabsUI();
-    });
 }
 
 void TabBand::QueueNavigateTo(TabLocation location) {
