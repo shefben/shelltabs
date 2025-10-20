@@ -168,6 +168,9 @@ HRESULT CreateBrowserHelperClassFactory(REFIID riid, void** object) {
 
 namespace {
 
+using shelltabs::ModuleAddRef;
+using shelltabs::ModuleRelease;
+
 class OpenFolderCommandClassFactory : public IClassFactory {
 public:
     OpenFolderCommandClassFactory() : m_refCount(1) { ModuleAddRef(); }
@@ -204,12 +207,12 @@ public:
             return CLASS_E_NOAGGREGATION;
         }
 
-        auto command = std::make_unique<OpenFolderCommand>();
+        auto command = std::make_unique<shelltabs::OpenFolderCommand>();
         if (!command) {
             return E_OUTOFMEMORY;
         }
 
-        OpenFolderCommand* raw = command.release();
+        shelltabs::OpenFolderCommand* raw = command.release();
         const HRESULT hr = raw->QueryInterface(riid, object);
         raw->Release();
         return hr;
