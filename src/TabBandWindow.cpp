@@ -3786,6 +3786,33 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->HandleExternalDropExecute();
                 return 0;
             }
+            case WM_COPYDATA: {
+                auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+                if (!data || data->dwData != SHELLTABS_COPYDATA_OPEN_FOLDER || data->cbData == 0 ||
+                    !data->lpData) {
+                    return fallback();
+                }
+
+                if (!self->m_owner) {
+                    return TRUE;
+                }
+
+                const wchar_t* buffer = static_cast<const wchar_t*>(data->lpData);
+                const size_t charCount = data->cbData / sizeof(wchar_t);
+                if (charCount == 0) {
+                    return TRUE;
+                }
+
+                std::wstring path(buffer, buffer + charCount);
+                if (!path.empty() && path.back() == L'\0') {
+                    path.pop_back();
+                }
+
+                if (!path.empty()) {
+                    self->m_owner->OnOpenFolderInNewTab(path);
+                }
+                return TRUE;
+            }
             case WM_PAINT: {
                 PAINTSTRUCT ps;
                 HDC dc = BeginPaint(hwnd, &ps);

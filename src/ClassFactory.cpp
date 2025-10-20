@@ -5,6 +5,7 @@
 #include <new>
 
 #include "Module.h"
+#include "OpenFolderCommand.h"
 #include "TabBand.h"
 #include "CExplorerBHO.h"
 
@@ -154,6 +155,89 @@ HRESULT CreateBrowserHelperClassFactory(REFIID riid, void** object) {
     }
 
     BrowserHelperClassFactory* factory = new (std::nothrow) BrowserHelperClassFactory();
+    if (!factory) {
+        return E_OUTOFMEMORY;
+    }
+
+    const HRESULT hr = factory->QueryInterface(riid, object);
+    factory->Release();
+    return hr;
+}
+
+}  // namespace shelltabs
+
+namespace {
+
+class OpenFolderCommandClassFactory : public IClassFactory {
+public:
+    OpenFolderCommandClassFactory() : m_refCount(1) { ModuleAddRef(); }
+    ~OpenFolderCommandClassFactory() { ModuleRelease(); }
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IClassFactory) {
+            *object = static_cast<IClassFactory*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return static_cast<ULONG>(++m_refCount); }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        const ULONG count = static_cast<ULONG>(--m_refCount);
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    IFACEMETHODIMP CreateInstance(IUnknown* outer, REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (outer) {
+            return CLASS_E_NOAGGREGATION;
+        }
+
+        auto command = std::make_unique<OpenFolderCommand>();
+        if (!command) {
+            return E_OUTOFMEMORY;
+        }
+
+        OpenFolderCommand* raw = command.release();
+        const HRESULT hr = raw->QueryInterface(riid, object);
+        raw->Release();
+        return hr;
+    }
+
+    IFACEMETHODIMP LockServer(BOOL lock) override {
+        if (lock) {
+            ModuleAddRef();
+        } else {
+            ModuleRelease();
+        }
+        return S_OK;
+    }
+
+private:
+    std::atomic<long> m_refCount;
+};
+
+}  // namespace
+
+namespace shelltabs {
+
+HRESULT CreateOpenFolderCommandClassFactory(REFIID riid, void** object) {
+    if (!object) {
+        return E_POINTER;
+    }
+
+    OpenFolderCommandClassFactory* factory = new (std::nothrow) OpenFolderCommandClassFactory();
     if (!factory) {
         return E_OUTOFMEMORY;
     }

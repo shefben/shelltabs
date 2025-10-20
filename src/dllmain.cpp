@@ -45,6 +45,10 @@ constexpr wchar_t kBandProgId[] = L"ShellTabs.Band";
 constexpr wchar_t kBandProgIdVersion[] = L"ShellTabs.Band.1";
 constexpr wchar_t kBhoProgId[] = L"ShellTabs.BrowserHelper";
 constexpr wchar_t kBhoProgIdVersion[] = L"ShellTabs.BrowserHelper.1";
+constexpr wchar_t kOpenFolderCommandFriendlyName[] = L"Shell Tabs Open Folder Command";
+constexpr wchar_t kOpenFolderCommandVerb[] = L"ShellTabs.OpenInNewTab";
+constexpr wchar_t kOpenFolderCommandKeyName[] = L"ShellTabs.OpenInNewTab";
+constexpr wchar_t kOpenFolderCommandLabel[] = L"Open Folder In New Tab";
 
 struct ScopedRegKey {
     ScopedRegKey() = default;
@@ -648,6 +652,74 @@ HRESULT RegisterExplorerApproved(const std::wstring& clsidString, const wchar_t*
         /*allowUserFallback=*/false);
 }
 
+HRESULT RegisterOpenFolderCommand(const std::wstring& clsidString) {
+    constexpr const wchar_t* kScopes[] = {
+        L"Software\\Classes\\Directory\\shell\\",
+        L"Software\\Classes\\Folder\\shell\\",
+    };
+
+    for (const wchar_t* scope : kScopes) {
+        const std::wstring keyPath = std::wstring(scope) + kOpenFolderCommandKeyName;
+        DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
+
+        const HRESULT hr = WriteWithMachinePreference(
+            [&](const RegistryTarget& target) -> HRESULT {
+                ScopedRegKey key;
+                HRESULT inner = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+
+                if (kOpenFolderCommandLabel[0] != L'\0') {
+                    inner = WriteRegistryStringValue(key.get(), nullptr, kOpenFolderCommandLabel);
+                    if (FAILED(inner)) {
+                        return inner;
+                    }
+                    inner = WriteRegistryStringValue(key.get(), L"MUIVerb", kOpenFolderCommandLabel);
+                    if (FAILED(inner)) {
+                        return inner;
+                    }
+                }
+
+                if (kOpenFolderCommandVerb[0] != L'\0') {
+                    inner = WriteRegistryStringValue(key.get(), L"Verb", kOpenFolderCommandVerb);
+                    if (FAILED(inner)) {
+                        return inner;
+                    }
+                }
+
+                inner = WriteRegistryStringValue(key.get(), L"ExplorerCommandHandler", clsidString.c_str());
+                if (FAILED(inner)) {
+                    return inner;
+                }
+
+                return WriteRegistryStringValue(key.get(), L"CommandStateSync", L"");
+            });
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    return S_OK;
+}
+
+HRESULT UnregisterOpenFolderCommand() {
+    constexpr const wchar_t* kScopes[] = {
+        L"Software\\Classes\\Directory\\shell\\",
+        L"Software\\Classes\\Folder\\shell\\",
+    };
+
+    for (const wchar_t* scope : kScopes) {
+        const std::wstring keyPath = std::wstring(scope) + kOpenFolderCommandKeyName;
+        const HRESULT hr = DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    return S_OK;
+}
+
 HRESULT ClearExplorerBandCache() {
     constexpr std::array<const wchar_t*, 2> kCacheKeys = {
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Discardable\\PostSetup\\Component Categories\\{00021493-0000-0000-C000-000000000046}\\Enum",
@@ -766,6 +838,9 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     if (rclsid == CLSID_ShellTabsBrowserHelper) {
         return CreateBrowserHelperClassFactory(riid, object);
     }
+    if (rclsid == CLSID_ShellTabsOpenFolderCommand) {
+        return CreateOpenFolderCommandClassFactory(riid, object);
+    }
 
     return CLASS_E_CLASSNOTAVAILABLE;
 }
@@ -801,6 +876,12 @@ STDAPI DllRegisterServer(void) {
     RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (BHO)", RegisterExplorerApproved(bhoClsid, kBhoFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterBrowserHelper", RegisterBrowserHelper(bhoClsid, kBhoFriendlyName));
 
+    const std::wstring commandClsid = GuidToString(CLSID_ShellTabsOpenFolderCommand);
+    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (open folder command)",
+                         RegisterInprocServer(modulePath, commandClsid, kOpenFolderCommandFriendlyName,
+                                              appIdString.c_str(), nullptr, nullptr, {}));
+    RETURN_IF_FAILED_LOG(L"RegisterOpenFolderCommand", RegisterOpenFolderCommand(commandClsid));
+
     LogMessage(LogLevel::Info, L"DllRegisterServer completed successfully");
     return S_OK;
 }
@@ -832,6 +913,12 @@ STDAPI DllUnregisterServer(void) {
     RETURN_IF_FAILED_LOG(L"UnregisterProgIds (BHO)", UnregisterProgIds(kBhoProgIdVersion, kBhoProgId));
     RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (BHO)", UnregisterApprovedExtension(bhoClsid));
     RETURN_IF_FAILED_LOG(L"UnregisterBrowserHelper", UnregisterBrowserHelper(bhoClsid));
+
+    const std::wstring commandClsid = GuidToString(CLSID_ShellTabsOpenFolderCommand);
+    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (open folder command CLSID)",
+                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + commandClsid,
+                                                      /*ignoreAccessDenied=*/true));
+    RETURN_IF_FAILED_LOG(L"UnregisterOpenFolderCommand", UnregisterOpenFolderCommand());
     RETURN_IF_FAILED_LOG(L"UnregisterAppId", UnregisterAppId(appIdString, moduleFileName));
 
     LogMessage(LogLevel::Info, L"DllUnregisterServer completed successfully");
