@@ -1,6 +1,7 @@
 #include "CExplorerBHO.h"
 
 #include <combaseapi.h>
+#include <objbase.h>
 #include <exdispid.h>
 #include <oleauto.h>
 #include <shlobj.h>
@@ -104,6 +105,50 @@ bool ExtractVariantLong(const VARIANT& value, LONG* result) {
                 return false;
             }
             return ExtractVariantLong(*value.pvarVal, result);
+        default:
+            break;
+    }
+
+    return false;
+}
+
+bool ExtractVariantDispatch(const VARIANT& value, IDispatch** result) {
+    if (!result) {
+        return false;
+    }
+
+    *result = nullptr;
+
+    switch (value.vt) {
+        case VT_DISPATCH:
+            if (!value.pdispVal) {
+                return false;
+            }
+            *result = value.pdispVal;
+            (*result)->AddRef();
+            return true;
+        case VT_UNKNOWN:
+            if (!value.punkVal) {
+                return false;
+            }
+            return SUCCEEDED(value.punkVal->QueryInterface(IID_PPV_ARGS(result)));
+        case VT_DISPATCH | VT_BYREF:
+            if (!value.ppdispVal || !*value.ppdispVal) {
+                return false;
+            }
+            *result = *value.ppdispVal;
+            (*result)->AddRef();
+            return true;
+        case VT_UNKNOWN | VT_BYREF:
+            if (!value.ppunkVal || !*value.ppunkVal) {
+                return false;
+            }
+            return SUCCEEDED((*value.ppunkVal)->QueryInterface(IID_PPV_ARGS(result)));
+        case VT_VARIANT | VT_BYREF:
+            if (!value.pvarVal) {
+                return false;
+            }
+            return ExtractVariantDispatch(*value.pvarVal, result);
         default:
             break;
     }
@@ -464,6 +509,38 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                         }
                     } else if (!m_bandVisible || m_shouldRetryEnsure) {
                         EnsureBandVisible();
+                    }
+                    break;
+                }
+                case DISPID_NAVIGATECOMPLETE2:
+                case DISPID_DOCUMENTCOMPLETE: {
+                    if (!params || params->cArgs < 2) {
+                        if (m_shouldRetryEnsure || !m_bandVisible) {
+                            EnsureBandVisible();
+                        }
+                        break;
+                    }
+
+                    Microsoft::WRL::ComPtr<IDispatch> dispatch;
+                    if (!ExtractVariantDispatch(params->rgvarg[1], dispatch.GetAddressOf()) || !dispatch) {
+                        if (m_shouldRetryEnsure || !m_bandVisible) {
+                            EnsureBandVisible();
+                        }
+                        break;
+                    }
+
+                    Microsoft::WRL::ComPtr<IWebBrowser2> sourceBrowser;
+                    if (FAILED(dispatch.As(&sourceBrowser)) || !sourceBrowser) {
+                        if (m_shouldRetryEnsure || !m_bandVisible) {
+                            EnsureBandVisible();
+                        }
+                        break;
+                    }
+
+                    if (m_webBrowser && IsEqualObject(sourceBrowser.Get(), m_webBrowser.Get())) {
+                        if (!m_bandVisible || m_shouldRetryEnsure) {
+                            EnsureBandVisible();
+                        }
                     }
                     break;
                 }
