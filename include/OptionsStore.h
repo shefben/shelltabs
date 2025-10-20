@@ -9,6 +9,7 @@ namespace shelltabs {
 struct ShellTabsOptions {
     bool reopenOnCrash = false;
     bool persistGroupPaths = false;
+    bool enableBreadcrumbGradient = false;
 };
 
 class OptionsStore {

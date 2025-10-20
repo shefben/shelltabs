@@ -20,7 +20,7 @@ namespace {
 
 constexpr int kMainCheckboxWidth = 210;
 constexpr int kMainDialogWidth = 260;
-constexpr int kMainDialogHeight = 140;
+constexpr int kMainDialogHeight = 160;
 constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
@@ -29,7 +29,8 @@ constexpr int kEditorHeight = 220;
 enum ControlIds : int {
     IDC_MAIN_REOPEN = 5001,
     IDC_MAIN_PERSIST = 5002,
-    IDC_MAIN_EXAMPLE = 5003,
+    IDC_MAIN_BREADCRUMB = 5003,
+    IDC_MAIN_EXAMPLE = 5004,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -73,7 +74,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | WS_CHILD | WS_VISIBLE;
     dlg->dwExtendedStyle = 0;
-    dlg->cdit = 3;
+    dlg->cdit = 4;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -120,13 +121,29 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* breadcrumbCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    breadcrumbCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+    breadcrumbCheck->dwExtendedStyle = 0;
+    breadcrumbCheck->x = 10;
+    breadcrumbCheck->y = 52;
+    breadcrumbCheck->cx = kMainCheckboxWidth;
+    breadcrumbCheck->cy = 12;
+    breadcrumbCheck->id = IDC_MAIN_BREADCRUMB;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Enable breadcrumb color gradient");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* exampleStatic = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     exampleStatic->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     exampleStatic->dwExtendedStyle = 0;
     exampleStatic->x = 18;
-    exampleStatic->y = 48;
+    exampleStatic->y = 74;
     exampleStatic->cx = kMainDialogWidth - 26;
-    exampleStatic->cy = 50;
+    exampleStatic->cy = 60;
     exampleStatic->id = IDC_MAIN_EXAMPLE;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
@@ -882,6 +899,8 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 CheckDlgButton(hwnd, IDC_MAIN_REOPEN, data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_PERSIST,
                                data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB,
+                               data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
                 const wchar_t example[] =
                     L"Example: if a group opens to C:\\test and you browse to C\\test\\child, "
                     L"enabling this option reopens the child folder next time.";
@@ -897,6 +916,8 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
                     data->workingOptions.persistGroupPaths =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
+                    data->workingOptions.enableBreadcrumbGradient =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);

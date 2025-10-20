@@ -40,6 +40,33 @@ private:
     HRESULT ConnectEvents();
     void DisconnectEvents();
     HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
+    void UpdateBreadcrumbSubclass();
+    void RemoveBreadcrumbSubclass();
+    HWND FindBreadcrumbToolbar() const;
+    HWND FindBreadcrumbToolbarInWindow(HWND root) const;
+    HWND GetTopLevelExplorerWindow() const;
+    bool InstallBreadcrumbSubclass(HWND toolbar);
+    void EnsureBreadcrumbHook();
+    void RemoveBreadcrumbHook();
+    bool IsBreadcrumbToolbarCandidate(HWND hwnd) const;
+    bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
+    bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
+    bool HandleBreadcrumbPaint(HWND hwnd);
+    enum class BreadcrumbDiscoveryStage {
+        None,
+        ServiceUnavailable,
+        ServiceWindowMissing,
+        ServiceToolbarMissing,
+        FrameMissing,
+        RebarMissing,
+        ParentMissing,
+        ToolbarMissing,
+        Discovered,
+    };
+    void LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const;
+    static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                   UINT_PTR subclassId, DWORD_PTR refData);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -49,6 +76,21 @@ private:
     bool m_bandVisible = false;
     bool m_shouldRetryEnsure = true;
     Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
+    HWND m_breadcrumbToolbar = nullptr;
+    bool m_breadcrumbSubclassInstalled = false;
+    bool m_breadcrumbGradientEnabled = false;
+    bool m_breadcrumbHookRegistered = false;
+    enum class BreadcrumbLogState {
+        Unknown,
+        Disabled,
+        Searching,
+    };
+    BreadcrumbLogState m_breadcrumbLogState = BreadcrumbLogState::Unknown;
+    bool m_loggedBreadcrumbToolbarMissing = false;
+    bool m_bufferedPaintInitialized = false;
+    bool m_gdiplusInitialized = false;
+    ULONG_PTR m_gdiplusToken = 0;
+    mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
 };
 
 }  // namespace shelltabs
