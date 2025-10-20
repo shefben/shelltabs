@@ -121,8 +121,6 @@ public:
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(int initialTab = 0);
     void OnDeferredNavigate();
-    void OnGitStatusUpdated();
-    void OnEnableGitStatus();
 
 private:
     std::atomic<long> m_refCount;
@@ -150,15 +148,9 @@ private:
     int m_allowExternalNewWindows = 0;
     TabLocation m_pendingNavigation;
     bool m_deferredNavigationPosted = false;
-    size_t m_gitStatusListenerId = 0;
-    bool m_gitStatusEnablePosted = false;
-    bool m_gitStatusEnablePending = false;
-    bool m_gitStatusActivationAcquired = false;
 
     void EnsureWindow();
     void EnsureOptionsLoaded() const;
-    void EnsureGitStatusListener();
-    void RemoveGitStatusListener();
     void DisconnectSite();
     void InitializeTabs();
     void UpdateTabsUI();
@@ -176,7 +168,6 @@ private:
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
     void QueueNavigateTo(TabLocation location);
-    void ScheduleGitStatusEnable();
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
     HWND GetFrameWindow() const;

@@ -10,7 +10,6 @@
 #include <wrl/client.h>
 
 #include "ComUtils.h"
-#include "ExplorerWindowHook.h"
 #include "Guids.h"
 #include "Module.h"
 #include "Utilities.h"
@@ -71,12 +70,6 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
-    m_colorizer.Detach();
-    if (m_windowHook) {
-        m_windowHook->Shutdown();
-        m_windowHook.reset();
-    }
-
     DisconnectEvents();
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
@@ -173,14 +166,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             ConnectEvents();
 
-            if (!m_windowHook) {
-                m_windowHook = std::make_unique<ExplorerWindowHook>();
-            }
-            if (m_windowHook && !m_windowHook->Initialize(site, browser.Get())) {
-                m_windowHook->Shutdown();
-                m_windowHook.reset();
-            }
-
             Microsoft::WRL::ComPtr<IServiceProvider> siteProvider;
             if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&siteProvider))) && siteProvider) {
                 if (!m_shellBrowser) {
@@ -207,11 +192,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
             }
-			// Colorize the active folder view
-			//m_colorizer.Attach(m_shellBrowser);
-			//m_colorizer.Refresh();
-
-
             EnsureBandVisible();
             return S_OK;
 

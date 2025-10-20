@@ -16,8 +16,6 @@ add_library(ShellTabs SHARED
     src/TabBand.cpp
     src/TabBandWindow.cpp
     src/TabManager.cpp
-    src/ExplorerWindowHook.cpp
-    src/FolderViewColorizer.cpp
     src/BrowserEvents.cpp
     src/Guids.cpp
     src/Module.cpp
@@ -26,9 +24,7 @@ add_library(ShellTabs SHARED
     src/OptionsStore.cpp
     src/OptionsDialog.cpp
     src/Utilities.cpp
-    src/GitStatus.cpp
     src/Logging.cpp
-    src/ExplorerPane.cpp
     src/resource.rc
 )
 
