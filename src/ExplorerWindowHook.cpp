@@ -1,6 +1,7 @@
 #include "ExplorerWindowHook.h"
 
 #include <algorithm>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -20,6 +21,9 @@ namespace {
 std::mutex g_hookMutex;
 std::unordered_map<DWORD, std::vector<ExplorerWindowHook*>> g_hooksByThread;
 std::unordered_map<HWND, ExplorerWindowHook*> g_hooksByFrame;
+
+std::mutex g_instanceMutex;
+std::unordered_map<HWND, std::weak_ptr<ExplorerWindowHook>> g_hookInstances;
 
 constexpr wchar_t kTreeClassName[] = L"SysTreeView32";
 constexpr wchar_t kListClassName[] = L"SysListView32";
@@ -201,19 +205,18 @@ bool ExplorerWindowHook::Initialize(IUnknown* site, IWebBrowser2* browser) {
 
     RegisterFrameHook();
 
+    initialized_ = true;
+
     ApplyTreeTheme();
     ApplyListTheme();
-	// After successfully initializing the hook (e.g., before or after ApplyListTheme)
-	listTheme_.textColor = RGB(255, 0, 0);         // red for normal items
-	listTheme_.hotTextColor = RGB(255, 0, 0);      // red for hovered items
-	listTheme_.selectedTextColor = RGB(255, 0, 0); // red for selected items
-	// (Leave backgroundColor and others as CLR_INVALID to use default background)
 
     Attach();
     return true;
 }
 
 void ExplorerWindowHook::Shutdown() {
+    HWND frame = frame_;
+
     UnregisterFrameHook();
     if (cbtHook_) {
         UnhookWindowsHookEx(cbtHook_);
@@ -230,6 +233,18 @@ void ExplorerWindowHook::Shutdown() {
 
     UnregisterThreadHook();
 
+    {
+        std::lock_guard<std::mutex> guard(g_instanceMutex);
+        if (frame) {
+            auto it = g_hookInstances.find(frame);
+            if (it != g_hookInstances.end()) {
+                if (auto existing = it->second.lock(); !existing || existing.get() == this) {
+                    g_hookInstances.erase(it);
+                }
+            }
+        }
+    }
+
     frame_ = nullptr;
     tree_ = nullptr;
     treeParent_ = nullptr;
@@ -242,9 +257,14 @@ void ExplorerWindowHook::Shutdown() {
     browser_.Reset();
     site_.Reset();
     threadId_ = 0;
+    initialized_ = false;
 }
 
 void ExplorerWindowHook::Attach() {
+    if (!initialized_) {
+        return;
+    }
+
     if (!frame_) {
         return;
     }
@@ -266,6 +286,35 @@ void ExplorerWindowHook::Attach() {
     HWND list = FindDescendantWithClass(defView, kListClassName);
     if (list) {
         OnListWindowCreated(list);
+    }
+}
+
+void ExplorerWindowHook::UpdateListTheme(const PaneTheme& theme) {
+    listTheme_ = theme;
+
+    HFONT font = CreateFontFromTheme(listTheme_);
+    listFont_.Adopt(font);
+
+    ApplyListTheme();
+    if (listView_) {
+        RedrawWindow(listView_, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ERASE | RDW_UPDATENOW);
+    }
+}
+
+void ExplorerWindowHook::UpdateTreeTheme(const PaneTheme& theme) {
+    treeTheme_ = theme;
+
+    HFONT font = CreateFontFromTheme(treeTheme_);
+    treeFont_.Adopt(font);
+
+    ApplyTreeTheme();
+    if (treeParent_ || tree_) {
+        if (tree_) {
+            RedrawWindow(tree_, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ERASE | RDW_UPDATENOW);
+        }
+        if (treeParent_) {
+            RedrawWindow(treeParent_, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ERASE | RDW_UPDATENOW);
+        }
     }
 }
 
@@ -463,16 +512,7 @@ void ExplorerWindowHook::OnListWindowCreated(HWND list) {
     DetachDefView();
 
     listView_ = list;
-	listTheme_.textColor = RGB(255, 0, 0);  // normal
-	listTheme_.hotTextColor = RGB(255, 0, 0);  // hot/hover
-	listTheme_.selectedTextColor = RGB(255, 0, 0);  // selected
-	ApplyListTheme();  // this will call ListView_SetTextColor with our RGB(255,0,0)
-	RedrawWindow(listView_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
-	AttachDefView(defView);
-	listTheme_.backgroundColor = CLR_INVALID;     // keep OS bg
-	listTheme_.hotBackgroundColor = CLR_INVALID;
-	listTheme_.selectedBackgroundColor = CLR_INVALID;
-    //ApplyListTheme();
+    ApplyListTheme();
     AttachDefView(defView);
 }
 
@@ -735,9 +775,14 @@ void ExplorerWindowHook::ApplyListTheme() {
     }
 
     if (listTheme_.textColor != CLR_INVALID) {
+        // Apply the global list-view color as a baseline. LVM_SETTEXTCOLOR only affects the
+        // default (non-selected) state, so the custom draw handler below remains responsible
+        // for recoloring focused/selected rows just like Explorer does for compressed files.
         ListView_SetTextColor(listView_, listTheme_.textColor);
     }
     if (listTheme_.backgroundColor != CLR_INVALID) {
+        // LVM_SETBKCOLOR/LVM_SETTEXTBKCOLOR provide the same baseline behavior for the
+        // background. They do not influence the highlight brush, so custom draw still wins.
         ListView_SetBkColor(listView_, listTheme_.backgroundColor);
         ListView_SetTextBkColor(listView_, listTheme_.backgroundColor);
     }
@@ -750,17 +795,66 @@ HFONT ExplorerWindowHook::CreateFontFromTheme(const PaneTheme& theme) {
     return CreateFontIndirectW(&theme.font);
 }
 
-void ExplorerWindowHook::AttachForExplorer(HWND explorer) {
-    ExplorerWindowHook* hook = nullptr;
+std::shared_ptr<ExplorerWindowHook> ExplorerWindowHook::CreateForBrowser(IUnknown* site, IWebBrowser2* browser) {
+    if (!browser) {
+        return nullptr;
+    }
+
+    SHANDLE_PTR handle = 0;
+    if (FAILED(browser->get_HWND(&handle)) || !handle) {
+        return nullptr;
+    }
+
+    const HWND frame = reinterpret_cast<HWND>(handle);
     {
-        std::lock_guard<std::mutex> guard(g_hookMutex);
-        auto it = g_hooksByFrame.find(explorer);
-        if (it != g_hooksByFrame.end()) {
-            hook = it->second;
+        std::lock_guard<std::mutex> guard(g_instanceMutex);
+        auto it = g_hookInstances.find(frame);
+        if (it != g_hookInstances.end()) {
+            if (auto existing = it->second.lock()) {
+                return existing;
+            }
+            g_hookInstances.erase(it);
         }
     }
 
-    if (hook) {
+    auto hook = std::make_shared<ExplorerWindowHook>();
+    {
+        std::lock_guard<std::mutex> guard(g_instanceMutex);
+        g_hookInstances[frame] = hook;
+    }
+
+    if (!hook->Initialize(site, browser)) {
+        std::lock_guard<std::mutex> guard(g_instanceMutex);
+        auto it = g_hookInstances.find(frame);
+        if (it != g_hookInstances.end() && it->second.lock().get() == hook.get()) {
+            g_hookInstances.erase(it);
+        }
+        return nullptr;
+    }
+
+    {
+        std::lock_guard<std::mutex> guard(g_instanceMutex);
+        g_hookInstances[frame] = hook;
+    }
+
+    return hook;
+}
+
+std::shared_ptr<ExplorerWindowHook> ExplorerWindowHook::FromExplorer(HWND explorer) {
+    if (!explorer) {
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> guard(g_instanceMutex);
+    auto it = g_hookInstances.find(explorer);
+    if (it == g_hookInstances.end()) {
+        return nullptr;
+    }
+    return it->second.lock();
+}
+
+void ExplorerWindowHook::AttachForExplorer(HWND explorer) {
+    if (auto hook = FromExplorer(explorer)) {
         hook->Attach();
     }
 }

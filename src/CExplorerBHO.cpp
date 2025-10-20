@@ -72,10 +72,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 
 void CExplorerBHO::Disconnect() {
     m_colorizer.Detach();
-    if (m_windowHook) {
-        m_windowHook->Shutdown();
-        m_windowHook.reset();
-    }
+    m_windowHook.reset();
 
     DisconnectEvents();
     m_webBrowser.Reset();
@@ -173,12 +170,9 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             ConnectEvents();
 
-            if (!m_windowHook) {
-                m_windowHook = std::make_unique<ExplorerWindowHook>();
-            }
-            if (m_windowHook && !m_windowHook->Initialize(site, browser.Get())) {
-                m_windowHook->Shutdown();
-                m_windowHook.reset();
+            m_windowHook = ExplorerWindowHook::CreateForBrowser(site, browser.Get());
+            if (m_windowHook) {
+                m_windowHook->Attach();
             }
 
             Microsoft::WRL::ComPtr<IServiceProvider> siteProvider;

@@ -21,6 +21,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <ShlObj.h>
+#include <exdisp.h>
 #include <shobjidl_core.h>
 #include <shlguid.h>
 #include <Shlwapi.h>
@@ -495,6 +496,8 @@ void TabBandWindow::FocusTab() {
 }
 STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
         if (!pUnkSite) {
+                m_windowHook.reset();
+                m_siteUnknown.Reset();
                 m_siteSp.Reset();
                 return S_OK;
         }
@@ -504,12 +507,31 @@ STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
                 return E_NOINTERFACE;
         }
 
+        m_siteUnknown = pUnkSite;
         m_siteSp = sp;
+
+        Microsoft::WRL::ComPtr<IWebBrowser2> browser;
+        if (m_siteSp) {
+                if (FAILED(m_siteSp->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&browser))) || !browser) {
+                        m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser));
+                }
+        }
+        if (!browser && m_siteUnknown) {
+                m_siteUnknown.As(&browser);
+        }
+
+        if (browser) {
+                m_windowHook = ExplorerWindowHook::CreateForBrowser(m_siteUnknown.Get(), browser.Get());
+        }
 
         if (m_hwnd) {
                 if (HWND frame = GetAncestor(m_hwnd, GA_ROOT)) {
                         ExplorerWindowHook::AttachForExplorer(frame);
                 }
+        }
+
+        if (m_windowHook) {
+                m_windowHook->Attach();
         }
 
         return S_OK;

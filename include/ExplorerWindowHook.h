@@ -4,6 +4,7 @@
 
 #include <CommCtrl.h>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -26,7 +27,7 @@ struct PaneTheme {
     COLORREF hotBackgroundColor = CLR_INVALID;
 };
 
-class ExplorerWindowHook {
+class ExplorerWindowHook : public std::enable_shared_from_this<ExplorerWindowHook> {
 public:
     ExplorerWindowHook();
     ~ExplorerWindowHook();
@@ -39,6 +40,8 @@ public:
     void UpdateListTheme(const PaneTheme& theme);
     void UpdateTreeTheme(const PaneTheme& theme);
 
+    static std::shared_ptr<ExplorerWindowHook> CreateForBrowser(IUnknown* site, IWebBrowser2* browser);
+    static std::shared_ptr<ExplorerWindowHook> FromExplorer(HWND explorer);
     static void AttachForExplorer(HWND explorer);
 
 private:
@@ -113,6 +116,7 @@ private:
     ScopedFont listFont_{};
     ScopedFont treeFont_{};
 
+    bool initialized_ = false;
 };
 
 }  // namespace shelltabs

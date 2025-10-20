@@ -71,6 +71,7 @@ An ATL-style registration script lives at `registration/ShellTabs.rgs`. You can 
 
   Run `Unregister-ShellTabs` before rebuilding if the module is loaded by Explorer.
 - The deskband stores data only in memory. You can extend `TabManager` to persist sessions or implement advanced behaviors such as dragging tabs, reordering, or opening new folders in background tabs.
+- When experimenting with list-view coloring, remember that `LVM_SETTEXTCOLOR`/`ListView_SetTextColor` only affects non-selected rows. Explorer’s custom draw handler is still required to recolor highlighted or hot items, so keep the `NM_CUSTOMDRAW` path in place even if you also call the global color APIs to set a baseline.
 
 ## Troubleshooting
 
