@@ -156,6 +156,29 @@ bool ExtractVariantDispatch(const VARIANT& value, IDispatch** result) {
     return false;
 }
 
+bool IsSameComObject(IUnknown* lhs, IUnknown* rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+
+    if (!lhs || !rhs) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IUnknown> canonicalLhs;
+    Microsoft::WRL::ComPtr<IUnknown> canonicalRhs;
+
+    if (FAILED(lhs->QueryInterface(IID_PPV_ARGS(&canonicalLhs)))) {
+        return false;
+    }
+
+    if (FAILED(rhs->QueryInterface(IID_PPV_ARGS(&canonicalRhs)))) {
+        return false;
+    }
+
+    return canonicalLhs.Get() == canonicalRhs.Get();
+}
+
 #ifndef WBSTATE_USERVISIBLE
 #define WBSTATE_USERVISIBLE 0x00000001
 #endif
@@ -537,7 +560,7 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                         break;
                     }
 
-                    if (m_webBrowser && IsEqualObject(sourceBrowser.Get(), m_webBrowser.Get())) {
+                    if (m_webBrowser && IsSameComObject(sourceBrowser.Get(), m_webBrowser.Get())) {
                         if (!m_bandVisible || m_shouldRetryEnsure) {
                             EnsureBandVisible();
                         }
