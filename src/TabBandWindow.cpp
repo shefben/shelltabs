@@ -30,6 +30,7 @@
 #include <cwchar>
 
 #include "Module.h"
+#include "ShellTabsMessages.h"
 #include "TabBand.h"
 #include "Utilities.h"
 
@@ -3771,6 +3772,14 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_SHELLTABS_DEFER_NAVIGATE: {
                 if (self->m_owner) {
                     self->m_owner->OnDeferredNavigate();
+                }
+                return 0;
+            }
+            case WM_SHELLTABS_OPEN_FOLDER: {
+                const auto* payload = reinterpret_cast<const OpenFolderMessagePayload*>(wParam);
+                if (self->m_owner && payload && payload->path && payload->length > 0) {
+                    std::wstring path(payload->path, payload->length);
+                    self->m_owner->OnOpenFolderInNewTab(path);
                 }
                 return 0;
             }

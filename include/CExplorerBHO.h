@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <vector>
 
 #include <exdisp.h>
 #include <ocidl.h>
@@ -46,6 +47,16 @@ private:
     HWND FindBreadcrumbToolbarInWindow(HWND root) const;
     HWND GetTopLevelExplorerWindow() const;
     bool InstallBreadcrumbSubclass(HWND toolbar);
+    void UpdateExplorerViewSubclass();
+    void RemoveExplorerViewSubclass();
+    bool InstallExplorerViewSubclass(HWND listView, HWND treeView);
+    bool HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+    void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
+    void HandleExplorerCommand(UINT commandId);
+    void HandleExplorerMenuDismiss(HMENU menu);
+    bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
+    void DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const;
+    void ClearPendingOpenInNewTabState();
     void EnsureBreadcrumbHook();
     void RemoveBreadcrumbHook();
     bool IsBreadcrumbToolbarCandidate(HWND hwnd) const;
@@ -67,6 +78,8 @@ private:
     static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                     UINT_PTR subclassId, DWORD_PTR refData);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -92,6 +105,17 @@ private:
     bool m_gdiplusInitialized = false;
     ULONG_PTR m_gdiplusToken = 0;
     mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
+    Microsoft::WRL::ComPtr<IShellView> m_shellView;
+    HWND m_shellViewWindow = nullptr;
+    HWND m_listView = nullptr;
+    HWND m_treeView = nullptr;
+    bool m_listViewSubclassInstalled = false;
+    bool m_treeViewSubclassInstalled = false;
+    HMENU m_trackedContextMenu = nullptr;
+    std::vector<std::wstring> m_pendingOpenInNewTabPaths;
+    bool m_contextMenuInserted = false;
+    static constexpr UINT kOpenInNewTabCommandId = 0xE170;
+    static constexpr UINT kMaxTrackedSelection = 16;
 };
 
 }  // namespace shelltabs
