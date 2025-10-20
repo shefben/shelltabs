@@ -15,6 +15,108 @@
 #include "Utilities.h"
 // --- CExplorerBHO private state (treat these as class members) ---
 
+namespace {
+
+bool ExtractVariantBool(const VARIANT& value, bool* result) {
+    if (!result) {
+        return false;
+    }
+
+    switch (value.vt) {
+        case VT_BOOL:
+            *result = (value.boolVal != VARIANT_FALSE);
+            return true;
+        case VT_BOOL | VT_BYREF:
+            if (!value.pboolVal) {
+                return false;
+            }
+            *result = (*value.pboolVal != VARIANT_FALSE);
+            return true;
+        case VT_VARIANT | VT_BYREF:
+            if (!value.pvarVal) {
+                return false;
+            }
+            return ExtractVariantBool(*value.pvarVal, result);
+        default:
+            break;
+    }
+
+    return false;
+}
+
+bool ExtractVariantLong(const VARIANT& value, LONG* result) {
+    if (!result) {
+        return false;
+    }
+
+    switch (value.vt) {
+        case VT_I4:
+        case VT_INT:
+            *result = value.lVal;
+            return true;
+        case VT_UI4:
+        case VT_UINT:
+            *result = static_cast<LONG>(value.ulVal);
+            return true;
+        case VT_I2:
+            *result = value.iVal;
+            return true;
+        case VT_UI2:
+            *result = value.uiVal;
+            return true;
+        case VT_BOOL:
+            *result = (value.boolVal != VARIANT_FALSE) ? 1 : 0;
+            return true;
+        case VT_I4 | VT_BYREF:
+        case VT_INT | VT_BYREF:
+            if (!value.plVal) {
+                return false;
+            }
+            *result = *value.plVal;
+            return true;
+        case VT_UI4 | VT_BYREF:
+        case VT_UINT | VT_BYREF:
+            if (!value.pulVal) {
+                return false;
+            }
+            *result = static_cast<LONG>(*value.pulVal);
+            return true;
+        case VT_I2 | VT_BYREF:
+            if (!value.piVal) {
+                return false;
+            }
+            *result = *value.piVal;
+            return true;
+        case VT_UI2 | VT_BYREF:
+            if (!value.puiVal) {
+                return false;
+            }
+            *result = *value.puiVal;
+            return true;
+        case VT_BOOL | VT_BYREF:
+            if (!value.pboolVal) {
+                return false;
+            }
+            *result = (*value.pboolVal != VARIANT_FALSE) ? 1 : 0;
+            return true;
+        case VT_VARIANT | VT_BYREF:
+            if (!value.pvarVal) {
+                return false;
+            }
+            return ExtractVariantLong(*value.pvarVal, result);
+        default:
+            break;
+    }
+
+    return false;
+}
+
+#ifndef WBSTATE_USERVISIBLE
+#define WBSTATE_USERVISIBLE 0x00000001
+#endif
+
+}  // namespace
+
 namespace shelltabs {
 
 CExplorerBHO::CExplorerBHO() : m_refCount(1) {
@@ -74,6 +176,11 @@ void CExplorerBHO::Disconnect() {
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
     m_site.Reset();
+    ResetEnsureState();
+}
+
+
+void CExplorerBHO::ResetEnsureState() {
     m_bandVisible = false;
     m_shouldRetryEnsure = true;
 }
@@ -307,18 +414,59 @@ void CExplorerBHO::DisconnectEvents() {
     m_connectionCookie = 0;
 }
 
-IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS*, VARIANT*, EXCEPINFO*,
+IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS* params, VARIANT*, EXCEPINFO*,
                                     UINT*) {
     return GuardExplorerCall(
         L"CExplorerBHO::Invoke",
         [&]() -> HRESULT {
             switch (dispIdMember) {
-                case DISPID_ONVISIBLE:
-                case DISPID_WINDOWSTATECHANGED:
-                    if (!m_bandVisible) {
+                case DISPID_ONVISIBLE: {
+                    if (!params || params->cArgs < 1) {
+                        if (m_shouldRetryEnsure || !m_bandVisible) {
+                            EnsureBandVisible();
+                        }
+                        break;
+                    }
+                    bool visible = false;
+                    if (!ExtractVariantBool(params->rgvarg[0], &visible)) {
+                        if (m_shouldRetryEnsure || !m_bandVisible) {
+                            EnsureBandVisible();
+                        }
+                        break;
+                    }
+                    if (!visible) {
+                        ResetEnsureState();
+                        break;
+                    }
+                    if (!m_bandVisible || m_shouldRetryEnsure) {
                         EnsureBandVisible();
                     }
                     break;
+                }
+                case DISPID_WINDOWSTATECHANGED: {
+                    if (!params || params->cArgs < 2) {
+                        if (m_shouldRetryEnsure || !m_bandVisible) {
+                            EnsureBandVisible();
+                        }
+                        break;
+                    }
+                    LONG stateFlags = 0;
+                    LONG validMask = 0;
+                    const bool haveState = ExtractVariantLong(params->rgvarg[1], &stateFlags);
+                    const bool haveMask = ExtractVariantLong(params->rgvarg[0], &validMask);
+                    if (haveState && haveMask && (validMask & WBSTATE_USERVISIBLE) != 0) {
+                        if ((stateFlags & WBSTATE_USERVISIBLE) == 0) {
+                            ResetEnsureState();
+                            break;
+                        }
+                        if (!m_bandVisible || m_shouldRetryEnsure) {
+                            EnsureBandVisible();
+                        }
+                    } else if (!m_bandVisible || m_shouldRetryEnsure) {
+                        EnsureBandVisible();
+                    }
+                    break;
+                }
                 case DISPID_ONQUIT:
                     Disconnect();
                     break;

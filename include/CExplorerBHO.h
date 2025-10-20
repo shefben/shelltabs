@@ -36,6 +36,7 @@ public:
 
 private:
     void Disconnect();
+    void ResetEnsureState();
     HRESULT EnsureBandVisible();
     HRESULT ConnectEvents();
     void DisconnectEvents();
