@@ -139,6 +139,8 @@ void CExplorerBHO::Disconnect() {
     m_site.Reset();
     m_bandVisible = false;
     m_shouldRetryEnsure = true;
+    m_breadcrumbLogState = BreadcrumbLogState::Unknown;
+    m_loggedBreadcrumbToolbarMissing = false;
 }
 
 
@@ -210,10 +212,12 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
         L"CExplorerBHO::SetSite",
         [&]() -> HRESULT {
             if (!site) {
+                LogMessage(LogLevel::Info, L"CExplorerBHO::SetSite detaching from site");
                 Disconnect();
                 return S_OK;
             }
 
+            LogMessage(LogLevel::Info, L"CExplorerBHO::SetSite attaching to site=%p", site);
             Disconnect();
 
             Microsoft::WRL::ComPtr<IWebBrowser2> browser;
@@ -495,6 +499,10 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
     }
     m_breadcrumbToolbar = nullptr;
     m_breadcrumbSubclassInstalled = false;
+    if (m_breadcrumbLogState == BreadcrumbLogState::Searching) {
+        m_breadcrumbLogState = BreadcrumbLogState::Unknown;
+    }
+    m_loggedBreadcrumbToolbarMissing = false;
 }
 
 void CExplorerBHO::UpdateBreadcrumbSubclass() {
@@ -504,21 +512,43 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
 
     if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
+        if (m_breadcrumbLogState != BreadcrumbLogState::Disabled) {
+            LogMessage(LogLevel::Info,
+                       L"Breadcrumb gradient inactive (enabled=%d gdiplus=%d); ensuring subclass removed",
+                       m_breadcrumbGradientEnabled ? 1 : 0, m_gdiplusInitialized ? 1 : 0);
+            m_breadcrumbLogState = BreadcrumbLogState::Disabled;
+        }
         if (m_breadcrumbSubclassInstalled) {
             LogMessage(LogLevel::Info, L"Breadcrumb gradient disabled; removing subclass");
         }
         RemoveBreadcrumbSubclass();
+        m_loggedBreadcrumbToolbarMissing = false;
         return;
+    }
+
+    if (m_breadcrumbLogState != BreadcrumbLogState::Searching) {
+        LogMessage(LogLevel::Info, L"Breadcrumb gradient enabled; locating toolbar (installed=%d)",
+                   m_breadcrumbSubclassInstalled ? 1 : 0);
+        m_breadcrumbLogState = BreadcrumbLogState::Searching;
     }
 
     HWND toolbar = FindBreadcrumbToolbar();
     if (!toolbar) {
+        if (!m_loggedBreadcrumbToolbarMissing) {
+            LogMessage(LogLevel::Info, L"Breadcrumb toolbar not yet available; will retry");
+            m_loggedBreadcrumbToolbarMissing = true;
+        }
         if (m_breadcrumbSubclassInstalled) {
             LogMessage(LogLevel::Info, L"Breadcrumb toolbar not found; removing subclass");
         }
         RemoveBreadcrumbSubclass();
         return;
     }
+
+    if (m_loggedBreadcrumbToolbarMissing) {
+        LogMessage(LogLevel::Info, L"Breadcrumb toolbar discovered after retry");
+    }
+    m_loggedBreadcrumbToolbarMissing = false;
 
     if (toolbar == m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         InvalidateRect(toolbar, nullptr, TRUE);
@@ -532,6 +562,8 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         m_breadcrumbSubclassInstalled = true;
         LogMessage(LogLevel::Info, L"Installed breadcrumb gradient subclass on hwnd=%p", toolbar);
         InvalidateRect(toolbar, nullptr, TRUE);
+    } else {
+        LogLastError(L"SetWindowSubclass(breadcrumb toolbar)");
     }
 }
 

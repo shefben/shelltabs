@@ -59,6 +59,13 @@ private:
     HWND m_breadcrumbToolbar = nullptr;
     bool m_breadcrumbSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
+    enum class BreadcrumbLogState {
+        Unknown,
+        Disabled,
+        Searching,
+    };
+    BreadcrumbLogState m_breadcrumbLogState = BreadcrumbLogState::Unknown;
+    bool m_loggedBreadcrumbToolbarMissing = false;
     bool m_bufferedPaintInitialized = false;
     bool m_gdiplusInitialized = false;
     ULONG_PTR m_gdiplusToken = 0;
