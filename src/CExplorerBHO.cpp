@@ -23,6 +23,10 @@
 #include "OptionsStore.h"
 #include "Utilities.h"
 
+#ifndef TBSTATE_HOT
+#define TBSTATE_HOT 0x80
+#endif
+
 namespace {
 
 bool MatchesClass(HWND hwnd, const wchar_t* className) {
@@ -66,7 +70,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1) {
         m_gdiplusInitialized = true;
     } else {
         m_gdiplusToken = 0;
-        LogMessage(LogLevel::Warn, L"Failed to initialize GDI+; breadcrumb gradient disabled");
+        LogMessage(LogLevel::Warning, L"Failed to initialize GDI+; breadcrumb gradient disabled");
     }
 }
 
