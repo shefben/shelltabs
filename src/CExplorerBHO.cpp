@@ -563,7 +563,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         LogMessage(LogLevel::Info, L"Installed breadcrumb gradient subclass on hwnd=%p", toolbar);
         InvalidateRect(toolbar, nullptr, TRUE);
     } else {
-        LogLastError(L"SetWindowSubclass(breadcrumb toolbar)");
+        LogLastError(L"SetWindowSubclass(breadcrumb toolbar)", GetLastError());
     }
 }
 
