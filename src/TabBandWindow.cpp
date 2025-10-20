@@ -48,9 +48,9 @@ constexpr GUID kSidDataObject = {0x000214e8, 0x0000, 0x0000,
 
 const wchar_t kWindowClassName[] = L"ShellTabsBandWindow";
 constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
-constexpr int kButtonWidth = 44;
-constexpr int kButtonHeight = 44;
-constexpr int kButtonMargin = 6;
+constexpr int kButtonWidth = 19;
+constexpr int kButtonHeight = 19;
+constexpr int kButtonMargin = 2;
 constexpr int kItemMinWidth = 60;
 constexpr int kGroupMinWidth = 90;
 constexpr int kGroupGap = 4;   // gap between “islands” (groups)
