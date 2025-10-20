@@ -448,7 +448,7 @@ HRESULT UnregisterAppId(const std::wstring& appId, const std::wstring& moduleFil
 HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring& clsidString,
                              const wchar_t* friendlyName, const wchar_t* appId,
                              const wchar_t* currentProgId, const wchar_t* versionIndependentProgId,
-                             std::initializer_list<GUID> categories) {
+                             std::initializer_list<GUID> categories, bool markProgrammable = false) {
     const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
 
     DeleteRegistryKeyForTargets(UserTargets(), baseKey, /*ignoreAccessDenied=*/true);
@@ -480,6 +480,14 @@ HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring&
             }
             if (versionIndependentProgId && *versionIndependentProgId) {
                 inner = WriteRegistryStringValue(key.get(), L"VersionIndependentProgID", versionIndependentProgId);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            if (markProgrammable) {
+                const std::wstring programmableKey = baseKey + L"\\Programmable";
+                ScopedRegKey programmable;
+                inner = CreateRegistryKey(target, programmableKey, KEY_READ | KEY_WRITE, &programmable);
                 if (FAILED(inner)) {
                     return inner;
                 }
@@ -778,7 +786,8 @@ STDAPI DllRegisterServer(void) {
     const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
     RETURN_IF_FAILED_LOG(L"RegisterInprocServer (band)",
                          RegisterInprocServer(modulePath, bandClsid, kBandFriendlyName, appIdString.c_str(),
-                                              kBandProgIdVersion, kBandProgId, {CATID_DeskBand, CATID_InfoBand, CATID_CommBand}));
+                                              kBandProgIdVersion, kBandProgId,
+                                              {CATID_DeskBand, CATID_InfoBand, CATID_CommBand}));
     RETURN_IF_FAILED_LOG(L"RegisterDeskBandKey", RegisterDeskBandKey(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterExplorerBar", RegisterExplorerBar(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (band)", RegisterExplorerApproved(bandClsid, kBandFriendlyName));
@@ -788,7 +797,7 @@ STDAPI DllRegisterServer(void) {
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
     RETURN_IF_FAILED_LOG(L"RegisterInprocServer (BHO)",
                          RegisterInprocServer(modulePath, bhoClsid, kBhoFriendlyName, appIdString.c_str(),
-                                              kBhoProgIdVersion, kBhoProgId, {}));
+                                              kBhoProgIdVersion, kBhoProgId, {}, /*markProgrammable=*/true));
     RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (BHO)", RegisterExplorerApproved(bhoClsid, kBhoFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterBrowserHelper", RegisterBrowserHelper(bhoClsid, kBhoFriendlyName));
 

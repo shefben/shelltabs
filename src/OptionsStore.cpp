@@ -15,6 +15,7 @@ constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
 constexpr wchar_t kPersistToken[] = L"persist_group_paths";
+constexpr wchar_t kBreadcrumbGradientToken[] = L"breadcrumb_gradient";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -205,6 +206,13 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kBreadcrumbGradientToken) {
+            if (tokens.size() >= 2) {
+                m_options.enableBreadcrumbGradient = ParseBool(tokens[1]);
+            }
+            continue;
+        }
     }
 
     return true;
@@ -229,6 +237,10 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += m_options.persistGroupPaths ? L"1" : L"0";
     content += L"\n";
+    content += kBreadcrumbGradientToken;
+    content += L"|";
+    content += m_options.enableBreadcrumbGradient ? L"1" : L"0";
+    content += L"\n";
 
     const std::string utf8 = WideToUtf8(content);
 
@@ -245,7 +257,8 @@ bool OptionsStore::Save() const {
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
-    return left.reopenOnCrash == right.reopenOnCrash && left.persistGroupPaths == right.persistGroupPaths;
+    return left.reopenOnCrash == right.reopenOnCrash && left.persistGroupPaths == right.persistGroupPaths &&
+           left.enableBreadcrumbGradient == right.enableBreadcrumbGradient;
 }
 
 }  // namespace shelltabs

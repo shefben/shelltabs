@@ -19,6 +19,7 @@ HKCR
             {
                 val ThreadingModel = s 'Apartment'
             }
+            ForceRemove 'Programmable'
         }
         ForceRemove 'ShellTabs.BrowserHelper' = s 'Shell Tabs Browser Helper'
         {
