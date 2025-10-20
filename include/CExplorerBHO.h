@@ -52,7 +52,7 @@ private:
     DWORD m_connectionCookie = 0;
     bool m_bandVisible = false;
     bool m_shouldRetryEnsure = true;
-    std::unique_ptr<ExplorerWindowHook> m_windowHook;
+    std::shared_ptr<ExplorerWindowHook> m_windowHook;
     Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
 };
 

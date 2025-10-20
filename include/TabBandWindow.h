@@ -11,6 +11,7 @@
 #include <uxtheme.h>
 
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,6 +26,7 @@
 namespace shelltabs {
 
 class TabBand;
+class ExplorerWindowHook;
 
 class TabBandWindow {
 public:
@@ -181,7 +183,9 @@ private:
 	// Render-time cache of empty-island "+" hit targets
 	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
 	// Site/browser for current Explorer window
-	Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
+        Microsoft::WRL::ComPtr<IUnknown> m_siteUnknown;
+        Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
+        std::shared_ptr<ExplorerWindowHook> m_windowHook;
 
         // Utilities
         // Helpers
