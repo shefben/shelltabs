@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <CommCtrl.h>
 #include <Vssym32.h>
+#include <uxtheme.h>
 
 #include <algorithm>
 #include <array>
