@@ -65,6 +65,7 @@ target_link_libraries(ShellTabs PRIVATE
     advapi32
     pathcch
     Shlwapi
+    gdiplus
 )
 
 set_target_properties(ShellTabs PROPERTIES
