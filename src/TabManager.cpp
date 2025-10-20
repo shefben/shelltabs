@@ -11,15 +11,22 @@ namespace {
 constexpr wchar_t kDefaultGroupNamePrefix[] = L"Island ";
 }  // namespace
 
-TabManager::TabManager() { EnsureDefaultGroup(); }
+TabManager::TabManager() = default;
 
 TabManager& TabManager::Get() {
     static TabManager instance;
     return instance;
 }
 
+TabLocation TabManager::SelectedLocation() const noexcept {
+    if (m_selectedFloating && m_floatingTab) {
+        return FloatingLocation();
+    }
+    return {m_selectedGroup, m_selectedTab};
+}
+
 int TabManager::TotalTabCount() const noexcept {
-    int total = 0;
+    int total = HasFloatingTab() ? 1 : 0;
     for (const auto& group : m_groups) {
         total += static_cast<int>(group.tabs.size());
     }
@@ -28,10 +35,22 @@ int TabManager::TotalTabCount() const noexcept {
 
 void TabManager::SetSelectedLocation(TabLocation location) {
     if (!location.IsValid()) {
+        m_selectedFloating = false;
         m_selectedGroup = -1;
         m_selectedTab = -1;
         return;
     }
+    if (location.floating) {
+        if (!HasFloatingTab()) {
+            return;
+        }
+        m_selectedFloating = true;
+        m_selectedGroup = -1;
+        m_selectedTab = location.tabIndex;
+        EnsureVisibleSelection();
+        return;
+    }
+    m_selectedFloating = false;
     if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
         return;
     }
@@ -62,6 +81,12 @@ const TabInfo* TabManager::Get(TabLocation location) const noexcept {
     if (!location.IsValid()) {
         return nullptr;
     }
+    if (location.floating) {
+        if (!HasFloatingTab() || location.tabIndex != 0) {
+            return nullptr;
+        }
+        return &m_floatingTab.value();
+    }
     const auto* group = GetGroup(location.groupIndex);
     if (!group) {
         return nullptr;
@@ -76,6 +101,12 @@ TabInfo* TabManager::Get(TabLocation location) noexcept {
     if (!location.IsValid()) {
         return nullptr;
     }
+    if (location.floating) {
+        if (!HasFloatingTab() || location.tabIndex != 0) {
+            return nullptr;
+        }
+        return &m_floatingTab.value();
+    }
     auto* group = GetGroup(location.groupIndex);
     if (!group) {
         return nullptr;
@@ -89,6 +120,9 @@ TabInfo* TabManager::Get(TabLocation location) noexcept {
 TabLocation TabManager::Find(PCIDLIST_ABSOLUTE pidl) const {
     if (!pidl) {
         return {};
+    }
+    if (HasFloatingTab() && ArePidlsEqual(m_floatingTab->pidl.get(), pidl)) {
+        return FloatingLocation();
     }
     for (size_t g = 0; g < m_groups.size(); ++g) {
         const auto& group = m_groups[g];
@@ -106,12 +140,6 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
         return {};
     }
 
-    EnsureDefaultGroup();
-
-    if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
-        groupIndex = (m_selectedGroup >= 0) ? m_selectedGroup : 0;
-    }
-
     TabInfo info{
         .pidl = std::move(pidl),
         .name = std::move(name),
@@ -120,11 +148,43 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
     };
     info.path = GetParsingName(info.pidl.get());
 
-    auto& group = m_groups[static_cast<size_t>(groupIndex)];
+    if (!HasFloatingTab() && m_groups.empty() && groupIndex < 0) {
+        m_floatingTab.emplace(std::move(info));
+        if (select) {
+            m_selectedFloating = true;
+            m_selectedGroup = -1;
+            m_selectedTab = 0;
+        }
+        EnsureVisibleSelection();
+        return FloatingLocation();
+    }
+
+    int resolvedGroup = groupIndex;
+    if (HasFloatingTab()) {
+        resolvedGroup = PromoteFloatingTabToGroup(true);
+    }
+
+    if (m_groups.empty()) {
+        TabGroup group;
+        group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
+        group.headerVisible = true;
+        m_groups.emplace_back(std::move(group));
+        if (m_selectedGroup < 0) {
+            m_selectedGroup = 0;
+            m_selectedTab = -1;
+        }
+    }
+
+    if (resolvedGroup < 0 || resolvedGroup >= static_cast<int>(m_groups.size())) {
+        resolvedGroup = (m_selectedGroup >= 0) ? m_selectedGroup : 0;
+    }
+
+    auto& group = m_groups[static_cast<size_t>(resolvedGroup)];
     group.tabs.emplace_back(std::move(info));
 
-    const TabLocation location{groupIndex, static_cast<int>(group.tabs.size() - 1)};
+    const TabLocation location{resolvedGroup, static_cast<int>(group.tabs.size() - 1)};
     if (select) {
+        m_selectedFloating = false;
         m_selectedGroup = location.groupIndex;
         m_selectedTab = location.tabIndex;
         group.collapsed = false;
@@ -136,6 +196,20 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
 
 void TabManager::Remove(TabLocation location) {
     if (!location.IsValid()) {
+        return;
+    }
+    if (location.floating) {
+        if (!HasFloatingTab() || location.tabIndex != 0) {
+            return;
+        }
+        const bool wasSelected = m_selectedFloating;
+        m_floatingTab.reset();
+        m_selectedFloating = false;
+        if (wasSelected) {
+            m_selectedGroup = -1;
+            m_selectedTab = -1;
+        }
+        EnsureVisibleSelection();
         return;
     }
     if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
@@ -159,7 +233,6 @@ void TabManager::Remove(TabLocation location) {
         } else if (m_selectedGroup > location.groupIndex) {
             --m_selectedGroup;
         }
-        EnsureDefaultGroup();
     } else if (m_selectedGroup == location.groupIndex && m_selectedTab > location.tabIndex) {
         --m_selectedTab;
     }
@@ -187,6 +260,21 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
     if (!location.IsValid()) {
         return std::nullopt;
     }
+    if (location.floating) {
+        if (!HasFloatingTab() || location.tabIndex != 0) {
+            return std::nullopt;
+        }
+        TabInfo removed = std::move(m_floatingTab.value());
+        const bool wasSelected = m_selectedFloating;
+        m_floatingTab.reset();
+        m_selectedFloating = false;
+        if (wasSelected) {
+            m_selectedGroup = -1;
+            m_selectedTab = -1;
+        }
+        EnsureVisibleSelection();
+        return removed;
+    }
     if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
         return std::nullopt;
     }
@@ -212,7 +300,6 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
         } else if (m_selectedGroup > location.groupIndex) {
             --m_selectedGroup;
         }
-        EnsureDefaultGroup();
     } else if (m_selectedGroup == location.groupIndex && m_selectedTab > location.tabIndex) {
         --m_selectedTab;
     }
@@ -239,13 +326,21 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
 }
 
 TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, bool select) {
-    EnsureDefaultGroup();
+    if (HasFloatingTab()) {
+        PromoteFloatingTabToGroup(true);
+    }
+
+    if (m_groups.empty()) {
+        TabGroup group;
+        group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
+        group.headerVisible = true;
+        m_groups.emplace_back(std::move(group));
+        m_selectedGroup = 0;
+        m_selectedTab = -1;
+    }
 
     if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = std::clamp(groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
-    }
-    if (m_groups.empty()) {
-        groupIndex = 0;
     }
 
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
@@ -283,14 +378,15 @@ std::optional<TabGroup> TabManager::TakeGroup(int groupIndex) {
         --m_selectedGroup;
     }
 
-    EnsureDefaultGroup();
     EnsureVisibleSelection();
 
     return removed;
 }
 
 int TabManager::InsertGroup(TabGroup group, int insertIndex) {
-    EnsureDefaultGroup();
+    if (HasFloatingTab()) {
+        PromoteFloatingTabToGroup(true);
+    }
 
     if (insertIndex < 0) {
         insertIndex = 0;
@@ -315,7 +411,8 @@ void TabManager::Clear() {
     m_selectedGroup = -1;
     m_selectedTab = -1;
     m_groupSequence = 1;
-    EnsureDefaultGroup();
+    m_floatingTab.reset();
+    m_selectedFloating = false;
 }
 
 void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence) {
@@ -323,13 +420,33 @@ void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int se
     m_selectedGroup = selectedGroup;
     m_selectedTab = selectedTab;
     m_groupSequence = std::max(groupSequence, 1);
-    EnsureDefaultGroup();
+    m_floatingTab.reset();
+    m_selectedFloating = false;
     EnsureVisibleSelection();
 }
 
 std::vector<TabViewItem> TabManager::BuildView() const {
     std::vector<TabViewItem> items;
     items.reserve(TotalTabCount() + static_cast<int>(m_groups.size()));
+
+    if (HasFloatingTab()) {
+        const auto& tab = *m_floatingTab;
+        if (!tab.hidden) {
+            TabViewItem item;
+            item.type = TabViewItemType::kTab;
+            item.location = FloatingLocation();
+            item.name = tab.name;
+            item.tooltip = tab.tooltip.empty() ? tab.name : tab.tooltip;
+            item.pidl = tab.pidl.get();
+            item.selected = m_selectedFloating;
+            item.path = tab.path;
+            item.hasCustomOutline = false;
+            item.outlineColor = 0;
+            item.headerVisible = false;
+            item.floating = true;
+            items.emplace_back(std::move(item));
+        }
+    }
 
     for (size_t g = 0; g < m_groups.size(); ++g) {
         const auto& group = m_groups[g];
@@ -368,6 +485,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.savedGroupId = group.savedGroupId;
             header.isSavedGroup = !group.savedGroupId.empty();
             header.headerVisible = group.headerVisible;
+            header.floating = false;
             items.emplace_back(std::move(header));
         }
 
@@ -394,6 +512,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();
             item.headerVisible = group.headerVisible;
+            item.floating = false;
 
             items.emplace_back(std::move(item));
         }
@@ -429,8 +548,16 @@ void TabManager::HideTab(TabLocation location) {
     if (!tab) {
         return;
     }
+    const bool wasSelected = location.floating ? m_selectedFloating
+                                               : (m_selectedGroup == location.groupIndex &&
+                                                  m_selectedTab == location.tabIndex);
     tab->hidden = true;
-    if (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex) {
+    if (location.floating) {
+        if (wasSelected) {
+            m_selectedFloating = false;
+        }
+    }
+    if (wasSelected) {
         EnsureVisibleSelection();
     }
 }
@@ -441,7 +568,13 @@ void TabManager::UnhideTab(TabLocation location) {
         return;
     }
     tab->hidden = false;
-    if (m_selectedGroup < 0 || m_selectedGroup >= static_cast<int>(m_groups.size())) {
+    if (location.floating) {
+        if (!m_selectedFloating && (m_selectedGroup < 0 || m_groups.empty())) {
+            m_selectedFloating = true;
+            m_selectedGroup = -1;
+            m_selectedTab = 0;
+        }
+    } else if (m_selectedGroup < 0 || m_selectedGroup >= static_cast<int>(m_groups.size())) {
         m_selectedGroup = location.groupIndex;
         m_selectedTab = location.tabIndex;
     }
@@ -490,6 +623,9 @@ size_t TabManager::HiddenCount(int groupIndex) const {
 }
 
 int TabManager::CreateGroupAfter(int groupIndex, std::wstring name, bool headerVisible) {
+    if (HasFloatingTab()) {
+        PromoteFloatingTabToGroup(true);
+    }
     if (groupIndex < -1 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = static_cast<int>(m_groups.size()) - 1;
     }
@@ -510,7 +646,6 @@ int TabManager::CreateGroupAfter(int groupIndex, std::wstring name, bool headerV
         ++m_selectedGroup;
     }
 
-    EnsureDefaultGroup();
     EnsureVisibleSelection();
 
     return std::clamp(insertIndex, 0, static_cast<int>(m_groups.size()) - 1);
@@ -520,7 +655,52 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
     if (!from.IsValid()) {
         return;
     }
+    if (from.floating) {
+        if (!HasFloatingTab() || from.tabIndex != 0) {
+            return;
+        }
+        TabInfo movingTab = std::move(m_floatingTab.value());
+        const bool wasSelected = m_selectedFloating;
+        m_floatingTab.reset();
+        m_selectedFloating = false;
+
+        if (m_groups.empty()) {
+            TabGroup group;
+            group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
+            group.headerVisible = true;
+            m_groups.emplace_back(std::move(group));
+            m_selectedGroup = 0;
+            m_selectedTab = -1;
+        }
+
+        if (to.groupIndex < 0 || to.groupIndex >= static_cast<int>(m_groups.size())) {
+            to.groupIndex = std::clamp(to.groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
+        }
+
+        auto& destinationGroup = m_groups[static_cast<size_t>(to.groupIndex)];
+        if (to.tabIndex < 0 || to.tabIndex > static_cast<int>(destinationGroup.tabs.size())) {
+            to.tabIndex = static_cast<int>(destinationGroup.tabs.size());
+        }
+
+        destinationGroup.tabs.insert(destinationGroup.tabs.begin() + to.tabIndex, std::move(movingTab));
+
+        if (wasSelected) {
+            m_selectedGroup = to.groupIndex;
+            m_selectedTab = to.tabIndex;
+        } else if (m_selectedGroup == to.groupIndex && m_selectedTab >= to.tabIndex) {
+            ++m_selectedTab;
+        }
+
+        EnsureVisibleSelection();
+        return;
+    }
+
     if (from.groupIndex < 0 || from.groupIndex >= static_cast<int>(m_groups.size())) {
+        return;
+    }
+
+    if (to.floating) {
+        // Moving into a floating slot is not supported once groups exist.
         return;
     }
 
@@ -558,7 +738,15 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
         --to.groupIndex;
     }
 
-    EnsureDefaultGroup();
+    if (m_groups.empty()) {
+        TabGroup group;
+        group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
+        group.headerVisible = true;
+        m_groups.emplace_back(std::move(group));
+        to.groupIndex = 0;
+        m_selectedGroup = 0;
+        m_selectedTab = -1;
+    }
 
     to.groupIndex = std::clamp(to.groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
     auto& destinationGroup = m_groups[static_cast<size_t>(to.groupIndex)];
@@ -628,21 +816,6 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
     EnsureVisibleSelection();
 }
 
-void TabManager::EnsureDefaultGroup() {
-    if (!m_groups.empty()) {
-        return;
-    }
-
-    TabGroup group;
-    group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
-    group.headerVisible = true;
-    m_groups.emplace_back(std::move(group));
-    if (m_selectedGroup < 0) {
-        m_selectedGroup = 0;
-        m_selectedTab = -1;
-    }
-}
-
 TabLocation TabManager::MoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible) {
     if (!from.IsValid()) {
         return {};
@@ -675,6 +848,27 @@ bool TabManager::IsGroupHeaderVisible(int groupIndex) const {
 }
 
 void TabManager::EnsureVisibleSelection() {
+    if (m_selectedFloating) {
+        if (!HasFloatingTab() || m_floatingTab->hidden) {
+            m_selectedFloating = false;
+        } else {
+            m_selectedGroup = -1;
+            m_selectedTab = 0;
+            return;
+        }
+    }
+
+    if (HasFloatingTab() && !m_floatingTab->hidden) {
+        if (m_groups.empty() || m_selectedGroup < 0) {
+            m_selectedFloating = true;
+            m_selectedGroup = -1;
+            m_selectedTab = 0;
+            return;
+        }
+    }
+
+    m_selectedFloating = false;
+
     if (m_groups.empty()) {
         m_selectedGroup = -1;
         m_selectedTab = -1;
@@ -710,6 +904,38 @@ void TabManager::EnsureVisibleSelection() {
         return;
     }
 
+}
+
+TabLocation TabManager::FloatingLocation() const noexcept {
+    return {-1, 0, true};
+}
+
+int TabManager::PromoteFloatingTabToGroup(bool headerVisible) {
+    if (!HasFloatingTab()) {
+        return -1;
+    }
+
+    TabGroup group;
+    group.name = std::wstring(kDefaultGroupNamePrefix) + std::to_wstring(m_groupSequence);
+    group.headerVisible = headerVisible;
+    group.tabs.emplace_back(std::move(m_floatingTab.value()));
+
+    const bool wasSelected = m_selectedFloating;
+    m_floatingTab.reset();
+    m_selectedFloating = false;
+
+    const int insertIndex = 0;
+    if (m_selectedGroup >= insertIndex) {
+        ++m_selectedGroup;
+    }
+    m_groups.insert(m_groups.begin() + insertIndex, std::move(group));
+
+    if (wasSelected) {
+        m_selectedGroup = insertIndex;
+        m_selectedTab = 0;
+    }
+
+    return insertIndex;
 }
 
 }  // namespace shelltabs

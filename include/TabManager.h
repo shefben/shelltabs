@@ -17,8 +17,14 @@ enum class TabViewItemType {
 struct TabLocation {
     int groupIndex = -1;
     int tabIndex = -1;
+    bool floating = false;
 
-    bool IsValid() const noexcept { return groupIndex >= 0 && tabIndex >= 0; }
+    bool IsValid() const noexcept {
+        if (floating) {
+            return tabIndex >= 0;
+        }
+        return groupIndex >= 0 && tabIndex >= 0;
+    }
 };
 
 struct TabInfo {
@@ -56,6 +62,7 @@ struct TabViewItem {
     std::wstring savedGroupId;
     bool isSavedGroup = false;
     bool headerVisible = true;
+    bool floating = false;
 };
 
 class TabManager {
@@ -65,7 +72,7 @@ public:
     int TotalTabCount() const noexcept;
     static TabManager& Get();
 
-    TabLocation SelectedLocation() const noexcept { return {m_selectedGroup, m_selectedTab}; }
+    TabLocation SelectedLocation() const noexcept;
     void SetSelectedLocation(TabLocation location);
 
     int GroupCount() const noexcept { return static_cast<int>(m_groups.size()); }
@@ -105,8 +112,13 @@ public:
     int NextGroupSequence() const noexcept { return m_groupSequence; }
 
 private:
-    void EnsureDefaultGroup();
     void EnsureVisibleSelection();
+    bool HasFloatingTab() const noexcept { return m_floatingTab.has_value(); }
+    TabLocation FloatingLocation() const noexcept;
+    int PromoteFloatingTabToGroup(bool headerVisible);
+
+    std::optional<TabInfo> m_floatingTab;
+    bool m_selectedFloating = false;
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;

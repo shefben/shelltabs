@@ -713,12 +713,16 @@ void TabBandWindow::RebuildLayout() {
 		VisualItem visual;
 		visual.data = item;
 
-		if (currentGroup != item.location.groupIndex) {
-			currentGroup = item.location.groupIndex;
-			headerMetadata = false;
-			expectFirstTab = true;
-			if (!m_items.empty()) {
-				x += kGroupGap;
+                const bool newGroup = (currentGroup != item.location.groupIndex) || item.data.floating;
+                if (newGroup) {
+                        currentGroup = item.location.groupIndex;
+                        headerMetadata = false;
+                        expectFirstTab = true;
+                        if (!m_items.empty()) {
+                                const bool previousFloating = m_items.back().data.floating;
+				if (!item.data.floating || !previousFloating) {
+					x += kGroupGap;
+				}
 			}
 			pendingIndicator = false;
 		}
