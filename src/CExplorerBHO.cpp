@@ -8,6 +8,8 @@
 #include <CommCtrl.h>
 #include <uxtheme.h>
 #include <OleIdl.h>
+#include <dwmapi.h>
+#include <gdiplus.h>
 
 #include <array>
 #include <cwchar>
@@ -58,6 +60,14 @@ namespace shelltabs {
 CExplorerBHO::CExplorerBHO() : m_refCount(1) {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
+
+    Gdiplus::GdiplusStartupInput gdiplusInput;
+    if (Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
+        m_gdiplusInitialized = true;
+    } else {
+        m_gdiplusToken = 0;
+        LogMessage(LogLevel::Warn, L"Failed to initialize GDI+; breadcrumb gradient disabled");
+    }
 }
 
 CExplorerBHO::~CExplorerBHO() {
@@ -65,6 +75,11 @@ CExplorerBHO::~CExplorerBHO() {
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
         m_bufferedPaintInitialized = false;
+    }
+    if (m_gdiplusInitialized) {
+        Gdiplus::GdiplusShutdown(m_gdiplusToken);
+        m_gdiplusInitialized = false;
+        m_gdiplusToken = 0;
     }
     ModuleRelease();
 }
@@ -484,7 +499,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     const ShellTabsOptions options = store.Get();
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
 
-    if (!m_breadcrumbGradientEnabled) {
+    if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
         if (m_breadcrumbSubclassInstalled) {
             LogMessage(LogLevel::Info, L"Breadcrumb gradient disabled; removing subclass");
         }
@@ -517,7 +532,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
-    if (!m_breadcrumbGradientEnabled) {
+    if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
         return false;
     }
 
@@ -528,36 +543,65 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     }
 
     RECT client{};
-    if (!GetClientRect(hwnd, &client)) {
-        EndPaint(hwnd, &ps);
-        return true;
-    }
+    GetClientRect(hwnd, &client);
 
     BP_PAINTPARAMS params{};
     params.cbSize = sizeof(params);
     params.dwFlags = BPPF_ERASE;
+
     HDC paintDc = nullptr;
     HPAINTBUFFER buffer = BeginBufferedPaint(target, &client, BPBF_TOPDOWNDIB, &params, &paintDc);
-    if (!buffer || !paintDc) {
-        DefSubclassProc(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(target), PRF_CLIENT);
+    HDC drawDc = paintDc ? paintDc : target;
+
+    // Allow the control to render itself so layout, glyphs, and hover states stay intact.
+    DefSubclassProc(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(drawDc), PRF_CLIENT);
+
+    Gdiplus::Graphics graphics(drawDc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
         if (buffer) {
-            EndBufferedPaint(buffer, FALSE);
+            EndBufferedPaint(buffer, TRUE);
         }
         EndPaint(hwnd, &ps);
         return true;
     }
 
-    DefSubclassProc(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(paintDc), PRF_CLIENT);
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+    graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
 
-    HFONT font = reinterpret_cast<HFONT>(SendMessage(hwnd, WM_GETFONT, 0, 0));
-    HFONT oldFont = nullptr;
-    if (font) {
-        oldFont = static_cast<HFONT>(SelectObject(paintDc, font));
+    HTHEME theme = nullptr;
+    if (IsAppThemed() && IsThemeActive()) {
+        theme = OpenThemeData(hwnd, L"BreadcrumbBar");
+        if (!theme) {
+            theme = OpenThemeData(hwnd, L"Toolbar");
+        }
     }
 
-    SetBkMode(paintDc, TRANSPARENT);
+    BOOL dwmEnabled = FALSE;
+    const bool compositionEnabled = SUCCEEDED(DwmIsCompositionEnabled(&dwmEnabled)) && dwmEnabled;
 
-    constexpr std::array<COLORREF, 7> kRainbowColors = {
+    HFONT fontHandle = reinterpret_cast<HFONT>(SendMessage(hwnd, WM_GETFONT, 0, 0));
+    if (!fontHandle) {
+        fontHandle = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    }
+
+    Gdiplus::Font font(drawDc, fontHandle);
+    if (font.GetLastStatus() != Gdiplus::Ok) {
+        if (buffer) {
+            EndBufferedPaint(buffer, TRUE);
+        }
+        EndPaint(hwnd, &ps);
+        return true;
+    }
+
+    Gdiplus::StringFormat format;
+    format.SetAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+    format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+
+    static const std::array<COLORREF, 7> kRainbowColors = {
         RGB(255, 59, 48),   // red
         RGB(255, 149, 0),   // orange
         RGB(255, 204, 0),   // yellow
@@ -578,43 +622,110 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             continue;
         }
 
-        LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, 0);
-        if (textLength <= 0) {
-            continue;
-        }
-
-        std::wstring text(static_cast<size_t>(textLength) + 1, L'\0');
-        LRESULT copied = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, reinterpret_cast<LPARAM>(text.data()));
-        if (copied <= 0) {
-            continue;
-        }
-        text.resize(static_cast<size_t>(copied));
-        if (text.empty()) {
-            continue;
-        }
-
         RECT itemRect{};
         if (!SendMessage(hwnd, TB_GETITEMRECT, i, reinterpret_cast<LPARAM>(&itemRect))) {
             continue;
         }
 
-        const COLORREF color = kRainbowColors[static_cast<size_t>(colorIndex % kRainbowColors.size())];
+        const size_t startIndex = static_cast<size_t>(colorIndex % kRainbowColors.size());
+        const size_t endIndex = static_cast<size_t>((colorIndex + 1) % kRainbowColors.size());
         ++colorIndex;
-        SetTextColor(paintDc, color);
 
-        RECT textRect = itemRect;
-        textRect.left += 4;
-        textRect.right -= 4;
+        const COLORREF startRgb = kRainbowColors[startIndex];
+        const COLORREF endRgb = kRainbowColors[endIndex];
 
-        DrawTextW(paintDc, text.c_str(), static_cast<int>(text.size()), &textRect,
-                  DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        Gdiplus::RectF rectF(static_cast<Gdiplus::REAL>(itemRect.left),
+                             static_cast<Gdiplus::REAL>(itemRect.top),
+                             static_cast<Gdiplus::REAL>(itemRect.right - itemRect.left),
+                             static_cast<Gdiplus::REAL>(itemRect.bottom - itemRect.top));
+
+        BYTE baseAlpha = 200;
+        if ((button.fsState & TBSTATE_PRESSED) != 0) {
+            baseAlpha = 235;
+        } else if ((button.fsState & TBSTATE_HOT) != 0) {
+            baseAlpha = 220;
+        }
+
+        Gdiplus::LinearGradientBrush backgroundBrush(
+            rectF,
+            Gdiplus::Color(baseAlpha, GetRValue(startRgb), GetGValue(startRgb), GetBValue(startRgb)),
+            Gdiplus::Color(baseAlpha, GetRValue(endRgb), GetGValue(endRgb), GetBValue(endRgb)),
+            Gdiplus::LinearGradientModeHorizontal);
+        backgroundBrush.SetGammaCorrection(TRUE);
+        graphics.FillRectangle(&backgroundBrush, rectF);
+
+        LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, 0);
+        if (textLength > 0) {
+            std::wstring text(static_cast<size_t>(textLength) + 1, L'\0');
+            LRESULT copied = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand,
+                                         reinterpret_cast<LPARAM>(text.data()));
+            if (copied > 0) {
+                text.resize(static_cast<size_t>(copied));
+
+                RECT textRect = itemRect;
+                constexpr int kPadding = 8;
+                textRect.left += kPadding;
+                textRect.right -= kPadding;
+                if ((button.fsStyle & BTNS_DROPDOWN) != 0) {
+                    textRect.right -= 12;
+                }
+
+                if (textRect.right > textRect.left) {
+                    auto lighten = [](BYTE channel) -> BYTE {
+                        return static_cast<BYTE>((static_cast<int>(channel) + 255) / 2);
+                    };
+
+                    const BYTE red = lighten(GetRValue(startRgb));
+                    const BYTE green = lighten(GetGValue(startRgb));
+                    const BYTE blue = lighten(GetBValue(startRgb));
+
+                    if (theme && compositionEnabled) {
+                        RECT themedRect = textRect;
+                        DTTOPTS opts{};
+                        opts.dwSize = sizeof(opts);
+                        opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+                        opts.crText = RGB(red, green, blue);
+                        DrawThemeTextEx(theme, drawDc, 0, 0, text.c_str(), static_cast<int>(text.size()),
+                                        DT_NOPREFIX | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, &themedRect,
+                                        &opts);
+                    } else {
+                        Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
+                                                 static_cast<Gdiplus::REAL>(textRect.top),
+                                                 static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
+                                                 static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
+                        const Gdiplus::Color textColor(255, red, green, blue);
+                        Gdiplus::SolidBrush textBrush(textColor);
+                        graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                            &textBrush);
+                    }
+                }
+            }
+        }
+
+        if ((button.fsStyle & BTNS_DROPDOWN) != 0) {
+            const float arrowWidth = 6.0f;
+            const float arrowHeight = 4.0f;
+            const float centerX = rectF.X + rectF.Width - 9.0f;
+            const float centerY = rectF.Y + rectF.Height / 2.0f;
+
+            Gdiplus::PointF arrow[3] = {
+                {centerX - arrowWidth / 2.0f, centerY - arrowHeight / 2.0f},
+                {centerX + arrowWidth / 2.0f, centerY - arrowHeight / 2.0f},
+                {centerX, centerY + arrowHeight / 2.0f},
+            };
+
+            Gdiplus::SolidBrush arrowBrush(Gdiplus::Color(220, 255, 255, 255));
+            graphics.FillPolygon(&arrowBrush, arrow, ARRAYSIZE(arrow));
+        }
     }
 
-    if (oldFont) {
-        SelectObject(paintDc, oldFont);
+    if (theme) {
+        CloseThemeData(theme);
     }
 
-    EndBufferedPaint(buffer, TRUE);
+    if (buffer) {
+        EndBufferedPaint(buffer, TRUE);
+    }
     EndPaint(hwnd, &ps);
     return true;
 }
@@ -630,6 +741,11 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
         case WM_PAINT:
             if (self->HandleBreadcrumbPaint(hwnd)) {
                 return 0;
+            }
+            break;
+        case WM_ERASEBKGND:
+            if (self->m_breadcrumbGradientEnabled) {
+                return 1;
             }
             break;
         case WM_NCDESTROY:

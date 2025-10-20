@@ -60,6 +60,8 @@ private:
     bool m_breadcrumbSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
     bool m_bufferedPaintInitialized = false;
+    bool m_gdiplusInitialized = false;
+    ULONG_PTR m_gdiplusToken = 0;
 };
 
 }  // namespace shelltabs
