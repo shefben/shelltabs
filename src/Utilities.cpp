@@ -214,10 +214,10 @@ UniquePidl ShellItemToPidl(IShellItem* item) {
 
     PWSTR parsingName = nullptr;
     if (SUCCEEDED(item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingName)) && parsingName) {
-        UniquePidl pidl = ParseDisplayName(parsingName);
+        UniquePidl parsedPidl = ParseDisplayName(parsingName);
         CoTaskMemFree(parsingName);
-        if (pidl) {
-            return pidl;
+        if (parsedPidl) {
+            return parsedPidl;
         }
     } else if (parsingName) {
         CoTaskMemFree(parsingName);

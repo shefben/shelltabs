@@ -99,8 +99,8 @@ DialogTemplatePtr AllocateAlignedTemplate(const std::vector<BYTE>& source) {
 std::vector<BYTE> BuildMainPageTemplate() {
     std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
-    dlg->style = DS_SETFONT | WS_CHILD | WS_VISIBLE;
-    dlg->dwExtendedStyle = 0;
+    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
     dlg->cdit = 11;
     dlg->x = 0;
     dlg->y = 0;
@@ -292,8 +292,8 @@ std::vector<BYTE> BuildMainPageTemplate() {
 std::vector<BYTE> BuildGroupPageTemplate() {
     std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
-    dlg->style = DS_SETFONT | WS_CHILD | WS_VISIBLE;
-    dlg->dwExtendedStyle = 0;
+    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
     dlg->cdit = 4;
     dlg->x = 0;
     dlg->y = 0;
@@ -772,7 +772,7 @@ bool AreSavedGroupsEqual(const std::vector<SavedGroup>& left, const std::vector<
     return true;
 }
 
-void UpdatePathButtons(HWND dialog, const GroupEditorContext& context) {
+void UpdatePathButtons(HWND dialog) {
     HWND list = GetDlgItem(dialog, IDC_EDITOR_PATH_LIST);
     const bool hasSelection = SendMessageW(list, LB_GETCURSEL, 0, 0) != LB_ERR;
     EnableWindow(GetDlgItem(dialog, IDC_EDITOR_EDIT_PATH), hasSelection);
@@ -787,7 +787,7 @@ void RefreshPathList(HWND dialog, const GroupEditorContext& context) {
         SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(path.c_str()));
     }
     UpdateListBoxHorizontalExtent(list);
-    UpdatePathButtons(dialog, context);
+    UpdatePathButtons(dialog);
 }
 
 bool ValidateUniqueName(const std::wstring& name, const std::wstring& original,
@@ -889,7 +889,7 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                 }
                 case IDC_EDITOR_PATH_LIST: {
                     if (HIWORD(wParam) == LBN_SELCHANGE) {
-                        UpdatePathButtons(hwnd, *context);
+                        UpdatePathButtons(hwnd);
                     }
                     return TRUE;
                 }
