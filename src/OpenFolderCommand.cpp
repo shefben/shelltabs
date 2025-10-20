@@ -86,9 +86,6 @@ IFACEMETHODIMP OpenFolderCommand::GetState(IShellItemArray* itemArray, BOOL, EXP
     *state = ECS_HIDDEN;
 
     UpdateFrameWindow();
-    if (!FindBandWindow()) {
-        return S_OK;
-    }
 
     if (!HasOpenableFolder(itemArray)) {
         return S_OK;
@@ -99,6 +96,8 @@ IFACEMETHODIMP OpenFolderCommand::GetState(IShellItemArray* itemArray, BOOL, EXP
 }
 
 IFACEMETHODIMP OpenFolderCommand::Invoke(IShellItemArray* itemArray, IBindCtx*) {
+    UpdateFrameWindow();
+
     std::vector<std::wstring> paths;
     if (!CollectOpenablePaths(itemArray, &paths) || paths.empty()) {
         return S_OK;
