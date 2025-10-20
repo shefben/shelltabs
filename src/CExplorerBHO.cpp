@@ -94,10 +94,10 @@ COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
         return GetSysColor(COLOR_WINDOW);
     }
 
-    const int left = std::max(rect.left, 0);
-    const int top = std::max(rect.top, 0);
-    const int right = std::max(rect.right - 1, left);
-    const int bottom = std::max(rect.bottom - 1, top);
+    const LONG left = std::max(rect.left, static_cast<LONG>(0));
+    const LONG top = std::max(rect.top, static_cast<LONG>(0));
+    const LONG right = std::max(rect.right - 1, left);
+    const LONG bottom = std::max(rect.bottom - 1, top);
 
     const std::array<POINT, 4> samplePoints = {{{left, top},
                                                {right, top},
@@ -984,7 +984,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     switch (msg) {
         case WM_INITMENUPOPUP: {
             if (lParam == 0) {
-                HandleExplorerContextMenuInit(source, reinterpret_cast<HMENU>(wParam));
+                HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
             }
             break;
         }
