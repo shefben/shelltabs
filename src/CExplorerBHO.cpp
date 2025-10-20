@@ -207,9 +207,11 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
             }
-			// Colorize the active folder view
-			//m_colorizer.Attach(m_shellBrowser);
-			//m_colorizer.Refresh();
+
+            if (m_shellBrowser) {
+                m_colorizer.Attach(m_shellBrowser);
+                m_colorizer.Refresh();
+            }
 
 
             EnsureBandVisible();
@@ -338,6 +340,10 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                     if (!m_bandVisible) {
                         EnsureBandVisible();
                     }
+                    break;
+                case DISPID_DOCUMENTCOMPLETE:
+                case DISPID_NAVIGATECOMPLETE2:
+                    m_colorizer.Refresh();
                     break;
                 case DISPID_ONQUIT:
                     Disconnect();
