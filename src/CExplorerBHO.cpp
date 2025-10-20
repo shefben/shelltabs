@@ -27,6 +27,7 @@
 #include "Module.h"
 #include "OptionsStore.h"
 #include "Utilities.h"
+#include "Messages.h"
 
 #ifndef TBSTATE_HOT
 #define TBSTATE_HOT 0x80
@@ -68,6 +69,7 @@ struct BreadcrumbHookEntry {
 
 std::mutex g_breadcrumbHookMutex;
 std::unordered_map<DWORD, BreadcrumbHookEntry> g_breadcrumbHooks;
+const UINT kOptionsChangedMessage = RegisterWindowMessageW(shelltabs::kOptionsChangedMessageName);
 
 }  // namespace
 // --- CExplorerBHO private state (treat these as class members) ---
@@ -147,6 +149,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 void CExplorerBHO::Disconnect() {
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
+    RemoveOptionsMessageListener();
     DisconnectEvents();
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
@@ -739,6 +742,41 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
     m_loggedBreadcrumbToolbarMissing = false;
 }
 
+void CExplorerBHO::EnsureOptionsMessageListener() {
+    if (kOptionsChangedMessage == 0) {
+        return;
+    }
+
+    HWND explorer = GetTopLevelExplorerWindow();
+    if (!explorer) {
+        return;
+    }
+
+    if (explorer == m_explorerWindow && m_explorerSubclassInstalled) {
+        return;
+    }
+
+    RemoveOptionsMessageListener();
+
+    if (SetWindowSubclass(explorer, ExplorerSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_explorerWindow = explorer;
+        m_explorerSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed options listener subclass on explorer hwnd=%p", explorer);
+    } else {
+        LogLastError(L"SetWindowSubclass(explorer options listener)", GetLastError());
+    }
+}
+
+void CExplorerBHO::RemoveOptionsMessageListener() {
+    if (m_explorerWindow && m_explorerSubclassInstalled) {
+        if (RemoveWindowSubclass(m_explorerWindow, ExplorerSubclassProc, reinterpret_cast<UINT_PTR>(this))) {
+            LogMessage(LogLevel::Info, L"Removed options listener subclass from explorer hwnd=%p", m_explorerWindow);
+        }
+    }
+    m_explorerWindow = nullptr;
+    m_explorerSubclassInstalled = false;
+}
+
 void CExplorerBHO::EnsureBreadcrumbHook() {
     if (m_breadcrumbHookRegistered) {
         return;
@@ -795,6 +833,8 @@ void CExplorerBHO::RemoveBreadcrumbHook() {
 }
 
 void CExplorerBHO::UpdateBreadcrumbSubclass() {
+    EnsureOptionsMessageListener();
+
     auto& store = OptionsStore::Instance();
     store.Load();
     const ShellTabsOptions options = store.Get();
@@ -1138,6 +1178,25 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
             break;
         default:
             break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::ExplorerSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                    UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (msg == kOptionsChangedMessage) {
+        self->UpdateBreadcrumbSubclass();
+        return 0;
+    }
+
+    if (msg == WM_NCDESTROY) {
+        self->RemoveOptionsMessageListener();
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);

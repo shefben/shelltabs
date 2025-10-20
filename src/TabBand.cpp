@@ -29,6 +29,7 @@
 #include "OptionsDialog.h"
 #include "OptionsStore.h"
 #include "Logging.h"
+#include "Messages.h"
 #include "Module.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
@@ -1369,6 +1370,12 @@ void TabBand::SaveSession() {
 void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
     if (!previousOptions.persistGroupPaths && m_options.persistGroupPaths) {
         SyncAllSavedGroups();
+    }
+    if (previousOptions.enableBreadcrumbGradient != m_options.enableBreadcrumbGradient) {
+        const UINT message = RegisterWindowMessageW(kOptionsChangedMessageName);
+        if (message != 0) {
+            SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);
+        }
     }
 }
 

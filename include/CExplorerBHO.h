@@ -42,6 +42,8 @@ private:
     HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
     void UpdateBreadcrumbSubclass();
     void RemoveBreadcrumbSubclass();
+    void EnsureOptionsMessageListener();
+    void RemoveOptionsMessageListener();
     HWND FindBreadcrumbToolbar() const;
     HWND FindBreadcrumbToolbarInWindow(HWND root) const;
     HWND GetTopLevelExplorerWindow() const;
@@ -67,6 +69,8 @@ private:
     static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK ExplorerSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                 UINT_PTR subclassId, DWORD_PTR refData);
 
     std::atomic<long> m_refCount;
     Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -91,6 +95,8 @@ private:
     bool m_gdiplusInitialized = false;
     ULONG_PTR m_gdiplusToken = 0;
     mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
+    HWND m_explorerWindow = nullptr;
+    bool m_explorerSubclassInstalled = false;
 };
 
 }  // namespace shelltabs
