@@ -10,6 +10,7 @@ struct ShellTabsOptions {
     bool reopenOnCrash = false;
     bool persistGroupPaths = false;
     bool enableBreadcrumbGradient = false;
+    bool enableBreadcrumbFontGradient = false;
 };
 
 class OptionsStore {
