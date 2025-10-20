@@ -1451,10 +1451,18 @@ void TabBand::EnsureTabForCurrentFolder() {
     if (!clone) {
         return;
     }
+
+    const bool shouldHideIndicator = (m_tabs.TotalTabCount() == 0);
     TabLocation location = m_tabs.Add(std::move(clone), name, name, true);
-    if (location.IsValid()) {
-        SyncSavedGroup(location.groupIndex);
+    if (!location.IsValid()) {
+        return;
     }
+
+    if (shouldHideIndicator) {
+        m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
+    }
+
+    SyncSavedGroup(location.groupIndex);
 }
 
 void TabBand::OpenTabInNewWindow(const TabInfo& tab) {
