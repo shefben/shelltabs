@@ -6,10 +6,13 @@
 
 #include <algorithm>
 #include <cwchar>
+#include <malloc.h>
+#include <memory>
 #include <random>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
+#include <cstring>
 
 #include "GroupStore.h"
 #include "Module.h"
@@ -75,6 +78,22 @@ void AppendString(std::vector<BYTE>& buffer, const wchar_t* text) {
         ++text;
     }
     AppendWord(buffer, 0);
+}
+
+using DialogTemplatePtr = std::unique_ptr<DLGTEMPLATE, void (*)(void*)>;
+
+DialogTemplatePtr AllocateAlignedTemplate(const std::vector<BYTE>& source) {
+    if (source.empty()) {
+        return DialogTemplatePtr(nullptr, &_aligned_free);
+    }
+
+    void* memory = _aligned_malloc(source.size(), alignof(DLGTEMPLATE));
+    if (!memory) {
+        return DialogTemplatePtr(nullptr, &_aligned_free);
+    }
+
+    std::memcpy(memory, source.data(), source.size());
+    return DialogTemplatePtr(reinterpret_cast<DLGTEMPLATE*>(memory), &_aligned_free);
 }
 
 std::vector<BYTE> BuildMainPageTemplate() {
@@ -1213,11 +1232,20 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     std::vector<BYTE> mainTemplate = BuildMainPageTemplate();
     std::vector<BYTE> groupTemplate = BuildGroupPageTemplate();
 
+    auto mainTemplateMemory = AllocateAlignedTemplate(mainTemplate);
+    auto groupTemplateMemory = AllocateAlignedTemplate(groupTemplate);
+    if (!mainTemplateMemory || !groupTemplateMemory) {
+        result.saved = false;
+        result.groupsChanged = false;
+        result.optionsChanged = false;
+        return result;
+    }
+
     PROPSHEETPAGEW pages[2] = {};
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
     pages[0].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[0].hInstance = GetModuleHandleInstance();
-    pages[0].pResource = reinterpret_cast<DLGTEMPLATE*>(mainTemplate.data());
+    pages[0].pResource = mainTemplateMemory.get();
     pages[0].pfnDlgProc = MainOptionsPageProc;
     pages[0].lParam = reinterpret_cast<LPARAM>(&data);
     pages[0].pszTitle = L"General";
@@ -1225,7 +1253,7 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     pages[1].dwSize = sizeof(PROPSHEETPAGEW);
     pages[1].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[1].hInstance = GetModuleHandleInstance();
-    pages[1].pResource = reinterpret_cast<DLGTEMPLATE*>(groupTemplate.data());
+    pages[1].pResource = groupTemplateMemory.get();
     pages[1].pfnDlgProc = GroupManagementPageProc;
     pages[1].lParam = reinterpret_cast<LPARAM>(&data);
     pages[1].pszTitle = L"Groups && Islands";
