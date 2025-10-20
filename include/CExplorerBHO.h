@@ -45,6 +45,18 @@ private:
     HWND FindBreadcrumbToolbar() const;
     HWND GetTopLevelExplorerWindow() const;
     bool HandleBreadcrumbPaint(HWND hwnd);
+    enum class BreadcrumbDiscoveryStage {
+        None,
+        ServiceUnavailable,
+        ServiceWindowMissing,
+        ServiceToolbarMissing,
+        FrameMissing,
+        RebarMissing,
+        ParentMissing,
+        ToolbarMissing,
+        Discovered,
+    };
+    void LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const;
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
 
@@ -69,6 +81,7 @@ private:
     bool m_bufferedPaintInitialized = false;
     bool m_gdiplusInitialized = false;
     ULONG_PTR m_gdiplusToken = 0;
+    mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
 };
 
 }  // namespace shelltabs

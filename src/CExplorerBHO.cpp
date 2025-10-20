@@ -12,6 +12,7 @@
 #include <gdiplus.h>
 
 #include <array>
+#include <cstdarg>
 #include <cwchar>
 #include <string>
 #include <wrl/client.h>
@@ -141,6 +142,7 @@ void CExplorerBHO::Disconnect() {
     m_shouldRetryEnsure = true;
     m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     m_loggedBreadcrumbToolbarMissing = false;
+    m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
 }
 
 
@@ -419,19 +421,50 @@ HWND CExplorerBHO::GetTopLevelExplorerWindow() const {
     return nullptr;
 }
 
+void CExplorerBHO::LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const {
+    if (!format) {
+        return;
+    }
+    if (m_lastBreadcrumbStage == stage) {
+        return;
+    }
+
+    m_lastBreadcrumbStage = stage;
+
+    va_list args;
+    va_start(args, format);
+    LogMessageV(LogLevel::Info, format, args);
+    va_end(args);
+}
+
 HWND CExplorerBHO::FindBreadcrumbToolbar() const {
-    auto queryBreadcrumbToolbar = [&](const Microsoft::WRL::ComPtr<IServiceProvider>& provider) -> HWND {
+    auto queryBreadcrumbToolbar = [&](const Microsoft::WRL::ComPtr<IServiceProvider>& provider,
+                                     const wchar_t* source) -> HWND {
         if (!provider) {
             return nullptr;
         }
 
+        Microsoft::WRL::ComPtr<IUnknown> breadcrumbService;
+        HRESULT hr = provider->QueryService(CLSID_CBreadcrumbBar, IID_PPV_ARGS(&breadcrumbService));
+        if (FAILED(hr) || !breadcrumbService) {
+            LogBreadcrumbStage(BreadcrumbDiscoveryStage::ServiceUnavailable,
+                               L"Breadcrumb QueryService(%s) failed: 0x%08X", source ? source : L"?", hr);
+            return nullptr;
+        }
+
         Microsoft::WRL::ComPtr<IOleWindow> oleWindow;
-        if (FAILED(provider->QueryService(CLSID_CBreadcrumbBar, IID_PPV_ARGS(&oleWindow))) || !oleWindow) {
+        hr = breadcrumbService.As(&oleWindow);
+        if (FAILED(hr) || !oleWindow) {
+            LogBreadcrumbStage(BreadcrumbDiscoveryStage::ServiceWindowMissing,
+                               L"Breadcrumb service missing IOleWindow (%s): 0x%08X", source ? source : L"?", hr);
             return nullptr;
         }
 
         HWND bandWindow = nullptr;
-        if (FAILED(oleWindow->GetWindow(&bandWindow)) || !bandWindow) {
+        hr = oleWindow->GetWindow(&bandWindow);
+        if (FAILED(hr) || !bandWindow) {
+            LogBreadcrumbStage(BreadcrumbDiscoveryStage::ServiceWindowMissing,
+                               L"Breadcrumb service window unavailable (%s): 0x%08X", source ? source : L"?", hr);
             return nullptr;
         }
 
@@ -439,13 +472,22 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
         if (!toolbar) {
             toolbar = FindDescendantWindow(bandWindow, TOOLBARCLASSNAME);
         }
+        if (toolbar) {
+            LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
+                               L"Breadcrumb toolbar located via %s service (hwnd=%p)", source ? source : L"?",
+                               toolbar);
+        } else {
+            LogBreadcrumbStage(BreadcrumbDiscoveryStage::ServiceToolbarMissing,
+                               L"Breadcrumb service band (%s hwnd=%p) missing toolbar child", source ? source : L"?",
+                               bandWindow);
+        }
         return toolbar;
     };
 
     if (m_shellBrowser) {
         Microsoft::WRL::ComPtr<IServiceProvider> provider;
         if (SUCCEEDED(m_shellBrowser.As(&provider))) {
-            if (HWND fromService = queryBreadcrumbToolbar(provider)) {
+            if (HWND fromService = queryBreadcrumbToolbar(provider, L"IShellBrowser")) {
                 return fromService;
             }
         }
@@ -454,7 +496,7 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
     if (m_webBrowser) {
         Microsoft::WRL::ComPtr<IServiceProvider> provider;
         if (SUCCEEDED(m_webBrowser.As(&provider))) {
-            if (HWND fromService = queryBreadcrumbToolbar(provider)) {
+            if (HWND fromService = queryBreadcrumbToolbar(provider, L"IWebBrowser2")) {
                 return fromService;
             }
         }
@@ -462,16 +504,19 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
 
     HWND frame = GetTopLevelExplorerWindow();
     if (!frame) {
+        LogBreadcrumbStage(BreadcrumbDiscoveryStage::FrameMissing,
+                           L"Top-level Explorer window unavailable during breadcrumb search");
         return nullptr;
     }
 
     HWND travelBand = FindDescendantWindow(frame, L"TravelBand");
-    if (!travelBand) {
-        return nullptr;
-    }
-
-    HWND rebar = GetParent(travelBand);
+    HWND rebar = travelBand ? GetParent(travelBand) : nullptr;
     if (!rebar) {
+        rebar = FindDescendantWindow(frame, L"ReBarWindow32");
+    }
+    if (!rebar) {
+        LogBreadcrumbStage(BreadcrumbDiscoveryStage::RebarMissing,
+                           L"Failed to locate Explorer rebar while searching for breadcrumbs");
         return nullptr;
     }
 
@@ -480,6 +525,11 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
         breadcrumbParent = FindDescendantWindow(rebar, L"Breadcrumb Parent");
     }
     if (!breadcrumbParent) {
+        breadcrumbParent = FindDescendantWindow(frame, L"Breadcrumb Parent");
+    }
+    if (!breadcrumbParent) {
+        LogBreadcrumbStage(BreadcrumbDiscoveryStage::ParentMissing,
+                           L"Failed to find 'Breadcrumb Parent' window during breadcrumb search");
         return nullptr;
     }
 
@@ -487,6 +537,14 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
     if (!toolbar) {
         toolbar = FindDescendantWindow(breadcrumbParent, TOOLBARCLASSNAME);
     }
+    if (!toolbar) {
+        LogBreadcrumbStage(BreadcrumbDiscoveryStage::ToolbarMissing,
+                           L"'Breadcrumb Parent' hwnd=%p missing ToolbarWindow32 child", breadcrumbParent);
+        return nullptr;
+    }
+
+    LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
+                       L"Breadcrumb toolbar located via window enumeration (hwnd=%p)", toolbar);
     return toolbar;
 }
 
@@ -529,6 +587,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     if (m_breadcrumbLogState != BreadcrumbLogState::Searching) {
         LogMessage(LogLevel::Info, L"Breadcrumb gradient enabled; locating toolbar (installed=%d)",
                    m_breadcrumbSubclassInstalled ? 1 : 0);
+        m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
         m_breadcrumbLogState = BreadcrumbLogState::Searching;
     }
 
