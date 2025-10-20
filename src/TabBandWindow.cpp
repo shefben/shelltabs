@@ -3,8 +3,6 @@
 #endif
 #include "TabBandWindow.h"
 
-#include "ExplorerWindowHook.h"
-
 #include <algorithm>  // for 2-arg std::max/std::min
 
 #include <cmath>
@@ -21,7 +19,6 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <ShlObj.h>
-#include <exdisp.h>
 #include <shobjidl_core.h>
 #include <shlguid.h>
 #include <Shlwapi.h>
@@ -51,20 +48,17 @@ constexpr GUID kSidDataObject = {0x000214e8, 0x0000, 0x0000,
 
 const wchar_t kWindowClassName[] = L"ShellTabsBandWindow";
 constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
-constexpr int kButtonWidth = 22;
-constexpr int kButtonHeight = 22;
+constexpr int kButtonWidth = 44;
+constexpr int kButtonHeight = 44;
 constexpr int kButtonMargin = 6;
 constexpr int kItemMinWidth = 60;
 constexpr int kGroupMinWidth = 90;
-constexpr int kGroupGap = 3;   // gap between “islands” (groups)
-constexpr int kTabGap   = 3;   // gap between adjacent tabs
+constexpr int kGroupGap = 4;   // gap between “islands” (groups)
+constexpr int kTabGap   = 4;   // gap between adjacent tabs
 constexpr int kPaddingX = 12;
 constexpr int kGroupPaddingX = 16;
 constexpr int kToolbarGripWidth = 14;
 constexpr int kDragThreshold = 4;
-constexpr int kBadgePaddingX = 8;
-constexpr int kBadgePaddingY = 2;
-constexpr int kBadgeHeight = 18;
 constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
@@ -77,9 +71,9 @@ constexpr int kCloseButtonSpacing = 6;
 constexpr int kCloseButtonVerticalPadding = 3;
 constexpr int kDropPreviewOffset = 12;
 // Small placeholder for empty island content
-constexpr int kEmptyIslandMinWidth = 36; // enough space for a centered "+"
+constexpr int kEmptyIslandBodyMinWidth = 24; // enough space for a centered "+"
+constexpr int kEmptyIslandBodyMaxWidth = 32; // clamp empty outline length
 constexpr int kEmptyPlusSize = 14; // glyph size
-constexpr int kEmptyPlusInset = 8;  // padding from indicator to the "+"
 
 const wchar_t kThemePreferenceKey[] =
 L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
@@ -496,8 +490,6 @@ void TabBandWindow::FocusTab() {
 }
 STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
         if (!pUnkSite) {
-                m_windowHook.reset();
-                m_siteUnknown.Reset();
                 m_siteSp.Reset();
                 return S_OK;
         }
@@ -507,32 +499,7 @@ STDMETHODIMP TabBandWindow::SetSite(IUnknown* pUnkSite) {
                 return E_NOINTERFACE;
         }
 
-        m_siteUnknown = pUnkSite;
         m_siteSp = sp;
-
-        Microsoft::WRL::ComPtr<IWebBrowser2> browser;
-        if (m_siteSp) {
-                if (FAILED(m_siteSp->QueryService(SID_SWebBrowserApp, IID_PPV_ARGS(&browser))) || !browser) {
-                        m_siteSp->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser));
-                }
-        }
-        if (!browser && m_siteUnknown) {
-                m_siteUnknown.As(&browser);
-        }
-
-        if (browser) {
-                m_windowHook = ExplorerWindowHook::CreateForBrowser(m_siteUnknown.Get(), browser.Get());
-        }
-
-        if (m_hwnd) {
-                if (HWND frame = GetAncestor(m_hwnd, GA_ROOT)) {
-                        ExplorerWindowHook::AttachForExplorer(frame);
-                }
-        }
-
-        if (m_windowHook) {
-                m_windowHook->Attach();
-        }
 
         return S_OK;
 }
@@ -550,16 +517,24 @@ STDMETHODIMP TabBandWindow::GetSite(REFIID riid, void** ppvSite) {
 void TabBandWindow::Layout(int width, int height) {
     m_clientRect = {0, 0, width, height};
 
-    int buttonHeight = std::min(height - kButtonMargin * 2, kButtonHeight);
-    if (buttonHeight < kButtonHeight / 2) {
-        buttonHeight = std::max(0, height - kButtonMargin * 2);
+    int buttonHeight = std::max(0, height - kButtonMargin * 2);
+    if (buttonHeight > kButtonHeight) {
+        buttonHeight = kButtonHeight;
     }
-    if (buttonHeight <= 0) {
-        buttonHeight = std::max(0, height);
+    if (buttonHeight == 0 && height > 0) {
+        buttonHeight = std::min(height, kButtonHeight);
     }
-    int buttonWidth = buttonHeight;
-    if (buttonWidth <= 0) {
-        buttonWidth = std::max(0, std::min(kButtonWidth, width));
+
+    int buttonWidth = 0;
+    if (buttonHeight > 0) {
+        buttonWidth = std::min(kButtonWidth, buttonHeight);
+    }
+    const int maxAvailableWidth = std::max(0, width - kButtonMargin);
+    if (buttonWidth == 0 && maxAvailableWidth > 0) {
+        buttonWidth = std::min(kButtonWidth, maxAvailableWidth);
+    }
+    if (buttonWidth == 0 && width > 0) {
+        buttonWidth = std::min(kButtonWidth, width);
     }
     const int buttonX = std::max(0, width - buttonWidth - kButtonMargin);
     const int buttonY = std::max(0, (height - buttonHeight) / 2);
@@ -621,8 +596,8 @@ void TabBandWindow::RebuildLayout() {
                 rowHeight = baseIconHeight + 8;
         }
         rowHeight = std::max(rowHeight, baseIconHeight + 8);
-        rowHeight = std::max(rowHeight, kBadgeHeight + 8);
         rowHeight = std::max(rowHeight, kCloseButtonSize + kCloseButtonVerticalPadding * 2 + 4);
+        rowHeight = std::max(rowHeight, kButtonHeight - kButtonMargin);
         rowHeight = std::max(rowHeight, 24);
 
         const int bandWidth = bounds.right - bounds.left;
@@ -695,34 +670,43 @@ void TabBandWindow::RebuildLayout() {
 
                         // NEW: empty island => reserve a tiny body and register a '+' target
                         if (item.headerVisible && !collapsed && !hasVisibleTabs) {
-				const int remaining = maxX - x;
-				if (remaining > 0) {
-					const int placeholderWidth = std::min(std::max(kEmptyIslandMinWidth, 24), remaining);
-					RECT placeholder{ x, rowTop(row), x + placeholderWidth, rowBottom(row) };
+                                const int remaining = maxX - x;
+                                if (remaining > 0) {
+                                        const int placeholderWidth = std::min(remaining, kEmptyIslandBodyMaxWidth);
+                                        if (placeholderWidth > 0) {
+                                                RECT placeholder{ x, rowTop(row), x + placeholderWidth, rowBottom(row) };
 
-					// Emit a synthetic body so the island outline has a region to hug
-					VisualItem emptyBody;
-					emptyBody.data = item;               // tie to this group header
-                                        emptyBody.hasGroupHeader = true;
-                                        emptyBody.groupHeader = currentHeader;
-                                        emptyBody.bounds = placeholder;
-                                        emptyBody.row = row;
-                                        m_items.emplace_back(std::move(emptyBody));
+                                                // Emit a synthetic body so the island outline has a region to hug
+                                                VisualItem emptyBody;
+                                                emptyBody.data = item;               // tie to this group header
+                                                emptyBody.hasGroupHeader = true;
+                                                emptyBody.groupHeader = currentHeader;
+                                                emptyBody.bounds = placeholder;
+                                                emptyBody.row = row;
+                                                m_items.emplace_back(std::move(emptyBody));
 
-					// '+' rect, inset from the indicator and vertically centered
-					const int h = placeholder.bottom - placeholder.top;
-					const int size = std::min(kEmptyPlusSize, std::max(10, h - 6));
-					RECT plus{
-						placeholder.left + kEmptyPlusInset,
-						placeholder.top + (h - size) / 2,
-						placeholder.left + kEmptyPlusInset + size,
-						placeholder.top + (h - size) / 2 + size
-					};
-					m_emptyIslandPlusButtons.push_back({ currentGroup, plus });
+                                                const int bodyWidth = placeholder.right - placeholder.left;
+                                                if (bodyWidth >= 4) {
+                                                        const int h = placeholder.bottom - placeholder.top;
+                                                        const int maxCentered = std::max(bodyWidth - 4, 0);
+                                                        int size = std::min(kEmptyPlusSize, maxCentered);
+                                                        if (size < 8) {
+                                                                size = std::max(4, maxCentered);
+                                                        }
+                                                        const int plusLeft = placeholder.left + (bodyWidth - size) / 2;
+                                                        RECT plus{
+                                                                plusLeft,
+                                                                placeholder.top + (h - size) / 2,
+                                                                plusLeft + size,
+                                                                placeholder.top + (h - size) / 2 + size
+                                                        };
+                                                        m_emptyIslandPlusButtons.push_back({ currentGroup, plus });
+                                                }
 
-					x = placeholder.right;
-				}
-			}
+                                                x = placeholder.right;
+                                        }
+                                }
+                        }
 			continue;
 		}
 
@@ -767,8 +751,7 @@ void TabBandWindow::RebuildLayout() {
 		int width = textSize.cx + kPaddingX * 2;
 		width = std::max(width, kItemMinWidth);
 
-		visual.badgeWidth = MeasureBadgeWidth(item, dc);
-		width += visual.badgeWidth;
+                visual.badgeWidth = 0;
 
 		visual.icon = LoadItemIcon(item);
 		if (visual.icon) {
@@ -797,14 +780,33 @@ void TabBandWindow::RebuildLayout() {
 
 		width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
 
-		if (x + width > maxX) {
-			if (!try_wrap()) {
-				width = std::max(40, maxX - x);
-				if (width <= 0) break;
-			}
-		}
+                bool wrapped = false;
+                if (x + width > maxX) {
+                        if (!try_wrap()) {
+                                width = std::max(40, maxX - x);
+                                if (width <= 0) break;
+                        } else {
+                                wrapped = true;
+                        }
+                }
 
-		width = std::clamp(width, 40, maxX - x);
+                if (wrapped && visual.firstInGroup) {
+                        if (!m_items.empty()) {
+                                VisualItem& previous = m_items.back();
+                                if (previous.indicatorHandle &&
+                                        previous.data.location.groupIndex == item.location.groupIndex) {
+                                        const int indicatorWidth = previous.bounds.right - previous.bounds.left;
+                                        previous.bounds.left = x;
+                                        previous.bounds.right = x + indicatorWidth;
+                                        previous.bounds.top = rowTop(row);
+                                        previous.bounds.bottom = rowBottom(row);
+                                        previous.row = row;
+                                        x += indicatorWidth;
+                                }
+                        }
+                }
+
+                width = std::clamp(width, 40, maxX - x);
 
                 visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
                 visual.row = row;
@@ -1240,31 +1242,35 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 
 	// 3) Ensure empty islands still get a small outline body after the indicator
 	for (const auto& item : m_items) {
-		if (item.data.type != TabViewItemType::kGroupHeader) continue;
+	        if (item.data.type != TabViewItemType::kGroupHeader) continue;
+	        if (!item.indicatorHandle) continue;
 
-		const int gi = item.data.location.groupIndex;
-		if (gi < 0) continue;
-		if (!item.data.headerVisible || item.collapsedPlaceholder) continue;
+	        const int gi = item.data.location.groupIndex;
+	        if (gi < 0) continue;
+	        if (!item.data.headerVisible || item.collapsedPlaceholder) continue;
 
-		// NOTE: visibleTabs is a member of TabViewItem, not VisualItem
-		if (item.data.visibleTabs > 0) continue;
+	        // NOTE: visibleTabs is a member of TabViewItem, not VisualItem
+	        if (item.data.visibleTabs > 0) continue;
 
-		// We emitted the indicator as a group header VisualItem whose bounds are that indicator.
-		// Synthesize a tiny body area to the right of it so the island outline has width.
-		const RECT body = item.bounds;		// indicator rect
-		const LONG left = body.right;		// start immediately after indicator
-		const LONG right = left + std::max<LONG>(kEmptyIslandMinWidth, 24);
+	        // Synthesize a tiny body area to the right of the indicator so the island outline has width.
+	        const RECT body = item.bounds;          // indicator rect
+	        const LONG left = body.right;           // start immediately after indicator
+	        const LONG available = std::max<LONG>(0, m_clientRect.right - left);
+	        LONG width = std::min<LONG>(available, kEmptyIslandBodyMaxWidth);
+	        if (width < kEmptyIslandBodyMinWidth) {
+	                width = std::max<LONG>(width, static_cast<LONG>(kEmptyIslandBodyMinWidth));
+	        }
+	        const LONG right = left + width;
 
-		RECT rect{
-			std::max<LONG>(m_clientRect.left,  left - kIslandIndicatorWidth),
-			std::max<LONG>(m_clientRect.top,   body.top),
-			std::min<LONG>(m_clientRect.right, right),
-			std::min<LONG>(m_clientRect.bottom, body.bottom)
-		};
+	        RECT rect{
+	                std::max<LONG>(m_clientRect.left,  left - kIslandIndicatorWidth),
+	                std::max<LONG>(m_clientRect.top,   body.top),
+	                std::min<LONG>(m_clientRect.right, right),
+	                std::min<LONG>(m_clientRect.bottom, body.bottom)
+	        };
 
-		accumulate(item, rect, ResolveIndicatorColor(&item.data, item.data), item.data.headerVisible, true);
+	        accumulate(item, rect, ResolveIndicatorColor(&item.data, item.data), item.data.headerVisible, true);
 	}
-
 	std::vector<GroupOutline> result;
 	result.reserve(outlines.size());
 	for (auto& entry : outlines) {
@@ -1293,7 +1299,7 @@ void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& o
         RECT rect = outline.bounds;
         rect.left = std::max(rect.left, m_clientRect.left);
         rect.top = std::max(rect.top, m_clientRect.top);
-        rect.right = std::min(rect.right, m_clientRect.right);
+        rect.right = std::min(rect.right + 1, m_clientRect.right);
         rect.bottom = std::min(rect.bottom, m_clientRect.bottom);
         if (rect.right <= rect.left || rect.bottom <= rect.top) {
             continue;
@@ -1306,7 +1312,7 @@ void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& o
         HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
 
         const int left = rect.left;
-        const int right = rect.right - 1;
+        const int right = rect.right;
         const int top = rect.top;
         const int bottom = rect.bottom - 1;
 
@@ -1389,13 +1395,15 @@ void TabBandWindow::AdjustBandHeightToRow() {
 			maxRowIndex = it.row;
 		}
 	}
-	if (rowHeight <= 0) rowHeight = 24;
+        if (rowHeight <= 0) rowHeight = 24;
+        rowHeight = std::max(rowHeight, kButtonHeight - kButtonMargin);
 
 	int rowsFromItems = (maxRowIndex >= 0) ? (maxRowIndex + 1) : 0;
 	int rows = std::max(rowsFromItems, m_lastRowCount);
 	rows = std::max(rows, 1);
 	rows = std::min(rows, kMaxTabRows);
-	const int desired = rows * rowHeight + (rows - 1) * kRowGap;
+        int desired = rows * rowHeight + (rows - 1) * kRowGap;
+        desired = std::max(desired, kButtonHeight + kButtonMargin * 2);
 
 	REBARBANDINFOW bi{ sizeof(bi) };
 	bi.fMask = RBBIM_CHILDSIZE;
@@ -1758,39 +1766,6 @@ bool TabBandWindow::IsSystemDarkMode() const {
     return value == 0;
 }
 
-std::wstring TabBandWindow::BuildGitBadgeText(const TabViewItem& item) const {
-    if (!item.hasGitStatus) {
-        return {};
-    }
-    std::wstring text = item.gitStatus.branch.empty() ? L"git" : item.gitStatus.branch;
-    if (item.gitStatus.hasChanges) {
-        text += L"*";
-    }
-    if (item.gitStatus.hasUntracked) {
-        text += L"+";
-    }
-    if (item.gitStatus.ahead > 0) {
-        text += L" ↑" + std::to_wstring(item.gitStatus.ahead);
-    }
-    if (item.gitStatus.behind > 0) {
-        text += L" ↓" + std::to_wstring(item.gitStatus.behind);
-    }
-    return text;
-}
-
-int TabBandWindow::MeasureBadgeWidth(const TabViewItem& item, HDC dc) const {
-    int width = 0;
-    if (item.hasGitStatus) {
-        const std::wstring badge = BuildGitBadgeText(item);
-        if (!badge.empty()) {
-            SIZE badgeSize{};
-            GetTextExtentPoint32W(dc, badge.c_str(), static_cast<int>(badge.size()), &badgeSize);
-            width += badgeSize.cx + kBadgePaddingX * 2;
-        }
-    }
-    return width;
-}
-
 void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
     RECT indicator = rect;
@@ -1962,7 +1937,6 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-    const int badgeWidth = item.badgeWidth;
     RECT closeRect = ComputeCloseButtonRect(item);
 
     int trailingBoundary = rect.right - kPaddingX;
@@ -1988,50 +1962,6 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     textRect.top += 3;
 
     SetTextColor(dc, textColor);
-
-    if (badgeWidth > 0) {
-        RECT badgeRect = rect;
-        badgeRect.right = trailingBoundary;
-        badgeRect.left = badgeRect.right - badgeWidth + kBadgePaddingX;
-        if (badgeRect.left < textLeft + 4) {
-            badgeRect.left = textLeft + 4;
-        }
-        if (badgeRect.right <= badgeRect.left) {
-            badgeRect.right = badgeRect.left + 4;
-        }
-        badgeRect.top = rect.top + 4;
-        badgeRect.bottom = badgeRect.top + kBadgeHeight;
-        COLORREF badgeColor = item.data.gitStatus.hasChanges ? RGB(200, 130, 60) : RGB(90, 150, 90);
-        COLORREF badgeFillColor = m_darkMode ? BlendColors(computedBackground, badgeColor, 0.55)
-                                             : LightenColor(badgeColor, 0.15);
-        HBRUSH badgeBrush = CreateSolidBrush(badgeFillColor);
-        if (badgeBrush) {
-            RECT badgeFill = badgeRect;
-            badgeFill.left -= kBadgePaddingX;
-            badgeFill.right += kBadgePaddingX;
-            FillRect(dc, &badgeFill, badgeBrush);
-            DeleteObject(badgeBrush);
-            COLORREF badgeOutline = m_darkMode ? RGB(70, 70, 74) : GetSysColor(COLOR_3DSHADOW);
-            HPEN badgePen = CreatePen(PS_SOLID, 1, badgeOutline);
-            if (badgePen) {
-                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, badgePen));
-                MoveToEx(dc, badgeFill.left, badgeFill.top, nullptr);
-                LineTo(dc, badgeFill.right, badgeFill.top);
-                LineTo(dc, badgeFill.right, badgeFill.bottom);
-                LineTo(dc, badgeFill.left, badgeFill.bottom);
-                LineTo(dc, badgeFill.left, badgeFill.top);
-                SelectObject(dc, oldPen);
-                DeleteObject(badgePen);
-            }
-        }
-        SetTextColor(dc, ResolveTextColor(badgeFillColor));
-        const std::wstring badgeText = BuildGitBadgeText(item.data);
-        DrawTextW(dc, badgeText.c_str(), static_cast<int>(badgeText.size()), &badgeRect,
-                  DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-        SetTextColor(dc, textColor);
-        const int badgeLeft = static_cast<int>(badgeRect.left);
-        textRight = std::max(textLeft + 1, badgeLeft - kBadgePaddingX);
-    }
 
     textRect.right = std::max(textLeft + 1, textRight);
     DrawTextW(dc, item.data.name.c_str(), static_cast<int>(item.data.name.size()), &textRect,
@@ -2535,9 +2465,15 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
                 m_owner->OnToggleGroupCollapsed(m_contextHit.location.groupIndex);
                 break;
 
-	case IDM_UNHIDE_ALL:
-		m_owner->OnUnhideAllInGroup(m_contextHit.location.groupIndex);
-		break;
+        case IDM_CLOSE_ISLAND:
+                if (m_contextHit.location.groupIndex >= 0) {
+                        m_owner->OnCloseIslandRequested(m_contextHit.location.groupIndex);
+                }
+                break;
+
+        case IDM_UNHIDE_ALL:
+                m_owner->OnUnhideAllInGroup(m_contextHit.location.groupIndex);
+                break;
 
 	case IDM_NEW_ISLAND:
 		m_owner->OnCreateIslandAfter(m_contextHit.location.groupIndex);
@@ -3470,6 +3406,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             const auto& item = m_items[hit.itemIndex];
             const bool collapsed = item.data.collapsed;
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND, collapsed ? L"Show Island" : L"Hide Island");
+            AppendMenuW(menu, MF_STRING, IDM_CLOSE_ISLAND, L"Close Island");
             const bool headerVisible = m_owner->IsGroupHeaderVisible(item.data.location.groupIndex);
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND_HEADER,
                         headerVisible ? L"Hide Island Indicator" : L"Show Island Indicator");
@@ -3509,6 +3446,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND,
                         collapsed ? L"Show Island" : L"Hide Island");
+            AppendMenuW(menu, MF_STRING, IDM_CLOSE_ISLAND, L"Close Island");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, IDM_NEW_ISLAND, L"New Island After");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
@@ -3833,18 +3771,6 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_SHELLTABS_DEFER_NAVIGATE: {
                 if (self->m_owner) {
                     self->m_owner->OnDeferredNavigate();
-                }
-                return 0;
-            }
-            case WM_SHELLTABS_ENABLE_GIT_STATUS: {
-                if (self->m_owner) {
-                    self->m_owner->OnEnableGitStatus();
-                }
-                return 0;
-            }
-            case WM_SHELLTABS_REFRESH_GIT_STATUS: {
-                if (self->m_owner) {
-                    self->m_owner->OnGitStatusUpdated();
                 }
                 return 0;
             }

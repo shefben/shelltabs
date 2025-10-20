@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "Utilities.h"
-#include "GitStatus.h"
 
 namespace shelltabs {
 
@@ -51,8 +50,6 @@ struct TabViewItem {
     size_t totalTabs = 0;
     size_t visibleTabs = 0;
     size_t hiddenTabs = 0;
-    bool hasGitStatus = false;
-    GitStatusInfo gitStatus;
     std::wstring path;
     bool hasCustomOutline = false;
     COLORREF outlineColor = 0;

@@ -10,7 +10,6 @@
 #include <wrl/client.h>
 
 #include "ComUtils.h"
-#include "ExplorerWindowHook.h"
 #include "Guids.h"
 #include "Module.h"
 #include "Utilities.h"
@@ -71,9 +70,6 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
-    m_colorizer.Detach();
-    m_windowHook.reset();
-
     DisconnectEvents();
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
@@ -170,11 +166,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             ConnectEvents();
 
-            m_windowHook = ExplorerWindowHook::CreateForBrowser(site, browser.Get());
-            if (m_windowHook) {
-                m_windowHook->Attach();
-            }
-
             Microsoft::WRL::ComPtr<IServiceProvider> siteProvider;
             if (SUCCEEDED(site->QueryInterface(IID_PPV_ARGS(&siteProvider))) && siteProvider) {
                 if (!m_shellBrowser) {
@@ -201,13 +192,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
             }
-
-            if (m_shellBrowser) {
-                m_colorizer.Attach(m_shellBrowser);
-                m_colorizer.Refresh();
-            }
-
-
             EnsureBandVisible();
             return S_OK;
 
@@ -334,10 +318,6 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                     if (!m_bandVisible) {
                         EnsureBandVisible();
                     }
-                    break;
-                case DISPID_DOCUMENTCOMPLETE:
-                case DISPID_NAVIGATECOMPLETE2:
-                    m_colorizer.Refresh();
                     break;
                 case DISPID_ONQUIT:
                     Disconnect();
