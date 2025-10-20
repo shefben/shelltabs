@@ -947,7 +947,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     switch (msg) {
         case WM_INITMENUPOPUP: {
             if (lParam == 0) {
-                HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
+                HandleExplorerContextMenuInit(source, reinterpret_cast<HMENU>(wParam));
             }
             break;
         }
