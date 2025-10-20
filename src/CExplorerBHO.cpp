@@ -928,10 +928,20 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     ClearPendingOpenInNewTabState();
 }
 
-bool CExplorerBHO::HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam,
+bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                              LRESULT* result) {
     if (!result) {
         return false;
+    }
+
+    const UINT optionsChangedMessage = GetOptionsChangedMessage();
+    if (optionsChangedMessage != 0 && msg == optionsChangedMessage) {
+        UpdateBreadcrumbSubclass();
+        if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled && IsWindow(m_breadcrumbToolbar)) {
+            InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
+        }
+        *result = 0;
+        return true;
     }
 
     switch (msg) {

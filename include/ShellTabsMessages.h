@@ -11,5 +11,7 @@ struct OpenFolderMessagePayload {
     size_t length = 0;
 };
 
+UINT GetOptionsChangedMessage();
+
 }  // namespace shelltabs
 
