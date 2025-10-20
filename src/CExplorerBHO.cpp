@@ -8,6 +8,7 @@
 #include <CommCtrl.h>
 #include <uxtheme.h>
 #include <OleIdl.h>
+#include <dwmapi.h>
 #include <gdiplus.h>
 
 #include <array>
@@ -569,6 +570,17 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
 
+    HTHEME theme = nullptr;
+    if (IsAppThemed() && IsThemeActive()) {
+        theme = OpenThemeData(hwnd, L"BreadcrumbBar");
+        if (!theme) {
+            theme = OpenThemeData(hwnd, L"Toolbar");
+        }
+    }
+
+    BOOL dwmEnabled = FALSE;
+    const bool compositionEnabled = SUCCEEDED(DwmIsCompositionEnabled(&dwmEnabled)) && dwmEnabled;
+
     HFONT fontHandle = reinterpret_cast<HFONT>(SendMessage(hwnd, WM_GETFONT, 0, 0));
     if (!fontHandle) {
         fontHandle = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
@@ -659,21 +671,33 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 }
 
                 if (textRect.right > textRect.left) {
-                    Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
-                                             static_cast<Gdiplus::REAL>(textRect.top),
-                                             static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
-                                             static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
-
                     auto lighten = [](BYTE channel) -> BYTE {
                         return static_cast<BYTE>((static_cast<int>(channel) + 255) / 2);
                     };
 
-                    const Gdiplus::Color textColor(255, lighten(GetRValue(startRgb)),
-                                                   lighten(GetGValue(startRgb)),
-                                                   lighten(GetBValue(startRgb)));
-                    Gdiplus::SolidBrush textBrush(textColor);
-                    graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
-                                        &textBrush);
+                    const BYTE red = lighten(GetRValue(startRgb));
+                    const BYTE green = lighten(GetGValue(startRgb));
+                    const BYTE blue = lighten(GetBValue(startRgb));
+
+                    if (theme && compositionEnabled) {
+                        RECT themedRect = textRect;
+                        DTTOPTS opts{};
+                        opts.dwSize = sizeof(opts);
+                        opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+                        opts.crText = RGB(red, green, blue);
+                        DrawThemeTextEx(theme, drawDc, 0, 0, text.c_str(), static_cast<int>(text.size()),
+                                        DT_NOPREFIX | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, &themedRect,
+                                        &opts);
+                    } else {
+                        Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
+                                                 static_cast<Gdiplus::REAL>(textRect.top),
+                                                 static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
+                                                 static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
+                        const Gdiplus::Color textColor(255, red, green, blue);
+                        Gdiplus::SolidBrush textBrush(textColor);
+                        graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                            &textBrush);
+                    }
                 }
             }
         }
@@ -693,6 +717,10 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             Gdiplus::SolidBrush arrowBrush(Gdiplus::Color(220, 255, 255, 255));
             graphics.FillPolygon(&arrowBrush, arrow, ARRAYSIZE(arrow));
         }
+    }
+
+    if (theme) {
+        CloseThemeData(theme);
     }
 
     if (buffer) {
