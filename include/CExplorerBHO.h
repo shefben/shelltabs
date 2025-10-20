@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <exdisp.h>
@@ -50,7 +51,7 @@ private:
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
     bool InstallExplorerViewSubclass(HWND listView, HWND treeView);
-    bool HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+    bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
     void HandleExplorerCommand(UINT commandId);
     void HandleExplorerMenuDismiss(HMENU menu);
