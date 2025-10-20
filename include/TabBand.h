@@ -86,6 +86,7 @@ public:
     void OnToggleGroupCollapsed(int groupIndex);
     void OnUnhideAllInGroup(int groupIndex);
     void OnCreateIslandAfter(int groupIndex);
+    void OnCloseIslandRequested(int groupIndex);
     void OnEditGroupProperties(int groupIndex);
     void OnDetachGroupRequested(int groupIndex);
     void OnMoveTabRequested(TabLocation from, TabLocation to);

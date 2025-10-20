@@ -626,6 +626,38 @@ void TabBand::OnCreateIslandAfter(int groupIndex) {
     SyncAllSavedGroups();
 }
 
+void TabBand::OnCloseIslandRequested(int groupIndex) {
+    if (groupIndex < 0) {
+        return;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool removedSelectedGroup = (selected.groupIndex == groupIndex);
+
+    auto removed = m_tabs.TakeGroup(groupIndex);
+    if (!removed) {
+        return;
+    }
+
+    if (m_tabs.TotalTabCount() == 0) {
+        EnsureTabForCurrentFolder();
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    if (!removed->savedGroupId.empty()) {
+        GroupStore::Instance().UpdateTabs(removed->savedGroupId, {});
+    }
+
+    if (removedSelectedGroup) {
+        const TabLocation newSelection = m_tabs.SelectedLocation();
+        if (newSelection.IsValid()) {
+            NavigateToTab(newSelection);
+        }
+    }
+}
+
 void TabBand::OnEditGroupProperties(int groupIndex) {
     auto* group = m_tabs.GetGroup(groupIndex);
     if (!group) {
