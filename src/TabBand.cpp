@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <deque>
+#include <memory>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -44,6 +46,48 @@ struct WindowTokenState {
 WindowTokenState& GetWindowTokenState() {
     static auto* state = new WindowTokenState();
     return *state;
+}
+
+enum class WindowSeedType {
+    StandaloneTab,
+    Group,
+};
+
+struct PendingWindowSeed {
+    WindowSeedType type = WindowSeedType::StandaloneTab;
+    TabGroup group;
+};
+
+std::mutex& PendingWindowSeedMutex() {
+    static auto* mutex = new std::mutex();
+    return *mutex;
+}
+
+std::deque<std::shared_ptr<PendingWindowSeed>>& PendingWindowSeedQueue() {
+    static auto* queue = new std::deque<std::shared_ptr<PendingWindowSeed>>();
+    return *queue;
+}
+
+void EnqueuePendingWindowSeed(const std::shared_ptr<PendingWindowSeed>& seed) {
+    if (!seed) {
+        return;
+    }
+    auto& mutex = PendingWindowSeedMutex();
+    auto& queue = PendingWindowSeedQueue();
+    std::scoped_lock lock(mutex);
+    queue.push_back(seed);
+}
+
+std::shared_ptr<PendingWindowSeed> DequeuePendingWindowSeed() {
+    auto& mutex = PendingWindowSeedMutex();
+    auto& queue = PendingWindowSeedQueue();
+    std::scoped_lock lock(mutex);
+    if (queue.empty()) {
+        return {};
+    }
+    auto seed = std::move(queue.front());
+    queue.pop_front();
+    return seed;
 }
 
 std::wstring TrimWhitespace(const std::wstring& value) {
@@ -566,6 +610,9 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
         }
     }
 
+    auto seed = std::make_shared<PendingWindowSeed>();
+    seed->type = WindowSeedType::StandaloneTab;
+    EnqueuePendingWindowSeed(seed);
     OpenTabInNewWindow(*tab);
     m_tabs.Remove(location);
     if (m_tabs.TotalTabCount() == 0) {
@@ -662,22 +709,18 @@ void TabBand::OnEditGroupProperties(int groupIndex) {
 }
 
 void TabBand::OnDetachGroupRequested(int groupIndex) {
-    auto* group = m_tabs.GetGroup(groupIndex);
-    if (!group) {
+    auto removedGroup = m_tabs.TakeGroup(groupIndex);
+    if (!removedGroup) {
         return;
     }
 
-    std::vector<TabLocation> tabsToDetach;
-    tabsToDetach.reserve(group->tabs.size());
-    for (size_t i = 0; i < group->tabs.size(); ++i) {
-        tabsToDetach.emplace_back(TabLocation{groupIndex, static_cast<int>(i)});
-    }
-
-    for (auto it = tabsToDetach.rbegin(); it != tabsToDetach.rend(); ++it) {
-        if (const auto* tab = m_tabs.Get(*it)) {
-            OpenTabInNewWindow(*tab);
-        }
-        m_tabs.Remove(*it);
+    std::shared_ptr<PendingWindowSeed> seed;
+    if (!removedGroup->tabs.empty()) {
+        seed = std::make_shared<PendingWindowSeed>();
+        seed->type = WindowSeedType::Group;
+        seed->group = std::move(*removedGroup);
+        EnqueuePendingWindowSeed(seed);
+        OpenTabInNewWindow(seed->group.tabs.front());
     }
 
     if (m_tabs.TotalTabCount() == 0) {
@@ -1076,6 +1119,8 @@ void TabBand::InitializeTabs() {
     LogScope scope(L"TabBand::InitializeTabs");
     m_tabs.Clear();
 
+    std::shared_ptr<PendingWindowSeed> pendingSeed = DequeuePendingWindowSeed();
+
     GroupStore::Instance().Load();
     EnsureSessionStore();
     EnsureOptionsLoaded();
@@ -1087,29 +1132,49 @@ void TabBand::InitializeTabs() {
     if (m_lastSessionUnclean && !m_options.reopenOnCrash) {
         shouldRestore = false;
     }
+    if (pendingSeed) {
+        shouldRestore = false;
+    }
 
     bool restored = false;
     if (shouldRestore) {
         restored = RestoreSession();
     }
 
-    if (!restored || m_tabs.TotalTabCount() == 0) {
-        UniquePidl pidl = QueryCurrentFolder();
-        if (pidl) {
-            std::wstring name = GetDisplayName(pidl.get());
-            if (name.empty()) {
-                name = L"Tab";
-            }
-            m_tabs.Add(std::move(pidl), name, name, true);
-            LogMessage(LogLevel::Info, L"TabBand::InitializeTabs seeded new tab %ls", name.c_str());
+    bool handledPendingSeed = false;
+    if (pendingSeed && pendingSeed->type == WindowSeedType::Group) {
+        if (!pendingSeed->group.tabs.empty()) {
+            std::vector<TabGroup> groups;
+            groups.emplace_back(std::move(pendingSeed->group));
+            m_tabs.Restore(std::move(groups), 0, 0, m_tabs.NextGroupSequence());
+            handledPendingSeed = true;
         }
-    } else {
-        const TabLocation selection = m_tabs.SelectedLocation();
-        if (selection.IsValid()) {
-            const bool previousRestoring = m_restoringSession;
-            m_restoringSession = true;
-            NavigateToTab(selection);
-            m_restoringSession = previousRestoring;
+    }
+
+    if (!handledPendingSeed) {
+        if (!restored || m_tabs.TotalTabCount() == 0) {
+            UniquePidl pidl = QueryCurrentFolder();
+            if (pidl) {
+                std::wstring name = GetDisplayName(pidl.get());
+                if (name.empty()) {
+                    name = L"Tab";
+                }
+                TabLocation location = m_tabs.Add(std::move(pidl), name, name, true);
+                if (location.IsValid()) {
+                    if (!pendingSeed || pendingSeed->type == WindowSeedType::StandaloneTab) {
+                        m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
+                    }
+                }
+                LogMessage(LogLevel::Info, L"TabBand::InitializeTabs seeded new tab %ls", name.c_str());
+            }
+        } else {
+            const TabLocation selection = m_tabs.SelectedLocation();
+            if (selection.IsValid()) {
+                const bool previousRestoring = m_restoringSession;
+                m_restoringSession = true;
+                NavigateToTab(selection);
+                m_restoringSession = previousRestoring;
+            }
         }
     }
 

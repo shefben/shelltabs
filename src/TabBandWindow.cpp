@@ -762,14 +762,33 @@ void TabBandWindow::RebuildLayout() {
 
 		width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
 
-		if (x + width > maxX) {
-			if (!try_wrap()) {
-				width = std::max(40, maxX - x);
-				if (width <= 0) break;
-			}
-		}
+                bool wrapped = false;
+                if (x + width > maxX) {
+                        if (!try_wrap()) {
+                                width = std::max(40, maxX - x);
+                                if (width <= 0) break;
+                        } else {
+                                wrapped = true;
+                        }
+                }
 
-		width = std::clamp(width, 40, maxX - x);
+                if (wrapped && visual.firstInGroup) {
+                        if (!m_items.empty()) {
+                                VisualItem& previous = m_items.back();
+                                if (previous.indicatorHandle &&
+                                        previous.data.location.groupIndex == item.location.groupIndex) {
+                                        const int indicatorWidth = previous.bounds.right - previous.bounds.left;
+                                        previous.bounds.left = x;
+                                        previous.bounds.right = x + indicatorWidth;
+                                        previous.bounds.top = rowTop(row);
+                                        previous.bounds.bottom = rowBottom(row);
+                                        previous.row = row;
+                                        x += indicatorWidth;
+                                }
+                        }
+                }
+
+                width = std::clamp(width, 40, maxX - x);
 
                 visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
                 visual.row = row;
