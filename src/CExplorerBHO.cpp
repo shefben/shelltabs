@@ -15,21 +15,28 @@
 #include <array>
 #include <cstdarg>
 #include <cwchar>
+#include <cwctype>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <wrl/client.h>
+#include <shobjidl_core.h>
 
 #include "ComUtils.h"
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
 #include "OptionsStore.h"
+#include "ShellTabsMessages.h"
 #include "Utilities.h"
 
 #ifndef TBSTATE_HOT
 #define TBSTATE_HOT 0x80
+#endif
+
+#ifndef SFVIDM_CLIENT_OPENWINDOW
+#define SFVIDM_CLIENT_OPENWINDOW 0x705B
 #endif
 
 namespace {
@@ -60,6 +67,143 @@ HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
     }
     return nullptr;
 }
+
+std::wstring NormalizeMenuText(const std::wstring& value) {
+    if (value.empty()) {
+        return {};
+    }
+
+    std::wstring normalized;
+    normalized.reserve(value.size());
+    for (wchar_t ch : value) {
+        if (ch == L'&' || ch == L'.' || ch == 0x2026) {  // 0x2026 = ellipsis
+            continue;
+        }
+        normalized.push_back(static_cast<wchar_t>(towlower(ch)));
+    }
+
+    const size_t first = normalized.find_first_not_of(L" \t\r\n");
+    if (first == std::wstring::npos) {
+        return {};
+    }
+    const size_t last = normalized.find_last_not_of(L" \t\r\n");
+    return normalized.substr(first, last - first + 1);
+}
+
+bool TryGetMenuItemText(HMENU menu, UINT position, std::wstring& text) {
+    text.clear();
+    if (!menu) {
+        return false;
+    }
+
+    MENUITEMINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_STRING;
+    info.dwTypeData = nullptr;
+    info.cch = 0;
+    if (!GetMenuItemInfoW(menu, position, TRUE, &info)) {
+        return false;
+    }
+
+    if (info.cch == 0) {
+        return true;
+    }
+
+    std::wstring buffer;
+    buffer.resize(info.cch);
+    info.dwTypeData = buffer.data();
+    info.cch = static_cast<UINT>(buffer.size());
+    if (!GetMenuItemInfoW(menu, position, TRUE, &info)) {
+        return false;
+    }
+
+    buffer.resize(info.cch);
+    text = std::move(buffer);
+    return true;
+}
+
+bool FindMenuItemById(HMENU menu, UINT commandId, UINT* position) {
+    if (!menu) {
+        return false;
+    }
+
+    const int count = GetMenuItemCount(menu);
+    if (count <= 0) {
+        return false;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        const UINT id = GetMenuItemID(menu, i);
+        if (id == commandId) {
+            if (position) {
+                *position = static_cast<UINT>(i);
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool FindOpenInNewWindowMenuItem(HMENU menu, UINT* position, UINT* commandId) {
+    if (!menu) {
+        return false;
+    }
+
+    const UINT candidates[] = {SFVIDM_CLIENT_OPENWINDOW, 0x705A, 0x7059, 0x7020};
+    for (UINT candidate : candidates) {
+        UINT pos = 0;
+        if (FindMenuItemById(menu, candidate, &pos)) {
+            if (position) {
+                *position = pos;
+            }
+            if (commandId) {
+                *commandId = candidate;
+            }
+            return true;
+        }
+    }
+
+    const int count = GetMenuItemCount(menu);
+    if (count <= 0) {
+        return false;
+    }
+
+    static const wchar_t* kTargets[] = {L"open in new window", L"open new window"};
+
+    for (int i = 0; i < count; ++i) {
+        const UINT id = GetMenuItemID(menu, i);
+        if (id == UINT_MAX) {
+            continue;
+        }
+
+        std::wstring text;
+        if (!TryGetMenuItemText(menu, i, text)) {
+            continue;
+        }
+
+        const std::wstring normalized = NormalizeMenuText(text);
+        if (normalized.empty()) {
+            continue;
+        }
+
+        for (const wchar_t* target : kTargets) {
+            if (normalized == target) {
+                if (position) {
+                    *position = static_cast<UINT>(i);
+                }
+                if (commandId) {
+                    *commandId = id;
+                }
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+constexpr wchar_t kOpenInNewTabLabel[] = L"Open In New Tab";
 
 struct BreadcrumbHookEntry {
     HHOOK hook = nullptr;
@@ -147,6 +291,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 void CExplorerBHO::Disconnect() {
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
+    RemoveExplorerViewSubclass();
     DisconnectEvents();
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
@@ -277,6 +422,7 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             }
             EnsureBandVisible();
             UpdateBreadcrumbSubclass();
+            UpdateExplorerViewSubclass();
             return S_OK;
 
         },
@@ -407,6 +553,7 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_DOCUMENTCOMPLETE:
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
+                    UpdateExplorerViewSubclass();
                     break;
                 case DISPID_ONQUIT:
                     Disconnect();
@@ -700,6 +847,282 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
     return root == frame;
 }
 
+void CExplorerBHO::UpdateExplorerViewSubclass() {
+    RemoveExplorerViewSubclass();
+
+    if (!m_shellBrowser) {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IShellView> shellView;
+    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
+    if (FAILED(hr) || !shellView) {
+        return;
+    }
+
+    HWND viewWindow = nullptr;
+    hr = shellView->GetWindow(&viewWindow);
+    if (FAILED(hr) || !viewWindow) {
+        return;
+    }
+
+    HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
+    if (!listView) {
+        return;
+    }
+
+    HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
+
+    if (!InstallExplorerViewSubclass(listView, treeView)) {
+        return;
+    }
+
+    m_shellView = shellView;
+    m_shellViewWindow = viewWindow;
+}
+
+bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
+    bool installed = false;
+
+    if (listView && IsWindow(listView)) {
+        if (SetWindowSubclass(listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            m_listView = listView;
+            m_listViewSubclassInstalled = true;
+            installed = true;
+        } else {
+            LogLastError(L"SetWindowSubclass(list view)", GetLastError());
+        }
+    }
+
+    if (treeView && treeView != listView && IsWindow(treeView)) {
+        if (SetWindowSubclass(treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            m_treeView = treeView;
+            m_treeViewSubclassInstalled = true;
+        } else {
+            LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
+        }
+    }
+
+    if (installed) {
+        ClearPendingOpenInNewTabState();
+        LogMessage(LogLevel::Info, L"Installed explorer view subclass (list=%p tree=%p)", listView, treeView);
+    }
+
+    return installed;
+}
+
+void CExplorerBHO::RemoveExplorerViewSubclass() {
+    if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
+        RemoveWindowSubclass(m_listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+    }
+    if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
+        RemoveWindowSubclass(m_treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+    }
+
+    m_listView = nullptr;
+    m_treeView = nullptr;
+    m_listViewSubclassInstalled = false;
+    m_treeViewSubclassInstalled = false;
+    m_shellViewWindow = nullptr;
+    m_shellView.Reset();
+    ClearPendingOpenInNewTabState();
+}
+
+bool CExplorerBHO::HandleExplorerViewMessage(HWND /*source*/, UINT msg, WPARAM wParam, LPARAM lParam,
+                                             LRESULT* result) {
+    if (!result) {
+        return false;
+    }
+
+    switch (msg) {
+        case WM_INITMENUPOPUP: {
+            if (lParam == 0) {
+                HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
+            }
+            break;
+        }
+        case WM_COMMAND: {
+            const UINT commandId = LOWORD(wParam);
+            if (commandId == kOpenInNewTabCommandId) {
+                HandleExplorerCommand(commandId);
+                *result = 0;
+                return true;
+            }
+            break;
+        }
+        case WM_UNINITMENUPOPUP: {
+            HandleExplorerMenuDismiss(reinterpret_cast<HMENU>(wParam));
+            break;
+        }
+        case WM_CANCELMODE: {
+            HandleExplorerMenuDismiss(m_trackedContextMenu);
+            break;
+        }
+        default:
+            break;
+    }
+
+    return false;
+}
+
+void CExplorerBHO::HandleExplorerContextMenuInit(HWND /*source*/, HMENU menu) {
+    if (!menu || m_contextMenuInserted) {
+        return;
+    }
+
+    if (m_trackedContextMenu && menu != m_trackedContextMenu) {
+        return;
+    }
+
+    ClearPendingOpenInNewTabState();
+
+    std::vector<std::wstring> paths;
+    if (!CollectSelectedFolderPaths(paths) || paths.empty()) {
+        return;
+    }
+
+    UINT position = 0;
+    if (!FindOpenInNewWindowMenuItem(menu, &position, nullptr)) {
+        return;
+    }
+
+    if (GetMenuState(menu, kOpenInNewTabCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
+        return;
+    }
+
+    MENUITEMINFOW item{};
+    item.cbSize = sizeof(item);
+    item.fMask = MIIM_ID | MIIM_STRING | MIIM_FTYPE | MIIM_STATE;
+    item.fType = MFT_STRING;
+    item.fState = MFS_ENABLED;
+    item.wID = kOpenInNewTabCommandId;
+    item.dwTypeData = const_cast<wchar_t*>(kOpenInNewTabLabel);
+
+    if (!InsertMenuItemW(menu, position + 1, TRUE, &item)) {
+        return;
+    }
+
+    m_pendingOpenInNewTabPaths = std::move(paths);
+    m_contextMenuInserted = true;
+    m_trackedContextMenu = menu;
+}
+
+void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
+    if (commandId != kOpenInNewTabCommandId) {
+        return;
+    }
+
+    std::vector<std::wstring> paths = m_pendingOpenInNewTabPaths;
+    if (paths.empty()) {
+        if (!CollectSelectedFolderPaths(paths)) {
+            ClearPendingOpenInNewTabState();
+            return;
+        }
+    }
+
+    DispatchOpenInNewTab(paths);
+    ClearPendingOpenInNewTabState();
+}
+
+void CExplorerBHO::HandleExplorerMenuDismiss(HMENU menu) {
+    if (!m_trackedContextMenu) {
+        return;
+    }
+
+    if (!menu || menu == m_trackedContextMenu) {
+        ClearPendingOpenInNewTabState();
+    }
+}
+
+bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const {
+    paths.clear();
+    if (!m_shellView) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellItemArray> items;
+    HRESULT hr = m_shellView->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&items));
+    if (FAILED(hr) || !items) {
+        return false;
+    }
+
+    DWORD count = 0;
+    hr = items->GetCount(&count);
+    if (FAILED(hr) || count == 0) {
+        return false;
+    }
+
+    if (count > kMaxTrackedSelection) {
+        return false;
+    }
+
+    paths.reserve(static_cast<size_t>(count));
+
+    for (DWORD index = 0; index < count; ++index) {
+        Microsoft::WRL::ComPtr<IShellItem> item;
+        if (FAILED(items->GetItemAt(index, &item)) || !item) {
+            return false;
+        }
+
+        SFGAOF attributes = 0;
+        hr = item->GetAttributes(SFGAO_FOLDER | SFGAO_FILESYSTEM, &attributes);
+        if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
+            return false;
+        }
+
+        PWSTR path = nullptr;
+        hr = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+        if (FAILED(hr) || !path || path[0] == L'\0') {
+            if (path) {
+                CoTaskMemFree(path);
+            }
+            return false;
+        }
+
+        std::wstring value(path);
+        CoTaskMemFree(path);
+
+        if (value.empty()) {
+            return false;
+        }
+
+        paths.push_back(std::move(value));
+    }
+
+    return !paths.empty();
+}
+
+void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const {
+    if (paths.empty()) {
+        return;
+    }
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return;
+    }
+
+    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+    if (!bandWindow || !IsWindow(bandWindow)) {
+        return;
+    }
+
+    for (const std::wstring& path : paths) {
+        if (path.empty()) {
+            continue;
+        }
+
+        OpenFolderMessagePayload payload{path.c_str(), path.size()};
+        SendMessageW(bandWindow, WM_SHELLTABS_OPEN_FOLDER, reinterpret_cast<WPARAM>(&payload), 0);
+    }
+}
+
+void CExplorerBHO::ClearPendingOpenInNewTabState() {
+    m_pendingOpenInNewTabPaths.clear();
+    m_trackedContextMenu = nullptr;
+    m_contextMenuInserted = false;
+}
+
 bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
     if (!toolbar || !IsWindow(toolbar)) {
         return false;
@@ -799,16 +1222,19 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     store.Load();
     const ShellTabsOptions options = store.Get();
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
+    m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
 
-    if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
+    const bool gradientsEnabled = (m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled);
+    if (!gradientsEnabled || !m_gdiplusInitialized) {
         if (m_breadcrumbLogState != BreadcrumbLogState::Disabled) {
             LogMessage(LogLevel::Info,
-                       L"Breadcrumb gradient inactive (enabled=%d gdiplus=%d); ensuring subclass removed",
-                       m_breadcrumbGradientEnabled ? 1 : 0, m_gdiplusInitialized ? 1 : 0);
+                       L"Breadcrumb gradients inactive (background=%d text=%d gdiplus=%d); ensuring subclass removed",
+                       m_breadcrumbGradientEnabled ? 1 : 0, m_breadcrumbFontGradientEnabled ? 1 : 0,
+                       m_gdiplusInitialized ? 1 : 0);
             m_breadcrumbLogState = BreadcrumbLogState::Disabled;
         }
         if (m_breadcrumbSubclassInstalled) {
-            LogMessage(LogLevel::Info, L"Breadcrumb gradient disabled; removing subclass");
+            LogMessage(LogLevel::Info, L"Breadcrumb gradients disabled; removing subclass");
         }
         RemoveBreadcrumbHook();
         RemoveBreadcrumbSubclass();
@@ -819,8 +1245,10 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     EnsureBreadcrumbHook();
 
     if (m_breadcrumbLogState != BreadcrumbLogState::Searching) {
-        LogMessage(LogLevel::Info, L"Breadcrumb gradient enabled; locating toolbar (installed=%d)",
-                   m_breadcrumbSubclassInstalled ? 1 : 0);
+        LogMessage(LogLevel::Info,
+                   L"Breadcrumb gradients enabled; locating toolbar (installed=%d background=%d text=%d)",
+                   m_breadcrumbSubclassInstalled ? 1 : 0, m_breadcrumbGradientEnabled ? 1 : 0,
+                   m_breadcrumbFontGradientEnabled ? 1 : 0);
         m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
         m_breadcrumbLogState = BreadcrumbLogState::Searching;
     }
@@ -852,7 +1280,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
-    if (!m_breadcrumbGradientEnabled || !m_gdiplusInitialized) {
+    if ((!m_breadcrumbGradientEnabled && !m_breadcrumbFontGradientEnabled) || !m_gdiplusInitialized) {
         return false;
     }
 
@@ -954,6 +1382,17 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         const COLORREF startRgb = kRainbowColors[startIndex];
         const COLORREF endRgb = kRainbowColors[endIndex];
 
+        auto darkenChannel = [](BYTE channel) -> BYTE {
+            return static_cast<BYTE>(std::clamp<int>(static_cast<int>(channel) * 35 / 100, 0, 255));
+        };
+        auto lightenChannel = [](BYTE channel) -> BYTE {
+            const int boosted = channel + ((255 - channel) * 3) / 4;
+            return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
+        };
+        auto averageChannel = [](BYTE a, BYTE b) -> BYTE {
+            return static_cast<BYTE>((static_cast<int>(a) + static_cast<int>(b)) / 2);
+        };
+
         Gdiplus::RectF rectF(static_cast<Gdiplus::REAL>(itemRect.left),
                              static_cast<Gdiplus::REAL>(itemRect.top),
                              static_cast<Gdiplus::REAL>(itemRect.right - itemRect.left),
@@ -966,13 +1405,19 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             baseAlpha = 220;
         }
 
-        Gdiplus::LinearGradientBrush backgroundBrush(
-            rectF,
-            Gdiplus::Color(baseAlpha, GetRValue(startRgb), GetGValue(startRgb), GetBValue(startRgb)),
-            Gdiplus::Color(baseAlpha, GetRValue(endRgb), GetGValue(endRgb), GetBValue(endRgb)),
-            Gdiplus::LinearGradientModeHorizontal);
-        backgroundBrush.SetGammaCorrection(TRUE);
-        graphics.FillRectangle(&backgroundBrush, rectF);
+        const BYTE scaledAlpha = static_cast<BYTE>(std::clamp<int>(baseAlpha * 55 / 100, 0, 255));
+
+        if (m_breadcrumbGradientEnabled) {
+            const Gdiplus::Color startColor(scaledAlpha, darkenChannel(GetRValue(startRgb)),
+                                            darkenChannel(GetGValue(startRgb)),
+                                            darkenChannel(GetBValue(startRgb)));
+            const Gdiplus::Color endColor(scaledAlpha, darkenChannel(GetRValue(endRgb)),
+                                          darkenChannel(GetGValue(endRgb)), darkenChannel(GetBValue(endRgb)));
+            Gdiplus::LinearGradientBrush backgroundBrush(rectF, startColor, endColor,
+                                                         Gdiplus::LinearGradientModeHorizontal);
+            backgroundBrush.SetGammaCorrection(TRUE);
+            graphics.FillRectangle(&backgroundBrush, rectF);
+        }
 
         LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, 0);
         if (textLength > 0) {
@@ -991,20 +1436,23 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 }
 
                 if (textRect.right > textRect.left) {
-                    auto lighten = [](BYTE channel) -> BYTE {
-                        return static_cast<BYTE>((static_cast<int>(channel) + 255) / 2);
-                    };
+                    const BYTE lightStartRed = lightenChannel(GetRValue(startRgb));
+                    const BYTE lightStartGreen = lightenChannel(GetGValue(startRgb));
+                    const BYTE lightStartBlue = lightenChannel(GetBValue(startRgb));
+                    const BYTE lightEndRed = lightenChannel(GetRValue(endRgb));
+                    const BYTE lightEndGreen = lightenChannel(GetGValue(endRgb));
+                    const BYTE lightEndBlue = lightenChannel(GetBValue(endRgb));
 
-                    const BYTE red = lighten(GetRValue(startRgb));
-                    const BYTE green = lighten(GetGValue(startRgb));
-                    const BYTE blue = lighten(GetBValue(startRgb));
-
-                    if (theme && compositionEnabled) {
+                    const bool useFontGradient = m_breadcrumbFontGradientEnabled;
+                    if (theme && compositionEnabled && !useFontGradient) {
+                        const BYTE avgRed = averageChannel(lightStartRed, lightEndRed);
+                        const BYTE avgGreen = averageChannel(lightStartGreen, lightEndGreen);
+                        const BYTE avgBlue = averageChannel(lightStartBlue, lightEndBlue);
                         RECT themedRect = textRect;
                         DTTOPTS opts{};
                         opts.dwSize = sizeof(opts);
                         opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
-                        opts.crText = RGB(red, green, blue);
+                        opts.crText = RGB(avgRed, avgGreen, avgBlue);
                         DrawThemeTextEx(theme, drawDc, 0, 0, text.c_str(), static_cast<int>(text.size()),
                                         DT_NOPREFIX | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, &themedRect,
                                         &opts);
@@ -1013,10 +1461,23 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                                  static_cast<Gdiplus::REAL>(textRect.top),
                                                  static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
                                                  static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
-                        const Gdiplus::Color textColor(255, red, green, blue);
-                        Gdiplus::SolidBrush textBrush(textColor);
-                        graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
-                                            &textBrush);
+                        if (useFontGradient) {
+                            Gdiplus::LinearGradientBrush textBrush(
+                                textRectF,
+                                Gdiplus::Color(255, lightStartRed, lightStartGreen, lightStartBlue),
+                                Gdiplus::Color(255, lightEndRed, lightEndGreen, lightEndBlue),
+                                Gdiplus::LinearGradientModeHorizontal);
+                            textBrush.SetGammaCorrection(TRUE);
+                            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                                &textBrush);
+                        } else {
+                            const BYTE avgRed = averageChannel(lightStartRed, lightEndRed);
+                            const BYTE avgGreen = averageChannel(lightStartGreen, lightEndGreen);
+                            const BYTE avgBlue = averageChannel(lightStartBlue, lightEndBlue);
+                            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, avgRed, avgGreen, avgBlue));
+                            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                                &textBrush);
+                        }
                     }
                 }
             }
@@ -1088,7 +1549,9 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
 
         if (!observers.empty()) {
             for (CExplorerBHO* observer : observers) {
-                if (!observer || !observer->m_breadcrumbGradientEnabled || !observer->m_gdiplusInitialized) {
+                if (!observer ||
+                    (!observer->m_breadcrumbGradientEnabled && !observer->m_breadcrumbFontGradientEnabled) ||
+                    !observer->m_gdiplusInitialized) {
                     continue;
                 }
 
@@ -1138,6 +1601,39 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
             break;
         default:
             break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                       UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    LRESULT result = 0;
+    if (self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result)) {
+        return result;
+    }
+
+    if (msg == WM_NCDESTROY) {
+        if (hwnd == self->m_listView) {
+            self->m_listView = nullptr;
+            self->m_listViewSubclassInstalled = false;
+        } else if (hwnd == self->m_treeView) {
+            self->m_treeView = nullptr;
+            self->m_treeViewSubclassInstalled = false;
+        }
+
+        if (!self->m_listView && !self->m_treeView) {
+            self->m_shellView.Reset();
+            self->m_shellViewWindow = nullptr;
+            self->ClearPendingOpenInNewTabState();
+        }
+
+        RemoveWindowSubclass(hwnd, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
