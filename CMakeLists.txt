@@ -24,6 +24,7 @@ add_library(ShellTabs SHARED
     src/GroupStore.cpp
     src/OptionsStore.cpp
     src/OptionsDialog.cpp
+    src/ShellTabsMessages.cpp
     src/Utilities.cpp
     src/Logging.cpp
     src/resource.rc

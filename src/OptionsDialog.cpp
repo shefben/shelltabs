@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <CommCtrl.h>
+#include <prsht.h>
 
 #include <algorithm>
 #include <cwchar>
@@ -20,7 +21,7 @@ namespace {
 
 constexpr int kMainCheckboxWidth = 210;
 constexpr int kMainDialogWidth = 260;
-constexpr int kMainDialogHeight = 176;
+constexpr int kMainDialogHeight = 220;
 constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
@@ -32,6 +33,12 @@ enum ControlIds : int {
     IDC_MAIN_BREADCRUMB = 5003,
     IDC_MAIN_BREADCRUMB_FONT = 5004,
     IDC_MAIN_EXAMPLE = 5005,
+    IDC_MAIN_BREADCRUMB_BG_LABEL = 5006,
+    IDC_MAIN_BREADCRUMB_BG_SLIDER = 5007,
+    IDC_MAIN_BREADCRUMB_BG_VALUE = 5008,
+    IDC_MAIN_BREADCRUMB_FONT_LABEL = 5009,
+    IDC_MAIN_BREADCRUMB_FONT_SLIDER = 5010,
+    IDC_MAIN_BREADCRUMB_FONT_VALUE = 5011,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -75,7 +82,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | WS_CHILD | WS_VISIBLE;
     dlg->dwExtendedStyle = 0;
-    dlg->cdit = 5;
+    dlg->cdit = 11;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -154,13 +161,105 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* backgroundLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    backgroundLabel->style = WS_CHILD | WS_VISIBLE;
+    backgroundLabel->dwExtendedStyle = 0;
+    backgroundLabel->x = 18;
+    backgroundLabel->y = 86;
+    backgroundLabel->cx = kMainDialogWidth - 26;
+    backgroundLabel->cy = 10;
+    backgroundLabel->id = IDC_MAIN_BREADCRUMB_BG_LABEL;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Background transparency:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* backgroundSlider = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    backgroundSlider->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS;
+    backgroundSlider->dwExtendedStyle = 0;
+    backgroundSlider->x = 18;
+    backgroundSlider->y = 98;
+    backgroundSlider->cx = 170;
+    backgroundSlider->cy = 16;
+    backgroundSlider->id = IDC_MAIN_BREADCRUMB_BG_SLIDER;
+    AppendString(data, TRACKBAR_CLASSW);
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* backgroundValue = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    backgroundValue->style = WS_CHILD | WS_VISIBLE | SS_RIGHT;
+    backgroundValue->dwExtendedStyle = 0;
+    backgroundValue->x = 194;
+    backgroundValue->y = 100;
+    backgroundValue->cx = 46;
+    backgroundValue->cy = 12;
+    backgroundValue->id = IDC_MAIN_BREADCRUMB_BG_VALUE;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* fontLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    fontLabel->style = WS_CHILD | WS_VISIBLE;
+    fontLabel->dwExtendedStyle = 0;
+    fontLabel->x = 18;
+    fontLabel->y = 122;
+    fontLabel->cx = kMainDialogWidth - 26;
+    fontLabel->cy = 10;
+    fontLabel->id = IDC_MAIN_BREADCRUMB_FONT_LABEL;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Font transparency:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* fontSlider = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    fontSlider->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS;
+    fontSlider->dwExtendedStyle = 0;
+    fontSlider->x = 18;
+    fontSlider->y = 134;
+    fontSlider->cx = 170;
+    fontSlider->cy = 16;
+    fontSlider->id = IDC_MAIN_BREADCRUMB_FONT_SLIDER;
+    AppendString(data, TRACKBAR_CLASSW);
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* fontValue = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    fontValue->style = WS_CHILD | WS_VISIBLE | SS_RIGHT;
+    fontValue->dwExtendedStyle = 0;
+    fontValue->x = 194;
+    fontValue->y = 136;
+    fontValue->cx = 46;
+    fontValue->cy = 12;
+    fontValue->id = IDC_MAIN_BREADCRUMB_FONT_VALUE;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* exampleStatic = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     exampleStatic->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     exampleStatic->dwExtendedStyle = 0;
     exampleStatic->x = 18;
-    exampleStatic->y = 90;
+    exampleStatic->y = 156;
     exampleStatic->cx = kMainDialogWidth - 26;
-    exampleStatic->cy = 60;
+    exampleStatic->cy = 52;
     exampleStatic->id = IDC_MAIN_EXAMPLE;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
@@ -532,6 +631,38 @@ void UpdateListBoxHorizontalExtent(HWND hwndList) {
     }
     ReleaseDC(hwndList, dc);
     SendMessageW(hwndList, LB_SETHORIZONTALEXTENT, maxWidth + 12, 0);
+}
+
+int ClampTransparencyValue(int value) {
+    return std::clamp(value, 0, 100);
+}
+
+void ConfigureTransparencySlider(HWND hwnd, int controlId, int value) {
+    HWND slider = GetDlgItem(hwnd, controlId);
+    if (!slider) {
+        return;
+    }
+    SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
+    SendMessageW(slider, TBM_SETPAGESIZE, 0, 5);
+    SendMessageW(slider, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(slider, TBM_SETTICFREQ, 10, 0);
+    SendMessageW(slider, TBM_SETPOS, TRUE, ClampTransparencyValue(value));
+}
+
+void UpdateTransparencyLabel(HWND hwnd, int controlId, int value) {
+    wchar_t buffer[16];
+    const int clamped = ClampTransparencyValue(value);
+    _snwprintf_s(buffer, ARRAYSIZE(buffer), _TRUNCATE, L"%d%%", clamped);
+    SetDlgItemTextW(hwnd, controlId, buffer);
+}
+
+void UpdateTransparencyControlsEnabled(HWND hwnd, bool backgroundEnabled, bool fontEnabled) {
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_LABEL), backgroundEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER), backgroundEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE), backgroundEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_FONT_LABEL), fontEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER), fontEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE), fontEnabled);
 }
 
 void RefreshGroupList(HWND hwndList, const OptionsDialogData* data) {
@@ -920,10 +1051,60 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                                data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT,
                                data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
+                ConfigureTransparencySlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
+                                             data->workingOptions.breadcrumbGradientTransparency);
+                ConfigureTransparencySlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
+                                             data->workingOptions.breadcrumbFontTransparency);
+                UpdateTransparencyLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
+                                        data->workingOptions.breadcrumbGradientTransparency);
+                UpdateTransparencyLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
+                                        data->workingOptions.breadcrumbFontTransparency);
+                UpdateTransparencyControlsEnabled(hwnd, data->workingOptions.enableBreadcrumbGradient,
+                                                 data->workingOptions.enableBreadcrumbFontGradient);
                 const wchar_t example[] =
                     L"Example: if a group opens to C:\\test and you browse to C\\test\\child, "
                     L"enabling this option reopens the child folder next time.";
                 SetDlgItemTextW(hwnd, IDC_MAIN_EXAMPLE, example);
+            }
+            return TRUE;
+        }
+        case WM_COMMAND: {
+            switch (LOWORD(wParam)) {
+                case IDC_MAIN_REOPEN:
+                case IDC_MAIN_PERSIST:
+                case IDC_MAIN_BREADCRUMB:
+                case IDC_MAIN_BREADCRUMB_FONT:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            const bool backgroundEnabled =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
+                            const bool fontEnabled =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
+                            UpdateTransparencyControlsEnabled(hwnd, backgroundEnabled, fontEnabled);
+                        }
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                default:
+                    break;
+            }
+            break;
+        }
+        case WM_HSCROLL: {
+            HWND slider = reinterpret_cast<HWND>(lParam);
+            if (!slider) {
+                return TRUE;
+            }
+            const int controlId = GetDlgCtrlID(slider);
+            if (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER || controlId == IDC_MAIN_BREADCRUMB_FONT_SLIDER) {
+                const int labelId = (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER)
+                                        ? IDC_MAIN_BREADCRUMB_BG_VALUE
+                                        : IDC_MAIN_BREADCRUMB_FONT_VALUE;
+                const int value = ClampTransparencyValue(
+                    static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
+                UpdateTransparencyLabel(hwnd, labelId, value);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
             }
             return TRUE;
         }
@@ -939,6 +1120,12 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
                     data->workingOptions.enableBreadcrumbFontGradient =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
+                    data->workingOptions.breadcrumbGradientTransparency =
+                        ClampTransparencyValue(static_cast<int>(SendDlgItemMessageW(
+                            hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER, TBM_GETPOS, 0, 0)));
+                    data->workingOptions.breadcrumbFontTransparency =
+                        ClampTransparencyValue(static_cast<int>(SendDlgItemMessageW(
+                            hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
@@ -1008,7 +1195,7 @@ int CALLBACK OptionsSheetCallback(HWND hwnd, UINT message, LPARAM) {
 }  // namespace
 
 OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
-    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES};
+    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES};
     InitCommonControlsEx(&icc);
 
     OptionsDialogResult result;

@@ -30,6 +30,7 @@
 #include "OptionsStore.h"
 #include "Logging.h"
 #include "Module.h"
+#include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
 
@@ -1370,6 +1371,17 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
     if (!previousOptions.persistGroupPaths && m_options.persistGroupPaths) {
         SyncAllSavedGroups();
     }
+
+    const bool backgroundChanged =
+        previousOptions.enableBreadcrumbGradient != m_options.enableBreadcrumbGradient;
+    const bool fontChanged =
+        previousOptions.enableBreadcrumbFontGradient != m_options.enableBreadcrumbFontGradient;
+    if (backgroundChanged || fontChanged) {
+        const UINT message = GetOptionsChangedMessage();
+        if (message != 0) {
+            SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);
+        }
+    }
 }
 
 UniquePidl TabBand::QueryCurrentFolder() const {
@@ -1439,10 +1451,18 @@ void TabBand::EnsureTabForCurrentFolder() {
     if (!clone) {
         return;
     }
+
+    const bool shouldHideIndicator = (m_tabs.TotalTabCount() == 0);
     TabLocation location = m_tabs.Add(std::move(clone), name, name, true);
-    if (location.IsValid()) {
-        SyncSavedGroup(location.groupIndex);
+    if (!location.IsValid()) {
+        return;
     }
+
+    if (shouldHideIndicator) {
+        m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
+    }
+
+    SyncSavedGroup(location.groupIndex);
 }
 
 void TabBand::OpenTabInNewWindow(const TabInfo& tab) {
