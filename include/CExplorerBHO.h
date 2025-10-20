@@ -94,6 +94,8 @@ private:
     bool m_breadcrumbSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
     bool m_breadcrumbFontGradientEnabled = false;
+    int m_breadcrumbGradientTransparency = 45;
+    int m_breadcrumbFontTransparency = 0;
     bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,

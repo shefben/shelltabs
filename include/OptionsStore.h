@@ -11,6 +11,8 @@ struct ShellTabsOptions {
     bool persistGroupPaths = false;
     bool enableBreadcrumbGradient = false;
     bool enableBreadcrumbFontGradient = false;
+    int breadcrumbGradientTransparency = 45;  // percentage [0, 100]
+    int breadcrumbFontTransparency = 0;       // percentage [0, 100]
 };
 
 class OptionsStore {
