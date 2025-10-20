@@ -15,6 +15,7 @@
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
+#include "ThemeHooks.h"
 
 using namespace shelltabs;
 
@@ -737,6 +738,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         }
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
+        ShutdownThemeHooks();
         ShutdownLogging();
     }
     return TRUE;

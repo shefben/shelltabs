@@ -5,6 +5,7 @@
 #include <string>
 
 #include "Utilities.h"
+#include "ThemeHooks.h"
 
 namespace shelltabs {
 namespace {
@@ -93,6 +94,8 @@ FolderViewColorizer::FolderViewColorizer() = default;
 FolderViewColorizer::~FolderViewColorizer() { Detach(); }
 
 void FolderViewColorizer::Attach(const Microsoft::WRL::ComPtr<IShellBrowser>& browser) {
+    InitializeThemeHooks();
+
     if (browser == m_shellBrowser) {
         ResetView();
         return;

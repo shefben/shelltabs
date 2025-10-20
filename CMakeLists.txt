@@ -26,6 +26,7 @@ add_library(ShellTabs SHARED
     src/OptionsStore.cpp
     src/OptionsDialog.cpp
     src/Utilities.cpp
+    src/ThemeHooks.cpp
     src/GitStatus.cpp
     src/Logging.cpp
     src/ExplorerPane.cpp

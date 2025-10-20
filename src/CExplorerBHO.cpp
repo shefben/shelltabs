@@ -207,10 +207,11 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
             }
-			// Colorize the active folder view
-			//m_colorizer.Attach(m_shellBrowser);
-			//m_colorizer.Refresh();
 
+            if (m_shellBrowser) {
+                m_colorizer.Attach(m_shellBrowser);
+                m_colorizer.Refresh();
+            }
 
             EnsureBandVisible();
             return S_OK;
