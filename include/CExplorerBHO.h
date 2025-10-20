@@ -50,7 +50,7 @@ private:
     bool InstallBreadcrumbSubclass(HWND toolbar);
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
-    bool InstallExplorerViewSubclass(HWND listView, HWND treeView);
+    bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
     bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
     void HandleExplorerCommand(UINT commandId);
@@ -110,6 +110,7 @@ private:
     mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
     Microsoft::WRL::ComPtr<IShellView> m_shellView;
     HWND m_shellViewWindow = nullptr;
+    bool m_shellViewWindowSubclassInstalled = false;
     HWND m_listView = nullptr;
     HWND m_treeView = nullptr;
     bool m_listViewSubclassInstalled = false;

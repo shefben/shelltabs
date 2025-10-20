@@ -905,12 +905,22 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
 
     HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
     if (!listView) {
+        LogMessage(LogLevel::Warning,
+                   L"Explorer view subclass setup aborted: list view not found for view window %p", viewWindow);
         return;
     }
 
     HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
+    if (!treeView) {
+        LogMessage(LogLevel::Info,
+                   L"Explorer view subclass setup continuing without tree view (view=%p list=%p)", viewWindow,
+                   listView);
+    }
 
-    if (!InstallExplorerViewSubclass(listView, treeView)) {
+    if (!InstallExplorerViewSubclass(viewWindow, listView, treeView)) {
+        LogMessage(LogLevel::Warning,
+                   L"Explorer view subclass installation failed (view=%p list=%p tree=%p)", viewWindow, listView,
+                   treeView);
         return;
     }
 
@@ -918,14 +928,28 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
     m_shellViewWindow = viewWindow;
 }
 
-bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
+bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView) {
     bool installed = false;
+
+    if (viewWindow && IsWindow(viewWindow)) {
+        if (SetWindowSubclass(viewWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            m_shellViewWindowSubclassInstalled = true;
+            installed = true;
+            LogMessage(LogLevel::Info, L"Installed shell view window subclass (view=%p)", viewWindow);
+        } else {
+            LogLastError(L"SetWindowSubclass(shell view window)", GetLastError());
+            m_shellViewWindowSubclassInstalled = false;
+        }
+    } else {
+        m_shellViewWindowSubclassInstalled = false;
+    }
 
     if (listView && IsWindow(listView)) {
         if (SetWindowSubclass(listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_listView = listView;
             m_listViewSubclassInstalled = true;
             installed = true;
+            LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
         } else {
             LogLastError(L"SetWindowSubclass(list view)", GetLastError());
         }
@@ -935,6 +959,7 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
         if (SetWindowSubclass(treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_treeView = treeView;
             m_treeViewSubclassInstalled = true;
+            LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
         } else {
             LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
         }
@@ -942,13 +967,21 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView) {
 
     if (installed) {
         ClearPendingOpenInNewTabState();
-        LogMessage(LogLevel::Info, L"Installed explorer view subclass (list=%p tree=%p)", listView, treeView);
+        LogMessage(LogLevel::Info, L"Explorer view subclass ready (view=%p list=%p tree=%p)", viewWindow,
+                   listView, treeView);
+    } else {
+        LogMessage(LogLevel::Warning,
+                   L"Explorer view subclass installation skipped: no valid targets (view=%p list=%p tree=%p)",
+                   viewWindow, listView, treeView);
     }
 
     return installed;
 }
 
 void CExplorerBHO::RemoveExplorerViewSubclass() {
+    if (m_shellViewWindow && m_shellViewWindowSubclassInstalled && IsWindow(m_shellViewWindow)) {
+        RemoveWindowSubclass(m_shellViewWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+    }
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
         RemoveWindowSubclass(m_listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
@@ -956,6 +989,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
         RemoveWindowSubclass(m_treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
 
+    m_shellViewWindowSubclassInstalled = false;
     m_listView = nullptr;
     m_treeView = nullptr;
     m_listViewSubclassInstalled = false;
@@ -1012,12 +1046,22 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     return false;
 }
 
-void CExplorerBHO::HandleExplorerContextMenuInit(HWND /*source*/, HMENU menu) {
-    if (!menu || m_contextMenuInserted) {
+void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
+    LogMessage(LogLevel::Info, L"Explorer context menu init (menu=%p source=%p inserted=%d tracking=%p)", menu, source,
+               m_contextMenuInserted ? 1 : 0, m_trackedContextMenu);
+
+    if (!menu) {
+        LogMessage(LogLevel::Warning, L"Context menu init aborted: menu handle missing");
+        return;
+    }
+
+    if (m_contextMenuInserted) {
+        LogMessage(LogLevel::Info, L"Context menu init skipped: already inserted for this cycle");
         return;
     }
 
     if (m_trackedContextMenu && menu != m_trackedContextMenu) {
+        LogMessage(LogLevel::Info, L"Context menu init skipped: still tracking menu %p", m_trackedContextMenu);
         return;
     }
 
@@ -1025,15 +1069,18 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND /*source*/, HMENU menu) {
 
     std::vector<std::wstring> paths;
     if (!CollectSelectedFolderPaths(paths) || paths.empty()) {
+        LogMessage(LogLevel::Info, L"Context menu init aborted: no eligible folder selection detected");
         return;
     }
 
     UINT position = 0;
     if (!FindOpenInNewWindowMenuItem(menu, &position, nullptr)) {
+        LogMessage(LogLevel::Warning, L"Context menu init aborted: 'Open in new window' anchor not found");
         return;
     }
 
     if (GetMenuState(menu, kOpenInNewTabCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
+        LogMessage(LogLevel::Info, L"Context menu already contains Open In New Tab entry");
         return;
     }
 
@@ -1046,12 +1093,15 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND /*source*/, HMENU menu) {
     item.dwTypeData = const_cast<wchar_t*>(kOpenInNewTabLabel);
 
     if (!InsertMenuItemW(menu, position + 1, TRUE, &item)) {
+        LogLastError(L"InsertMenuItem(Open In New Tab)", GetLastError());
         return;
     }
 
     m_pendingOpenInNewTabPaths = std::move(paths);
     m_contextMenuInserted = true;
     m_trackedContextMenu = menu;
+    LogMessage(LogLevel::Info, L"Open In New Tab inserted at position %u for %zu paths", position + 1,
+               m_pendingOpenInNewTabPaths.size());
 }
 
 void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
@@ -1062,11 +1112,13 @@ void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
     std::vector<std::wstring> paths = m_pendingOpenInNewTabPaths;
     if (paths.empty()) {
         if (!CollectSelectedFolderPaths(paths)) {
+            LogMessage(LogLevel::Warning, L"Open In New Tab command aborted: unable to resolve folder selection");
             ClearPendingOpenInNewTabState();
             return;
         }
     }
 
+    LogMessage(LogLevel::Info, L"Open In New Tab command executing for %zu paths", paths.size());
     DispatchOpenInNewTab(paths);
     ClearPendingOpenInNewTabState();
 }
@@ -1077,6 +1129,7 @@ void CExplorerBHO::HandleExplorerMenuDismiss(HMENU menu) {
     }
 
     if (!menu || menu == m_trackedContextMenu) {
+        LogMessage(LogLevel::Info, L"Explorer context menu dismissed (menu=%p)", menu);
         ClearPendingOpenInNewTabState();
     }
 }
@@ -1084,22 +1137,27 @@ void CExplorerBHO::HandleExplorerMenuDismiss(HMENU menu) {
 bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const {
     paths.clear();
     if (!m_shellView) {
+        LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: shell view unavailable");
         return false;
     }
 
     Microsoft::WRL::ComPtr<IShellItemArray> items;
     HRESULT hr = m_shellView->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&items));
     if (FAILED(hr) || !items) {
+        LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: unable to query selection (hr=0x%08lX)", hr);
         return false;
     }
 
     DWORD count = 0;
     hr = items->GetCount(&count);
     if (FAILED(hr) || count == 0) {
+        LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths found no selected items (hr=0x%08lX count=%lu)", hr,
+                   count);
         return false;
     }
 
     if (count > kMaxTrackedSelection) {
+        LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths aborted: selection too large (%lu)", count);
         return false;
     }
 
@@ -1108,12 +1166,16 @@ bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) 
     for (DWORD index = 0; index < count; ++index) {
         Microsoft::WRL::ComPtr<IShellItem> item;
         if (FAILED(items->GetItemAt(index, &item)) || !item) {
+            LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: unable to access item %lu", index);
             return false;
         }
 
         SFGAOF attributes = 0;
         hr = item->GetAttributes(SFGAO_FOLDER | SFGAO_FILESYSTEM, &attributes);
         if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
+            LogMessage(LogLevel::Info,
+                       L"CollectSelectedFolderPaths skipping item %lu: attributes=0x%08lX (hr=0x%08lX)", index,
+                       attributes, hr);
             return false;
         }
 
@@ -1123,6 +1185,9 @@ bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) 
             if (path) {
                 CoTaskMemFree(path);
             }
+            LogMessage(LogLevel::Warning,
+                       L"CollectSelectedFolderPaths failed: unable to resolve file system path for item %lu (hr=0x%08lX)",
+                       index, hr);
             return false;
         }
 
@@ -1130,37 +1195,44 @@ bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) 
         CoTaskMemFree(path);
 
         if (value.empty()) {
+            LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: empty path for item %lu", index);
             return false;
         }
 
         paths.push_back(std::move(value));
     }
 
+    LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths captured %zu path(s)", paths.size());
     return !paths.empty();
 }
 
 void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const {
     if (paths.empty()) {
+        LogMessage(LogLevel::Info, L"DispatchOpenInNewTab skipped: no paths provided");
         return;
     }
 
     HWND frame = GetTopLevelExplorerWindow();
     if (!frame) {
+        LogMessage(LogLevel::Warning, L"DispatchOpenInNewTab failed: explorer frame not found");
         return;
     }
 
     HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
     if (!bandWindow || !IsWindow(bandWindow)) {
+        LogMessage(LogLevel::Warning, L"DispatchOpenInNewTab failed: ShellTabs band window missing (frame=%p)", frame);
         return;
     }
 
     for (const std::wstring& path : paths) {
         if (path.empty()) {
+            LogMessage(LogLevel::Warning, L"DispatchOpenInNewTab skipped empty path entry");
             continue;
         }
 
         OpenFolderMessagePayload payload{path.c_str(), path.size()};
         SendMessageW(bandWindow, WM_SHELLTABS_OPEN_FOLDER, reinterpret_cast<WPARAM>(&payload), 0);
+        LogMessage(LogLevel::Info, L"Dispatched Open In New Tab request for %ls", path.c_str());
     }
 }
 
@@ -1168,6 +1240,7 @@ void CExplorerBHO::ClearPendingOpenInNewTabState() {
     m_pendingOpenInNewTabPaths.clear();
     m_trackedContextMenu = nullptr;
     m_contextMenuInserted = false;
+    LogMessage(LogLevel::Info, L"Cleared Open In New Tab pending state");
 }
 
 bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
@@ -1682,11 +1755,13 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         } else if (hwnd == self->m_treeView) {
             self->m_treeView = nullptr;
             self->m_treeViewSubclassInstalled = false;
+        } else if (hwnd == self->m_shellViewWindow) {
+            self->m_shellViewWindowSubclassInstalled = false;
+            self->m_shellViewWindow = nullptr;
         }
 
-        if (!self->m_listView && !self->m_treeView) {
+        if (!self->m_listView && !self->m_treeView && !self->m_shellViewWindow) {
             self->m_shellView.Reset();
-            self->m_shellViewWindow = nullptr;
             self->ClearPendingOpenInNewTabState();
         }
 
