@@ -914,6 +914,20 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView, HWN
         }
     }
 
+    if (listView && IsWindow(listView)) {
+        HWND notifyParent = GetParent(listView);
+        if (notifyParent && notifyParent != defView && IsWindow(notifyParent)) {
+            if (SetWindowSubclass(notifyParent, ExplorerListViewNotifySubclassProc,
+                                  reinterpret_cast<UINT_PTR>(this), 0)) {
+                m_listViewNotifyParent = notifyParent;
+                m_listViewNotifyParentSubclassInstalled = true;
+                installed = true;
+            } else {
+                LogLastError(L"SetWindowSubclass(list view notify parent)", GetLastError());
+            }
+        }
+    }
+
     if (defView && defView != listView && IsWindow(defView)) {
         if (SetWindowSubclass(defView, ExplorerListViewParentSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_listViewParent = defView;
@@ -926,8 +940,8 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND listView, HWND treeView, HWN
 
     if (installed) {
         ClearPendingOpenInNewTabState();
-        LogMessage(LogLevel::Info, L"Installed explorer view subclass (list=%p tree=%p def=%p)", listView,
-                   treeView, defView);
+        LogMessage(LogLevel::Info, L"Installed explorer view subclass (list=%p tree=%p def=%p notify=%p)",
+                   listView, treeView, defView, m_listViewNotifyParent);
     }
 
     return installed;
@@ -944,13 +958,20 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
         RemoveWindowSubclass(m_listViewParent, ExplorerListViewParentSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
     }
+    if (m_listViewNotifyParent && m_listViewNotifyParentSubclassInstalled &&
+        IsWindow(m_listViewNotifyParent)) {
+        RemoveWindowSubclass(m_listViewNotifyParent, ExplorerListViewNotifySubclassProc,
+                             reinterpret_cast<UINT_PTR>(this));
+    }
 
     m_listView = nullptr;
     m_treeView = nullptr;
     m_listViewParent = nullptr;
+    m_listViewNotifyParent = nullptr;
     m_listViewSubclassInstalled = false;
     m_treeViewSubclassInstalled = false;
     m_listViewParentSubclassInstalled = false;
+    m_listViewNotifyParentSubclassInstalled = false;
     m_shellViewWindow = nullptr;
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
@@ -1049,14 +1070,16 @@ bool CExplorerBHO::HandleListViewCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT*
 
     switch (customDraw->nmcd.dwDrawStage) {
         case CDDS_PREPAINT:
-            *result = CDRF_NOTIFYITEMDRAW;
+            *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
             return true;
         case CDDS_ITEMPREPAINT:
             customDraw->clrText = kFolderViewTextColor;
+            customDraw->clrTextBk = CLR_DEFAULT;
             *result = CDRF_NOTIFYSUBITEMDRAW;
             return true;
         case CDDS_ITEMPREPAINT | CDDS_SUBITEM:
             customDraw->clrText = kFolderViewTextColor;
+            customDraw->clrTextBk = CLR_DEFAULT;
             *result = CDRF_DODEFAULT;
             return true;
         default:
@@ -1788,6 +1811,45 @@ LRESULT CALLBACK CExplorerBHO::ExplorerListViewParentSubclassProc(HWND hwnd, UIN
             self->m_listViewParentSubclassInstalled = false;
         }
         RemoveWindowSubclass(hwnd, ExplorerListViewParentSubclassProc, reinterpret_cast<UINT_PTR>(self));
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::ExplorerListViewNotifySubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                                                  LPARAM lParam, UINT_PTR subclassId,
+                                                                  DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (msg == WM_NOTIFY) {
+        LRESULT result = 0;
+        auto* notifyHeader = reinterpret_cast<NMHDR*>(lParam);
+        if (self->HandleExplorerViewNotify(hwnd, notifyHeader, &result)) {
+            return result;
+        }
+    }
+
+    switch (msg) {
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+        case WM_SETTINGCHANGE:
+            if (self->m_listView && IsWindow(self->m_listView)) {
+                InvalidateRect(self->m_listView, nullptr, TRUE);
+            }
+            break;
+        default:
+            break;
+    }
+
+    if (msg == WM_NCDESTROY) {
+        if (hwnd == self->m_listViewNotifyParent) {
+            self->m_listViewNotifyParent = nullptr;
+            self->m_listViewNotifyParentSubclassInstalled = false;
+        }
+        RemoveWindowSubclass(hwnd, ExplorerListViewNotifySubclassProc, reinterpret_cast<UINT_PTR>(self));
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
