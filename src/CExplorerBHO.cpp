@@ -11,10 +11,14 @@
 #include <dwmapi.h>
 #include <gdiplus.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdarg>
 #include <cwchar>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 #include <wrl/client.h>
 
 #include "ComUtils.h"
@@ -56,6 +60,14 @@ HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
     }
     return nullptr;
 }
+
+struct BreadcrumbHookEntry {
+    HHOOK hook = nullptr;
+    std::vector<shelltabs::CExplorerBHO*> observers;
+};
+
+std::mutex g_breadcrumbHookMutex;
+std::unordered_map<DWORD, BreadcrumbHookEntry> g_breadcrumbHooks;
 
 }  // namespace
 // --- CExplorerBHO private state (treat these as class members) ---
@@ -133,6 +145,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
+    RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
     DisconnectEvents();
     m_webBrowser.Reset();
@@ -410,15 +423,41 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
 HWND CExplorerBHO::GetTopLevelExplorerWindow() const {
     HWND hwnd = nullptr;
     if (m_shellBrowser && SUCCEEDED(m_shellBrowser->GetWindow(&hwnd)) && hwnd) {
-        return hwnd;
-    }
-    if (m_webBrowser) {
+        // fall through to normalize the window handle below
+    } else if (m_webBrowser) {
         SHANDLE_PTR raw = 0;
         if (SUCCEEDED(m_webBrowser->get_HWND(&raw)) && raw) {
-            return reinterpret_cast<HWND>(raw);
+            hwnd = reinterpret_cast<HWND>(raw);
         }
     }
-    return nullptr;
+
+    if (!hwnd) {
+        return nullptr;
+    }
+
+    HWND ancestor = GetAncestor(hwnd, GA_ROOTOWNER);
+    if (ancestor) {
+        hwnd = ancestor;
+    }
+
+    ancestor = GetAncestor(hwnd, GA_ROOT);
+    if (ancestor) {
+        hwnd = ancestor;
+    }
+
+    // Walk up the parent chain in case GetAncestor returned a child window.
+    HWND current = hwnd;
+    HWND parent = nullptr;
+    int safety = 0;
+    while (current && safety++ < 32) {
+        parent = GetParent(current);
+        if (!parent) {
+            break;
+        }
+        current = parent;
+    }
+
+    return current ? current : hwnd;
 }
 
 void CExplorerBHO::LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const {
@@ -517,7 +556,7 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
     if (!rebar) {
         LogBreadcrumbStage(BreadcrumbDiscoveryStage::RebarMissing,
                            L"Failed to locate Explorer rebar while searching for breadcrumbs");
-        return nullptr;
+        return FindBreadcrumbToolbarInWindow(frame);
     }
 
     HWND breadcrumbParent = FindWindowExW(rebar, nullptr, L"Breadcrumb Parent", nullptr);
@@ -530,7 +569,7 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
     if (!breadcrumbParent) {
         LogBreadcrumbStage(BreadcrumbDiscoveryStage::ParentMissing,
                            L"Failed to find 'Breadcrumb Parent' window during breadcrumb search");
-        return nullptr;
+        return FindBreadcrumbToolbarInWindow(frame);
     }
 
     HWND toolbar = FindWindowExW(breadcrumbParent, nullptr, TOOLBARCLASSNAME, nullptr);
@@ -540,12 +579,149 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
     if (!toolbar) {
         LogBreadcrumbStage(BreadcrumbDiscoveryStage::ToolbarMissing,
                            L"'Breadcrumb Parent' hwnd=%p missing ToolbarWindow32 child", breadcrumbParent);
-        return nullptr;
+        return FindBreadcrumbToolbarInWindow(breadcrumbParent);
     }
 
     LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
                        L"Breadcrumb toolbar located via window enumeration (hwnd=%p)", toolbar);
     return toolbar;
+}
+
+HWND CExplorerBHO::FindBreadcrumbToolbarInWindow(HWND root) const {
+    if (!root) {
+        return nullptr;
+    }
+
+    struct EnumData {
+        const CExplorerBHO* self = nullptr;
+        HWND toolbar = nullptr;
+    } data{this, nullptr};
+
+    EnumChildWindows(
+        root,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto* data = reinterpret_cast<EnumData*>(param);
+            if (!data || data->toolbar) {
+                return FALSE;
+            }
+            if (!MatchesClass(hwnd, TOOLBARCLASSNAME)) {
+                return TRUE;
+            }
+            if (!data->self->IsBreadcrumbToolbarCandidate(hwnd)) {
+                return TRUE;
+            }
+            data->toolbar = hwnd;
+            return FALSE;
+        },
+        reinterpret_cast<LPARAM>(&data));
+
+    if (data.toolbar) {
+        LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
+                           L"Breadcrumb toolbar located via deep enumeration (hwnd=%p)", data.toolbar);
+    }
+
+    return data.toolbar;
+}
+
+bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
+    HWND current = hwnd;
+    bool sawRebar = false;
+    int depth = 0;
+    while (current && depth++ < 16) {
+        if (MatchesClass(current, L"Breadcrumb Parent") || MatchesClass(current, L"Address Band Root") ||
+            MatchesClass(current, L"AddressBandRoot") || MatchesClass(current, L"CabinetAddressBand") ||
+            MatchesClass(current, L"NavigationBand")) {
+            return true;
+        }
+        if (MatchesClass(current, L"ReBarWindow32")) {
+            sawRebar = true;
+        }
+        if (MatchesClass(current, L"CabinetWClass")) {
+            break;
+        }
+        current = GetParent(current);
+    }
+    return sawRebar;
+}
+
+bool CExplorerBHO::IsBreadcrumbToolbarCandidate(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+    if (!MatchesClass(hwnd, TOOLBARCLASSNAME)) {
+        return false;
+    }
+
+    if (!IsBreadcrumbToolbarAncestor(hwnd)) {
+        return false;
+    }
+
+    LRESULT buttonCount = SendMessage(hwnd, TB_BUTTONCOUNT, 0, 0);
+    if (buttonCount <= 0) {
+        return false;
+    }
+
+    const int maxToCheck = static_cast<int>(std::min<LRESULT>(buttonCount, 5));
+    std::array<wchar_t, 260> buffer{};
+    TBBUTTON button{};
+    for (int i = 0; i < maxToCheck; ++i) {
+        if (!SendMessage(hwnd, TB_GETBUTTON, i, reinterpret_cast<LPARAM>(&button))) {
+            continue;
+        }
+        if ((button.fsStyle & TBSTYLE_SEP) != 0 || (button.fsState & TBSTATE_HIDDEN) != 0) {
+            continue;
+        }
+        buffer.fill(L'\0');
+        LRESULT copied = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, reinterpret_cast<LPARAM>(buffer.data()));
+        if (copied > 0 && buffer[0] != L'\0') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return false;
+    }
+
+    HWND current = hwnd;
+    int depth = 0;
+    while (current && depth++ < 32) {
+        if (current == frame) {
+            return true;
+        }
+        current = GetParent(current);
+    }
+
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    return root == frame;
+}
+
+bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
+    if (!toolbar || !IsWindow(toolbar)) {
+        return false;
+    }
+
+    if (toolbar == m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
+        return true;
+    }
+
+    RemoveBreadcrumbSubclass();
+
+    if (SetWindowSubclass(toolbar, BreadcrumbSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_breadcrumbToolbar = toolbar;
+        m_breadcrumbSubclassInstalled = true;
+        m_loggedBreadcrumbToolbarMissing = false;
+        LogMessage(LogLevel::Info, L"Installed breadcrumb gradient subclass on hwnd=%p", toolbar);
+        InvalidateRect(toolbar, nullptr, TRUE);
+        return true;
+    }
+
+    LogLastError(L"SetWindowSubclass(breadcrumb toolbar)", GetLastError());
+    return false;
 }
 
 void CExplorerBHO::RemoveBreadcrumbSubclass() {
@@ -561,6 +737,61 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
         m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     }
     m_loggedBreadcrumbToolbarMissing = false;
+}
+
+void CExplorerBHO::EnsureBreadcrumbHook() {
+    if (m_breadcrumbHookRegistered) {
+        return;
+    }
+
+    const DWORD threadId = GetCurrentThreadId();
+    std::lock_guard<std::mutex> lock(g_breadcrumbHookMutex);
+    auto& entry = g_breadcrumbHooks[threadId];
+    if (std::find(entry.observers.begin(), entry.observers.end(), this) == entry.observers.end()) {
+        entry.observers.push_back(this);
+    }
+
+    if (!entry.hook) {
+        HHOOK hook = SetWindowsHookExW(WH_CBT, BreadcrumbCbtProc, nullptr, threadId);
+        if (!hook) {
+            LogLastError(L"SetWindowsHookEx(WH_CBT)", GetLastError());
+            entry.observers.erase(std::remove(entry.observers.begin(), entry.observers.end(), this), entry.observers.end());
+            if (entry.observers.empty()) {
+                g_breadcrumbHooks.erase(threadId);
+            }
+            return;
+        }
+        entry.hook = hook;
+        LogMessage(LogLevel::Info, L"Breadcrumb CBT hook installed for thread %lu", threadId);
+    }
+
+    m_breadcrumbHookRegistered = true;
+}
+
+void CExplorerBHO::RemoveBreadcrumbHook() {
+    if (!m_breadcrumbHookRegistered) {
+        return;
+    }
+
+    const DWORD threadId = GetCurrentThreadId();
+    std::lock_guard<std::mutex> lock(g_breadcrumbHookMutex);
+    auto it = g_breadcrumbHooks.find(threadId);
+    if (it == g_breadcrumbHooks.end()) {
+        m_breadcrumbHookRegistered = false;
+        return;
+    }
+
+    auto& observers = it->second.observers;
+    observers.erase(std::remove(observers.begin(), observers.end(), this), observers.end());
+    if (observers.empty()) {
+        if (it->second.hook) {
+            UnhookWindowsHookEx(it->second.hook);
+        }
+        g_breadcrumbHooks.erase(it);
+        LogMessage(LogLevel::Info, L"Breadcrumb CBT hook removed for thread %lu", threadId);
+    }
+
+    m_breadcrumbHookRegistered = false;
 }
 
 void CExplorerBHO::UpdateBreadcrumbSubclass() {
@@ -579,10 +810,13 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         if (m_breadcrumbSubclassInstalled) {
             LogMessage(LogLevel::Info, L"Breadcrumb gradient disabled; removing subclass");
         }
+        RemoveBreadcrumbHook();
         RemoveBreadcrumbSubclass();
         m_loggedBreadcrumbToolbarMissing = false;
         return;
     }
+
+    EnsureBreadcrumbHook();
 
     if (m_breadcrumbLogState != BreadcrumbLogState::Searching) {
         LogMessage(LogLevel::Info, L"Breadcrumb gradient enabled; locating toolbar (installed=%d)",
@@ -614,16 +848,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         return;
     }
 
-    RemoveBreadcrumbSubclass();
-
-    if (SetWindowSubclass(toolbar, BreadcrumbSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-        m_breadcrumbToolbar = toolbar;
-        m_breadcrumbSubclassInstalled = true;
-        LogMessage(LogLevel::Info, L"Installed breadcrumb gradient subclass on hwnd=%p", toolbar);
-        InvalidateRect(toolbar, nullptr, TRUE);
-    } else {
-        LogLastError(L"SetWindowSubclass(breadcrumb toolbar)", GetLastError());
-    }
+    InstallBreadcrumbSubclass(toolbar);
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
@@ -823,6 +1048,71 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     }
     EndPaint(hwnd, &ps);
     return true;
+}
+
+LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam) {
+    HHOOK hookHandle = nullptr;
+
+    if (code == HCBT_CREATEWND) {
+        HWND hwnd = reinterpret_cast<HWND>(wParam);
+        const CBT_CREATEWNDW* create = reinterpret_cast<CBT_CREATEWNDW*>(lParam);
+
+        const wchar_t* className = nullptr;
+        if (create && create->lpcs) {
+            if (HIWORD(create->lpcs->lpszClass)) {
+                className = create->lpcs->lpszClass;
+            }
+        }
+
+        if (className) {
+            if (_wcsicmp(className, TOOLBARCLASSNAMEW) != 0) {
+                return CallNextHookEx(nullptr, code, wParam, lParam);
+            }
+        } else {
+            wchar_t buffer[64]{};
+            if (GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer)) <= 0 ||
+                _wcsicmp(buffer, TOOLBARCLASSNAMEW) != 0) {
+                return CallNextHookEx(nullptr, code, wParam, lParam);
+            }
+        }
+
+        std::vector<CExplorerBHO*> observers;
+        {
+            std::lock_guard<std::mutex> lock(g_breadcrumbHookMutex);
+            auto it = g_breadcrumbHooks.find(GetCurrentThreadId());
+            if (it != g_breadcrumbHooks.end()) {
+                observers = it->second.observers;
+                hookHandle = it->second.hook;
+            }
+        }
+
+        if (!observers.empty()) {
+            for (CExplorerBHO* observer : observers) {
+                if (!observer || !observer->m_breadcrumbGradientEnabled || !observer->m_gdiplusInitialized) {
+                    continue;
+                }
+
+                HWND start = hwnd;
+                if (create && create->lpcs && create->lpcs->hwndParent) {
+                    start = create->lpcs->hwndParent;
+                }
+
+                if (!observer->IsBreadcrumbToolbarAncestor(start)) {
+                    continue;
+                }
+                if (!observer->IsWindowOwnedByThisExplorer(hwnd)) {
+                    continue;
+                }
+
+                if (observer->InstallBreadcrumbSubclass(hwnd)) {
+                    observer->LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
+                                                 L"Breadcrumb toolbar subclassed via CBT hook (hwnd=%p)", hwnd);
+                }
+            }
+        }
+    }
+
+    return CallNextHookEx(hookHandle, code, wParam, lParam);
 }
 
 LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
