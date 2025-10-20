@@ -228,8 +228,25 @@ bool SessionStore::Load(SessionData& data) const {
     }
 
     HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND) {
+            const size_t separator = m_storagePath.find_last_of(L"\\/");
+            if (separator != std::wstring::npos) {
+                std::wstring directory = m_storagePath.substr(0, separator);
+                if (!directory.empty()) {
+                    CreateDirectoryW(directory.c_str(), nullptr);
+                }
+            }
+
+            HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                                         FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (created != INVALID_HANDLE_VALUE) {
+                CloseHandle(created);
+            }
+            return true;
+        }
         return false;
     }
 
@@ -237,6 +254,11 @@ bool SessionStore::Load(SessionData& data) const {
     if (!GetFileSizeEx(file, &size) || size.HighPart != 0) {
         CloseHandle(file);
         return false;
+    }
+
+    if (size.QuadPart == 0) {
+        CloseHandle(file);
+        return true;
     }
 
     std::string buffer;

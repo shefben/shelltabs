@@ -120,13 +120,13 @@ const std::vector<RegistryTarget>& MachineTargets() {
 #if defined(KEY_WOW64_64KEY)
         if (IsCurrentProcessWow64()) {
             result.push_back({HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY});
-        } else if (sizeof(void*) == 8) {
+        } else if constexpr (sizeof(void*) == 8) {
 #if defined(KEY_WOW64_32KEY)
             result.push_back({HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY});
 #endif
         }
 #elif defined(KEY_WOW64_32KEY)
-        if (sizeof(void*) == 8) {
+        if constexpr (sizeof(void*) == 8) {
             result.push_back({HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY});
         }
 #endif

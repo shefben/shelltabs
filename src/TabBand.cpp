@@ -355,8 +355,6 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             }
 
             LogMessage(LogLevel::Info, L"TabBand::SetSite resolved browser interfaces");
-            LogMessage(LogLevel::Info, L"TabBand::SetSite EnsureSessionStore");
-            EnsureSessionStore();
             LogMessage(LogLevel::Info, L"TabBand::SetSite EnsureWindow");
             EnsureWindow();
             if (!m_window) {
@@ -364,6 +362,9 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
                 DisconnectSite();
                 return E_FAIL;
             }
+
+            LogMessage(LogLevel::Info, L"TabBand::SetSite EnsureSessionStore");
+            EnsureSessionStore();
 
             HRESULT setSiteHr = m_window->SetSite(pUnkSite);
             if (FAILED(setSiteHr)) {
@@ -1229,23 +1230,23 @@ void TabBand::EnsureSessionStore() {
     }
 
     LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore resolving storage (this=%p)", this);
-    EnsureWindow();
-    std::wstring storagePath;
     const std::wstring token = ResolveWindowToken();
     if (token.empty()) {
-        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using anonymous window token");
-    } else {
-        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore window token %ls", token.c_str());
-    }
-    if (!token.empty()) {
-        storagePath = SessionStore::BuildPathForToken(token);
+        LogMessage(LogLevel::Info,
+                   L"TabBand::EnsureSessionStore window token unavailable; deferring initialization");
+        return;
     }
 
+    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore window token %ls", token.c_str());
+    std::wstring storagePath = SessionStore::BuildPathForToken(token);
     if (storagePath.empty()) {
-        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using default storage path");
-    } else {
-        LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
+        LogMessage(LogLevel::Warning,
+                   L"TabBand::EnsureSessionStore failed to build storage path for token %ls",
+                   token.c_str());
+        return;
     }
+
+    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
     m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
 }
 
