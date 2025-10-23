@@ -16,7 +16,7 @@
 namespace shelltabs {
 
 namespace {
-constexpr wchar_t kCommandLabel[] = L"Open Folder In New Tab";
+constexpr wchar_t kCommandLabel[] = L"Open in new tab";
 constexpr wchar_t kBandWindowClassName[] = L"ShellTabsBandWindow";
 }
 
