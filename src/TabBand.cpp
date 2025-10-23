@@ -1376,7 +1376,20 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
         previousOptions.enableBreadcrumbGradient != m_options.enableBreadcrumbGradient;
     const bool fontChanged =
         previousOptions.enableBreadcrumbFontGradient != m_options.enableBreadcrumbFontGradient;
-    if (backgroundChanged || fontChanged) {
+    const bool backgroundColorsChanged =
+        previousOptions.useCustomBreadcrumbGradientColors != m_options.useCustomBreadcrumbGradientColors ||
+        previousOptions.breadcrumbGradientStartColor != m_options.breadcrumbGradientStartColor ||
+        previousOptions.breadcrumbGradientEndColor != m_options.breadcrumbGradientEndColor;
+    const bool fontColorsChanged =
+        previousOptions.useCustomBreadcrumbFontColors != m_options.useCustomBreadcrumbFontColors ||
+        previousOptions.breadcrumbFontGradientStartColor != m_options.breadcrumbFontGradientStartColor ||
+        previousOptions.breadcrumbFontGradientEndColor != m_options.breadcrumbFontGradientEndColor;
+    const bool tabColorsChanged =
+        previousOptions.useCustomTabSelectedColor != m_options.useCustomTabSelectedColor ||
+        previousOptions.customTabSelectedColor != m_options.customTabSelectedColor ||
+        previousOptions.useCustomTabUnselectedColor != m_options.useCustomTabUnselectedColor ||
+        previousOptions.customTabUnselectedColor != m_options.customTabUnselectedColor;
+    if (backgroundChanged || fontChanged || backgroundColorsChanged || fontColorsChanged || tabColorsChanged) {
         const UINT message = GetOptionsChangedMessage();
         if (message != 0) {
             SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);

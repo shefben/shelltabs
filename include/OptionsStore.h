@@ -13,6 +13,16 @@ struct ShellTabsOptions {
     bool enableBreadcrumbFontGradient = false;
     int breadcrumbGradientTransparency = 45;  // percentage [0, 100]
     int breadcrumbFontTransparency = 0;       // percentage [0, 100]
+    bool useCustomBreadcrumbGradientColors = false;
+    COLORREF breadcrumbGradientStartColor = RGB(255, 59, 48);
+    COLORREF breadcrumbGradientEndColor = RGB(175, 82, 222);
+    bool useCustomBreadcrumbFontColors = false;
+    COLORREF breadcrumbFontGradientStartColor = RGB(255, 255, 255);
+    COLORREF breadcrumbFontGradientEndColor = RGB(255, 255, 255);
+    bool useCustomTabSelectedColor = false;
+    COLORREF customTabSelectedColor = RGB(0, 120, 215);
+    bool useCustomTabUnselectedColor = false;
+    COLORREF customTabUnselectedColor = RGB(200, 200, 200);
 };
 
 class OptionsStore {

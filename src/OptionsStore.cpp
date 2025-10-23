@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cwchar>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,6 +22,10 @@ constexpr wchar_t kBreadcrumbGradientToken[] = L"breadcrumb_gradient";
 constexpr wchar_t kBreadcrumbFontGradientToken[] = L"breadcrumb_font_gradient";
 constexpr wchar_t kBreadcrumbGradientTransparencyToken[] = L"breadcrumb_gradient_transparency";
 constexpr wchar_t kBreadcrumbFontTransparencyToken[] = L"breadcrumb_font_transparency";
+constexpr wchar_t kBreadcrumbGradientColorsToken[] = L"breadcrumb_gradient_colors";
+constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradient_colors";
+constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
+constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -106,6 +112,31 @@ int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fal
         return maximum;
     }
     return value;
+}
+
+COLORREF ParseColorValue(const std::wstring& token, COLORREF fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+
+    unsigned int parsed = 0;
+    if (std::swscanf(token.c_str(), L"%x", &parsed) != 1) {
+        return fallback;
+    }
+
+    return RGB((parsed >> 16) & 0xFF, (parsed >> 8) & 0xFF, parsed & 0xFF);
+}
+
+std::wstring ColorToHexString(COLORREF color) {
+    std::wostringstream stream;
+    stream << std::uppercase << std::hex;
+    stream.width(6);
+    stream.fill(L'0');
+    const unsigned int packed = (static_cast<unsigned int>(GetRValue(color)) << 16) |
+                                (static_cast<unsigned int>(GetGValue(color)) << 8) |
+                                static_cast<unsigned int>(GetBValue(color));
+    stream << packed;
+    return stream.str();
 }
 
 }  // namespace
@@ -254,6 +285,58 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kBreadcrumbGradientColorsToken) {
+            if (tokens.size() >= 2) {
+                m_options.useCustomBreadcrumbGradientColors = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.breadcrumbGradientStartColor =
+                    ParseColorValue(tokens[2], m_options.breadcrumbGradientStartColor);
+            }
+            if (tokens.size() >= 4) {
+                m_options.breadcrumbGradientEndColor =
+                    ParseColorValue(tokens[3], m_options.breadcrumbGradientEndColor);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kBreadcrumbFontGradientColorsToken) {
+            if (tokens.size() >= 2) {
+                m_options.useCustomBreadcrumbFontColors = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.breadcrumbFontGradientStartColor =
+                    ParseColorValue(tokens[2], m_options.breadcrumbFontGradientStartColor);
+            }
+            if (tokens.size() >= 4) {
+                m_options.breadcrumbFontGradientEndColor =
+                    ParseColorValue(tokens[3], m_options.breadcrumbFontGradientEndColor);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kTabSelectedColorToken) {
+            if (tokens.size() >= 2) {
+                m_options.useCustomTabSelectedColor = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.customTabSelectedColor =
+                    ParseColorValue(tokens[2], m_options.customTabSelectedColor);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kTabUnselectedColorToken) {
+            if (tokens.size() >= 2) {
+                m_options.useCustomTabUnselectedColor = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.customTabUnselectedColor =
+                    ParseColorValue(tokens[2], m_options.customTabUnselectedColor);
+            }
+            continue;
+        }
     }
 
     return true;
@@ -294,6 +377,34 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += std::to_wstring(std::clamp(m_options.breadcrumbFontTransparency, 0, 100));
     content += L"\n";
+    content += kBreadcrumbGradientColorsToken;
+    content += L"|";
+    content += m_options.useCustomBreadcrumbGradientColors ? L"1" : L"0";
+    content += L"|";
+    content += ColorToHexString(m_options.breadcrumbGradientStartColor);
+    content += L"|";
+    content += ColorToHexString(m_options.breadcrumbGradientEndColor);
+    content += L"\n";
+    content += kBreadcrumbFontGradientColorsToken;
+    content += L"|";
+    content += m_options.useCustomBreadcrumbFontColors ? L"1" : L"0";
+    content += L"|";
+    content += ColorToHexString(m_options.breadcrumbFontGradientStartColor);
+    content += L"|";
+    content += ColorToHexString(m_options.breadcrumbFontGradientEndColor);
+    content += L"\n";
+    content += kTabSelectedColorToken;
+    content += L"|";
+    content += m_options.useCustomTabSelectedColor ? L"1" : L"0";
+    content += L"|";
+    content += ColorToHexString(m_options.customTabSelectedColor);
+    content += L"\n";
+    content += kTabUnselectedColorToken;
+    content += L"|";
+    content += m_options.useCustomTabUnselectedColor ? L"1" : L"0";
+    content += L"|";
+    content += ColorToHexString(m_options.customTabUnselectedColor);
+    content += L"\n";
 
     const std::string utf8 = WideToUtf8(content);
 
@@ -314,7 +425,17 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.enableBreadcrumbGradient == right.enableBreadcrumbGradient &&
            left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
            left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&
-           left.breadcrumbFontTransparency == right.breadcrumbFontTransparency;
+           left.breadcrumbFontTransparency == right.breadcrumbFontTransparency &&
+           left.useCustomBreadcrumbGradientColors == right.useCustomBreadcrumbGradientColors &&
+           left.breadcrumbGradientStartColor == right.breadcrumbGradientStartColor &&
+           left.breadcrumbGradientEndColor == right.breadcrumbGradientEndColor &&
+           left.useCustomBreadcrumbFontColors == right.useCustomBreadcrumbFontColors &&
+           left.breadcrumbFontGradientStartColor == right.breadcrumbFontGradientStartColor &&
+           left.breadcrumbFontGradientEndColor == right.breadcrumbFontGradientEndColor &&
+           left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
+           left.customTabSelectedColor == right.customTabSelectedColor &&
+           left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
+           left.customTabUnselectedColor == right.customTabUnselectedColor;
 }
 
 }  // namespace shelltabs
