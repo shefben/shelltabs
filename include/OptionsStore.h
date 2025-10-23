@@ -12,7 +12,7 @@ struct ShellTabsOptions {
     bool enableBreadcrumbGradient = false;
     bool enableBreadcrumbFontGradient = false;
     int breadcrumbGradientTransparency = 45;  // percentage [0, 100]
-    int breadcrumbFontTransparency = 0;       // percentage [0, 100]
+    int breadcrumbFontBrightness = 85;        // percentage [0, 100]
     bool useCustomBreadcrumbGradientColors = false;
     COLORREF breadcrumbGradientStartColor = RGB(255, 59, 48);
     COLORREF breadcrumbGradientEndColor = RGB(175, 82, 222);

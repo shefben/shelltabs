@@ -257,7 +257,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     fontLabel->id = IDC_MAIN_BREADCRUMB_FONT_LABEL;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
-    AppendString(data, L"Font transparency:");
+    AppendString(data, L"Font brightness:");
     AppendWord(data, 0);
 
     AlignDialogBuffer(data);
@@ -1000,11 +1000,11 @@ void UpdateListBoxHorizontalExtent(HWND hwndList) {
     SendMessageW(hwndList, LB_SETHORIZONTALEXTENT, maxWidth + 12, 0);
 }
 
-int ClampTransparencyValue(int value) {
+int ClampPercentageValue(int value) {
     return std::clamp(value, 0, 100);
 }
 
-void ConfigureTransparencySlider(HWND hwnd, int controlId, int value) {
+void ConfigurePercentageSlider(HWND hwnd, int controlId, int value) {
     HWND slider = GetDlgItem(hwnd, controlId);
     if (!slider) {
         return;
@@ -1013,17 +1013,17 @@ void ConfigureTransparencySlider(HWND hwnd, int controlId, int value) {
     SendMessageW(slider, TBM_SETPAGESIZE, 0, 5);
     SendMessageW(slider, TBM_SETLINESIZE, 0, 1);
     SendMessageW(slider, TBM_SETTICFREQ, 10, 0);
-    SendMessageW(slider, TBM_SETPOS, TRUE, ClampTransparencyValue(value));
+    SendMessageW(slider, TBM_SETPOS, TRUE, ClampPercentageValue(value));
 }
 
-void UpdateTransparencyLabel(HWND hwnd, int controlId, int value) {
+void UpdatePercentageLabel(HWND hwnd, int controlId, int value) {
     wchar_t buffer[16];
-    const int clamped = ClampTransparencyValue(value);
+    const int clamped = ClampPercentageValue(value);
     _snwprintf_s(buffer, ARRAYSIZE(buffer), _TRUNCATE, L"%d%%", clamped);
     SetDlgItemTextW(hwnd, controlId, buffer);
 }
 
-void UpdateTransparencyControlsEnabled(HWND hwnd, bool backgroundEnabled, bool fontEnabled) {
+void UpdateGradientControlsEnabled(HWND hwnd, bool backgroundEnabled, bool fontEnabled) {
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_LABEL), backgroundEnabled);
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER), backgroundEnabled);
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE), backgroundEnabled);
@@ -1455,16 +1455,16 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                                data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT,
                                data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
-                ConfigureTransparencySlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
-                                             data->workingOptions.breadcrumbGradientTransparency);
-                ConfigureTransparencySlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
-                                             data->workingOptions.breadcrumbFontTransparency);
-                UpdateTransparencyLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
-                                        data->workingOptions.breadcrumbGradientTransparency);
-                UpdateTransparencyLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
-                                        data->workingOptions.breadcrumbFontTransparency);
-                UpdateTransparencyControlsEnabled(hwnd, data->workingOptions.enableBreadcrumbGradient,
-                                                 data->workingOptions.enableBreadcrumbFontGradient);
+                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
+                                          data->workingOptions.breadcrumbGradientTransparency);
+                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
+                                          data->workingOptions.breadcrumbFontBrightness);
+                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
+                                     data->workingOptions.breadcrumbGradientTransparency);
+                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
+                                     data->workingOptions.breadcrumbFontBrightness);
+                UpdateGradientControlsEnabled(hwnd, data->workingOptions.enableBreadcrumbGradient,
+                                              data->workingOptions.enableBreadcrumbFontGradient);
                 CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM,
                                data->workingOptions.useCustomBreadcrumbGradientColors ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM,
@@ -1517,7 +1517,7 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                                 IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
                             const bool fontEnabled =
                                 IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
-                            UpdateTransparencyControlsEnabled(hwnd, backgroundEnabled, fontEnabled);
+                            UpdateGradientControlsEnabled(hwnd, backgroundEnabled, fontEnabled);
                             const bool bgCustom =
                                 IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
                             const bool fontCustom =
@@ -1656,9 +1656,9 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 const int labelId = (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER)
                                         ? IDC_MAIN_BREADCRUMB_BG_VALUE
                                         : IDC_MAIN_BREADCRUMB_FONT_VALUE;
-                const int value = ClampTransparencyValue(
+                const int value = ClampPercentageValue(
                     static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                UpdateTransparencyLabel(hwnd, labelId, value);
+                UpdatePercentageLabel(hwnd, labelId, value);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
             }
             return TRUE;
@@ -1676,10 +1676,10 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                     data->workingOptions.enableBreadcrumbFontGradient =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
                     data->workingOptions.breadcrumbGradientTransparency =
-                        ClampTransparencyValue(static_cast<int>(SendDlgItemMessageW(
+                        ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
                             hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER, TBM_GETPOS, 0, 0)));
-                    data->workingOptions.breadcrumbFontTransparency =
-                        ClampTransparencyValue(static_cast<int>(SendDlgItemMessageW(
+                    data->workingOptions.breadcrumbFontBrightness =
+                        ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
                             hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
                     data->workingOptions.useCustomBreadcrumbGradientColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;

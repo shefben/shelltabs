@@ -102,7 +102,7 @@ private:
     bool m_breadcrumbGradientEnabled = false;
     bool m_breadcrumbFontGradientEnabled = false;
     int m_breadcrumbGradientTransparency = 45;
-    int m_breadcrumbFontTransparency = 0;
+    int m_breadcrumbFontBrightness = 85;
     bool m_useCustomBreadcrumbGradientColors = false;
     COLORREF m_breadcrumbGradientStartColor = RGB(255, 59, 48);
     COLORREF m_breadcrumbGradientEndColor = RGB(175, 82, 222);

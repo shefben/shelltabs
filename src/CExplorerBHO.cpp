@@ -1644,7 +1644,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
     m_breadcrumbGradientTransparency = std::clamp(options.breadcrumbGradientTransparency, 0, 100);
-    m_breadcrumbFontTransparency = std::clamp(options.breadcrumbFontTransparency, 0, 100);
+    m_breadcrumbFontBrightness = std::clamp(options.breadcrumbFontBrightness, 0, 100);
     m_useCustomBreadcrumbGradientColors = options.useCustomBreadcrumbGradientColors;
     m_breadcrumbGradientStartColor = options.breadcrumbGradientStartColor;
     m_breadcrumbGradientEndColor = options.breadcrumbGradientEndColor;
@@ -1779,9 +1779,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
     const int gradientTransparency = std::clamp(m_breadcrumbGradientTransparency, 0, 100);
     const int gradientOpacityPercent = 100 - gradientTransparency;
-    const int fontTransparency = m_breadcrumbFontGradientEnabled ? std::clamp(m_breadcrumbFontTransparency, 0, 100) : 0;
-    const int fontOpacityPercent = 100 - fontTransparency;
-    const BYTE textAlphaBase = static_cast<BYTE>(std::clamp(fontOpacityPercent * 255 / 100, 0, 255));
+    const int fontBrightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
+    const BYTE textAlphaBase = 255;
     const bool shouldClearDefaultText = m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled;
 
     static const std::array<COLORREF, 7> kRainbowColors = {
@@ -1861,8 +1860,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         auto darkenChannel = [](BYTE channel) -> BYTE {
             return static_cast<BYTE>(std::clamp<int>(static_cast<int>(channel) * 35 / 100, 0, 255));
         };
-        auto lightenChannel = [](BYTE channel) -> BYTE {
-            const int boosted = channel + ((255 - channel) * 7) / 8;
+        auto applyBrightness = [&](BYTE channel) -> BYTE {
+            const int boosted = channel + ((255 - channel) * fontBrightness) / 100;
             return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
         };
         auto averageChannel = [](BYTE a, BYTE b) -> BYTE {
@@ -1915,16 +1914,16 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         }
         COLORREF fontStartRgb = m_useCustomBreadcrumbFontColors ? m_breadcrumbFontGradientStartColor : startRgb;
         COLORREF fontEndRgb = m_useCustomBreadcrumbFontColors ? m_breadcrumbFontGradientEndColor : endRgb;
-        const BYTE lightStartRed = lightenChannel(GetRValue(fontStartRgb));
-        const BYTE lightStartGreen = lightenChannel(GetGValue(fontStartRgb));
-        const BYTE lightStartBlue = lightenChannel(GetBValue(fontStartRgb));
-        const BYTE lightEndRed = lightenChannel(GetRValue(fontEndRgb));
-        const BYTE lightEndGreen = lightenChannel(GetGValue(fontEndRgb));
-        const BYTE lightEndBlue = lightenChannel(GetBValue(fontEndRgb));
+        const BYTE adjustedStartRed = applyBrightness(GetRValue(fontStartRgb));
+        const BYTE adjustedStartGreen = applyBrightness(GetGValue(fontStartRgb));
+        const BYTE adjustedStartBlue = applyBrightness(GetBValue(fontStartRgb));
+        const BYTE adjustedEndRed = applyBrightness(GetRValue(fontEndRgb));
+        const BYTE adjustedEndGreen = applyBrightness(GetGValue(fontEndRgb));
+        const BYTE adjustedEndBlue = applyBrightness(GetBValue(fontEndRgb));
         const Gdiplus::Color brightFontStart = brightenForState(
-            Gdiplus::Color(textAlpha, lightStartRed, lightStartGreen, lightStartBlue));
+            Gdiplus::Color(textAlpha, adjustedStartRed, adjustedStartGreen, adjustedStartBlue));
         const Gdiplus::Color brightFontEnd = brightenForState(
-            Gdiplus::Color(textAlpha, lightEndRed, lightEndGreen, lightEndBlue));
+            Gdiplus::Color(textAlpha, adjustedEndRed, adjustedEndGreen, adjustedEndBlue));
 
         constexpr int kTextPadding = 8;
         const int iconReserve = hasIcon ? (imageWidth + 6) : 0;
@@ -2014,7 +2013,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                              highlightHeight);
                 const BYTE highlightAlpha = static_cast<BYTE>(isPressed ? 160 : 130);
                 Gdiplus::Color highlightColor = brightenForState(
-                    Gdiplus::Color(highlightAlpha, lightEndRed, lightEndGreen, lightEndBlue));
+                    Gdiplus::Color(highlightAlpha, adjustedEndRed, adjustedEndGreen, adjustedEndBlue));
                 Gdiplus::SolidBrush highlightBrush(highlightColor);
                 graphics.FillRectangle(&highlightBrush, highlightRect);
             }
