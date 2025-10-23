@@ -1860,6 +1860,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         auto darkenChannel = [](BYTE channel) -> BYTE {
             return static_cast<BYTE>(std::clamp<int>(static_cast<int>(channel) * 35 / 100, 0, 255));
         };
+        auto transformBackgroundChannel = [&](BYTE channel) -> BYTE {
+            return m_useCustomBreadcrumbGradientColors ? channel : darkenChannel(channel);
+        };
         auto applyBrightness = [&](BYTE channel) -> BYTE {
             const int boosted = channel + ((255 - channel) * fontBrightness) / 100;
             return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
@@ -1891,11 +1894,13 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
         if (backgroundGradientVisible) {
             backgroundGradientStartColor = brightenForState(
-                Gdiplus::Color(scaledAlpha, darkenChannel(GetRValue(startRgb)),
-                               darkenChannel(GetGValue(startRgb)), darkenChannel(GetBValue(startRgb))));
+                Gdiplus::Color(scaledAlpha, transformBackgroundChannel(GetRValue(startRgb)),
+                               transformBackgroundChannel(GetGValue(startRgb)),
+                               transformBackgroundChannel(GetBValue(startRgb))));
             backgroundGradientEndColor = brightenForState(
-                Gdiplus::Color(scaledAlpha, darkenChannel(GetRValue(endRgb)),
-                               darkenChannel(GetGValue(endRgb)), darkenChannel(GetBValue(endRgb))));
+                Gdiplus::Color(scaledAlpha, transformBackgroundChannel(GetRValue(endRgb)),
+                               transformBackgroundChannel(GetGValue(endRgb)),
+                               transformBackgroundChannel(GetBValue(endRgb))));
             hasBackgroundGradientColors = true;
             Gdiplus::LinearGradientBrush backgroundBrush(rectF, backgroundGradientStartColor,
                                                          backgroundGradientEndColor, Gdiplus::LinearGradientModeHorizontal);

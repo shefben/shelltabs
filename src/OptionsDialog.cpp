@@ -121,7 +121,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 30;
+    dlg->cdit = 9;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -168,351 +168,17 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* breadcrumbCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    breadcrumbCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
-    breadcrumbCheck->dwExtendedStyle = 0;
-    breadcrumbCheck->x = 10;
-    breadcrumbCheck->y = 52;
-    breadcrumbCheck->cx = kMainCheckboxWidth;
-    breadcrumbCheck->cy = 12;
-    breadcrumbCheck->id = IDC_MAIN_BREADCRUMB;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Enable breadcrumb background gradient");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* breadcrumbFontCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    breadcrumbFontCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
-    breadcrumbFontCheck->dwExtendedStyle = 0;
-    breadcrumbFontCheck->x = 10;
-    breadcrumbFontCheck->y = 68;
-    breadcrumbFontCheck->cx = kMainCheckboxWidth;
-    breadcrumbFontCheck->cy = 12;
-    breadcrumbFontCheck->id = IDC_MAIN_BREADCRUMB_FONT;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Enable breadcrumb font color gradient");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* backgroundLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    backgroundLabel->style = WS_CHILD | WS_VISIBLE;
-    backgroundLabel->dwExtendedStyle = 0;
-    backgroundLabel->x = 18;
-    backgroundLabel->y = 86;
-    backgroundLabel->cx = kMainDialogWidth - 26;
-    backgroundLabel->cy = 10;
-    backgroundLabel->id = IDC_MAIN_BREADCRUMB_BG_LABEL;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"Background transparency:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* backgroundSlider = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    backgroundSlider->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS;
-    backgroundSlider->dwExtendedStyle = 0;
-    backgroundSlider->x = 18;
-    backgroundSlider->y = 98;
-    backgroundSlider->cx = 170;
-    backgroundSlider->cy = 16;
-    backgroundSlider->id = IDC_MAIN_BREADCRUMB_BG_SLIDER;
-    AppendString(data, TRACKBAR_CLASSW);
-    AppendWord(data, 0);  // no window text
-    AppendWord(data, 0);  // no creation data
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* backgroundValue = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    backgroundValue->style = WS_CHILD | WS_VISIBLE | SS_RIGHT;
-    backgroundValue->dwExtendedStyle = 0;
-    backgroundValue->x = 194;
-    backgroundValue->y = 100;
-    backgroundValue->cx = 46;
-    backgroundValue->cy = 12;
-    backgroundValue->id = IDC_MAIN_BREADCRUMB_BG_VALUE;
+    auto* exampleStatic = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    exampleStatic->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    exampleStatic->dwExtendedStyle = 0;
+    exampleStatic->x = 10;
+    exampleStatic->y = 56;
+    exampleStatic->cx = kMainDialogWidth - 20;
+    exampleStatic->cy = 60;
+    exampleStatic->id = IDC_MAIN_EXAMPLE;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
     AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontLabel->style = WS_CHILD | WS_VISIBLE;
-    fontLabel->dwExtendedStyle = 0;
-    fontLabel->x = 18;
-    fontLabel->y = 122;
-    fontLabel->cx = kMainDialogWidth - 26;
-    fontLabel->cy = 10;
-    fontLabel->id = IDC_MAIN_BREADCRUMB_FONT_LABEL;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"Font brightness:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontSlider = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontSlider->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS;
-    fontSlider->dwExtendedStyle = 0;
-    fontSlider->x = 18;
-    fontSlider->y = 134;
-    fontSlider->cx = 170;
-    fontSlider->cy = 16;
-    fontSlider->id = IDC_MAIN_BREADCRUMB_FONT_SLIDER;
-    AppendString(data, TRACKBAR_CLASSW);
-    AppendWord(data, 0);  // no window text
-    AppendWord(data, 0);  // no creation data
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontValue = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontValue->style = WS_CHILD | WS_VISIBLE | SS_RIGHT;
-    fontValue->dwExtendedStyle = 0;
-    fontValue->x = 194;
-    fontValue->y = 136;
-    fontValue->cx = 46;
-    fontValue->cy = 12;
-    fontValue->id = IDC_MAIN_BREADCRUMB_FONT_VALUE;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgCustomCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgCustomCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
-    bgCustomCheck->dwExtendedStyle = 0;
-    bgCustomCheck->x = 10;
-    bgCustomCheck->y = 140;
-    bgCustomCheck->cx = kMainDialogWidth - 20;
-    bgCustomCheck->cy = 12;
-    bgCustomCheck->id = IDC_MAIN_BREADCRUMB_BG_CUSTOM;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Use custom background gradient colors");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgStartLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgStartLabel->style = WS_CHILD | WS_VISIBLE;
-    bgStartLabel->dwExtendedStyle = 0;
-    bgStartLabel->x = 18;
-    bgStartLabel->y = 156;
-    bgStartLabel->cx = 60;
-    bgStartLabel->cy = 10;
-    bgStartLabel->id = IDC_MAIN_BREADCRUMB_BG_START_LABEL;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"Start:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgStartPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgStartPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
-    bgStartPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    bgStartPreview->x = 80;
-    bgStartPreview->y = 154;
-    bgStartPreview->cx = 32;
-    bgStartPreview->cy = 16;
-    bgStartPreview->id = IDC_MAIN_BREADCRUMB_BG_START_PREVIEW;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgStartButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgStartButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
-    bgStartButton->dwExtendedStyle = 0;
-    bgStartButton->x = 118;
-    bgStartButton->y = 153;
-    bgStartButton->cx = 50;
-    bgStartButton->cy = 16;
-    bgStartButton->id = IDC_MAIN_BREADCRUMB_BG_START_BUTTON;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Choose");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgEndLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgEndLabel->style = WS_CHILD | WS_VISIBLE;
-    bgEndLabel->dwExtendedStyle = 0;
-    bgEndLabel->x = 18;
-    bgEndLabel->y = 174;
-    bgEndLabel->cx = 60;
-    bgEndLabel->cy = 10;
-    bgEndLabel->id = IDC_MAIN_BREADCRUMB_BG_END_LABEL;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"End:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgEndPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgEndPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
-    bgEndPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    bgEndPreview->x = 80;
-    bgEndPreview->y = 172;
-    bgEndPreview->cx = 32;
-    bgEndPreview->cy = 16;
-    bgEndPreview->id = IDC_MAIN_BREADCRUMB_BG_END_PREVIEW;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* bgEndButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    bgEndButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
-    bgEndButton->dwExtendedStyle = 0;
-    bgEndButton->x = 118;
-    bgEndButton->y = 171;
-    bgEndButton->cx = 50;
-    bgEndButton->cy = 16;
-    bgEndButton->id = IDC_MAIN_BREADCRUMB_BG_END_BUTTON;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Choose");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontCustomCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontCustomCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
-    fontCustomCheck->dwExtendedStyle = 0;
-    fontCustomCheck->x = 10;
-    fontCustomCheck->y = 194;
-    fontCustomCheck->cx = kMainDialogWidth - 20;
-    fontCustomCheck->cy = 12;
-    fontCustomCheck->id = IDC_MAIN_BREADCRUMB_FONT_CUSTOM;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Use custom breadcrumb text colors");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontStartLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontStartLabel->style = WS_CHILD | WS_VISIBLE;
-    fontStartLabel->dwExtendedStyle = 0;
-    fontStartLabel->x = 18;
-    fontStartLabel->y = 210;
-    fontStartLabel->cx = 60;
-    fontStartLabel->cy = 10;
-    fontStartLabel->id = IDC_MAIN_BREADCRUMB_FONT_START_LABEL;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"Start:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontStartPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontStartPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
-    fontStartPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    fontStartPreview->x = 80;
-    fontStartPreview->y = 208;
-    fontStartPreview->cx = 32;
-    fontStartPreview->cy = 16;
-    fontStartPreview->id = IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontStartButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontStartButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
-    fontStartButton->dwExtendedStyle = 0;
-    fontStartButton->x = 118;
-    fontStartButton->y = 207;
-    fontStartButton->cx = 50;
-    fontStartButton->cy = 16;
-    fontStartButton->id = IDC_MAIN_BREADCRUMB_FONT_START_BUTTON;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Choose");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontEndLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontEndLabel->style = WS_CHILD | WS_VISIBLE;
-    fontEndLabel->dwExtendedStyle = 0;
-    fontEndLabel->x = 18;
-    fontEndLabel->y = 228;
-    fontEndLabel->cx = 60;
-    fontEndLabel->cy = 10;
-    fontEndLabel->id = IDC_MAIN_BREADCRUMB_FONT_END_LABEL;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"End:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontEndPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontEndPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
-    fontEndPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    fontEndPreview->x = 80;
-    fontEndPreview->y = 226;
-    fontEndPreview->cx = 32;
-    fontEndPreview->cy = 16;
-    fontEndPreview->id = IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* fontEndButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    fontEndButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
-    fontEndButton->dwExtendedStyle = 0;
-    fontEndButton->x = 118;
-    fontEndButton->y = 225;
-    fontEndButton->cx = 50;
-    fontEndButton->cy = 16;
-    fontEndButton->id = IDC_MAIN_BREADCRUMB_FONT_END_BUTTON;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Choose");
     AppendWord(data, 0);
 
     AlignDialogBuffer(data);
@@ -522,7 +188,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     selectedCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
     selectedCheck->dwExtendedStyle = 0;
     selectedCheck->x = 10;
-    selectedCheck->y = 248;
+    selectedCheck->y = 124;
     selectedCheck->cx = kMainDialogWidth - 20;
     selectedCheck->cy = 12;
     selectedCheck->id = IDC_MAIN_TAB_SELECTED_CHECK;
@@ -538,7 +204,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     selectedPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
     selectedPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
     selectedPreview->x = 18;
-    selectedPreview->y = 264;
+    selectedPreview->y = 142;
     selectedPreview->cx = 32;
     selectedPreview->cy = 16;
     selectedPreview->id = IDC_MAIN_TAB_SELECTED_PREVIEW;
@@ -554,7 +220,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     selectedButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     selectedButton->dwExtendedStyle = 0;
     selectedButton->x = 56;
-    selectedButton->y = 263;
+    selectedButton->y = 141;
     selectedButton->cx = 50;
     selectedButton->cy = 16;
     selectedButton->id = IDC_MAIN_TAB_SELECTED_BUTTON;
@@ -570,7 +236,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     unselectedCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
     unselectedCheck->dwExtendedStyle = 0;
     unselectedCheck->x = 10;
-    unselectedCheck->y = 284;
+    unselectedCheck->y = 168;
     unselectedCheck->cx = kMainDialogWidth - 20;
     unselectedCheck->cy = 12;
     unselectedCheck->id = IDC_MAIN_TAB_UNSELECTED_CHECK;
@@ -586,7 +252,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     unselectedPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
     unselectedPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
     unselectedPreview->x = 18;
-    unselectedPreview->y = 300;
+    unselectedPreview->y = 186;
     unselectedPreview->cx = 32;
     unselectedPreview->cy = 16;
     unselectedPreview->id = IDC_MAIN_TAB_UNSELECTED_PREVIEW;
@@ -602,7 +268,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     unselectedButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     unselectedButton->dwExtendedStyle = 0;
     unselectedButton->x = 56;
-    unselectedButton->y = 299;
+    unselectedButton->y = 185;
     unselectedButton->cx = 50;
     unselectedButton->cy = 16;
     unselectedButton->id = IDC_MAIN_TAB_UNSELECTED_BUTTON;
@@ -612,20 +278,154 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AppendWord(data, 0);
 
     AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* exampleStatic = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    exampleStatic->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
-    exampleStatic->dwExtendedStyle = 0;
-    exampleStatic->x = 18;
-    exampleStatic->y = 156;
-    exampleStatic->cx = kMainDialogWidth - 26;
-    exampleStatic->cy = 52;
-    exampleStatic->id = IDC_MAIN_EXAMPLE;
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
+    return data;
+}
+
+std::vector<BYTE> BuildCustomizationPageTemplate() {
+    std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
+    auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
+    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
+    dlg->cdit = 23;
+    dlg->x = 0;
+    dlg->y = 0;
+    dlg->cx = kMainDialogWidth;
+    dlg->cy = kMainDialogHeight;
+
     AppendWord(data, 0);
+    AppendWord(data, 0);
+    AppendWord(data, 0);
+    AppendWord(data, 9);
+    AppendString(data, L"Segoe UI");
+
+    AlignDialogBuffer(data);
+    size_t offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* breadcrumbGroup = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    breadcrumbGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
+    breadcrumbGroup->dwExtendedStyle = 0;
+    breadcrumbGroup->x = 6;
+    breadcrumbGroup->y = 6;
+    breadcrumbGroup->cx = kMainDialogWidth - 12;
+    breadcrumbGroup->cy = 260;
+    breadcrumbGroup->id = 0;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"BreadCrumb Bar");
+    AppendWord(data, 0);
+
+    auto addCheckbox = [&](int controlId, int x, int y, const wchar_t* text) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = kMainDialogWidth - 24;
+        item->cy = 12;
+        item->id = controlId;
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0080);
+        AppendString(data, text);
+        AppendWord(data, 0);
+    };
+
+    auto addStatic = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text,
+                         DWORD style = SS_LEFT) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | style;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = controlId;
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0082);
+        AppendString(data, text);
+        AppendWord(data, 0);
+    };
+
+    auto addPreview = [&](int controlId, int x, int y) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
+        item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = 32;
+        item->cy = 16;
+        item->id = controlId;
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0082);
+        AppendString(data, L"");
+        AppendWord(data, 0);
+    };
+
+    auto addButton = [&](int controlId, int x, int y, const wchar_t* text) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = 50;
+        item->cy = 16;
+        item->id = controlId;
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0080);
+        AppendString(data, text);
+        AppendWord(data, 0);
+    };
+
+    auto addSlider = [&](int controlId, int x, int y) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = 170;
+        item->cy = 16;
+        item->id = controlId;
+        AppendString(data, TRACKBAR_CLASSW);
+        AppendWord(data, 0);
+        AppendWord(data, 0);
+    };
+
+    addCheckbox(IDC_MAIN_BREADCRUMB, 16, 24, L"Enable breadcrumb background gradient");
+    addCheckbox(IDC_MAIN_BREADCRUMB_FONT, 16, 44, L"Enable breadcrumb font color gradient");
+    addStatic(IDC_MAIN_BREADCRUMB_BG_LABEL, 24, 64, kMainDialogWidth - 32, 10, L"Background transparency:");
+    addSlider(IDC_MAIN_BREADCRUMB_BG_SLIDER, 24, 78);
+    addStatic(IDC_MAIN_BREADCRUMB_BG_VALUE, 200, 80, 40, 12, L"", SS_RIGHT);
+    addStatic(IDC_MAIN_BREADCRUMB_FONT_LABEL, 24, 102, kMainDialogWidth - 32, 10, L"Font brightness:");
+    addSlider(IDC_MAIN_BREADCRUMB_FONT_SLIDER, 24, 116);
+    addStatic(IDC_MAIN_BREADCRUMB_FONT_VALUE, 200, 118, 40, 12, L"", SS_RIGHT);
+    addCheckbox(IDC_MAIN_BREADCRUMB_BG_CUSTOM, 16, 138, L"Use custom background gradient colors");
+    addStatic(IDC_MAIN_BREADCRUMB_BG_START_LABEL, 24, 156, 60, 10, L"Start:");
+    addPreview(IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, 86, 154);
+    addButton(IDC_MAIN_BREADCRUMB_BG_START_BUTTON, 124, 153, L"Choose");
+    addStatic(IDC_MAIN_BREADCRUMB_BG_END_LABEL, 24, 176, 60, 10, L"End:");
+    addPreview(IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, 86, 174);
+    addButton(IDC_MAIN_BREADCRUMB_BG_END_BUTTON, 124, 173, L"Choose");
+    addCheckbox(IDC_MAIN_BREADCRUMB_FONT_CUSTOM, 16, 198, L"Use custom breadcrumb text colors");
+    addStatic(IDC_MAIN_BREADCRUMB_FONT_START_LABEL, 24, 216, 60, 10, L"Start:");
+    addPreview(IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, 86, 214);
+    addButton(IDC_MAIN_BREADCRUMB_FONT_START_BUTTON, 124, 213, L"Choose");
+    addStatic(IDC_MAIN_BREADCRUMB_FONT_END_LABEL, 24, 236, 60, 10, L"End:");
+    addPreview(IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, 86, 234);
+    addButton(IDC_MAIN_BREADCRUMB_FONT_END_BUTTON, 124, 233, L"Choose");
 
     AlignDialogBuffer(data);
     return data;
@@ -1069,6 +869,64 @@ void SetPreviewColor(HWND hwnd, int controlId, HBRUSH* brush, COLORREF color) {
     }
 }
 
+bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) {
+    if (!data) {
+        return false;
+    }
+
+    COLORREF initial = RGB(255, 255, 255);
+    HBRUSH* targetBrush = nullptr;
+    int previewId = 0;
+    COLORREF* targetColor = nullptr;
+
+    switch (controlId) {
+        case IDC_MAIN_BREADCRUMB_BG_START_BUTTON:
+            initial = data->workingOptions.breadcrumbGradientStartColor;
+            targetBrush = &data->breadcrumbBgStartBrush;
+            previewId = IDC_MAIN_BREADCRUMB_BG_START_PREVIEW;
+            targetColor = &data->workingOptions.breadcrumbGradientStartColor;
+            break;
+        case IDC_MAIN_BREADCRUMB_BG_END_BUTTON:
+            initial = data->workingOptions.breadcrumbGradientEndColor;
+            targetBrush = &data->breadcrumbBgEndBrush;
+            previewId = IDC_MAIN_BREADCRUMB_BG_END_PREVIEW;
+            targetColor = &data->workingOptions.breadcrumbGradientEndColor;
+            break;
+        case IDC_MAIN_BREADCRUMB_FONT_START_BUTTON:
+            initial = data->workingOptions.breadcrumbFontGradientStartColor;
+            targetBrush = &data->breadcrumbFontStartBrush;
+            previewId = IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW;
+            targetColor = &data->workingOptions.breadcrumbFontGradientStartColor;
+            break;
+        case IDC_MAIN_BREADCRUMB_FONT_END_BUTTON:
+            initial = data->workingOptions.breadcrumbFontGradientEndColor;
+            targetBrush = &data->breadcrumbFontEndBrush;
+            previewId = IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW;
+            targetColor = &data->workingOptions.breadcrumbFontGradientEndColor;
+            break;
+        case IDC_MAIN_TAB_SELECTED_BUTTON:
+            initial = data->workingOptions.customTabSelectedColor;
+            targetBrush = &data->tabSelectedBrush;
+            previewId = IDC_MAIN_TAB_SELECTED_PREVIEW;
+            targetColor = &data->workingOptions.customTabSelectedColor;
+            break;
+        case IDC_MAIN_TAB_UNSELECTED_BUTTON:
+            initial = data->workingOptions.customTabUnselectedColor;
+            targetBrush = &data->tabUnselectedBrush;
+            previewId = IDC_MAIN_TAB_UNSELECTED_PREVIEW;
+            targetColor = &data->workingOptions.customTabUnselectedColor;
+            break;
+        default:
+            return false;
+    }
+
+    if (targetColor && PromptForColor(hwnd, initial, targetColor)) {
+        SetPreviewColor(hwnd, previewId, targetBrush, *targetColor);
+        return true;
+    }
+    return false;
+}
+
 void RefreshGroupList(HWND hwndList, const OptionsDialogData* data) {
     SendMessageW(hwndList, LB_RESETCONTENT, 0, 0);
     SendMessageW(hwndList, LB_SETHORIZONTALEXTENT, 0, 0);
@@ -1451,46 +1309,14 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 CheckDlgButton(hwnd, IDC_MAIN_REOPEN, data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_PERSIST,
                                data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB,
-                               data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT,
-                               data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
-                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
-                                          data->workingOptions.breadcrumbGradientTransparency);
-                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
-                                          data->workingOptions.breadcrumbFontBrightness);
-                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
-                                     data->workingOptions.breadcrumbGradientTransparency);
-                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
-                                     data->workingOptions.breadcrumbFontBrightness);
-                UpdateGradientControlsEnabled(hwnd, data->workingOptions.enableBreadcrumbGradient,
-                                              data->workingOptions.enableBreadcrumbFontGradient);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM,
-                               data->workingOptions.useCustomBreadcrumbGradientColors ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM,
-                               data->workingOptions.useCustomBreadcrumbFontColors ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
                                data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
                                data->workingOptions.useCustomTabUnselectedColor ? BST_CHECKED : BST_UNCHECKED);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, &data->breadcrumbBgStartBrush,
-                                data->workingOptions.breadcrumbGradientStartColor);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, &data->breadcrumbBgEndBrush,
-                                data->workingOptions.breadcrumbGradientEndColor);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, &data->breadcrumbFontStartBrush,
-                                data->workingOptions.breadcrumbFontGradientStartColor);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, &data->breadcrumbFontEndBrush,
-                                data->workingOptions.breadcrumbFontGradientEndColor);
                 SetPreviewColor(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW, &data->tabSelectedBrush,
                                 data->workingOptions.customTabSelectedColor);
                 SetPreviewColor(hwnd, IDC_MAIN_TAB_UNSELECTED_PREVIEW, &data->tabUnselectedBrush,
                                 data->workingOptions.customTabUnselectedColor);
-                UpdateGradientColorControlsEnabled(
-                    hwnd,
-                    data->workingOptions.enableBreadcrumbGradient &&
-                        data->workingOptions.useCustomBreadcrumbGradientColors,
-                    data->workingOptions.enableBreadcrumbFontGradient &&
-                        data->workingOptions.useCustomBreadcrumbFontColors);
                 UpdateTabColorControlsEnabled(hwnd, data->workingOptions.useCustomTabSelectedColor,
                                               data->workingOptions.useCustomTabUnselectedColor);
                 const wchar_t example[] =
@@ -1504,12 +1330,137 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             switch (LOWORD(wParam)) {
                 case IDC_MAIN_REOPEN:
                 case IDC_MAIN_PERSIST:
+                case IDC_MAIN_TAB_SELECTED_CHECK:
+                case IDC_MAIN_TAB_UNSELECTED_CHECK:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            const bool tabSelectedCustom =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
+                            const bool tabUnselectedCustom =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+                            UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
+                        }
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                case IDC_MAIN_TAB_SELECTED_BUTTON:
+                case IDC_MAIN_TAB_UNSELECTED_BUTTON: {
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (HandleColorButtonClick(hwnd, data, LOWORD(wParam))) {
+                            SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        }
+                    }
+                    return TRUE;
+                }
+                default:
+                    break;
+            }
+            break;
+        }
+        case WM_CTLCOLORSTATIC: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                break;
+            }
+            HWND target = reinterpret_cast<HWND>(lParam);
+            if (!target) {
+                break;
+            }
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            const int controlId = GetDlgCtrlID(target);
+            HBRUSH brush = nullptr;
+            COLORREF color = 0;
+            switch (controlId) {
+                case IDC_MAIN_TAB_SELECTED_PREVIEW:
+                    brush = data->tabSelectedBrush;
+                    color = data->workingOptions.customTabSelectedColor;
+                    break;
+                case IDC_MAIN_TAB_UNSELECTED_PREVIEW:
+                    brush = data->tabUnselectedBrush;
+                    color = data->workingOptions.customTabUnselectedColor;
+                    break;
+                default:
+                    break;
+            }
+            if (brush) {
+                SetBkMode(dc, OPAQUE);
+                SetBkColor(dc, color);
+                return reinterpret_cast<INT_PTR>(brush);
+            }
+            break;
+        }
+        case WM_NOTIFY: {
+            if (((LPNMHDR)lParam)->code == PSN_APPLY) {
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                if (data) {
+                    data->workingOptions.reopenOnCrash =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
+                    data->workingOptions.persistGroupPaths =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
+                    data->workingOptions.useCustomTabSelectedColor =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
+                    data->workingOptions.useCustomTabUnselectedColor =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+                    data->applyInvoked = true;
+                }
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+                return TRUE;
+            }
+            break;
+        }
+    }
+    return FALSE;
+}
+
+INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+        case WM_INITDIALOG: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(reinterpret_cast<PROPSHEETPAGEW*>(lParam)->lParam);
+            SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(data));
+            if (data) {
+                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB,
+                               data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT,
+                               data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
+                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
+                                          data->workingOptions.breadcrumbGradientTransparency);
+                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
+                                          data->workingOptions.breadcrumbFontBrightness);
+                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
+                                     data->workingOptions.breadcrumbGradientTransparency);
+                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
+                                     data->workingOptions.breadcrumbFontBrightness);
+                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM,
+                               data->workingOptions.useCustomBreadcrumbGradientColors ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM,
+                               data->workingOptions.useCustomBreadcrumbFontColors ? BST_CHECKED : BST_UNCHECKED);
+                UpdateGradientControlsEnabled(hwnd, data->workingOptions.enableBreadcrumbGradient,
+                                              data->workingOptions.enableBreadcrumbFontGradient);
+                UpdateGradientColorControlsEnabled(
+                    hwnd,
+                    data->workingOptions.enableBreadcrumbGradient &&
+                        data->workingOptions.useCustomBreadcrumbGradientColors,
+                    data->workingOptions.enableBreadcrumbFontGradient &&
+                        data->workingOptions.useCustomBreadcrumbFontColors);
+                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, &data->breadcrumbBgStartBrush,
+                                data->workingOptions.breadcrumbGradientStartColor);
+                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, &data->breadcrumbBgEndBrush,
+                                data->workingOptions.breadcrumbGradientEndColor);
+                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, &data->breadcrumbFontStartBrush,
+                                data->workingOptions.breadcrumbFontGradientStartColor);
+                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, &data->breadcrumbFontEndBrush,
+                                data->workingOptions.breadcrumbFontGradientEndColor);
+            }
+            return TRUE;
+        }
+        case WM_COMMAND: {
+            switch (LOWORD(wParam)) {
                 case IDC_MAIN_BREADCRUMB:
                 case IDC_MAIN_BREADCRUMB_FONT:
                 case IDC_MAIN_BREADCRUMB_BG_CUSTOM:
                 case IDC_MAIN_BREADCRUMB_FONT_CUSTOM:
-                case IDC_MAIN_TAB_SELECTED_CHECK:
-                case IDC_MAIN_TAB_UNSELECTED_CHECK:
                     if (HIWORD(wParam) == BN_CLICKED) {
                         auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                         if (data) {
@@ -1524,11 +1475,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                                 IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
                             UpdateGradientColorControlsEnabled(hwnd, backgroundEnabled && bgCustom,
                                                                fontEnabled && fontCustom);
-                            const bool tabSelectedCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
-                            const bool tabUnselectedCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
-                            UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
                         }
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
@@ -1537,64 +1483,13 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 case IDC_MAIN_BREADCRUMB_BG_END_BUTTON:
                 case IDC_MAIN_BREADCRUMB_FONT_START_BUTTON:
                 case IDC_MAIN_BREADCRUMB_FONT_END_BUTTON:
-                case IDC_MAIN_TAB_SELECTED_BUTTON:
-                case IDC_MAIN_TAB_UNSELECTED_BUTTON: {
                     if (HIWORD(wParam) == BN_CLICKED) {
                         auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (!data) {
-                            return TRUE;
-                        }
-                        COLORREF initial = RGB(255, 255, 255);
-                        HBRUSH* targetBrush = nullptr;
-                        int previewId = 0;
-                        COLORREF* targetColor = nullptr;
-                        switch (LOWORD(wParam)) {
-                            case IDC_MAIN_BREADCRUMB_BG_START_BUTTON:
-                                initial = data->workingOptions.breadcrumbGradientStartColor;
-                                targetBrush = &data->breadcrumbBgStartBrush;
-                                previewId = IDC_MAIN_BREADCRUMB_BG_START_PREVIEW;
-                                targetColor = &data->workingOptions.breadcrumbGradientStartColor;
-                                break;
-                            case IDC_MAIN_BREADCRUMB_BG_END_BUTTON:
-                                initial = data->workingOptions.breadcrumbGradientEndColor;
-                                targetBrush = &data->breadcrumbBgEndBrush;
-                                previewId = IDC_MAIN_BREADCRUMB_BG_END_PREVIEW;
-                                targetColor = &data->workingOptions.breadcrumbGradientEndColor;
-                                break;
-                            case IDC_MAIN_BREADCRUMB_FONT_START_BUTTON:
-                                initial = data->workingOptions.breadcrumbFontGradientStartColor;
-                                targetBrush = &data->breadcrumbFontStartBrush;
-                                previewId = IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW;
-                                targetColor = &data->workingOptions.breadcrumbFontGradientStartColor;
-                                break;
-                            case IDC_MAIN_BREADCRUMB_FONT_END_BUTTON:
-                                initial = data->workingOptions.breadcrumbFontGradientEndColor;
-                                targetBrush = &data->breadcrumbFontEndBrush;
-                                previewId = IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW;
-                                targetColor = &data->workingOptions.breadcrumbFontGradientEndColor;
-                                break;
-                            case IDC_MAIN_TAB_SELECTED_BUTTON:
-                                initial = data->workingOptions.customTabSelectedColor;
-                                targetBrush = &data->tabSelectedBrush;
-                                previewId = IDC_MAIN_TAB_SELECTED_PREVIEW;
-                                targetColor = &data->workingOptions.customTabSelectedColor;
-                                break;
-                            case IDC_MAIN_TAB_UNSELECTED_BUTTON:
-                                initial = data->workingOptions.customTabUnselectedColor;
-                                targetBrush = &data->tabUnselectedBrush;
-                                previewId = IDC_MAIN_TAB_UNSELECTED_PREVIEW;
-                                targetColor = &data->workingOptions.customTabUnselectedColor;
-                                break;
-                        }
-                        if (targetColor && PromptForColor(hwnd, initial, targetColor)) {
-                            SetPreviewColor(hwnd, previewId, targetBrush, *targetColor);
+                        if (HandleColorButtonClick(hwnd, data, LOWORD(wParam))) {
                             SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                         }
                     }
                     return TRUE;
-                }
-                default:
-                    break;
             }
             break;
         }
@@ -1628,14 +1523,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                     brush = data->breadcrumbFontEndBrush;
                     color = data->workingOptions.breadcrumbFontGradientEndColor;
                     break;
-                case IDC_MAIN_TAB_SELECTED_PREVIEW:
-                    brush = data->tabSelectedBrush;
-                    color = data->workingOptions.customTabSelectedColor;
-                    break;
-                case IDC_MAIN_TAB_UNSELECTED_PREVIEW:
-                    brush = data->tabUnselectedBrush;
-                    color = data->workingOptions.customTabUnselectedColor;
-                    break;
                 default:
                     break;
             }
@@ -1667,10 +1554,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             if (((LPNMHDR)lParam)->code == PSN_APPLY) {
                 auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                 if (data) {
-                    data->workingOptions.reopenOnCrash =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
-                    data->workingOptions.persistGroupPaths =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
                     data->workingOptions.enableBreadcrumbGradient =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
                     data->workingOptions.enableBreadcrumbFontGradient =
@@ -1685,10 +1568,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
                     data->workingOptions.useCustomBreadcrumbFontColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
-                    data->workingOptions.useCustomTabSelectedColor =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
-                    data->workingOptions.useCustomTabUnselectedColor =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
@@ -1774,18 +1653,20 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     data.workingGroups = data.originalGroups;
 
     std::vector<BYTE> mainTemplate = BuildMainPageTemplate();
+    std::vector<BYTE> customizationTemplate = BuildCustomizationPageTemplate();
     std::vector<BYTE> groupTemplate = BuildGroupPageTemplate();
 
     auto mainTemplateMemory = AllocateAlignedTemplate(mainTemplate);
+    auto customizationTemplateMemory = AllocateAlignedTemplate(customizationTemplate);
     auto groupTemplateMemory = AllocateAlignedTemplate(groupTemplate);
-    if (!mainTemplateMemory || !groupTemplateMemory) {
+    if (!mainTemplateMemory || !customizationTemplateMemory || !groupTemplateMemory) {
         result.saved = false;
         result.groupsChanged = false;
         result.optionsChanged = false;
         return result;
     }
 
-    PROPSHEETPAGEW pages[2] = {};
+    PROPSHEETPAGEW pages[3] = {};
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
     pages[0].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[0].hInstance = GetModuleHandleInstance();
@@ -1797,10 +1678,18 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     pages[1].dwSize = sizeof(PROPSHEETPAGEW);
     pages[1].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[1].hInstance = GetModuleHandleInstance();
-    pages[1].pResource = groupTemplateMemory.get();
-    pages[1].pfnDlgProc = GroupManagementPageProc;
+    pages[1].pResource = customizationTemplateMemory.get();
+    pages[1].pfnDlgProc = CustomizationsPageProc;
     pages[1].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[1].pszTitle = L"Groups && Islands";
+    pages[1].pszTitle = L"Customizations";
+
+    pages[2].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[2].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
+    pages[2].hInstance = GetModuleHandleInstance();
+    pages[2].pResource = groupTemplateMemory.get();
+    pages[2].pfnDlgProc = GroupManagementPageProc;
+    pages[2].lParam = reinterpret_cast<LPARAM>(&data);
+    pages[2].pszTitle = L"Groups && Islands";
 
     PROPSHEETHEADERW header{};
     header.dwSize = sizeof(PROPSHEETHEADERW);
