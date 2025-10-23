@@ -48,7 +48,7 @@ constexpr wchar_t kBhoProgIdVersion[] = L"ShellTabs.BrowserHelper.1";
 constexpr wchar_t kOpenFolderCommandFriendlyName[] = L"Shell Tabs Open Folder Command";
 constexpr wchar_t kOpenFolderCommandVerb[] = L"ShellTabs.OpenInNewTab";
 constexpr wchar_t kOpenFolderCommandKeyName[] = L"ShellTabs.OpenInNewTab";
-constexpr wchar_t kOpenFolderCommandLabel[] = L"Open Folder In New Tab";
+constexpr wchar_t kOpenFolderCommandLabel[] = L"Open in new tab";
 
 struct ScopedRegKey {
     ScopedRegKey() = default;
@@ -656,6 +656,7 @@ HRESULT RegisterOpenFolderCommand(const std::wstring& clsidString) {
     constexpr const wchar_t* kScopes[] = {
         L"Software\\Classes\\Directory\\shell\\",
         L"Software\\Classes\\Folder\\shell\\",
+        L"Software\\Classes\\Drive\\shell\\",
     };
 
     for (const wchar_t* scope : kScopes) {
@@ -707,6 +708,7 @@ HRESULT UnregisterOpenFolderCommand() {
     constexpr const wchar_t* kScopes[] = {
         L"Software\\Classes\\Directory\\shell\\",
         L"Software\\Classes\\Folder\\shell\\",
+        L"Software\\Classes\\Drive\\shell\\",
     };
 
     for (const wchar_t* scope : kScopes) {

@@ -254,7 +254,7 @@ bool FindOpenInNewWindowMenuItem(HMENU menu, UINT* position, UINT* commandId) {
     return false;
 }
 
-constexpr wchar_t kOpenInNewTabLabel[] = L"Open In New Tab";
+constexpr wchar_t kOpenInNewTabLabel[] = L"Open in new tab";
 
 struct BreadcrumbHookEntry {
     HHOOK hook = nullptr;
