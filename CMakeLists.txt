@@ -4,9 +4,9 @@ project(ShellTabs LANGUAGES CXX RC)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-add_compile_definitions(_WIN32_WINNT=0x0601 NTDDI_VERSION=0x06010000)
+add_compile_definitions(_WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000)
 # Global for the whole project
-add_definitions(-D_WIN32_WINNT=0x0601 -DNTDDI_VERSION=0x06010000)
+add_definitions(-D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000000)
 
 add_library(ShellTabs SHARED
     src/dllmain.cpp

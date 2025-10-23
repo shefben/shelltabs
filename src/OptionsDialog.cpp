@@ -143,7 +143,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     reopenCheck->y = 12;
     reopenCheck->cx = kMainCheckboxWidth;
     reopenCheck->cy = 12;
-    reopenCheck->id = IDC_MAIN_REOPEN;
+    reopenCheck->id = static_cast<WORD>(IDC_MAIN_REOPEN);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Always reopen last session after crash");
@@ -159,7 +159,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     persistCheck->y = 32;
     persistCheck->cx = kMainCheckboxWidth;
     persistCheck->cy = 12;
-    persistCheck->id = IDC_MAIN_PERSIST;
+    persistCheck->id = static_cast<WORD>(IDC_MAIN_PERSIST);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Remember saved group paths on close");
@@ -175,7 +175,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     exampleStatic->y = 56;
     exampleStatic->cx = kMainDialogWidth - 20;
     exampleStatic->cy = 60;
-    exampleStatic->id = IDC_MAIN_EXAMPLE;
+    exampleStatic->id = static_cast<WORD>(IDC_MAIN_EXAMPLE);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
     AppendString(data, L"");
@@ -191,7 +191,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     selectedCheck->y = 124;
     selectedCheck->cx = kMainDialogWidth - 20;
     selectedCheck->cy = 12;
-    selectedCheck->id = IDC_MAIN_TAB_SELECTED_CHECK;
+    selectedCheck->id = static_cast<WORD>(IDC_MAIN_TAB_SELECTED_CHECK);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Use custom selected tab color");
@@ -207,7 +207,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     selectedPreview->y = 142;
     selectedPreview->cx = 32;
     selectedPreview->cy = 16;
-    selectedPreview->id = IDC_MAIN_TAB_SELECTED_PREVIEW;
+    selectedPreview->id = static_cast<WORD>(IDC_MAIN_TAB_SELECTED_PREVIEW);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
     AppendString(data, L"");
@@ -223,7 +223,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     selectedButton->y = 141;
     selectedButton->cx = 50;
     selectedButton->cy = 16;
-    selectedButton->id = IDC_MAIN_TAB_SELECTED_BUTTON;
+    selectedButton->id = static_cast<WORD>(IDC_MAIN_TAB_SELECTED_BUTTON);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Choose");
@@ -239,7 +239,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     unselectedCheck->y = 168;
     unselectedCheck->cx = kMainDialogWidth - 20;
     unselectedCheck->cy = 12;
-    unselectedCheck->id = IDC_MAIN_TAB_UNSELECTED_CHECK;
+    unselectedCheck->id = static_cast<WORD>(IDC_MAIN_TAB_UNSELECTED_CHECK);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Use custom unselected tab color");
@@ -255,7 +255,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     unselectedPreview->y = 186;
     unselectedPreview->cx = 32;
     unselectedPreview->cy = 16;
-    unselectedPreview->id = IDC_MAIN_TAB_UNSELECTED_PREVIEW;
+    unselectedPreview->id = static_cast<WORD>(IDC_MAIN_TAB_UNSELECTED_PREVIEW);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
     AppendString(data, L"");
@@ -271,7 +271,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     unselectedButton->y = 185;
     unselectedButton->cx = 50;
     unselectedButton->cy = 16;
-    unselectedButton->id = IDC_MAIN_TAB_UNSELECTED_BUTTON;
+    unselectedButton->id = static_cast<WORD>(IDC_MAIN_TAB_UNSELECTED_BUTTON);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Choose");
@@ -325,7 +325,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         item->y = static_cast<short>(y);
         item->cx = kMainDialogWidth - 24;
         item->cy = 12;
-        item->id = controlId;
+        item->id = static_cast<WORD>(controlId);
         AppendWord(data, 0xFFFF);
         AppendWord(data, 0x0080);
         AppendString(data, text);
@@ -344,7 +344,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         item->y = static_cast<short>(y);
         item->cx = static_cast<short>(cx);
         item->cy = static_cast<short>(cy);
-        item->id = controlId;
+        item->id = static_cast<WORD>(controlId);
         AppendWord(data, 0xFFFF);
         AppendWord(data, 0x0082);
         AppendString(data, text);
@@ -362,7 +362,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         item->y = static_cast<short>(y);
         item->cx = 32;
         item->cy = 16;
-        item->id = controlId;
+        item->id = static_cast<WORD>(controlId);
         AppendWord(data, 0xFFFF);
         AppendWord(data, 0x0082);
         AppendString(data, L"");
@@ -380,7 +380,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         item->y = static_cast<short>(y);
         item->cx = 50;
         item->cy = 16;
-        item->id = controlId;
+        item->id = static_cast<WORD>(controlId);
         AppendWord(data, 0xFFFF);
         AppendWord(data, 0x0080);
         AppendString(data, text);
@@ -398,7 +398,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         item->y = static_cast<short>(y);
         item->cx = 170;
         item->cy = 16;
-        item->id = controlId;
+        item->id = static_cast<WORD>(controlId);
         AppendString(data, TRACKBAR_CLASSW);
         AppendWord(data, 0);
         AppendWord(data, 0);
@@ -459,7 +459,7 @@ std::vector<BYTE> BuildGroupPageTemplate() {
     list->y = 12;
     list->cx = 200;
     list->cy = 140;
-    list->id = IDC_GROUP_LIST;
+    list->id = static_cast<WORD>(IDC_GROUP_LIST);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0083);
     AppendString(data, L"");
@@ -475,7 +475,7 @@ std::vector<BYTE> BuildGroupPageTemplate() {
     newButton->y = 12;
     newButton->cx = 80;
     newButton->cy = 14;
-    newButton->id = IDC_GROUP_NEW;
+    newButton->id = static_cast<WORD>(IDC_GROUP_NEW);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"New Group");
@@ -491,7 +491,7 @@ std::vector<BYTE> BuildGroupPageTemplate() {
     editButton->y = 32;
     editButton->cx = 80;
     editButton->cy = 14;
-    editButton->id = IDC_GROUP_EDIT;
+    editButton->id = static_cast<WORD>(IDC_GROUP_EDIT);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Edit Group");
@@ -507,7 +507,7 @@ std::vector<BYTE> BuildGroupPageTemplate() {
     removeButton->y = 52;
     removeButton->cx = 80;
     removeButton->cy = 14;
-    removeButton->id = IDC_GROUP_REMOVE;
+    removeButton->id = static_cast<WORD>(IDC_GROUP_REMOVE);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Remove");
@@ -560,7 +560,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     nameEdit->y = 22;
     nameEdit->cx = 200;
     nameEdit->cy = 14;
-    nameEdit->id = IDC_EDITOR_NAME;
+    nameEdit->id = static_cast<WORD>(IDC_EDITOR_NAME);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0081);
     AppendString(data, L"");
@@ -592,7 +592,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     colorPreview->y = 40;
     colorPreview->cx = 40;
     colorPreview->cy = 16;
-    colorPreview->id = IDC_EDITOR_COLOR_PREVIEW;
+    colorPreview->id = static_cast<WORD>(IDC_EDITOR_COLOR_PREVIEW);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
     AppendString(data, L"");
@@ -608,7 +608,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     colorButton->y = 40;
     colorButton->cx = 80;
     colorButton->cy = 14;
-    colorButton->id = IDC_EDITOR_COLOR_BUTTON;
+    colorButton->id = static_cast<WORD>(IDC_EDITOR_COLOR_BUTTON);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Choose Color...");
@@ -641,7 +641,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     pathList->y = 76;
     pathList->cx = 220;
     pathList->cy = 96;
-    pathList->id = IDC_EDITOR_PATH_LIST;
+    pathList->id = static_cast<WORD>(IDC_EDITOR_PATH_LIST);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0083);
     AppendString(data, L"");
@@ -657,7 +657,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     addButton->y = 76;
     addButton->cx = 80;
     addButton->cy = 14;
-    addButton->id = IDC_EDITOR_ADD_PATH;
+    addButton->id = static_cast<WORD>(IDC_EDITOR_ADD_PATH);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Add Path...");
@@ -673,7 +673,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     editButton->y = 96;
     editButton->cx = 80;
     editButton->cy = 14;
-    editButton->id = IDC_EDITOR_EDIT_PATH;
+    editButton->id = static_cast<WORD>(IDC_EDITOR_EDIT_PATH);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Edit Path...");
@@ -689,7 +689,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     removeButton->y = 116;
     removeButton->cx = 80;
     removeButton->cy = 14;
-    removeButton->id = IDC_EDITOR_REMOVE_PATH;
+    removeButton->id = static_cast<WORD>(IDC_EDITOR_REMOVE_PATH);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Remove");
@@ -705,7 +705,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     okButton->y = kEditorHeight - 28;
     okButton->cx = 50;
     okButton->cy = 14;
-    okButton->id = IDOK;
+    okButton->id = static_cast<WORD>(IDOK);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Save");
@@ -721,7 +721,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     cancelButton->y = kEditorHeight - 28;
     cancelButton->cx = 50;
     cancelButton->cy = 14;
-    cancelButton->id = IDCANCEL;
+    cancelButton->id = static_cast<WORD>(IDCANCEL);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Cancel");

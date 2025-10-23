@@ -121,7 +121,7 @@ COLORREF ParseColorValue(const std::wstring& token, COLORREF fallback) {
     }
 
     unsigned int parsed = 0;
-    if (std::swscanf(token.c_str(), L"%x", &parsed) != 1) {
+    if (swscanf_s(token.c_str(), L"%x", &parsed) != 1) {
         return fallback;
     }
 
