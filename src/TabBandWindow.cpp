@@ -2421,7 +2421,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 
         if (id == IDM_MANAGE_GROUPS) {
                 if (m_owner) {
-                        m_owner->OnShowOptionsDialog(1);
+                        m_owner->OnShowOptionsDialog(2);
                 }
                 ClearExplorerContext();
                 return;
