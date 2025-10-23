@@ -42,6 +42,18 @@
 
 namespace {
 
+#ifndef ListView_GetItemW
+BOOL ListView_GetItemW(HWND hwnd, LVITEMW* item) {
+    return static_cast<BOOL>(SendMessageW(hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(item)));
+}
+#endif
+
+#ifndef TreeView_GetItemW
+BOOL TreeView_GetItemW(HWND hwnd, TVITEMEXW* item) {
+    return static_cast<BOOL>(SendMessageW(hwnd, TVM_GETITEMW, 0, reinterpret_cast<LPARAM>(item)));
+}
+#endif
+
 bool MatchesClass(HWND hwnd, const wchar_t* className) {
     if (!hwnd || !className) {
         return false;
@@ -1889,7 +1901,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
         if (hasIcon) {
             const int iconX = itemRect.left + 4;
-            const int iconY = itemRect.top + std::max(0, (itemRect.bottom - itemRect.top - imageHeight) / 2);
+            const LONG verticalSpace = ((itemRect.bottom - itemRect.top) - imageHeight) / 2;
+            const LONG iconYOffset = std::max<LONG>(0, verticalSpace);
+            const int iconY = static_cast<int>(itemRect.top + iconYOffset);
             ImageList_Draw(imageList, button.iBitmap, drawDc, iconX, iconY, ILD_TRANSPARENT);
         }
 
