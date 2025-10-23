@@ -6,6 +6,7 @@
 #include <shlobj.h>
 #include <shlguid.h>
 #include <CommCtrl.h>
+#include <windowsx.h>
 #include <uxtheme.h>
 #include <OleIdl.h>
 #include <gdiplus.h>
@@ -1041,9 +1042,14 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
 
     switch (msg) {
         case WM_INITMENUPOPUP: {
-            if (LOWORD(lParam) == 0 && HIWORD(lParam) == 0) {
+            if (HIWORD(lParam) == 0) {
                 HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
             }
+            break;
+        }
+        case WM_CONTEXTMENU: {
+            POINT screenPoint{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            PrepareContextMenuSelection(reinterpret_cast<HWND>(wParam), screenPoint);
             break;
         }
         case WM_COMMAND: {
@@ -1108,10 +1114,7 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
     }
 
     UINT position = 0;
-    if (!FindOpenInNewWindowMenuItem(menu, &position, nullptr)) {
-        LogMessage(LogLevel::Warning, L"Context menu init aborted: 'Open in new window' anchor not found");
-        return;
-    }
+    const bool anchorFound = FindOpenInNewWindowMenuItem(menu, &position, nullptr);
 
     if (GetMenuState(menu, kOpenInNewTabCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
         LogMessage(LogLevel::Info, L"Context menu already contains Open In New Tab entry");
@@ -1126,7 +1129,16 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
     item.wID = kOpenInNewTabCommandId;
     item.dwTypeData = const_cast<wchar_t*>(kOpenInNewTabLabel);
 
-    if (!InsertMenuItemW(menu, position + 1, TRUE, &item)) {
+    UINT insertPosition = 0;
+    if (anchorFound) {
+        insertPosition = position + 1;
+    } else {
+        LogMessage(LogLevel::Info, L"Context menu init continuing without explicit anchor");
+        const int itemCount = GetMenuItemCount(menu);
+        insertPosition = itemCount > 0 ? static_cast<UINT>(itemCount) : 0;
+    }
+
+    if (!InsertMenuItemW(menu, insertPosition, TRUE, &item)) {
         LogLastError(L"InsertMenuItem(Open In New Tab)", GetLastError());
         return;
     }
@@ -1134,8 +1146,75 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
     m_pendingOpenInNewTabPaths = std::move(paths);
     m_contextMenuInserted = true;
     m_trackedContextMenu = menu;
-    LogMessage(LogLevel::Info, L"Open In New Tab inserted at position %u for %zu paths", position + 1,
+    LogMessage(LogLevel::Info, L"Open In New Tab inserted at position %u for %zu paths", insertPosition + 1,
                m_pendingOpenInNewTabPaths.size());
+}
+
+void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint) {
+    HWND target = sourceWindow;
+    if (!target || !IsWindow(target)) {
+        target = GetFocus();
+    }
+
+    if (!target || (!IsWindow(target))) {
+        return;
+    }
+
+    if (target == m_listView) {
+        if (screenPoint.x == -1 && screenPoint.y == -1) {
+            return;
+        }
+
+        POINT clientPoint = screenPoint;
+        if (!ScreenToClient(target, &clientPoint)) {
+            return;
+        }
+
+        LVHITTESTINFO hit{};
+        hit.pt = clientPoint;
+        const int index = ListView_SubItemHitTest(m_listView, &hit);
+        if (index < 0 || (hit.flags & LVHT_ONITEM) == 0) {
+            return;
+        }
+
+        const UINT state = ListView_GetItemState(m_listView, index, LVIS_SELECTED);
+        if ((state & LVIS_SELECTED) != 0) {
+            return;
+        }
+
+        ListView_SetItemState(m_listView, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(m_listView, index, LVIS_SELECTED | LVIS_FOCUSED,
+                              LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_EnsureVisible(m_listView, index, FALSE);
+        LogMessage(LogLevel::Info, L"Context menu selection synchronized to list view item %d", index);
+        return;
+    }
+
+    if (target == m_treeView) {
+        if (screenPoint.x == -1 && screenPoint.y == -1) {
+            return;
+        }
+
+        POINT clientPoint = screenPoint;
+        if (!ScreenToClient(target, &clientPoint)) {
+            return;
+        }
+
+        TVHITTESTINFO hit{};
+        hit.pt = clientPoint;
+        HTREEITEM item = TreeView_HitTest(m_treeView, &hit);
+        if (!item || (hit.flags & (TVHT_ONITEM | TVHT_ONITEMBUTTON | TVHT_ONITEMINDENT)) == 0) {
+            return;
+        }
+
+        HTREEITEM current = TreeView_GetSelection(m_treeView);
+        if (current == item) {
+            return;
+        }
+
+        TreeView_SelectItem(m_treeView, item);
+        LogMessage(LogLevel::Info, L"Context menu selection synchronized to tree view item %p", item);
+    }
 }
 
 void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
@@ -1170,74 +1249,249 @@ void CExplorerBHO::HandleExplorerMenuDismiss(HMENU menu) {
 
 bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const {
     paths.clear();
+
+    bool success = false;
+
+    if (CollectPathsFromShellViewSelection(paths)) {
+        success = true;
+    }
+
+    if (!success) {
+        if (CollectPathsFromFolderViewSelection(paths)) {
+            success = true;
+        }
+    }
+
+    if (!success) {
+        if (CollectPathsFromListView(paths)) {
+            success = true;
+        }
+    }
+
+    if (!success) {
+        if (CollectPathsFromTreeView(paths)) {
+            success = true;
+        }
+    }
+
+    if (!success) {
+        LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths found no eligible folders");
+    } else {
+        LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths captured %zu path(s)", paths.size());
+    }
+
+    return success && !paths.empty();
+}
+
+bool CExplorerBHO::CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const {
     if (!m_shellView) {
-        LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: shell view unavailable");
+        LogMessage(LogLevel::Warning, L"CollectPathsFromShellViewSelection failed: shell view unavailable");
         return false;
     }
 
     Microsoft::WRL::ComPtr<IShellItemArray> items;
     HRESULT hr = m_shellView->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&items));
     if (FAILED(hr) || !items) {
-        LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: unable to query selection (hr=0x%08lX)", hr);
+        LogMessage(LogLevel::Info, L"CollectPathsFromShellViewSelection skipped: selection unavailable (hr=0x%08lX)", hr);
+        return false;
+    }
+
+    return CollectPathsFromItemArray(items.Get(), paths);
+}
+
+bool CExplorerBHO::CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const {
+    if (!m_shellView) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IFolderView2> folderView;
+    HRESULT hr = m_shellView.As(&folderView);
+    if (FAILED(hr) || !folderView) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellItemArray> items;
+    hr = folderView->GetSelection(TRUE, &items);
+    if (FAILED(hr) || !items) {
+        LogMessage(LogLevel::Info,
+                   L"CollectPathsFromFolderViewSelection skipped: unable to resolve folder view selection (hr=0x%08lX)",
+                   hr);
+        return false;
+    }
+
+    return CollectPathsFromItemArray(items.Get(), paths);
+}
+
+bool CExplorerBHO::CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const {
+    if (!items) {
         return false;
     }
 
     DWORD count = 0;
-    hr = items->GetCount(&count);
+    HRESULT hr = items->GetCount(&count);
     if (FAILED(hr) || count == 0) {
-        LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths found no selected items (hr=0x%08lX count=%lu)", hr,
-                   count);
+        LogMessage(LogLevel::Info, L"CollectPathsFromItemArray skipped: count=%lu hr=0x%08lX", count, hr);
         return false;
     }
 
     if (count > kMaxTrackedSelection) {
-        LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths aborted: selection too large (%lu)", count);
+        LogMessage(LogLevel::Info, L"CollectPathsFromItemArray limiting selection from %lu to %u entries", count,
+                   kMaxTrackedSelection);
+    }
+
+    bool appended = false;
+
+    for (DWORD index = 0; index < count && paths.size() < kMaxTrackedSelection; ++index) {
+        Microsoft::WRL::ComPtr<IShellItem> item;
+        if (FAILED(items->GetItemAt(index, &item)) || !item) {
+            LogMessage(LogLevel::Warning, L"CollectPathsFromItemArray failed: unable to access item %lu", index);
+            continue;
+        }
+
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        hr = SHGetIDListFromObject(item.Get(), &pidl);
+        if (FAILED(hr) || !pidl) {
+            PWSTR path = nullptr;
+            hr = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+            if (FAILED(hr) || !path || path[0] == L'\0') {
+                if (path) {
+                    CoTaskMemFree(path);
+                }
+                LogMessage(LogLevel::Info,
+                           L"CollectPathsFromItemArray skipping item %lu: missing PIDL and filesystem path (hr=0x%08lX)",
+                           index, hr);
+                continue;
+            }
+
+            std::wstring value(path);
+            CoTaskMemFree(path);
+            if (value.empty()) {
+                continue;
+            }
+            if (std::find(paths.begin(), paths.end(), value) == paths.end() &&
+                paths.size() < kMaxTrackedSelection) {
+                paths.push_back(std::move(value));
+                appended = true;
+            }
+            continue;
+        }
+
+        if (AppendPathFromPidl(pidl, paths)) {
+            appended = true;
+        }
+        CoTaskMemFree(pidl);
+    }
+
+    return appended;
+}
+
+bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) const {
+    if (!m_listView || !IsWindow(m_listView)) {
         return false;
     }
 
-    paths.reserve(static_cast<size_t>(count));
-
-    for (DWORD index = 0; index < count; ++index) {
-        Microsoft::WRL::ComPtr<IShellItem> item;
-        if (FAILED(items->GetItemAt(index, &item)) || !item) {
-            LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: unable to access item %lu", index);
-            return false;
+    int index = -1;
+    bool appended = false;
+    while ((index = ListView_GetNextItem(m_listView, index, LVNI_SELECTED)) != -1) {
+        if (paths.size() >= kMaxTrackedSelection) {
+            LogMessage(LogLevel::Info, L"CollectPathsFromListView truncated selection at %zu entries", paths.size());
+            break;
         }
 
-        SFGAOF attributes = 0;
-        hr = item->GetAttributes(SFGAO_FOLDER | SFGAO_FILESYSTEM, &attributes);
-        if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
-            LogMessage(LogLevel::Info,
-                       L"CollectSelectedFolderPaths skipping item %lu: attributes=0x%08lX (hr=0x%08lX)", index,
-                       attributes, hr);
-            return false;
+        LVITEMW item{};
+        item.mask = LVIF_PARAM;
+        item.iItem = index;
+        if (!ListView_GetItemW(m_listView, &item)) {
+            LogLastError(L"ListView_GetItem(selection)", GetLastError());
+            continue;
         }
 
-        PWSTR path = nullptr;
-        hr = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
-        if (FAILED(hr) || !path || path[0] == L'\0') {
-            if (path) {
-                CoTaskMemFree(path);
-            }
-            LogMessage(LogLevel::Warning,
-                       L"CollectSelectedFolderPaths failed: unable to resolve file system path for item %lu (hr=0x%08lX)",
-                       index, hr);
-            return false;
+        if (AppendPathFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), paths)) {
+            appended = true;
         }
-
-        std::wstring value(path);
-        CoTaskMemFree(path);
-
-        if (value.empty()) {
-            LogMessage(LogLevel::Warning, L"CollectSelectedFolderPaths failed: empty path for item %lu", index);
-            return false;
-        }
-
-        paths.push_back(std::move(value));
     }
 
-    LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths captured %zu path(s)", paths.size());
+    if (!appended) {
+        LogMessage(LogLevel::Info, L"CollectPathsFromListView found no folder selections");
+    }
+
+    return appended;
+}
+
+bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) const {
+    if (!m_treeView || !IsWindow(m_treeView)) {
+        return false;
+    }
+
+    if (paths.size() >= kMaxTrackedSelection) {
+        return false;
+    }
+
+    HTREEITEM selection = TreeView_GetSelection(m_treeView);
+    if (!selection) {
+        LogMessage(LogLevel::Info, L"CollectPathsFromTreeView skipped: no selection");
+        return false;
+    }
+
+    TVITEMEXW item{};
+    item.mask = TVIF_PARAM;
+    item.hItem = selection;
+    if (!TreeView_GetItemW(m_treeView, &item)) {
+        LogLastError(L"TreeView_GetItem(selection)", GetLastError());
+        return false;
+    }
+
+    if (!AppendPathFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), paths)) {
+        LogMessage(LogLevel::Info, L"CollectPathsFromTreeView skipped: selection not a filesystem folder");
+        return false;
+    }
+
     return !paths.empty();
+}
+
+bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const {
+    if (!pidl) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellFolder> parentFolder;
+    PCUITEMID_CHILD child = nullptr;
+    HRESULT hr = SHBindToParent(pidl, IID_PPV_ARGS(&parentFolder), &child);
+    if (FAILED(hr) || !parentFolder || !child) {
+        LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to bind to parent (hr=0x%08lX)", hr);
+        return false;
+    }
+
+    SFGAOF attributes = SFGAO_FOLDER | SFGAO_FILESYSTEM;
+    hr = parentFolder->GetAttributesOf(1, &child, &attributes);
+    if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
+        LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: attributes=0x%08lX (hr=0x%08lX)", attributes, hr);
+        return false;
+    }
+
+    PWSTR path = nullptr;
+    hr = SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &path);
+    if (FAILED(hr) || !path || path[0] == L'\0') {
+        if (path) {
+            CoTaskMemFree(path);
+        }
+        LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to resolve filesystem path (hr=0x%08lX)", hr);
+        return false;
+    }
+
+    std::wstring value(path);
+    CoTaskMemFree(path);
+
+    if (value.empty()) {
+        return false;
+    }
+
+    if (std::find(paths.begin(), paths.end(), value) != paths.end()) {
+        return true;
+    }
+
+    paths.push_back(std::move(value));
+    return true;
 }
 
 void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const {

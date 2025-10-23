@@ -53,9 +53,16 @@ private:
     bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
     bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
+    void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
     void HandleExplorerCommand(UINT commandId);
     void HandleExplorerMenuDismiss(HMENU menu);
     bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
+    bool CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const;
+    bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
+    bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
+    bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
+    bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
+    bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
     void DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const;
     void ClearPendingOpenInNewTabState();
     void EnsureBreadcrumbHook();
