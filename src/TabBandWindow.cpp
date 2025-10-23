@@ -30,6 +30,7 @@
 #include <cwchar>
 
 #include "Module.h"
+#include "OptionsStore.h"
 #include "ShellTabsMessages.h"
 #include "TabBand.h"
 #include "Utilities.h"
@@ -1487,7 +1488,15 @@ void TabBandWindow::ResetThemePalette() {
     m_themePalette.borderBottom = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(255, 255, 255), 0.2)
                                              : GetSysColor(COLOR_3DLIGHT);
 
-    m_themePalette.tabBase = windowBase;
+    if (m_darkMode) {
+        const double rebarLuminance = ComputeLuminance(m_themePalette.rebarBackground);
+        const bool shouldBrighten = rebarLuminance <= 0.35;
+        const double blend = shouldBrighten ? 0.28 : 0.22;
+        const COLORREF contrastTarget = shouldBrighten ? RGB(255, 255, 255) : RGB(0, 0, 0);
+        m_themePalette.tabBase = BlendColors(m_themePalette.rebarBackground, contrastTarget, blend);
+    } else {
+        m_themePalette.tabBase = windowBase;
+    }
     m_themePalette.tabSelectedBase = BlendColors(m_themePalette.tabBase, m_accentColor, m_darkMode ? 0.5 : 0.4);
     m_themePalette.tabText = GetSysColor(COLOR_WINDOWTEXT);
     m_themePalette.tabSelectedText = GetSysColor(COLOR_HIGHLIGHTTEXT);
@@ -1499,6 +1508,7 @@ void TabBandWindow::ResetThemePalette() {
 
 void TabBandWindow::UpdateThemePalette() {
     if (m_darkMode) {
+        ApplyOptionColorOverrides();
         return;
     }
 
@@ -1541,9 +1551,35 @@ void TabBandWindow::UpdateThemePalette() {
         }
     }
 
+    ApplyOptionColorOverrides();
+
     if (m_darkMode) {
         m_themePalette.borderTop = BlendColors(m_themePalette.borderTop, RGB(0, 0, 0), 0.3);
         m_themePalette.borderBottom = BlendColors(m_themePalette.borderBottom, RGB(255, 255, 255), 0.15);
+    }
+}
+
+void TabBandWindow::ApplyOptionColorOverrides() {
+    auto& store = OptionsStore::Instance();
+    store.Load();
+    const ShellTabsOptions options = store.Get();
+
+    auto pickTextColor = [](COLORREF background) -> COLORREF {
+        return ComputeLuminance(background) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    };
+
+    if (options.useCustomTabUnselectedColor) {
+        m_themePalette.tabBase = options.customTabUnselectedColor;
+        const COLORREF textColor = pickTextColor(m_themePalette.tabBase);
+        m_themePalette.tabText = textColor;
+        m_themePalette.tabTextValid = true;
+    }
+
+    if (options.useCustomTabSelectedColor) {
+        m_themePalette.tabSelectedBase = options.customTabSelectedColor;
+        const COLORREF textColor = pickTextColor(m_themePalette.tabSelectedBase);
+        m_themePalette.tabSelectedText = textColor;
+        m_themePalette.tabSelectedTextValid = true;
     }
 }
 
@@ -3636,6 +3672,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
     }
 
     auto dispatch = [&]() -> LRESULT {
+        const UINT optionsChangedMessage = GetOptionsChangedMessage();
+        if (optionsChangedMessage != 0 && message == optionsChangedMessage) {
+            self->RefreshTheme();
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
         switch (message) {
             case WM_CREATE: {
                 self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+",

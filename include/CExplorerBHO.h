@@ -103,6 +103,12 @@ private:
     bool m_breadcrumbFontGradientEnabled = false;
     int m_breadcrumbGradientTransparency = 45;
     int m_breadcrumbFontTransparency = 0;
+    bool m_useCustomBreadcrumbGradientColors = false;
+    COLORREF m_breadcrumbGradientStartColor = RGB(255, 59, 48);
+    COLORREF m_breadcrumbGradientEndColor = RGB(175, 82, 222);
+    bool m_useCustomBreadcrumbFontColors = false;
+    COLORREF m_breadcrumbFontGradientStartColor = RGB(255, 255, 255);
+    COLORREF m_breadcrumbFontGradientEndColor = RGB(255, 255, 255);
     bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,

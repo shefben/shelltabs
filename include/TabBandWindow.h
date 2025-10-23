@@ -226,7 +226,7 @@ private:
     void OnParentRebarMetricsChanged();
     void EnsureToolbarZOrder();
     void UpdateRebarColors();
-	void AdjustBandHeightToRow();
+        void AdjustBandHeightToRow();
     bool BandHasRebarGrip() const;
 
     void HandleCommand(WPARAM wParam, LPARAM lParam);
@@ -258,6 +258,7 @@ private:
     COLORREF ResolveGroupBackground(const TabViewItem& item) const;
     COLORREF ResolveTextColor(COLORREF background) const;
     COLORREF ResolveTabTextColor(bool selected, COLORREF background) const;
+    void ApplyOptionColorOverrides();
     COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
     std::vector<GroupOutline> BuildGroupOutlines() const;
     RECT ComputeCloseButtonRect(const VisualItem& item) const;
