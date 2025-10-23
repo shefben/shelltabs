@@ -945,6 +945,24 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
         m_shellViewWindowSubclassInstalled = false;
     }
 
+    HWND frameWindow = GetTopLevelExplorerWindow();
+    if (frameWindow && frameWindow != viewWindow && frameWindow != listView && frameWindow != treeView &&
+        IsWindow(frameWindow)) {
+        if (SetWindowSubclass(frameWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            m_frameWindow = frameWindow;
+            m_frameSubclassInstalled = true;
+            installed = true;
+            LogMessage(LogLevel::Info, L"Installed explorer frame subclass (frame=%p)", frameWindow);
+        } else {
+            LogLastError(L"SetWindowSubclass(explorer frame)", GetLastError());
+            m_frameSubclassInstalled = false;
+            m_frameWindow = nullptr;
+        }
+    } else {
+        m_frameSubclassInstalled = false;
+        m_frameWindow = nullptr;
+    }
+
     if (listView && IsWindow(listView)) {
         if (SetWindowSubclass(listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_listView = listView;
@@ -983,6 +1001,9 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     if (m_shellViewWindow && m_shellViewWindowSubclassInstalled && IsWindow(m_shellViewWindow)) {
         RemoveWindowSubclass(m_shellViewWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
+    if (m_frameWindow && m_frameSubclassInstalled && IsWindow(m_frameWindow)) {
+        RemoveWindowSubclass(m_frameWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+    }
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
         RemoveWindowSubclass(m_listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
@@ -991,6 +1012,8 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     }
 
     m_shellViewWindowSubclassInstalled = false;
+    m_frameWindow = nullptr;
+    m_frameSubclassInstalled = false;
     m_listView = nullptr;
     m_treeView = nullptr;
     m_listViewSubclassInstalled = false;
@@ -1018,7 +1041,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
 
     switch (msg) {
         case WM_INITMENUPOPUP: {
-            if (lParam == 0) {
+            if (LOWORD(lParam) == 0 && HIWORD(lParam) == 0) {
                 HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
             }
             break;
@@ -1027,6 +1050,16 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             const UINT commandId = LOWORD(wParam);
             if (commandId == kOpenInNewTabCommandId) {
                 HandleExplorerCommand(commandId);
+                *result = 0;
+                return true;
+            }
+            break;
+        }
+        case WM_MENUCOMMAND: {
+            HMENU menu = reinterpret_cast<HMENU>(lParam);
+            const UINT position = static_cast<UINT>(wParam);
+            if (menu && GetMenuItemID(menu, position) == kOpenInNewTabCommandId) {
+                HandleExplorerCommand(kOpenInNewTabCommandId);
                 *result = 0;
                 return true;
             }
@@ -1796,6 +1829,9 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         } else if (hwnd == self->m_treeView) {
             self->m_treeView = nullptr;
             self->m_treeViewSubclassInstalled = false;
+        } else if (hwnd == self->m_frameWindow) {
+            self->m_frameWindow = nullptr;
+            self->m_frameSubclassInstalled = false;
         } else if (hwnd == self->m_shellViewWindow) {
             self->m_shellViewWindowSubclassInstalled = false;
             self->m_shellViewWindow = nullptr;
