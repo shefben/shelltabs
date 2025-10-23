@@ -21,7 +21,8 @@ constexpr wchar_t kPersistToken[] = L"persist_group_paths";
 constexpr wchar_t kBreadcrumbGradientToken[] = L"breadcrumb_gradient";
 constexpr wchar_t kBreadcrumbFontGradientToken[] = L"breadcrumb_font_gradient";
 constexpr wchar_t kBreadcrumbGradientTransparencyToken[] = L"breadcrumb_gradient_transparency";
-constexpr wchar_t kBreadcrumbFontTransparencyToken[] = L"breadcrumb_font_transparency";
+constexpr wchar_t kBreadcrumbFontBrightnessToken[] = L"breadcrumb_font_brightness";
+constexpr wchar_t kBreadcrumbFontTransparencyToken[] = L"breadcrumb_font_transparency";  // legacy
 constexpr wchar_t kBreadcrumbGradientColorsToken[] = L"breadcrumb_gradient_colors";
 constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
@@ -278,10 +279,22 @@ bool OptionsStore::Load() {
             continue;
         }
 
+        if (tokens[0] == kBreadcrumbFontBrightnessToken) {
+            if (tokens.size() >= 2) {
+                m_options.breadcrumbFontBrightness =
+                    ParseIntInRange(tokens[1], 0, 100, m_options.breadcrumbFontBrightness);
+            }
+            continue;
+        }
+
         if (tokens[0] == kBreadcrumbFontTransparencyToken) {
             if (tokens.size() >= 2) {
-                m_options.breadcrumbFontTransparency =
-                    ParseIntInRange(tokens[1], 0, 100, m_options.breadcrumbFontTransparency);
+                const int defaultBrightness = m_options.breadcrumbFontBrightness;
+                const int legacyTransparency =
+                    ParseIntInRange(tokens[1], 0, 100, 100 - defaultBrightness);
+                const int legacyOpacity = 100 - legacyTransparency;
+                m_options.breadcrumbFontBrightness =
+                    std::clamp(legacyOpacity * defaultBrightness / 100, 0, 100);
             }
             continue;
         }
@@ -373,9 +386,9 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += std::to_wstring(std::clamp(m_options.breadcrumbGradientTransparency, 0, 100));
     content += L"\n";
-    content += kBreadcrumbFontTransparencyToken;
+    content += kBreadcrumbFontBrightnessToken;
     content += L"|";
-    content += std::to_wstring(std::clamp(m_options.breadcrumbFontTransparency, 0, 100));
+    content += std::to_wstring(std::clamp(m_options.breadcrumbFontBrightness, 0, 100));
     content += L"\n";
     content += kBreadcrumbGradientColorsToken;
     content += L"|";
@@ -425,7 +438,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.enableBreadcrumbGradient == right.enableBreadcrumbGradient &&
            left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
            left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&
-           left.breadcrumbFontTransparency == right.breadcrumbFontTransparency &&
+           left.breadcrumbFontBrightness == right.breadcrumbFontBrightness &&
            left.useCustomBreadcrumbGradientColors == right.useCustomBreadcrumbGradientColors &&
            left.breadcrumbGradientStartColor == right.breadcrumbGradientStartColor &&
            left.breadcrumbGradientEndColor == right.breadcrumbGradientEndColor &&
