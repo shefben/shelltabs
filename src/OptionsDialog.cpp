@@ -205,7 +205,8 @@ std::vector<BYTE> BuildMainPageTemplate() {
     backgroundSlider->cy = 16;
     backgroundSlider->id = IDC_MAIN_BREADCRUMB_BG_SLIDER;
     AppendString(data, TRACKBAR_CLASSW);
-    AppendWord(data, 0);
+    AppendWord(data, 0);  // no window text
+    AppendWord(data, 0);  // no creation data
 
     AlignDialogBuffer(data);
     offset = data.size();
@@ -251,7 +252,8 @@ std::vector<BYTE> BuildMainPageTemplate() {
     fontSlider->cy = 16;
     fontSlider->id = IDC_MAIN_BREADCRUMB_FONT_SLIDER;
     AppendString(data, TRACKBAR_CLASSW);
-    AppendWord(data, 0);
+    AppendWord(data, 0);  // no window text
+    AppendWord(data, 0);  // no creation data
 
     AlignDialogBuffer(data);
     offset = data.size();
