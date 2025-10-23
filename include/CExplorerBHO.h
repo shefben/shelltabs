@@ -111,6 +111,8 @@ private:
     Microsoft::WRL::ComPtr<IShellView> m_shellView;
     HWND m_shellViewWindow = nullptr;
     bool m_shellViewWindowSubclassInstalled = false;
+    HWND m_frameWindow = nullptr;
+    bool m_frameSubclassInstalled = false;
     HWND m_listView = nullptr;
     HWND m_treeView = nullptr;
     bool m_listViewSubclassInstalled = false;
