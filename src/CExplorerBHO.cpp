@@ -1729,8 +1729,14 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     HPAINTBUFFER buffer = BeginBufferedPaint(target, &client, BPBF_TOPDOWNDIB, &params, &paintDc);
     HDC drawDc = paintDc ? paintDc : target;
 
-    // Allow the control to render itself so layout, glyphs, and hover states stay intact.
-    DefSubclassProc(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(drawDc), PRF_CLIENT);
+    HRESULT backgroundResult = DrawThemeParentBackground(hwnd, drawDc, &client);
+    if (FAILED(backgroundResult)) {
+        HBRUSH brush = reinterpret_cast<HBRUSH>(GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND));
+        if (!brush) {
+            brush = GetSysColorBrush(COLOR_WINDOW);
+        }
+        FillRect(drawDc, &client, brush);
+    }
 
     Gdiplus::Graphics graphics(drawDc);
     if (graphics.GetLastStatus() != Gdiplus::Ok) {
@@ -1789,7 +1795,6 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     const int gradientOpacityPercent = 100 - gradientTransparency;
     const int fontBrightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
     const BYTE textAlphaBase = 255;
-    const bool shouldClearDefaultText = m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled;
 
     static const std::array<COLORREF, 7> kRainbowColors = {
         RGB(255, 59, 48),   // red
@@ -1916,14 +1921,28 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
             graphics.FillRectangle(&backgroundBrush, rectF);
             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-        } else if (isHot || isPressed) {
-            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-            const BYTE overlayAlpha = static_cast<BYTE>(isPressed ? 140 : 100);
-            Gdiplus::Color overlayColor(overlayAlpha, GetRValue(highlightBackgroundColor),
-                                        GetGValue(highlightBackgroundColor),
-                                        GetBValue(highlightBackgroundColor));
-            Gdiplus::SolidBrush overlayBrush(overlayColor);
-            graphics.FillRectangle(&overlayBrush, rectF);
+        } else {
+            RECT sampleRect = itemRect;
+            const COLORREF averageBackground = SampleAverageColor(drawDc, sampleRect);
+            backgroundSolidColor = Gdiplus::Color(255, GetRValue(averageBackground), GetGValue(averageBackground),
+                                                  GetBValue(averageBackground));
+            hasBackgroundSolidColor = true;
+            if (isHot || isPressed) {
+                graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+                const BYTE overlayAlpha = static_cast<BYTE>(isPressed ? 140 : 100);
+                Gdiplus::Color overlayColor(overlayAlpha, GetRValue(highlightBackgroundColor),
+                                            GetGValue(highlightBackgroundColor), GetBValue(highlightBackgroundColor));
+                Gdiplus::SolidBrush overlayBrush(overlayColor);
+                graphics.FillRectangle(&overlayBrush, rectF);
+                auto blendOverlayChannel = [&](BYTE base, BYTE overlay) -> BYTE {
+                    const int blended = static_cast<int>(std::lround(base + (overlay - base) * (overlayAlpha / 255.0)));
+                    return static_cast<BYTE>(std::clamp(blended, 0, 255));
+                };
+                backgroundSolidColor = Gdiplus::Color(
+                    255, blendOverlayChannel(backgroundSolidColor.GetR(), overlayColor.GetR()),
+                    blendOverlayChannel(backgroundSolidColor.GetG(), overlayColor.GetG()),
+                    blendOverlayChannel(backgroundSolidColor.GetB(), overlayColor.GetB()));
+            }
         }
 
         if (hasIcon) {
@@ -2006,13 +2025,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 const int iconAreaLeft = itemRect.left + iconReserve;
                 const int textBaseLeft = iconAreaLeft + kTextPadding;
                 RECT textRect = itemRect;
-                RECT clearRect = itemRect;
                 textRect.left = std::max(iconAreaLeft, textBaseLeft - 1);
                 textRect.right -= kTextPadding;
-                clearRect.right -= kTextPadding;
-                clearRect.left = std::max(iconAreaLeft, textBaseLeft - 2);
                 if (hasDropdown) {
-                    clearRect.right -= dropdownReserve;
                     textRect.right -= dropdownReserve;
                 }
 
@@ -2022,43 +2037,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                              static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
                                              static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
 
-                    if (shouldClearDefaultText && clearRect.right > clearRect.left) {
-                        Gdiplus::RectF clearRectF(static_cast<Gdiplus::REAL>(clearRect.left),
-                                                  static_cast<Gdiplus::REAL>(clearRect.top),
-                                                  static_cast<Gdiplus::REAL>(clearRect.right - clearRect.left),
-                                                  static_cast<Gdiplus::REAL>(clearRect.bottom - clearRect.top));
-                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-                        if (backgroundGradientVisible) {
-                            Gdiplus::LinearGradientBrush clearBrush(rectF, backgroundGradientStartColor,
-                                                                    backgroundGradientEndColor,
-                                                                    Gdiplus::LinearGradientModeHorizontal);
-                            clearBrush.SetGammaCorrection(TRUE);
-                            graphics.FillRectangle(&clearBrush, clearRectF);
-                        } else {
-                            const COLORREF averageBackground = SampleAverageColor(drawDc, clearRect);
-                            backgroundSolidColor = Gdiplus::Color(255, GetRValue(averageBackground),
-                                                                  GetGValue(averageBackground),
-                                                                  GetBValue(averageBackground));
-                            hasBackgroundSolidColor = true;
-                            textPaintStart = computeOpaqueFontColor(brightFontStart, true);
-                            textPaintEnd = computeOpaqueFontColor(brightFontEnd, false);
-                            Gdiplus::SolidBrush clearBrush(backgroundSolidColor);
-                            graphics.FillRectangle(&clearBrush, clearRectF);
-                        }
-                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-                        if (!backgroundGradientVisible && (isHot || isPressed)) {
-                            const BYTE overlayAlpha = static_cast<BYTE>(isPressed ? 140 : 100);
-                            Gdiplus::Color overlayColor(overlayAlpha, GetRValue(highlightBackgroundColor),
-                                                        GetGValue(highlightBackgroundColor),
-                                                        GetBValue(highlightBackgroundColor));
-                            Gdiplus::SolidBrush overlayBrush(overlayColor);
-                            graphics.FillRectangle(&overlayBrush, clearRectF);
-                        }
-                    }
-
                     if (textAlpha > 0) {
-                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
                         if (useFontGradient) {
+                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
                             Gdiplus::LinearGradientBrush textBrush(
                                 textRectF,
                                 textPaintStart,
@@ -2068,6 +2049,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
                                                 &textBrush);
                         } else {
+                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
                             const BYTE avgRed = averageChannel(brightFontStart.GetR(), brightFontEnd.GetR());
                             const BYTE avgGreen = averageChannel(brightFontStart.GetG(), brightFontEnd.GetG());
                             const BYTE avgBlue = averageChannel(brightFontStart.GetB(), brightFontEnd.GetB());
@@ -2077,6 +2059,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
                                                 &textBrush);
                         }
+                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
                     }
                 }
             }

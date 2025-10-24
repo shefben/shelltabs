@@ -730,6 +730,10 @@ int ClampPercentageValue(int value) {
     return std::clamp(value, 0, 100);
 }
 
+int InvertPercentageValue(int value) {
+    return 100 - ClampPercentageValue(value);
+}
+
 void ConfigurePercentageSlider(HWND hwnd, int controlId, int value) {
     HWND slider = GetDlgItem(hwnd, controlId);
     if (!slider) {
@@ -1242,6 +1246,13 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             }
             return TRUE;
         }
+        case WM_CTLCOLORDLG: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (dc) {
+                SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+            }
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
+        }
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
                 case IDC_MAIN_REOPEN:
@@ -1287,7 +1298,7 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
                                           data->workingOptions.breadcrumbGradientTransparency);
                 ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
-                                          data->workingOptions.breadcrumbFontBrightness);
+                                          InvertPercentageValue(data->workingOptions.breadcrumbFontBrightness));
                 UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
                                      data->workingOptions.breadcrumbGradientTransparency);
                 UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
@@ -1324,6 +1335,13 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                               data->workingOptions.useCustomTabUnselectedColor);
             }
             return TRUE;
+        }
+        case WM_CTLCOLORDLG: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (dc) {
+                SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+            }
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
         }
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
@@ -1431,12 +1449,14 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     const LONG style = GetWindowLongW(target, GWL_STYLE);
                     if ((style & BS_GROUPBOX) == BS_GROUPBOX) {
                         SetBkMode(dc, TRANSPARENT);
-                        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
+                        SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+                        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
                     }
                 }
             }
             SetBkMode(dc, TRANSPARENT);
-            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
+            SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
             break;
         }
         case WM_HSCROLL: {
@@ -1449,9 +1469,12 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 const int labelId = (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER)
                                         ? IDC_MAIN_BREADCRUMB_BG_VALUE
                                         : IDC_MAIN_BREADCRUMB_FONT_VALUE;
-                const int value = ClampPercentageValue(
+                const int sliderValue = ClampPercentageValue(
                     static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                UpdatePercentageLabel(hwnd, labelId, value);
+                const int displayValue =
+                    (controlId == IDC_MAIN_BREADCRUMB_FONT_SLIDER) ? InvertPercentageValue(sliderValue)
+                                                                   : sliderValue;
+                UpdatePercentageLabel(hwnd, labelId, displayValue);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
             }
             return TRUE;
@@ -1467,9 +1490,9 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     data->workingOptions.breadcrumbGradientTransparency =
                         ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
                             hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER, TBM_GETPOS, 0, 0)));
-                    data->workingOptions.breadcrumbFontBrightness =
-                        ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
-                            hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
+                    const int brightnessSliderValue = ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
+                        hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
+                    data->workingOptions.breadcrumbFontBrightness = InvertPercentageValue(brightnessSliderValue);
                     data->workingOptions.useCustomBreadcrumbGradientColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
                     data->workingOptions.useCustomBreadcrumbFontColors =

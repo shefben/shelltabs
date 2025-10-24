@@ -1376,6 +1376,10 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
         previousOptions.enableBreadcrumbGradient != m_options.enableBreadcrumbGradient;
     const bool fontChanged =
         previousOptions.enableBreadcrumbFontGradient != m_options.enableBreadcrumbFontGradient;
+    const bool backgroundTransparencyChanged =
+        previousOptions.breadcrumbGradientTransparency != m_options.breadcrumbGradientTransparency;
+    const bool fontBrightnessChanged =
+        previousOptions.breadcrumbFontBrightness != m_options.breadcrumbFontBrightness;
     const bool backgroundColorsChanged =
         previousOptions.useCustomBreadcrumbGradientColors != m_options.useCustomBreadcrumbGradientColors ||
         previousOptions.breadcrumbGradientStartColor != m_options.breadcrumbGradientStartColor ||
@@ -1389,7 +1393,8 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
         previousOptions.customTabSelectedColor != m_options.customTabSelectedColor ||
         previousOptions.useCustomTabUnselectedColor != m_options.useCustomTabUnselectedColor ||
         previousOptions.customTabUnselectedColor != m_options.customTabUnselectedColor;
-    if (backgroundChanged || fontChanged || backgroundColorsChanged || fontColorsChanged || tabColorsChanged) {
+    if (backgroundChanged || fontChanged || backgroundTransparencyChanged || fontBrightnessChanged ||
+        backgroundColorsChanged || fontColorsChanged || tabColorsChanged) {
         const UINT message = GetOptionsChangedMessage();
         if (message != 0) {
             SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);
@@ -1828,6 +1833,17 @@ void TabBand::OnShowOptionsDialog(int initialTab) {
     EnsureOptionsLoaded();
     if (dialog.optionsChanged) {
         ApplyOptionsChanges(previousOptions);
+    } else {
+        const UINT message = GetOptionsChangedMessage();
+        if (message != 0) {
+            SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);
+        }
+    }
+    if (m_window) {
+        m_window->RefreshTheme();
+        if (HWND hwnd = m_window->GetHwnd()) {
+            InvalidateRect(hwnd, nullptr, TRUE);
+        }
     }
     if (dialog.groupsChanged) {
         GroupStore::Instance().Load();
