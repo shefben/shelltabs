@@ -1816,6 +1816,39 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         ImageList_GetIconSize(imageList, &imageWidth, &imageHeight);
     }
 
+    auto fetchBreadcrumbText = [&](const TBBUTTON& button) -> std::wstring {
+        const UINT commandId = static_cast<UINT>(button.idCommand);
+
+        LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, 0);
+        if (textLength > 0) {
+            std::wstring text(static_cast<size_t>(textLength) + 1, L'\0');
+            LRESULT copied =
+                SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, reinterpret_cast<LPARAM>(text.data()));
+            if (copied > 0) {
+                text.resize(static_cast<size_t>(copied));
+                return text;
+            }
+        }
+
+        // Some breadcrumb configurations clear the toolbar's stored text. In those cases, query the
+        // button information directly so we can render the gradient text ourselves.
+        constexpr size_t kMaxBreadcrumbText = 512;
+        std::wstring fallback(kMaxBreadcrumbText, L'\0');
+        TBBUTTONINFOW info{};
+        info.cbSize = sizeof(info);
+        info.dwMask = TBIF_TEXT;
+        info.pszText = fallback.data();
+        info.cchText = static_cast<int>(fallback.size());
+        if (SendMessage(hwnd, TB_GETBUTTONINFOW, commandId, reinterpret_cast<LPARAM>(&info))) {
+            fallback.resize(std::wcslen(fallback.c_str()));
+            if (!fallback.empty()) {
+                return fallback;
+            }
+        }
+
+        return std::wstring();
+    };
+
     const int buttonCount = static_cast<int>(SendMessage(hwnd, TB_BUTTONCOUNT, 0, 0));
     int colorIndex = 0;
     for (int i = 0; i < buttonCount; ++i) {
@@ -2014,13 +2047,11 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                        (kTextPadding * 2);
         const bool iconOnlyButton = hasIcon && availableTextWidth <= 4 && (button.fsStyle & BTNS_SHOWTEXT) == 0;
 
-        LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, 0);
-        if (!iconOnlyButton && textLength > 0) {
-            std::wstring text(static_cast<size_t>(textLength) + 1, L'\0');
-            LRESULT copied = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand,
-                                         reinterpret_cast<LPARAM>(text.data()));
-            if (copied > 0) {
-                text.resize(static_cast<size_t>(copied));
+        std::wstring text;
+        if (!iconOnlyButton) {
+            text = fetchBreadcrumbText(button);
+        }
+        if (!iconOnlyButton && !text.empty()) {
 
                 const int iconAreaLeft = itemRect.left + iconReserve;
                 const int textBaseLeft = iconAreaLeft + kTextPadding;
