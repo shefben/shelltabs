@@ -24,7 +24,7 @@ namespace {
 
 constexpr int kMainCheckboxWidth = 210;
 constexpr int kMainDialogWidth = 260;
-constexpr int kMainDialogHeight = 340;
+constexpr int kMainDialogHeight = 360;
 constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
@@ -121,7 +121,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 9;
+    dlg->cdit = 3;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -181,103 +181,6 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AppendString(data, L"");
     AppendWord(data, 0);
 
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* selectedCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    selectedCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
-    selectedCheck->dwExtendedStyle = 0;
-    selectedCheck->x = 10;
-    selectedCheck->y = 124;
-    selectedCheck->cx = kMainDialogWidth - 20;
-    selectedCheck->cy = 12;
-    selectedCheck->id = static_cast<WORD>(IDC_MAIN_TAB_SELECTED_CHECK);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Use custom selected tab color");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* selectedPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    selectedPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
-    selectedPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    selectedPreview->x = 18;
-    selectedPreview->y = 142;
-    selectedPreview->cx = 32;
-    selectedPreview->cy = 16;
-    selectedPreview->id = static_cast<WORD>(IDC_MAIN_TAB_SELECTED_PREVIEW);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* selectedButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    selectedButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
-    selectedButton->dwExtendedStyle = 0;
-    selectedButton->x = 56;
-    selectedButton->y = 141;
-    selectedButton->cx = 50;
-    selectedButton->cy = 16;
-    selectedButton->id = static_cast<WORD>(IDC_MAIN_TAB_SELECTED_BUTTON);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Choose");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* unselectedCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    unselectedCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
-    unselectedCheck->dwExtendedStyle = 0;
-    unselectedCheck->x = 10;
-    unselectedCheck->y = 168;
-    unselectedCheck->cx = kMainDialogWidth - 20;
-    unselectedCheck->cy = 12;
-    unselectedCheck->id = static_cast<WORD>(IDC_MAIN_TAB_UNSELECTED_CHECK);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Use custom unselected tab color");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* unselectedPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    unselectedPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
-    unselectedPreview->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    unselectedPreview->x = 18;
-    unselectedPreview->y = 186;
-    unselectedPreview->cx = 32;
-    unselectedPreview->cy = 16;
-    unselectedPreview->id = static_cast<WORD>(IDC_MAIN_TAB_UNSELECTED_PREVIEW);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* unselectedButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    unselectedButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
-    unselectedButton->dwExtendedStyle = 0;
-    unselectedButton->x = 56;
-    unselectedButton->y = 185;
-    unselectedButton->cx = 50;
-    unselectedButton->cy = 16;
-    unselectedButton->id = static_cast<WORD>(IDC_MAIN_TAB_UNSELECTED_BUTTON);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0080);
-    AppendString(data, L"Choose");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
     return data;
 }
 
@@ -286,7 +189,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 23;
+    dlg->cdit = 30;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -426,6 +329,29 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addStatic(IDC_MAIN_BREADCRUMB_FONT_END_LABEL, 24, 236, 60, 10, L"End:");
     addPreview(IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, 86, 234);
     addButton(IDC_MAIN_BREADCRUMB_FONT_END_BUTTON, 124, 233, L"Choose");
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* tabsGroup = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    tabsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
+    tabsGroup->dwExtendedStyle = 0;
+    tabsGroup->x = 6;
+    tabsGroup->y = 272;
+    tabsGroup->cx = kMainDialogWidth - 12;
+    tabsGroup->cy = 88;
+    tabsGroup->id = 0;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Tabs");
+    AppendWord(data, 0);
+
+    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 288, L"Use custom selected tab color");
+    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 306);
+    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 305, L"Choose");
+    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 324, L"Use custom unselected tab color");
+    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 342);
+    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 341, L"Choose");
 
     AlignDialogBuffer(data);
     return data;
@@ -1309,16 +1235,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 CheckDlgButton(hwnd, IDC_MAIN_REOPEN, data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_PERSIST,
                                data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
-                               data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
-                               data->workingOptions.useCustomTabUnselectedColor ? BST_CHECKED : BST_UNCHECKED);
-                SetPreviewColor(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW, &data->tabSelectedBrush,
-                                data->workingOptions.customTabSelectedColor);
-                SetPreviewColor(hwnd, IDC_MAIN_TAB_UNSELECTED_PREVIEW, &data->tabUnselectedBrush,
-                                data->workingOptions.customTabUnselectedColor);
-                UpdateTabColorControlsEnabled(hwnd, data->workingOptions.useCustomTabSelectedColor,
-                                              data->workingOptions.useCustomTabUnselectedColor);
                 const wchar_t example[] =
                     L"Example: if a group opens to C:\\test and you browse to C\\test\\child, "
                     L"enabling this option reopens the child folder next time.";
@@ -1330,64 +1246,12 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             switch (LOWORD(wParam)) {
                 case IDC_MAIN_REOPEN:
                 case IDC_MAIN_PERSIST:
-                case IDC_MAIN_TAB_SELECTED_CHECK:
-                case IDC_MAIN_TAB_UNSELECTED_CHECK:
                     if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data) {
-                            const bool tabSelectedCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
-                            const bool tabUnselectedCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
-                            UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
-                        }
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
-                case IDC_MAIN_TAB_SELECTED_BUTTON:
-                case IDC_MAIN_TAB_UNSELECTED_BUTTON: {
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (HandleColorButtonClick(hwnd, data, LOWORD(wParam))) {
-                            SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
-                        }
-                    }
-                    return TRUE;
-                }
                 default:
                     break;
-            }
-            break;
-        }
-        case WM_CTLCOLORSTATIC: {
-            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-            if (!data) {
-                break;
-            }
-            HWND target = reinterpret_cast<HWND>(lParam);
-            if (!target) {
-                break;
-            }
-            HDC dc = reinterpret_cast<HDC>(wParam);
-            const int controlId = GetDlgCtrlID(target);
-            HBRUSH brush = nullptr;
-            COLORREF color = 0;
-            switch (controlId) {
-                case IDC_MAIN_TAB_SELECTED_PREVIEW:
-                    brush = data->tabSelectedBrush;
-                    color = data->workingOptions.customTabSelectedColor;
-                    break;
-                case IDC_MAIN_TAB_UNSELECTED_PREVIEW:
-                    brush = data->tabUnselectedBrush;
-                    color = data->workingOptions.customTabUnselectedColor;
-                    break;
-                default:
-                    break;
-            }
-            if (brush) {
-                SetBkMode(dc, OPAQUE);
-                SetBkColor(dc, color);
-                return reinterpret_cast<INT_PTR>(brush);
             }
             break;
         }
@@ -1399,10 +1263,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
                     data->workingOptions.persistGroupPaths =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
-                    data->workingOptions.useCustomTabSelectedColor =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
-                    data->workingOptions.useCustomTabUnselectedColor =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
@@ -1452,6 +1312,16 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                 data->workingOptions.breadcrumbFontGradientStartColor);
                 SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, &data->breadcrumbFontEndBrush,
                                 data->workingOptions.breadcrumbFontGradientEndColor);
+                CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
+                               data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
+                               data->workingOptions.useCustomTabUnselectedColor ? BST_CHECKED : BST_UNCHECKED);
+                SetPreviewColor(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW, &data->tabSelectedBrush,
+                                data->workingOptions.customTabSelectedColor);
+                SetPreviewColor(hwnd, IDC_MAIN_TAB_UNSELECTED_PREVIEW, &data->tabUnselectedBrush,
+                                data->workingOptions.customTabUnselectedColor);
+                UpdateTabColorControlsEnabled(hwnd, data->workingOptions.useCustomTabSelectedColor,
+                                              data->workingOptions.useCustomTabUnselectedColor);
             }
             return TRUE;
         }
@@ -1479,10 +1349,26 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
+                case IDC_MAIN_TAB_SELECTED_CHECK:
+                case IDC_MAIN_TAB_UNSELECTED_CHECK:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            const bool tabSelectedCustom =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
+                            const bool tabUnselectedCustom =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+                            UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
+                        }
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
                 case IDC_MAIN_BREADCRUMB_BG_START_BUTTON:
                 case IDC_MAIN_BREADCRUMB_BG_END_BUTTON:
                 case IDC_MAIN_BREADCRUMB_FONT_START_BUTTON:
                 case IDC_MAIN_BREADCRUMB_FONT_END_BUTTON:
+                case IDC_MAIN_TAB_SELECTED_BUTTON:
+                case IDC_MAIN_TAB_UNSELECTED_BUTTON:
                     if (HIWORD(wParam) == BN_CLICKED) {
                         auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                         if (HandleColorButtonClick(hwnd, data, LOWORD(wParam))) {
@@ -1523,6 +1409,14 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     brush = data->breadcrumbFontEndBrush;
                     color = data->workingOptions.breadcrumbFontGradientEndColor;
                     break;
+                case IDC_MAIN_TAB_SELECTED_PREVIEW:
+                    brush = data->tabSelectedBrush;
+                    color = data->workingOptions.customTabSelectedColor;
+                    break;
+                case IDC_MAIN_TAB_UNSELECTED_PREVIEW:
+                    brush = data->tabUnselectedBrush;
+                    color = data->workingOptions.customTabUnselectedColor;
+                    break;
                 default:
                     break;
             }
@@ -1531,6 +1425,18 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 SetBkColor(dc, color);
                 return reinterpret_cast<INT_PTR>(brush);
             }
+            wchar_t className[32];
+            if (GetClassNameW(target, className, ARRAYSIZE(className))) {
+                if (_wcsicmp(className, L"Button") == 0) {
+                    const LONG style = GetWindowLongW(target, GWL_STYLE);
+                    if ((style & BS_GROUPBOX) == BS_GROUPBOX) {
+                        SetBkMode(dc, TRANSPARENT);
+                        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
+                    }
+                }
+            }
+            SetBkMode(dc, TRANSPARENT);
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
             break;
         }
         case WM_HSCROLL: {
@@ -1568,6 +1474,10 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
                     data->workingOptions.useCustomBreadcrumbFontColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
+                    data->workingOptions.useCustomTabSelectedColor =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
+                    data->workingOptions.useCustomTabUnselectedColor =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
