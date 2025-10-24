@@ -254,6 +254,33 @@ bool FindOpenInNewWindowMenuItem(HMENU menu, UINT* position, UINT* commandId) {
     return false;
 }
 
+BYTE AverageColorChannel(BYTE a, BYTE b) {
+    return static_cast<BYTE>((static_cast<int>(a) + static_cast<int>(b)) / 2);
+}
+
+Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
+                                       bool isHot,
+                                       bool isPressed,
+                                       COLORREF highlightBackgroundColor) {
+    if (!isHot && !isPressed) {
+        return color;
+    }
+
+    const float blendFactor = isPressed ? 0.75f : 0.55f;
+    const BYTE blendRed = GetRValue(highlightBackgroundColor);
+    const BYTE blendGreen = GetGValue(highlightBackgroundColor);
+    const BYTE blendBlue = GetBValue(highlightBackgroundColor);
+
+    auto blendChannel = [&](BYTE base, BYTE blend) -> BYTE {
+        const double result = static_cast<double>(base) +
+                              (static_cast<double>(blend) - static_cast<double>(base)) * blendFactor;
+        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(result)), 0, 255));
+    };
+
+    return Gdiplus::Color(color.GetA(), blendChannel(color.GetR(), blendRed),
+                          blendChannel(color.GetG(), blendGreen), blendChannel(color.GetB(), blendBlue));
+}
+
 constexpr wchar_t kOpenInNewTabLabel[] = L"Open in new tab";
 
 struct BreadcrumbHookEntry {
@@ -1888,23 +1915,6 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             endRgb = kRainbowColors[endIndex];
         }
 
-        auto brightenForState = [&](const Gdiplus::Color& color) -> Gdiplus::Color {
-            if (!isHot && !isPressed) {
-                return color;
-            }
-            const float blendFactor = isPressed ? 0.75f : 0.55f;
-            const BYTE blendRed = GetRValue(highlightBackgroundColor);
-            const BYTE blendGreen = GetGValue(highlightBackgroundColor);
-            const BYTE blendBlue = GetBValue(highlightBackgroundColor);
-            auto blendChannel = [&](BYTE base, BYTE blend) -> BYTE {
-                const double result = static_cast<double>(base) +
-                                      (static_cast<double>(blend) - static_cast<double>(base)) * blendFactor;
-                return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(result)), 0, 255));
-            };
-            return Gdiplus::Color(color.GetA(), blendChannel(color.GetR(), blendRed),
-                                  blendChannel(color.GetG(), blendGreen), blendChannel(color.GetB(), blendBlue));
-        };
-
         auto darkenChannel = [](BYTE channel) -> BYTE {
             return static_cast<BYTE>(std::clamp<int>(static_cast<int>(channel) * 35 / 100, 0, 255));
         };
@@ -1914,9 +1924,6 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         auto applyBrightness = [&](BYTE channel) -> BYTE {
             const int boosted = channel + ((255 - channel) * fontBrightness) / 100;
             return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
-        };
-        auto averageChannel = [](BYTE a, BYTE b) -> BYTE {
-            return static_cast<BYTE>((static_cast<int>(a) + static_cast<int>(b)) / 2);
         };
 
         Gdiplus::RectF rectF(static_cast<Gdiplus::REAL>(itemRect.left),
@@ -1941,14 +1948,16 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         bool hasBackgroundSolidColor = false;
 
         if (backgroundGradientVisible) {
-            backgroundGradientStartColor = brightenForState(
+            backgroundGradientStartColor = BrightenBreadcrumbColor(
                 Gdiplus::Color(scaledAlpha, transformBackgroundChannel(GetRValue(startRgb)),
                                transformBackgroundChannel(GetGValue(startRgb)),
-                               transformBackgroundChannel(GetBValue(startRgb))));
-            backgroundGradientEndColor = brightenForState(
+                               transformBackgroundChannel(GetBValue(startRgb))),
+                isHot, isPressed, highlightBackgroundColor);
+            backgroundGradientEndColor = BrightenBreadcrumbColor(
                 Gdiplus::Color(scaledAlpha, transformBackgroundChannel(GetRValue(endRgb)),
                                transformBackgroundChannel(GetGValue(endRgb)),
-                               transformBackgroundChannel(GetBValue(endRgb))));
+                               transformBackgroundChannel(GetBValue(endRgb))),
+                isHot, isPressed, highlightBackgroundColor);
             hasBackgroundGradientColors = true;
             Gdiplus::LinearGradientBrush backgroundBrush(rectF, backgroundGradientStartColor,
                                                          backgroundGradientEndColor, Gdiplus::LinearGradientModeHorizontal);
@@ -2002,10 +2011,12 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         const BYTE adjustedEndRed = applyBrightness(GetRValue(fontEndRgb));
         const BYTE adjustedEndGreen = applyBrightness(GetGValue(fontEndRgb));
         const BYTE adjustedEndBlue = applyBrightness(GetBValue(fontEndRgb));
-        const Gdiplus::Color brightFontStart = brightenForState(
-            Gdiplus::Color(textAlpha, adjustedStartRed, adjustedStartGreen, adjustedStartBlue));
-        const Gdiplus::Color brightFontEnd = brightenForState(
-            Gdiplus::Color(textAlpha, adjustedEndRed, adjustedEndGreen, adjustedEndBlue));
+        const Gdiplus::Color brightFontStart = BrightenBreadcrumbColor(
+            Gdiplus::Color(textAlpha, adjustedStartRed, adjustedStartGreen, adjustedStartBlue), isHot, isPressed,
+            highlightBackgroundColor);
+        const Gdiplus::Color brightFontEnd = BrightenBreadcrumbColor(
+            Gdiplus::Color(textAlpha, adjustedEndRed, adjustedEndGreen, adjustedEndBlue), isHot, isPressed,
+            highlightBackgroundColor);
 
         auto computeOpaqueFontColor = [&](const Gdiplus::Color& fontColor, bool useStart) {
             if (textAlpha >= 255) {
@@ -2083,9 +2094,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                                 &textBrush);
                         } else {
                             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-                            const BYTE avgRed = averageChannel(brightFontStart.GetR(), brightFontEnd.GetR());
-                            const BYTE avgGreen = averageChannel(brightFontStart.GetG(), brightFontEnd.GetG());
-                            const BYTE avgBlue = averageChannel(brightFontStart.GetB(), brightFontEnd.GetB());
+                            const BYTE avgRed = AverageColorChannel(brightFontStart.GetR(), brightFontEnd.GetR());
+                            const BYTE avgGreen = AverageColorChannel(brightFontStart.GetG(), brightFontEnd.GetG());
+                            const BYTE avgBlue = AverageColorChannel(brightFontStart.GetB(), brightFontEnd.GetB());
                             Gdiplus::Color solidColor = computeOpaqueFontColor(
                                 Gdiplus::Color(textAlpha, avgRed, avgGreen, avgBlue), true);
                             Gdiplus::SolidBrush textBrush(solidColor);
@@ -2106,14 +2117,15 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
             if (isHot || isPressed) {
                 const float highlightWidth = arrowWidth + 6.0f;
-                const float highlightHeight = std::max(4.0f, rectF.Height - 4.0f);
+                const float highlightHeight = std::max<float>(4.0f, rectF.Height - 4.0f);
                 Gdiplus::RectF highlightRect(centerX - highlightWidth / 2.0f,
                                              rectF.Y + 2.0f,
                                              highlightWidth,
                                              highlightHeight);
                 const BYTE highlightAlpha = static_cast<BYTE>(isPressed ? 160 : 130);
-                Gdiplus::Color highlightColor = brightenForState(
-                    Gdiplus::Color(highlightAlpha, adjustedEndRed, adjustedEndGreen, adjustedEndBlue));
+                Gdiplus::Color highlightColor = BrightenBreadcrumbColor(
+                    Gdiplus::Color(highlightAlpha, adjustedEndRed, adjustedEndGreen, adjustedEndBlue), isHot, isPressed,
+                    highlightBackgroundColor);
                 Gdiplus::SolidBrush highlightBrush(highlightColor);
                 graphics.FillRectangle(&highlightBrush, highlightRect);
             }
@@ -2129,8 +2141,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                      arrowWidth,
                                      arrowHeight);
             const bool useArrowGradient = useFontGradient || m_breadcrumbGradientEnabled;
-            const BYTE arrowAlphaBase = std::max(textAlpha,
-                                                 static_cast<BYTE>(backgroundGradientVisible ? scaledAlpha : 0));
+            const BYTE arrowAlphaBase = std::max<BYTE>(textAlpha,
+                                                       backgroundGradientVisible ? scaledAlpha : 0);
             const int arrowBoost = isPressed ? 60 : (isHot ? 35 : 15);
             const BYTE arrowAlpha = static_cast<BYTE>(std::min(255, static_cast<int>(arrowAlphaBase) + arrowBoost));
             const Gdiplus::Color arrowStartColor(arrowAlpha, textPaintStart.GetR(), textPaintStart.GetG(),
@@ -2143,9 +2155,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 arrowBrush.SetGammaCorrection(TRUE);
                 graphics.FillPolygon(&arrowBrush, arrow, ARRAYSIZE(arrow));
             } else {
-                const BYTE arrowRed = averageChannel(arrowStartColor.GetR(), arrowEndColor.GetR());
-                const BYTE arrowGreen = averageChannel(arrowStartColor.GetG(), arrowEndColor.GetG());
-                const BYTE arrowBlue = averageChannel(arrowStartColor.GetB(), arrowEndColor.GetB());
+                const BYTE arrowRed = AverageColorChannel(arrowStartColor.GetR(), arrowEndColor.GetR());
+                const BYTE arrowGreen = AverageColorChannel(arrowStartColor.GetG(), arrowEndColor.GetG());
+                const BYTE arrowBlue = AverageColorChannel(arrowStartColor.GetB(), arrowEndColor.GetB());
                 Gdiplus::SolidBrush arrowBrush(Gdiplus::Color(arrowAlpha, arrowRed, arrowGreen, arrowBlue));
                 graphics.FillPolygon(&arrowBrush, arrow, ARRAYSIZE(arrow));
             }
