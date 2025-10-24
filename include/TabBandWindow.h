@@ -47,6 +47,7 @@ public:
     void SetTabs(const std::vector<TabViewItem>& items);
     bool HasFocus() const;
     void FocusTab();
+    void RefreshTheme();
 
     struct HitInfo {
         bool hit = false;
@@ -265,7 +266,6 @@ private:
     HBITMAP CreateDragVisualBitmap(const VisualItem& item, SIZE* size) const;
     void UpdateDragOverlay(const POINT& clientPt, const POINT& screenPt);
     void HideDragOverlay(bool destroy);
-    void RefreshTheme();
     void CloseThemeHandles();
     void UpdateNewTabButtonTheme();
     bool IsSystemDarkMode() const;
