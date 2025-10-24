@@ -1850,6 +1850,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     };
 
     const int buttonCount = static_cast<int>(SendMessage(hwnd, TB_BUTTONCOUNT, 0, 0));
+    const LRESULT hotItemIndex = SendMessage(hwnd, TB_GETHOTITEM, 0, 0);
     int colorIndex = 0;
     for (int i = 0; i < buttonCount; ++i) {
         TBBUTTON button{};
@@ -1866,7 +1867,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         }
 
         const bool isPressed = (button.fsState & TBSTATE_PRESSED) != 0;
-        const bool isHot = !isPressed && (button.fsState & TBSTATE_HOT) != 0;
+        const bool isHot = !isPressed && ((button.fsState & TBSTATE_HOT) != 0 ||
+                                          (hotItemIndex >= 0 && i == static_cast<int>(hotItemIndex)));
         const bool hasDropdown = (button.fsStyle & BTNS_DROPDOWN) != 0;
         const bool hasIcon = imageList && imageWidth > 0 && imageHeight > 0 && button.iBitmap >= 0 &&
                               button.iBitmap != I_IMAGENONE;
