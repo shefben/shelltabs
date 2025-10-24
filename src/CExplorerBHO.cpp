@@ -1896,7 +1896,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         const bool isPressed = (button.fsState & TBSTATE_PRESSED) != 0;
         const bool isHot = !isPressed && ((button.fsState & TBSTATE_HOT) != 0 ||
                                           (hotItemIndex >= 0 && i == static_cast<int>(hotItemIndex)));
-        const bool hasDropdown = (button.fsStyle & BTNS_DROPDOWN) != 0;
+        const bool buttonHasDropdown = (button.fsStyle & BTNS_DROPDOWN) != 0;
         const bool hasIcon = imageList && imageWidth > 0 && imageHeight > 0 && button.iBitmap >= 0 &&
                               button.iBitmap != I_IMAGENONE;
         const bool useFontGradient = m_breadcrumbFontGradientEnabled;
@@ -2055,7 +2055,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
         constexpr int kTextPadding = 8;
         const int iconReserve = hasIcon ? (imageWidth + 6) : 0;
-        const int dropdownReserve = hasDropdown ? 12 : 0;
+        const int dropdownReserve = buttonHasDropdown ? 12 : 0;
         const int availableTextWidth = (itemRect.right - itemRect.left) - iconReserve - dropdownReserve -
                                        (kTextPadding * 2);
         const bool iconOnlyButton = hasIcon && availableTextWidth <= 4 && (button.fsStyle & BTNS_SHOWTEXT) == 0;
@@ -2071,7 +2071,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 RECT textRect = itemRect;
                 textRect.left = std::max(iconAreaLeft, textBaseLeft - 1);
                 textRect.right -= kTextPadding;
-                if (hasDropdown) {
+                if (buttonHasDropdown) {
                     textRect.right -= dropdownReserve;
                 }
 
@@ -2109,7 +2109,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             }
         }
 
-        if (hasDropdown) {
+        if (buttonHasDropdown) {
             const float arrowWidth = 6.0f;
             const float arrowHeight = 4.0f;
             const float centerX = rectF.X + rectF.Width - 9.0f;
@@ -2117,7 +2117,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
             if (isHot || isPressed) {
                 const float highlightWidth = arrowWidth + 6.0f;
-                const float highlightHeight = std::max<float>(4.0f, rectF.Height - 4.0f);
+                const float highlightHeight = rectF.Height > 4.0f ? (rectF.Height - 4.0f) : 4.0f;
                 Gdiplus::RectF highlightRect(centerX - highlightWidth / 2.0f,
                                              rectF.Y + 2.0f,
                                              highlightWidth,
@@ -2141,10 +2141,13 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                      arrowWidth,
                                      arrowHeight);
             const bool useArrowGradient = useFontGradient || m_breadcrumbGradientEnabled;
-            const BYTE arrowAlphaBase = std::max<BYTE>(textAlpha,
-                                                       backgroundGradientVisible ? scaledAlpha : 0);
+            BYTE arrowAlphaBase = textAlpha;
+            if (backgroundGradientVisible && scaledAlpha > arrowAlphaBase) {
+                arrowAlphaBase = scaledAlpha;
+            }
             const int arrowBoost = isPressed ? 60 : (isHot ? 35 : 15);
-            const BYTE arrowAlpha = static_cast<BYTE>(std::min(255, static_cast<int>(arrowAlphaBase) + arrowBoost));
+            const int boostedAlpha = static_cast<int>(arrowAlphaBase) + arrowBoost;
+            const BYTE arrowAlpha = static_cast<BYTE>(boostedAlpha > 255 ? 255 : boostedAlpha);
             const Gdiplus::Color arrowStartColor(arrowAlpha, textPaintStart.GetR(), textPaintStart.GetG(),
                                                  textPaintStart.GetB());
             const Gdiplus::Color arrowEndColor(arrowAlpha, textPaintEnd.GetR(), textPaintEnd.GetG(),
