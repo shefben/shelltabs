@@ -2164,16 +2164,42 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                     if (buttonTextAlpha > 0) {
                         if (buttonUseFontGradient) {
                             const auto previousHint = graphics.GetTextRenderingHint();
-                            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
-                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+                            const auto previousMode = graphics.GetCompositingMode();
+                            const auto previousPixelOffset = graphics.GetPixelOffsetMode();
+                            const auto previousSmoothing = graphics.GetSmoothingMode();
+
+                            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+                            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+                            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+
                             Gdiplus::LinearGradientBrush textBrush(
                                 textRectF,
                                 buttonTextPaintStart,
                                 buttonTextPaintEnd,
                                 Gdiplus::LinearGradientModeHorizontal);
                             textBrush.SetGammaCorrection(TRUE);
-                            graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
-                                                &textBrush);
+
+                            bool renderedWithPath = false;
+                            Gdiplus::FontFamily fontFamily;
+                            if (font.GetFamily(&fontFamily) == Gdiplus::Ok) {
+                                Gdiplus::GraphicsPath textPath;
+                                if (textPath.AddString(text.c_str(), static_cast<INT>(text.size()), &fontFamily,
+                                                       font.GetStyle(), font.GetSize(), textRectF, &format) ==
+                                    Gdiplus::Ok) {
+                                    graphics.FillPath(&textBrush, &textPath);
+                                    renderedWithPath = true;
+                                }
+                            }
+
+                            if (!renderedWithPath) {
+                                graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                                    &textBrush);
+                            }
+
+                            graphics.SetSmoothingMode(previousSmoothing);
+                            graphics.SetPixelOffsetMode(previousPixelOffset);
+                            graphics.SetCompositingMode(previousMode);
                             graphics.SetTextRenderingHint(previousHint);
                         } else {
                             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
