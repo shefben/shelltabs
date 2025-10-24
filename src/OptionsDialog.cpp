@@ -1249,9 +1249,9 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
         case WM_CTLCOLORDLG: {
             HDC dc = reinterpret_cast<HDC>(wParam);
             if (dc) {
-                SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+                SetBkColor(dc, GetSysColor(COLOR_3DFACE));
             }
-            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
         }
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
@@ -1339,9 +1339,9 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
         case WM_CTLCOLORDLG: {
             HDC dc = reinterpret_cast<HDC>(wParam);
             if (dc) {
-                SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+                SetBkColor(dc, GetSysColor(COLOR_3DFACE));
             }
-            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
         }
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
@@ -1449,14 +1449,14 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     const LONG style = GetWindowLongW(target, GWL_STYLE);
                     if ((style & BS_GROUPBOX) == BS_GROUPBOX) {
                         SetBkMode(dc, TRANSPARENT);
-                        SetBkColor(dc, GetSysColor(COLOR_WINDOW));
-                        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
+                        SetBkColor(dc, GetSysColor(COLOR_3DFACE));
+                        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
                     }
                 }
             }
             SetBkMode(dc, TRANSPARENT);
-            SetBkColor(dc, GetSysColor(COLOR_WINDOW));
-            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
+            SetBkColor(dc, GetSysColor(COLOR_3DFACE));
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
             break;
         }
         case WM_HSCROLL: {
