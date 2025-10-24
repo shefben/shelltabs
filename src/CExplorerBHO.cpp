@@ -973,7 +973,8 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
     bool installed = false;
 
     if (viewWindow && IsWindow(viewWindow)) {
-        if (SetWindowSubclass(viewWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        if (SetWindowSubclass(viewWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
+                              0)) {
             m_shellViewWindowSubclassInstalled = true;
             installed = true;
             LogMessage(LogLevel::Info, L"Installed shell view window subclass (view=%p)", viewWindow);
@@ -988,7 +989,8 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
     HWND frameWindow = GetTopLevelExplorerWindow();
     if (frameWindow && frameWindow != viewWindow && frameWindow != listView && frameWindow != treeView &&
         IsWindow(frameWindow)) {
-        if (SetWindowSubclass(frameWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        if (SetWindowSubclass(frameWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
+                              0)) {
             m_frameWindow = frameWindow;
             m_frameSubclassInstalled = true;
             installed = true;
@@ -1004,7 +1006,7 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
     }
 
     if (listView && IsWindow(listView)) {
-        if (SetWindowSubclass(listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        if (SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_listView = listView;
             m_listViewSubclassInstalled = true;
             installed = true;
@@ -1015,7 +1017,7 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
     }
 
     if (treeView && treeView != listView && IsWindow(treeView)) {
-        if (SetWindowSubclass(treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        if (SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_treeView = treeView;
             m_treeViewSubclassInstalled = true;
             LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
@@ -1039,16 +1041,18 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
 
 void CExplorerBHO::RemoveExplorerViewSubclass() {
     if (m_shellViewWindow && m_shellViewWindowSubclassInstalled && IsWindow(m_shellViewWindow)) {
-        RemoveWindowSubclass(m_shellViewWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        RemoveWindowSubclass(m_shellViewWindow, &CExplorerBHO::ExplorerViewSubclassProc,
+                             reinterpret_cast<UINT_PTR>(this));
     }
     if (m_frameWindow && m_frameSubclassInstalled && IsWindow(m_frameWindow)) {
-        RemoveWindowSubclass(m_frameWindow, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        RemoveWindowSubclass(m_frameWindow, &CExplorerBHO::ExplorerViewSubclassProc,
+                             reinterpret_cast<UINT_PTR>(this));
     }
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
-        RemoveWindowSubclass(m_listView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        RemoveWindowSubclass(m_listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
     if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
-        RemoveWindowSubclass(m_treeView, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
 
     m_shellViewWindowSubclassInstalled = false;
@@ -1581,7 +1585,7 @@ bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
 
     RemoveBreadcrumbSubclass();
 
-    if (SetWindowSubclass(toolbar, BreadcrumbSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+    if (SetWindowSubclass(toolbar, &CExplorerBHO::BreadcrumbSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
         m_breadcrumbToolbar = toolbar;
         m_breadcrumbSubclassInstalled = true;
         m_loggedBreadcrumbToolbarMissing = false;
@@ -1597,7 +1601,8 @@ bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
 void CExplorerBHO::RemoveBreadcrumbSubclass() {
     if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         if (IsWindow(m_breadcrumbToolbar)) {
-            RemoveWindowSubclass(m_breadcrumbToolbar, BreadcrumbSubclassProc, reinterpret_cast<UINT_PTR>(this));
+            RemoveWindowSubclass(m_breadcrumbToolbar, &CExplorerBHO::BreadcrumbSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
             InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
         }
     }
@@ -2140,9 +2145,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         std::wstring text;
         if (!iconOnlyButton) {
             text = fetchBreadcrumbText(button);
-        }
-        if (!iconOnlyButton && !text.empty()) {
-
+            if (!text.empty()) {
                 const int iconAreaLeft = buttonRect.left + iconReserve;
                 const int textBaseLeft = iconAreaLeft + kTextPadding;
                 RECT textRect = buttonRect;
@@ -2335,7 +2338,7 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
             self->ClearPendingOpenInNewTabState();
         }
 
-        RemoveWindowSubclass(hwnd, ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
