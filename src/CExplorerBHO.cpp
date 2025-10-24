@@ -2163,6 +2163,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
                     if (buttonTextAlpha > 0) {
                         if (buttonUseFontGradient) {
+                            const auto previousHint = graphics.GetTextRenderingHint();
+                            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
                             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
                             Gdiplus::LinearGradientBrush textBrush(
                                 textRectF,
@@ -2172,6 +2174,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                             textBrush.SetGammaCorrection(TRUE);
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
                                                 &textBrush);
+                            graphics.SetTextRenderingHint(previousHint);
                         } else {
                             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
                             const BYTE avgRed = AverageColorChannel(brightFontStart.GetR(), buttonBrightFontEnd.GetR());
