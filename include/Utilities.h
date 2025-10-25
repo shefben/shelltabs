@@ -23,14 +23,26 @@ struct PidlDeleter {
 
 using UniquePidl = std::unique_ptr<AbsolutePidl, PidlDeleter>;
 
+struct FtpUrlParts {
+    std::wstring canonicalUrl;
+    std::wstring userName;
+    std::wstring password;
+    std::wstring host;
+    std::wstring path;
+    unsigned short port = 21;
+};
+
 UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source);
 bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
 std::wstring GetDisplayName(PCIDLIST_ABSOLUTE pidl);
 std::wstring GetParsingName(PCIDLIST_ABSOLUTE pidl);
 UniquePidl ParseDisplayName(const std::wstring& parsingName);
 UniquePidl ParseExplorerUrl(const std::wstring& url);
+bool TryParseFtpUrl(const std::wstring& url, FtpUrlParts* parts);
+UniquePidl CreateFtpPidlFromUrl(const FtpUrlParts& parts);
 std::wstring NormalizeFileSystemPath(const std::wstring& path);
 bool TryGetFileSystemPath(IShellItem* item, std::wstring* path);
+bool IsLikelyFileSystemPath(const std::wstring& path);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
 std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser);

@@ -907,7 +907,7 @@ void TabBand::OnSetGroupHeaderVisible(int groupIndex, bool visible) {
 
 void TabBand::OnOpenTerminal(TabLocation location) {
     const std::wstring path = GetTabPath(location);
-    if (path.empty()) {
+    if (path.empty() || !IsLikelyFileSystemPath(path)) {
         return;
     }
     std::wstring quoted = L"\"" + path + L"\"";
@@ -923,7 +923,7 @@ void TabBand::OnOpenTerminal(TabLocation location) {
 
 void TabBand::OnOpenVSCode(TabLocation location) {
     const std::wstring path = GetTabPath(location);
-    if (path.empty()) {
+    if (path.empty() || !IsLikelyFileSystemPath(path)) {
         return;
     }
     std::wstring quoted = L"\"" + path + L"\"";
@@ -1579,7 +1579,7 @@ bool TabBand::InvokeExplorerContextCommand(TabLocation location, IContextMenu* m
     CMINVOKECOMMANDINFOEX info{};
     info.cbSize = sizeof(info);
     info.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE;
-    if (!directory.empty()) {
+    if (!directory.empty() && IsLikelyFileSystemPath(directory)) {
         info.lpDirectoryW = directory.c_str();
     }
     info.hwnd = m_window ? m_window->GetHwnd() : nullptr;
@@ -1686,7 +1686,7 @@ void TabBand::PerformFileOperation(TabLocation location, const std::vector<std::
         return;
     }
     const std::wstring destinationPath = GetTabPath(location);
-    if (destinationPath.empty()) {
+    if (destinationPath.empty() || !IsLikelyFileSystemPath(destinationPath)) {
         return;
     }
 
