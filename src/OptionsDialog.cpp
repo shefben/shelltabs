@@ -17,6 +17,7 @@
 #include "GroupStore.h"
 #include "Module.h"
 #include "OptionsStore.h"
+#include "ShellTabsMessages.h"
 #include "Utilities.h"
 
 namespace shelltabs {
@@ -114,6 +115,36 @@ DialogTemplatePtr AllocateAlignedTemplate(const std::vector<BYTE>& source) {
 
     std::memcpy(memory, source.data(), source.size());
     return DialogTemplatePtr(reinterpret_cast<DLGTEMPLATE*>(memory), &_aligned_free);
+}
+
+BOOL CALLBACK ForwardOptionsChangedToChild(HWND hwnd, LPARAM param) {
+    const UINT message = static_cast<UINT>(param);
+    if (message == 0 || !IsWindow(hwnd)) {
+        return TRUE;
+    }
+
+    SendMessageTimeoutW(hwnd, message, 0, 0, SMTO_ABORTIFHUNG | SMTO_NOTIMEOUTIFNOTHUNG, 200, nullptr);
+    return TRUE;
+}
+
+void ForceExplorerUIRefresh(HWND parentWindow) {
+    const UINT optionsChangedMessage = GetOptionsChangedMessage();
+    if (optionsChangedMessage == 0) {
+        return;
+    }
+
+    SendMessageTimeoutW(HWND_BROADCAST, optionsChangedMessage, 0, 0,
+                        SMTO_ABORTIFHUNG | SMTO_NOTIMEOUTIFNOTHUNG, 200, nullptr);
+
+    if (!parentWindow || !IsWindow(parentWindow)) {
+        return;
+    }
+
+    SendMessageTimeoutW(parentWindow, optionsChangedMessage, 0, 0,
+                        SMTO_ABORTIFHUNG | SMTO_NOTIMEOUTIFNOTHUNG, 200, nullptr);
+    EnumChildWindows(parentWindow, &ForwardOptionsChangedToChild,
+                     static_cast<LPARAM>(optionsChangedMessage));
+    RedrawWindow(parentWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE);
 }
 
 std::vector<BYTE> BuildMainPageTemplate() {
@@ -1643,6 +1674,9 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
         result.groupsChanged = groupsChanged;
         store.Set(data.workingOptions);
         store.Save();
+        if (result.optionsChanged) {
+            ForceExplorerUIRefresh(parent);
+        }
         if (groupsChanged) {
             auto& groupStoreToUpdate = GroupStore::Instance();
             groupStoreToUpdate.Load();
