@@ -33,6 +33,7 @@ std::wstring NarrowToWide(const char* value) {
     MultiByteToWideChar(CP_UTF8, 0, value, -1, result.data(), length);
     return result;
 }
+
 }  // namespace
 
 void LogUnhandledException(const wchar_t* context, const wchar_t* details) {
@@ -123,6 +124,13 @@ UniquePidl ParseExplorerUrl(const std::wstring& url) {
         return nullptr;
     }
 
+    FtpUrlParts ftpParts;
+    if (TryParseFtpUrl(url, &ftpParts)) {
+        if (auto ftpPidl = CreateFtpPidlFromUrl(ftpParts)) {
+            return ftpPidl;
+        }
+    }
+
     PIDLIST_ABSOLUTE pidl = nullptr;
     const auto tryParse = [&pidl](const wchar_t* source, SFGAOF attributes) -> bool {
         PIDLIST_ABSOLUTE candidate = nullptr;
@@ -198,6 +206,25 @@ bool TryGetFileSystemPath(IShellItem* item, std::wstring* path) {
 
     *path = std::move(normalized);
     return true;
+}
+
+bool IsLikelyFileSystemPath(const std::wstring& path) {
+    if (path.empty()) {
+        return false;
+    }
+    if (PathIsURLW(path.c_str())) {
+        return false;
+    }
+    if (path.size() >= 2 && path[1] == L':') {
+        return true;
+    }
+    if (path.rfind(L"\\\\?\\", 0) == 0) {
+        return true;
+    }
+    if (PathIsUNCW(path.c_str())) {
+        return true;
+    }
+    return false;
 }
 
 namespace {

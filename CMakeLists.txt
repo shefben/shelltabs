@@ -8,6 +8,8 @@ add_compile_definitions(_WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000)
 # Global for the whole project
 add_definitions(-D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000000)
 
+option(SHELLTABS_BUILD_TESTS "Build ShellTabs test harnesses" OFF)
+
 add_library(ShellTabs SHARED
     src/dllmain.cpp
     src/ClassFactory.cpp
@@ -18,6 +20,7 @@ add_library(ShellTabs SHARED
     src/TabManager.cpp
     src/OpenFolderCommand.cpp
     src/BrowserEvents.cpp
+    src/FtpUrl.cpp
     src/Guids.cpp
     src/Module.cpp
     src/SessionStore.cpp
@@ -76,3 +79,29 @@ set_target_properties(ShellTabs PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+if (WIN32 AND SHELLTABS_BUILD_TESTS)
+    add_executable(ShellTabsUtilitiesTests
+        tests/UtilitiesFtpTests.cpp
+        src/FtpUrl.cpp
+    )
+
+    target_include_directories(ShellTabsUtilitiesTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsUtilitiesTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
+
+    target_link_libraries(ShellTabsUtilitiesTests PRIVATE
+        shlwapi
+        urlmon
+        shell32
+        ole32
+        oleaut32
+    )
+endif()
