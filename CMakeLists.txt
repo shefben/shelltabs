@@ -21,6 +21,8 @@ add_library(ShellTabs SHARED
     src/OpenFolderCommand.cpp
     src/BrowserEvents.cpp
     src/FtpClient.cpp
+    src/FtpShellFolder.cpp
+    src/FtpPidl.cpp
     src/FtpUrl.cpp
     src/Guids.cpp
     src/Module.cpp
@@ -88,6 +90,7 @@ set_target_properties(ShellTabs PROPERTIES
 if (WIN32 AND SHELLTABS_BUILD_TESTS)
     add_executable(ShellTabsUtilitiesTests
         tests/UtilitiesFtpTests.cpp
+        src/FtpPidl.cpp
         src/FtpUrl.cpp
     )
 

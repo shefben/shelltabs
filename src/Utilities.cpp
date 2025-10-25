@@ -111,6 +111,12 @@ UniquePidl ParseDisplayName(const std::wstring& parsingName) {
     if (parsingName.empty()) {
         return nullptr;
     }
+    FtpUrlParts ftpParts;
+    if (TryParseFtpUrl(parsingName, &ftpParts)) {
+        if (auto ftpPidl = CreateFtpPidlFromUrl(ftpParts)) {
+            return ftpPidl;
+        }
+    }
     PIDLIST_ABSOLUTE pidl = nullptr;
     SFGAOF attributes = 0;
     if (SUCCEEDED(SHParseDisplayName(parsingName.c_str(), nullptr, &pidl, attributes, nullptr)) && pidl) {
