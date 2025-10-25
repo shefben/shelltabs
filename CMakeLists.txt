@@ -20,6 +20,7 @@ add_library(ShellTabs SHARED
     src/TabManager.cpp
     src/OpenFolderCommand.cpp
     src/BrowserEvents.cpp
+    src/FtpClient.cpp
     src/FtpUrl.cpp
     src/Guids.cpp
     src/Module.cpp
@@ -68,6 +69,10 @@ target_link_libraries(ShellTabs PRIVATE
     uxtheme
     dwmapi
     advapi32
+    credui
+    winhttp
+    wininet
+    ws2_32
     pathcch
     Shlwapi
     gdiplus
