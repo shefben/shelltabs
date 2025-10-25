@@ -4,9 +4,27 @@
 #include <shlwapi.h>
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <cwchar>
 #include <cwctype>
 #include <iterator>
+#include <memory>
+#include <mutex>
 #include <string_view>
+#include <thread>
+#include <vector>
+
+#include <commctrl.h>
+#include <propkey.h>
+#include <propvarutil.h>
+#include <strsafe.h>
+#include <winnls.h>
+
+#ifdef _MSC_VER
+#pragma comment(lib, "propsys.lib")
+#endif
 
 using Microsoft::WRL::ComPtr;
 
@@ -123,6 +141,402 @@ bool EqualsIgnoreCase(std::wstring_view left, std::wstring_view right) {
     return true;
 }
 
+struct ColumnDefinition {
+    PROPERTYKEY key;
+    const wchar_t* name;
+    int format = LVCFMT_LEFT;
+    UINT width = 24;
+    SHCOLSTATEF state = SHCOLSTATE_ONBYDEFAULT;
+};
+
+constexpr ColumnDefinition kColumnDefinitions[] = {
+    {PKEY_ItemNameDisplay, L"Name", LVCFMT_LEFT, 30, SHCOLSTATE_ONBYDEFAULT | SHCOLSTATE_TYPE_STR},
+    {PKEY_Size, L"Size", LVCFMT_RIGHT, 16, SHCOLSTATE_ONBYDEFAULT | SHCOLSTATE_TYPE_INT | SHCOLSTATE_SECONDARYUI},
+    {PKEY_DateModified, L"Date modified", LVCFMT_LEFT, 24, SHCOLSTATE_ONBYDEFAULT | SHCOLSTATE_TYPE_DATE},
+};
+
+constexpr size_t kColumnCount = std::size(kColumnDefinitions);
+
+HRESULT AssignToStrRet(const std::wstring& value, STRRET* str) {
+    if (!str) {
+        return E_POINTER;
+    }
+    wchar_t* buffer = static_cast<wchar_t*>(CoTaskMemAlloc((value.size() + 1) * sizeof(wchar_t)));
+    if (!buffer) {
+        return E_OUTOFMEMORY;
+    }
+    HRESULT hr = StringCchCopyW(buffer, value.size() + 1, value.c_str());
+    if (FAILED(hr)) {
+        CoTaskMemFree(buffer);
+        return hr;
+    }
+    str->uType = STRRET_WSTR;
+    str->pOleStr = buffer;
+    return S_OK;
+}
+
+ULONGLONG GetFileSizeFromFindData(const WIN32_FIND_DATAW& data) {
+    return (static_cast<ULONGLONG>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+}
+
+std::wstring FormatSizeString(ULONGLONG size) {
+    if (size == 0) {
+        return L"0 bytes";
+    }
+    wchar_t buffer[64];
+    if (!StrFormatByteSizeW(static_cast<LONGLONG>(size), buffer, ARRAYSIZE(buffer))) {
+        return {};
+    }
+    return buffer;
+}
+
+std::wstring FormatDateString(const FILETIME& fileTime) {
+    if (fileTime.dwHighDateTime == 0 && fileTime.dwLowDateTime == 0) {
+        return {};
+    }
+    FILETIME localTime;
+    if (!FileTimeToLocalFileTime(&fileTime, &localTime)) {
+        return {};
+    }
+    SYSTEMTIME systemTime;
+    if (!FileTimeToSystemTime(&localTime, &systemTime)) {
+        return {};
+    }
+    wchar_t dateBuffer[64];
+    wchar_t timeBuffer[64];
+    int dateLength = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &systemTime, nullptr, dateBuffer,
+                                     ARRAYSIZE(dateBuffer), nullptr);
+    if (dateLength == 0) {
+        return {};
+    }
+    int timeLength = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &systemTime, nullptr, timeBuffer,
+                                     ARRAYSIZE(timeBuffer));
+    std::wstring formatted(dateBuffer);
+    if (timeLength != 0) {
+        formatted.push_back(L' ');
+        formatted.append(timeBuffer);
+    }
+    return formatted;
+}
+
+ULONG MapFindDataToAttributes(const WIN32_FIND_DATAW& data) {
+    ULONG attributes = SFGAO_STORAGE | SFGAO_CANCOPY;
+    const bool isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (isDirectory) {
+        attributes |= SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_HASSUBFOLDER;
+    } else {
+        attributes |= SFGAO_STREAM;
+    }
+    if ((data.dwFileAttributes & FILE_ATTRIBUTE_READONLY) != 0) {
+        attributes |= SFGAO_READONLY;
+    } else {
+        attributes |= SFGAO_CANDELETE | SFGAO_CANMOVE | SFGAO_CANRENAME;
+    }
+    return attributes;
+}
+
+bool TryGetNameFromPidl(PCUIDLIST_RELATIVE pidl, std::wstring* name) {
+    if (!pidl || !name) {
+        return false;
+    }
+    if (pidl->mkid.cb == 0) {
+        return false;
+    }
+    return TryGetComponentString(pidl->mkid, ComponentType::Name, name);
+}
+
+class EnumerationState : public std::enable_shared_from_this<EnumerationState> {
+public:
+    EnumerationState(const FtpUrlParts& parts, std::vector<std::wstring> segments, std::vector<std::uint8_t> absolute,
+                     SHCONTF flags, HWND owner)
+        : rootParts_(parts),
+          pathSegments_(std::move(segments)),
+          absolutePidlBytes_(std::move(absolute)),
+          flags_(flags),
+          ownerWindow_(owner) {}
+
+    ~EnumerationState() {
+        Cancel();
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+    }
+
+    void Start() {
+        worker_ = std::thread([self = shared_from_this()]() { self->WorkerProc(); });
+    }
+
+    void Cancel() {
+        cancelled_.store(true, std::memory_order_release);
+        cv_.notify_all();
+    }
+
+    HRESULT GetItem(size_t index, std::vector<std::uint8_t>* bytes, bool* hasItem) {
+        if (hasItem) {
+            *hasItem = false;
+        }
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [&]() { return index < items_.size() || workerFinished_ || cancelled_.load(std::memory_order_acquire); });
+        if (index < items_.size()) {
+            auto data = items_[index].bytes;
+            lock.unlock();
+            if (bytes) {
+                *bytes = std::move(data);
+            }
+            if (hasItem) {
+                *hasItem = true;
+            }
+            return S_OK;
+        }
+        if (cancelled_.load(std::memory_order_acquire)) {
+            return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+        }
+        HRESULT result = result_;
+        lock.unlock();
+        if (FAILED(result)) {
+            return result;
+        }
+        return S_FALSE;
+    }
+
+private:
+    struct ItemBuffer {
+        std::vector<std::uint8_t> bytes;
+    };
+
+    void WorkerProc() {
+        HRESULT hr = S_OK;
+        bool coInitialized = false;
+        HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (SUCCEEDED(init)) {
+            coInitialized = true;
+        }
+
+        FtpConnectionOptions options;
+        options.host = rootParts_.host;
+        options.port = rootParts_.port;
+        options.passiveMode = true;
+        options.preferMlsd = true;
+        std::wstring remotePath = JoinSegments(pathSegments_, {});
+        if (!remotePath.empty() && remotePath != L"/") {
+            options.initialPath = remotePath;
+        }
+
+        FtpCredential credential;
+        credential.userName = rootParts_.userName.empty() ? L"anonymous" : rootParts_.userName;
+        credential.password = rootParts_.password;
+
+        FtpClient client;
+        std::vector<FtpDirectoryEntry> entries;
+        hr = client.ListDirectory(options, &credential, &entries, ownerWindow_);
+        if (SUCCEEDED(hr)) {
+            for (const auto& entry : entries) {
+                if (cancelled_.load(std::memory_order_acquire)) {
+                    hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+                    break;
+                }
+                if (!ShouldInclude(entry)) {
+                    continue;
+                }
+                WIN32_FIND_DATAW findData{};
+                findData.dwFileAttributes = entry.attributes == 0
+                                                ? (entry.isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_ARCHIVE)
+                                                : entry.attributes;
+                findData.ftCreationTime = entry.lastWriteTime;
+                findData.ftLastAccessTime = entry.lastWriteTime;
+                findData.ftLastWriteTime = entry.lastWriteTime;
+                findData.nFileSizeHigh = static_cast<DWORD>(entry.size >> 32);
+                findData.nFileSizeLow = static_cast<DWORD>(entry.size & 0xFFFFFFFFULL);
+                StringCchCopyW(findData.cFileName, ARRAYSIZE(findData.cFileName), entry.name.c_str());
+
+                PidlBuilder builder;
+                ComponentDefinition nameComponent{ComponentType::Name, entry.name.c_str(), entry.name.size() * sizeof(wchar_t)};
+                ComponentDefinition dataComponent{ComponentType::FindData, &findData, sizeof(findData)};
+                ItemType type = entry.isDirectory ? ItemType::Directory : ItemType::File;
+                hr = builder.Append(type, {nameComponent, dataComponent});
+                if (FAILED(hr)) {
+                    break;
+                }
+                UniquePidl pidl = builder.Finalize();
+                if (!pidl) {
+                    hr = E_OUTOFMEMORY;
+                    break;
+                }
+                UINT size = ILGetSize(pidl.get());
+                ItemBuffer buffer;
+                buffer.bytes.resize(size);
+                std::memcpy(buffer.bytes.data(), pidl.get(), size);
+                {
+                    std::lock_guard<std::mutex> guard(mutex_);
+                    items_.push_back(std::move(buffer));
+                }
+                cv_.notify_all();
+            }
+        }
+
+        if (cancelled_.load(std::memory_order_acquire) && SUCCEEDED(hr)) {
+            hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+        }
+
+        if (SUCCEEDED(hr) && !absolutePidlBytes_.empty()) {
+            PIDLIST_ABSOLUTE notify = reinterpret_cast<PIDLIST_ABSOLUTE>(CoTaskMemAlloc(absolutePidlBytes_.size()));
+            if (notify) {
+                std::memcpy(notify, absolutePidlBytes_.data(), absolutePidlBytes_.size());
+                SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_IDLIST, notify, nullptr);
+                CoTaskMemFree(notify);
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> guard(mutex_);
+            workerFinished_ = true;
+            result_ = hr;
+        }
+        cv_.notify_all();
+
+        if (coInitialized) {
+            CoUninitialize();
+        }
+    }
+
+    bool ShouldInclude(const FtpDirectoryEntry& entry) const {
+        const bool isDirectory = entry.isDirectory;
+        if (isDirectory) {
+            if ((flags_ & (SHCONTF_FOLDERS | SHCONTF_ALLFOLDERS)) == 0) {
+                return false;
+            }
+        } else {
+            if ((flags_ & (SHCONTF_NONFOLDERS | SHCONTF_STORAGE)) == 0) {
+                return false;
+            }
+        }
+        if ((flags_ & SHCONTF_INCLUDEHIDDEN) == 0) {
+            const DWORD attributes = entry.attributes;
+            if ((attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::vector<ItemBuffer> items_;
+    std::atomic<bool> cancelled_{false};
+    bool workerFinished_ = false;
+    HRESULT result_ = S_OK;
+    std::thread worker_;
+    FtpUrlParts rootParts_{};
+    std::vector<std::wstring> pathSegments_;
+    std::vector<std::uint8_t> absolutePidlBytes_;
+    SHCONTF flags_ = 0;
+    HWND ownerWindow_ = nullptr;
+};
+
+class FtpEnumIDList : public IEnumIDList {
+public:
+    explicit FtpEnumIDList(std::shared_ptr<EnumerationState> state, size_t index)
+        : refCount_(1), state_(std::move(state)), currentIndex_(index) {}
+
+    // IUnknown
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IEnumIDList) {
+            *object = static_cast<IEnumIDList*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return ++refCount_; }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG count = --refCount_;
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    // IEnumIDList
+    IFACEMETHODIMP Next(ULONG celt, PITEMID_CHILD* rgelt, ULONG* pceltFetched) override {
+        if (!rgelt) {
+            return E_POINTER;
+        }
+        if (celt > 1 && !pceltFetched) {
+            return E_INVALIDARG;
+        }
+        for (ULONG index = 0; index < celt; ++index) {
+            rgelt[index] = nullptr;
+        }
+        ULONG fetched = 0;
+        while (fetched < celt) {
+            std::vector<std::uint8_t> bytes;
+            bool hasItem = false;
+            HRESULT hr = state_->GetItem(currentIndex_, &bytes, &hasItem);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            if (!hasItem) {
+                break;
+            }
+            auto* pidl = static_cast<PITEMID_CHILD>(CoTaskMemAlloc(bytes.size()));
+            if (!pidl) {
+                return E_OUTOFMEMORY;
+            }
+            std::memcpy(pidl, bytes.data(), bytes.size());
+            rgelt[fetched] = pidl;
+            ++fetched;
+            ++currentIndex_;
+        }
+        if (pceltFetched) {
+            *pceltFetched = fetched;
+        }
+        return fetched == celt ? S_OK : S_FALSE;
+    }
+
+    IFACEMETHODIMP Skip(ULONG celt) override {
+        for (ULONG index = 0; index < celt; ++index) {
+            bool hasItem = false;
+            HRESULT hr = state_->GetItem(currentIndex_, nullptr, &hasItem);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            if (!hasItem) {
+                return S_FALSE;
+            }
+            ++currentIndex_;
+        }
+        return S_OK;
+    }
+
+    IFACEMETHODIMP Reset() override {
+        currentIndex_ = 0;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP Clone(IEnumIDList** ppenum) override {
+        if (!ppenum) {
+            return E_POINTER;
+        }
+        auto clone = new (std::nothrow) FtpEnumIDList(state_, currentIndex_);
+        if (!clone) {
+            return E_OUTOFMEMORY;
+        }
+        *ppenum = clone;
+        return S_OK;
+    }
+
+private:
+    std::atomic<ULONG> refCount_;
+    std::shared_ptr<EnumerationState> state_;
+    size_t currentIndex_ = 0;
+};
+
 }  // namespace
 
 FtpShellFolder::FtpShellFolder() {
@@ -158,7 +572,7 @@ IFACEMETHODIMP FtpShellFolder::QueryInterface(REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
     }
-    if (riid == IID_IUnknown || riid == IID_IShellFolder) {
+    if (riid == IID_IUnknown || riid == IID_IShellFolder || riid == IID_IShellFolder2) {
         *object = static_cast<IShellFolder*>(this);
     } else if (riid == IID_IPersist || riid == IID_IPersistFolder || riid == IID_IPersistFolder2) {
         *object = static_cast<IPersistFolder2*>(this);
@@ -410,8 +824,27 @@ IFACEMETHODIMP FtpShellFolder::ParseDisplayName(HWND, IBindCtx*, PWSTR pszName, 
     return S_OK;
 }
 
-IFACEMETHODIMP FtpShellFolder::EnumObjects(HWND, SHCONTF, IEnumIDList**) {
-    return E_NOTIMPL;
+IFACEMETHODIMP FtpShellFolder::EnumObjects(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList) {
+    if (!ppenumIDList) {
+        return E_POINTER;
+    }
+    *ppenumIDList = nullptr;
+    HRESULT hr = EnsurePidl();
+    if (FAILED(hr)) {
+        return hr;
+    }
+    std::vector<std::uint8_t> absoluteBytes = SerializeFtpPidl(absolutePidl_.get());
+    auto state = std::make_shared<EnumerationState>(rootParts_, pathSegments_, std::move(absoluteBytes), grfFlags, hwnd);
+    if (!state) {
+        return E_OUTOFMEMORY;
+    }
+    auto enumerator = new (std::nothrow) FtpEnumIDList(state, 0);
+    if (!enumerator) {
+        return E_OUTOFMEMORY;
+    }
+    state->Start();
+    *ppenumIDList = enumerator;
+    return S_OK;
 }
 
 IFACEMETHODIMP FtpShellFolder::BindToObject(PCUIDLIST_RELATIVE pidl, IBindCtx*, REFIID riid, void** ppv) {
@@ -456,27 +889,284 @@ IFACEMETHODIMP FtpShellFolder::BindToStorage(PCUIDLIST_RELATIVE pidl, IBindCtx*,
     return stream->QueryInterface(riid, ppv);
 }
 
-IFACEMETHODIMP FtpShellFolder::CompareIDs(LPARAM, PCUIDLIST_RELATIVE, PCUIDLIST_RELATIVE) {
-    return E_NOTIMPL;
+IFACEMETHODIMP FtpShellFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1, PCUIDLIST_RELATIVE pidl2) {
+    if (!pidl1 || !pidl2) {
+        return E_POINTER;
+    }
+    int column = static_cast<int>(LOWORD(lParam));
+    if (column < 0 || column >= static_cast<int>(kColumnCount)) {
+        column = 0;
+    }
+    WIN32_FIND_DATAW left{};
+    WIN32_FIND_DATAW right{};
+    const bool hasLeft = TryGetFindData(pidl1, &left);
+    const bool hasRight = TryGetFindData(pidl2, &right);
+    int comparison = 0;
+    switch (column) {
+        case 1: {
+            if (hasLeft && hasRight) {
+                ULONGLONG sizeLeft = GetFileSizeFromFindData(left);
+                ULONGLONG sizeRight = GetFileSizeFromFindData(right);
+                if (sizeLeft < sizeRight) {
+                    comparison = -1;
+                } else if (sizeLeft > sizeRight) {
+                    comparison = 1;
+                }
+            }
+            break;
+        }
+        case 2: {
+            if (hasLeft && hasRight) {
+                comparison = static_cast<int>(CompareFileTime(&left.ftLastWriteTime, &right.ftLastWriteTime));
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    if (comparison == 0) {
+        std::wstring nameLeft;
+        std::wstring nameRight;
+        if (hasLeft) {
+            nameLeft.assign(left.cFileName);
+        } else {
+            TryGetNameFromPidl(pidl1, &nameLeft);
+        }
+        if (hasRight) {
+            nameRight.assign(right.cFileName);
+        } else {
+            TryGetNameFromPidl(pidl2, &nameRight);
+        }
+        comparison = _wcsicmp(nameLeft.c_str(), nameRight.c_str());
+    }
+    if (comparison < 0) {
+        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0xFFFF);
+    }
+    if (comparison > 0) {
+        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 1);
+    }
+    return S_OK;
 }
 
-IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID, void**) { return E_NOTIMPL; }
-
-IFACEMETHODIMP FtpShellFolder::GetAttributesOf(UINT, PCUITEMID_CHILD_ARRAY, ULONG* rgfInOut) {
-    if (rgfInOut) {
-        *rgfInOut = 0;
+IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
+    if (!ppv) {
+        return E_POINTER;
     }
-    return E_NOTIMPL;
+    *ppv = nullptr;
+    if (riid != IID_IShellView) {
+        return E_NOINTERFACE;
+    }
+    SFV_CREATE create{};
+    create.cbSize = sizeof(create);
+    FOLDERSETTINGS settings{};
+    settings.ViewMode = FVM_DETAILS;
+    settings.fFlags = FWF_SHOWSELALWAYS | FWF_AUTOARRANGE;
+    create.pfs = &settings;
+    HRESULT hr = QueryInterface(IID_PPV_ARGS(&create.pshf));
+    if (FAILED(hr)) {
+        return hr;
+    }
+    hr = SHCreateShellFolderView(&create, reinterpret_cast<IShellView**>(ppv));
+    if (create.pshf) {
+        create.pshf->Release();
+    }
+    return hr;
+}
+
+IFACEMETHODIMP FtpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY apidl, ULONG* rgfInOut) {
+    if (!rgfInOut) {
+        return E_POINTER;
+    }
+    ULONG mask = *rgfInOut;
+    if (cidl == 0) {
+        ULONG folderFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_CANCOPY |
+                            SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE;
+        *rgfInOut = mask == 0 ? folderFlags : (folderFlags & mask);
+        return S_OK;
+    }
+    if (!apidl) {
+        return E_INVALIDARG;
+    }
+    ULONG relevantMask = mask == 0 ? 0xFFFFFFFFu : mask;
+    ULONG result = relevantMask;
+    for (UINT index = 0; index < cidl; ++index) {
+        WIN32_FIND_DATAW findData{};
+        ULONG itemFlags = 0;
+        if (TryGetFindData(apidl[index], &findData)) {
+            itemFlags = MapFindDataToAttributes(findData);
+        } else {
+            const ItemType type = (apidl[index] && apidl[index]->mkid.cb != 0) ? GetItemType(apidl[index]->mkid)
+                                                                               : ItemType::File;
+            if (type == ItemType::Directory) {
+                itemFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER |
+                            SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE;
+            } else {
+                itemFlags = SFGAO_STREAM | SFGAO_STORAGE | SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME |
+                            SFGAO_CANDELETE;
+            }
+        }
+        result &= itemFlags;
+    }
+    if (mask != 0) {
+        result &= mask;
+    }
+    *rgfInOut = result;
+    return S_OK;
 }
 
 IFACEMETHODIMP FtpShellFolder::GetUIObjectOf(HWND, UINT, PCUITEMID_CHILD_ARRAY, REFIID, UINT*, void**) {
     return E_NOTIMPL;
 }
 
-IFACEMETHODIMP FtpShellFolder::GetDisplayNameOf(PCUITEMID_CHILD, SHGDNF, STRRET*) { return E_NOTIMPL; }
+IFACEMETHODIMP FtpShellFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFlags, STRRET* pName) {
+    if (!pidl || !pName) {
+        return E_POINTER;
+    }
+    if (uFlags & SHGDN_FORPARSING) {
+        if (uFlags & SHGDN_INFOLDER) {
+            WIN32_FIND_DATAW findData{};
+            if (TryGetFindData(pidl, &findData)) {
+                return AssignToStrRet(findData.cFileName, pName);
+            }
+            std::wstring name;
+            if (TryGetNameFromPidl(pidl, &name)) {
+                return AssignToStrRet(name, pName);
+            }
+            return E_FAIL;
+        }
+        HRESULT hr = EnsurePidl();
+        if (FAILED(hr)) {
+            return hr;
+        }
+        UniquePidl combined(ILCombine(absolutePidl_.get(), pidl));
+        if (!combined) {
+            return E_OUTOFMEMORY;
+        }
+        std::wstring url = BuildUrlFromFtpPidl(combined.get());
+        if (url.empty()) {
+            return E_FAIL;
+        }
+        return AssignToStrRet(url, pName);
+    }
+    WIN32_FIND_DATAW findData{};
+    if (TryGetFindData(pidl, &findData)) {
+        return AssignToStrRet(findData.cFileName, pName);
+    }
+    std::wstring name;
+    if (!TryGetNameFromPidl(pidl, &name)) {
+        return E_FAIL;
+    }
+    return AssignToStrRet(name, pName);
+}
 
 IFACEMETHODIMP FtpShellFolder::SetNameOf(HWND, PCUITEMID_CHILD, PCWSTR, SHGDNF, PIDLIST_RELATIVE**) {
     return E_NOTIMPL;
+}
+
+IFACEMETHODIMP FtpShellFolder::GetDefaultSearchGUID(GUID* pguid) {
+    if (!pguid) {
+        return E_POINTER;
+    }
+    *pguid = GUID_NULL;
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP FtpShellFolder::EnumSearches(IEnumExtraSearch** ppEnum) {
+    if (!ppEnum) {
+        return E_POINTER;
+    }
+    *ppEnum = nullptr;
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP FtpShellFolder::GetDefaultColumn(DWORD, ULONG* pSort, ULONG* pDisplay) {
+    if (!pSort || !pDisplay) {
+        return E_POINTER;
+    }
+    *pSort = 0;
+    *pDisplay = 0;
+    return S_OK;
+}
+
+IFACEMETHODIMP FtpShellFolder::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF* pcsFlags) {
+    if (!pcsFlags) {
+        return E_POINTER;
+    }
+    if (iColumn >= kColumnCount) {
+        return E_INVALIDARG;
+    }
+    *pcsFlags = kColumnDefinitions[iColumn].state;
+    return S_OK;
+}
+
+IFACEMETHODIMP FtpShellFolder::GetDetailsEx(PCUITEMID_CHILD pidl, const PROPERTYKEY* pkey, VARIANT* pv) {
+    if (!pkey || !pv) {
+        return E_POINTER;
+    }
+    VariantInit(pv);
+    if (!pidl) {
+        return E_INVALIDARG;
+    }
+    WIN32_FIND_DATAW findData{};
+    if (!TryGetFindData(pidl, &findData)) {
+        return S_FALSE;
+    }
+    if (IsEqualPropertyKey(*pkey, PKEY_ItemNameDisplay)) {
+        return InitPropVariantFromString(findData.cFileName, pv);
+    }
+    if (IsEqualPropertyKey(*pkey, PKEY_Size)) {
+        ULONGLONG size = GetFileSizeFromFindData(findData);
+        return InitPropVariantFromUInt64(size, pv);
+    }
+    if (IsEqualPropertyKey(*pkey, PKEY_DateModified)) {
+        return InitPropVariantFromFileTime(&findData.ftLastWriteTime, pv);
+    }
+    return S_FALSE;
+}
+
+IFACEMETHODIMP FtpShellFolder::GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, SHELLDETAILS* pDetails) {
+    if (!pDetails) {
+        return E_POINTER;
+    }
+    if (iColumn >= kColumnCount) {
+        return E_FAIL;
+    }
+    pDetails->fmt = kColumnDefinitions[iColumn].format;
+    pDetails->cxChar = kColumnDefinitions[iColumn].width;
+    if (!pidl) {
+        return AssignToStrRet(kColumnDefinitions[iColumn].name, &pDetails->str);
+    }
+    WIN32_FIND_DATAW findData{};
+    std::wstring value;
+    if (TryGetFindData(pidl, &findData)) {
+        switch (iColumn) {
+            case 0:
+                value.assign(findData.cFileName);
+                break;
+            case 1:
+                if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    value = FormatSizeString(GetFileSizeFromFindData(findData));
+                }
+                break;
+            case 2:
+                value = FormatDateString(findData.ftLastWriteTime);
+                break;
+        }
+    } else if (iColumn == 0) {
+        TryGetNameFromPidl(pidl, &value);
+    }
+    return AssignToStrRet(value, &pDetails->str);
+}
+
+IFACEMETHODIMP FtpShellFolder::MapColumnToSCID(UINT iColumn, PROPERTYKEY* pkey) {
+    if (!pkey) {
+        return E_POINTER;
+    }
+    if (iColumn >= kColumnCount) {
+        return E_INVALIDARG;
+    }
+    *pkey = kColumnDefinitions[iColumn].key;
+    return S_OK;
 }
 
 IFACEMETHODIMP FtpShellFolder::GetClassID(CLSID* pClassID) {

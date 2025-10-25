@@ -30,6 +30,7 @@ enum class ComponentType : std::uint8_t {
     Password = 4,
     Name = 5,
     Flags = 6,
+    FindData = 7,
 };
 
 struct ComponentDefinition {
@@ -66,6 +67,8 @@ ItemType GetItemType(const SHITEMID& item) noexcept;
 
 bool TryGetComponentString(const SHITEMID& item, ComponentType component, std::wstring* value);
 bool TryGetComponentUint16(const SHITEMID& item, ComponentType component, std::uint16_t* value);
+bool TryGetFindData(const SHITEMID& item, WIN32_FIND_DATAW* data);
+bool TryGetFindData(PCUIDLIST_RELATIVE pidl, WIN32_FIND_DATAW* data);
 
 bool TryParseFtpPidl(PCIDLIST_ABSOLUTE pidl, FtpUrlParts* parts, std::vector<std::wstring>* segments,
                      bool* terminalIsDirectory);

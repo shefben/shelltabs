@@ -47,6 +47,7 @@ struct FtpDirectoryEntry {
     FILETIME lastWriteTime{};
     ULONGLONG size = 0;
     bool isDirectory = false;
+    DWORD attributes = FILE_ATTRIBUTE_ARCHIVE;
 };
 
 struct FtpTransferResult {
