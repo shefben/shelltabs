@@ -1,4 +1,5 @@
 #include "Utilities.h"
+#include "FtpPidl.h"
 
 #include <windows.h>
 
@@ -82,6 +83,23 @@ int wmain() {
     bool success = true;
     for (const auto& testCase : cases) {
         success &= RunCase(testCase);
+    }
+
+    shelltabs::FtpUrlParts ftpParts;
+    if (shelltabs::TryParseFtpUrl(L"ftp://user:pass@example.com:21/root/path/", &ftpParts)) {
+        shelltabs::UniquePidl pidl = shelltabs::CreateFtpPidlFromUrl(ftpParts);
+        shelltabs::FtpUrlParts parsedParts;
+        std::vector<std::wstring> segments;
+        bool isDirectory = false;
+        if (!pidl || !shelltabs::ftp::TryParseFtpPidl(pidl.get(), &parsedParts, &segments, &isDirectory)) {
+            std::wcerr << L"Failed to round-trip FTP PIDL" << std::endl;
+            success = false;
+        } else {
+            if (parsedParts.host != ftpParts.host || segments.empty() || segments.front() != L"root") {
+                std::wcerr << L"Round-trip mismatch" << std::endl;
+                success = false;
+            }
+        }
     }
 
     CoUninitialize();

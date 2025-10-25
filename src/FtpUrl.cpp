@@ -1,4 +1,5 @@
 #include "Utilities.h"
+#include "FtpPidl.h"
 
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -192,16 +193,10 @@ bool TryParseFtpUrl(const std::wstring& url, FtpUrlParts* parts) {
 }
 
 UniquePidl CreateFtpPidlFromUrl(const FtpUrlParts& parts) {
-    if (parts.canonicalUrl.empty()) {
+    if (parts.host.empty()) {
         return nullptr;
     }
-
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    if (SUCCEEDED(SHParseDisplayName(parts.canonicalUrl.c_str(), nullptr, &pidl, 0, nullptr)) && pidl) {
-        return UniquePidl(pidl);
-    }
-
-    return nullptr;
+    return ftp::CreatePidlFromFtpUrl(parts);
 }
 
 }  // namespace shelltabs
