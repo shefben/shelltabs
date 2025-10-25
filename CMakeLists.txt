@@ -78,6 +78,7 @@ target_link_libraries(ShellTabs PRIVATE
     pathcch
     Shlwapi
     gdiplus
+    propsys
 )
 
 set_target_properties(ShellTabs PROPERTIES

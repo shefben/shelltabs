@@ -260,6 +260,36 @@ bool TryGetComponentUint16(const SHITEMID& item, ComponentType component, std::u
     return found;
 }
 
+bool TryGetFindData(const SHITEMID& item, WIN32_FIND_DATAW* data) {
+    if (!data) {
+        return false;
+    }
+    bool found = false;
+    ForEachComponent(item, [&](const ComponentHeader& header, std::span<const std::byte> payload) {
+        if (header.type != static_cast<std::uint8_t>(ComponentType::FindData)) {
+            return true;
+        }
+        if (payload.size() != sizeof(WIN32_FIND_DATAW)) {
+            return false;
+        }
+        std::memcpy(data, payload.data(), sizeof(WIN32_FIND_DATAW));
+        found = true;
+        return false;
+    });
+    return found;
+}
+
+bool TryGetFindData(PCUIDLIST_RELATIVE pidl, WIN32_FIND_DATAW* data) {
+    if (!pidl) {
+        return false;
+    }
+    const auto* current = pidl;
+    if (current->mkid.cb == 0) {
+        return false;
+    }
+    return TryGetFindData(current->mkid, data);
+}
+
 bool TryParseFtpPidl(PCIDLIST_ABSOLUTE pidl, FtpUrlParts* parts, std::vector<std::wstring>* segments,
                      bool* terminalIsDirectory) {
     if (!pidl || !parts || !segments) {

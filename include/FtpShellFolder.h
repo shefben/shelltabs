@@ -12,9 +12,11 @@
 #include <shobjidl.h>
 #include <wrl/client.h>
 
+struct PROPERTYKEY;
+
 namespace shelltabs::ftp {
 
-class FtpShellFolder : public IShellFolder, public IPersistFolder2 {
+class FtpShellFolder : public IShellFolder2, public IPersistFolder2 {
 public:
     FtpShellFolder();
     FtpShellFolder(const FtpUrlParts& root, const std::vector<std::wstring>& segments);
@@ -44,6 +46,15 @@ public:
     IFACEMETHODIMP GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFlags, STRRET* pName) override;
     IFACEMETHODIMP SetNameOf(HWND hwnd, PCUITEMID_CHILD pidl, PCWSTR pszName, SHGDNF uFlags,
                              PIDLIST_RELATIVE* ppidlOut) override;
+
+    // IShellFolder2
+    IFACEMETHODIMP GetDefaultSearchGUID(GUID* pguid) override;
+    IFACEMETHODIMP EnumSearches(IEnumExtraSearch** ppEnum) override;
+    IFACEMETHODIMP GetDefaultColumn(DWORD dwRes, ULONG* pSort, ULONG* pDisplay) override;
+    IFACEMETHODIMP GetDefaultColumnState(UINT iColumn, SHCOLSTATEF* pcsFlags) override;
+    IFACEMETHODIMP GetDetailsEx(PCUITEMID_CHILD pidl, const PROPERTYKEY* pkey, VARIANT* pv) override;
+    IFACEMETHODIMP GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, SHELLDETAILS* pDetails) override;
+    IFACEMETHODIMP MapColumnToSCID(UINT iColumn, PROPERTYKEY* pkey) override;
 
     // IPersist
     IFACEMETHODIMP GetClassID(CLSID* pClassID) override;

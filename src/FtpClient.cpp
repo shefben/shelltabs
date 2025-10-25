@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cwchar>
 #include <cwctype>
 #include <map>
 #include <mutex>
@@ -53,6 +54,53 @@ auto NarrowToWide(const std::string& value) {
     result.resize(static_cast<size_t>(length));
     MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), length);
     return result;
+}
+
+bool ParseMlsdTimestamp(std::wstring_view value, FILETIME* fileTime) {
+    if (!fileTime || value.size() < 14) {
+        return false;
+    }
+    SYSTEMTIME systemTime{};
+    auto ParsePart = [](std::wstring_view part) -> WORD {
+        if (part.empty()) {
+            return 0;
+        }
+        return static_cast<WORD>(std::wcstol(std::wstring(part).c_str(), nullptr, 10));
+    };
+
+    systemTime.wYear = ParsePart(value.substr(0, 4));
+    systemTime.wMonth = ParsePart(value.substr(4, 2));
+    systemTime.wDay = ParsePart(value.substr(6, 2));
+    systemTime.wHour = ParsePart(value.substr(8, 2));
+    systemTime.wMinute = ParsePart(value.substr(10, 2));
+    systemTime.wSecond = ParsePart(value.substr(12, 2));
+    if (systemTime.wYear == 0 || systemTime.wMonth == 0 || systemTime.wDay == 0) {
+        return false;
+    }
+    return SystemTimeToFileTime(&systemTime, fileTime) != FALSE;
+}
+
+bool HasWritePermission(std::wstring_view permFacts) {
+    for (wchar_t ch : permFacts) {
+        switch (ch) {
+            case L'w':  // write file contents
+            case L'm':  // create directory
+            case L'a':  // append
+            case L'c':  // create file
+            case L'd':  // delete
+            case L'f':  // rename
+                return true;
+        }
+    }
+    return false;
+}
+
+DWORD BuildAttributes(bool isDirectory, bool canWrite) {
+    DWORD attributes = isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_ARCHIVE;
+    if (!canWrite) {
+        attributes |= FILE_ATTRIBUTE_READONLY;
+    }
+    return attributes;
 }
 
 bool EqualsIgnoreCase(const std::wstring& left, const std::wstring& right) {
@@ -399,6 +447,7 @@ HRESULT ExtractDirectoryListing(const std::string& raw, std::vector<FtpDirectory
     if (!entries) {
         return E_POINTER;
     }
+    entries->clear();
     std::wistringstream stream(NarrowToWide(raw));
     std::wstring line;
     while (std::getline(stream, line)) {
@@ -408,8 +457,75 @@ HRESULT ExtractDirectoryListing(const std::string& raw, std::vector<FtpDirectory
         if (line.empty()) {
             continue;
         }
+
+        size_t separator = line.find(L' ');
+        if (separator == std::wstring::npos) {
+            // Fallback for unexpected formats; keep legacy behavior.
+            FtpDirectoryEntry entry;
+            entry.name = line;
+            entry.isDirectory = false;
+            entry.attributes = FILE_ATTRIBUTE_ARCHIVE;
+            entries->push_back(std::move(entry));
+            continue;
+        }
+
+        std::wstring facts = line.substr(0, separator);
+        std::wstring name = line.substr(separator + 1);
+        size_t firstChar = name.find_first_not_of(L" ");
+        if (firstChar != std::wstring::npos) {
+            name.erase(0, firstChar);
+        }
+        if (name.empty() || name == L"." || name == L"..") {
+            continue;
+        }
+
+        bool isDirectory = false;
+        bool canWrite = true;
+        ULONGLONG size = 0;
+        FILETIME modified{};
+
+        size_t position = 0;
+        while (position < facts.size()) {
+            size_t next = facts.find(L';', position);
+            std::wstring_view fact(&facts[position], (next == std::wstring::npos ? facts.size() : next) - position);
+            size_t equals = fact.find(L'=');
+            if (equals != std::wstring_view::npos) {
+                std::wstring_view key = fact.substr(0, equals);
+                std::wstring_view value = fact.substr(equals + 1);
+                if (key == L"type") {
+                    if (value == L"dir" || value == L"cdir") {
+                        isDirectory = true;
+                    } else if (value == L"pdir") {
+                        // Parent directory entry should be skipped.
+                        name.clear();
+                        break;
+                    } else {
+                        isDirectory = false;
+                    }
+                } else if (key == L"size") {
+                    size = _wcstoui64(std::wstring(value).c_str(), nullptr, 10);
+                } else if (key == L"modify") {
+                    ParseMlsdTimestamp(value, &modified);
+                } else if (key == L"perm") {
+                    canWrite = HasWritePermission(value);
+                }
+            }
+            if (next == std::wstring::npos) {
+                break;
+            }
+            position = next + 1;
+        }
+
+        if (name.empty()) {
+            continue;
+        }
+
         FtpDirectoryEntry entry;
-        entry.name = line;
+        entry.name = std::move(name);
+        entry.isDirectory = isDirectory;
+        entry.size = size;
+        entry.lastWriteTime = modified;
+        entry.attributes = BuildAttributes(isDirectory, canWrite);
         entries->push_back(std::move(entry));
     }
     return S_OK;
@@ -612,6 +728,7 @@ public:
             entry.lastWriteTime = findData.ftLastWriteTime;
             entry.size = (static_cast<ULONGLONG>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow;
             entry.isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            entry.attributes = findData.dwFileAttributes;
             entries->push_back(std::move(entry));
         } while (InternetFindNextFileW(handle.Get(), &findData));
         return S_OK;
