@@ -1,5 +1,14 @@
 #pragma once
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+// Prevent winsock.h from being included by windows.h to avoid conflicts with winsock2.h
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
+
 #include <windows.h>
 
 #include <atomic>
@@ -90,13 +99,12 @@ private:
                                                      UINT_PTR subclassId, DWORD_PTR refData);
 
     std::atomic<long> m_refCount;
-    Microsoft::WRL::ComPtr<IUnknown> m_site;
-    Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
-    Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
+    IUnknown* m_site = nullptr;
+    // Removed m_webBrowser and m_connectionPoint - not needed for breadcrumb functionality
     DWORD m_connectionCookie = 0;
     bool m_bandVisible = false;
     bool m_shouldRetryEnsure = true;
-    Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
+    IShellBrowser* m_shellBrowser = nullptr;
     HWND m_breadcrumbToolbar = nullptr;
     bool m_breadcrumbSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
@@ -121,7 +129,7 @@ private:
     bool m_gdiplusInitialized = false;
     ULONG_PTR m_gdiplusToken = 0;
     mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
-    Microsoft::WRL::ComPtr<IShellView> m_shellView;
+    IShellView* m_shellView = nullptr;
     HWND m_shellViewWindow = nullptr;
     bool m_shellViewWindowSubclassInstalled = false;
     HWND m_frameWindow = nullptr;

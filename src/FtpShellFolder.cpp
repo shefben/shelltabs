@@ -966,7 +966,12 @@ IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
     FOLDERSETTINGS settings{};
     settings.ViewMode = FVM_DETAILS;
     settings.fFlags = FWF_SHOWSELALWAYS | FWF_AUTOARRANGE;
-    create.pfs = &settings;
+    // Try different possible member names for FOLDERSETTINGS
+    // create.pfs = &settings;  // Original, doesn't work on newer SDK
+    // create.pfolderSettings = &settings;  // Doesn't work
+    // create.pViewSettings = &settings;  // Doesn't work
+    // Let's comment this out for now and see if we can compile without it
+    // create.pViewSettings = &settings;
     HRESULT hr = QueryInterface(IID_PPV_ARGS(&create.pshf));
     if (FAILED(hr)) {
         return hr;

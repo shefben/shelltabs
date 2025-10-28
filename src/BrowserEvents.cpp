@@ -2,6 +2,16 @@
 
 #include <exdispid.h>
 #include <OleAuto.h>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+// Prevent winsock.h from being included by windows.h to avoid conflicts with winsock2.h
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
+
 #include <windows.h>
 
 #include "TabBand.h"

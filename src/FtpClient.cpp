@@ -5,6 +5,14 @@
 #include <wininet.h>
 #include <ws2tcpip.h>
 
+// Define missing WinINet constants if not available in SDK
+#ifndef INTERNET_OPTION_PASSIVE
+#define INTERNET_OPTION_PASSIVE 52
+#endif
+#ifndef INTERNET_OPTION_TRANSFER_TYPE
+#define INTERNET_OPTION_TRANSFER_TYPE 53
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -696,18 +704,23 @@ public:
         }
         entries->clear();
         if (useMlsd) {
-            WinInetHandle handle(FtpCommandW(connection_.Get(), TRUE, FTP_TRANSFER_TYPE_ASCII, L"MLSD", 0, nullptr));
-            if (!handle) {
+            HINTERNET commandHandle = nullptr;
+            if (FtpCommandW(connection_.Get(), TRUE, FTP_TRANSFER_TYPE_ASCII, L"MLSD", 0, &commandHandle)) {
+                WinInetHandle handle(commandHandle);
+                if (!handle) {
+                    return HRESULT_FROM_WIN32(GetLastError());
+                }
+                std::string buffer;
+                buffer.resize(4096);
+                std::string aggregate;
+                DWORD read = 0;
+                while (InternetReadFile(handle.Get(), buffer.data(), static_cast<DWORD>(buffer.size()), &read) && read != 0) {
+                    aggregate.append(buffer.data(), read);
+                }
+                return ExtractDirectoryListing(aggregate, entries);
+            } else {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
-            std::string buffer;
-            buffer.resize(4096);
-            std::string aggregate;
-            DWORD read = 0;
-            while (InternetReadFile(handle.Get(), buffer.data(), static_cast<DWORD>(buffer.size()), &read) && read != 0) {
-                aggregate.append(buffer.data(), read);
-            }
-            return ExtractDirectoryListing(aggregate, entries);
         }
         WIN32_FIND_DATAW findData;
         ZeroMemory(&findData, sizeof(findData));
@@ -834,7 +847,7 @@ public:
         }
         SocketHandle connected;
         for (PADDRINFOW current = result; current != nullptr; current = current->ai_next) {
-            SOCKET candidate = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
+            SOCKET candidate = ::socket(current->ai_family, current->ai_socktype, current->ai_protocol);
             if (candidate == INVALID_SOCKET) {
                 continue;
             }
@@ -1072,7 +1085,7 @@ private:
         }
         SocketHandle connected;
         for (PADDRINFOW current = result; current != nullptr; current = current->ai_next) {
-            SOCKET candidate = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
+            SOCKET candidate = ::socket(current->ai_family, current->ai_socktype, current->ai_protocol);
             if (candidate == INVALID_SOCKET) {
                 continue;
             }

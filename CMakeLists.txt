@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_definitions(_WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000)
 # Global for the whole project
 add_definitions(-D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000000)
+# Prevent winsock.h conflicts by ensuring winsock2.h is used
+add_definitions(-D_WINSOCKAPI_)
 
 option(SHELLTABS_BUILD_TESTS "Build ShellTabs test harnesses" OFF)
 
