@@ -1501,3 +1501,11 @@ void FtpClient::ClearExpiredSessions(const SessionKey& key, const FtpConnectionO
 
 }  // namespace shelltabs
 
+namespace shelltabs::ftp::testhooks {
+
+HRESULT ParseDirectoryListing(const std::string& raw, std::vector<FtpDirectoryEntry>* entries) {
+    return ExtractDirectoryListing(raw, entries);
+}
+
+}  // namespace shelltabs::ftp::testhooks
+

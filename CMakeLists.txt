@@ -93,6 +93,8 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         tests/UtilitiesFtpTests.cpp
         src/FtpPidl.cpp
         src/FtpUrl.cpp
+        src/FtpClient.cpp
+        src/Logging.cpp
     )
 
     target_include_directories(ShellTabsUtilitiesTests PRIVATE
@@ -112,5 +114,9 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         shell32
         ole32
         oleaut32
+        wininet
+        winhttp
+        ws2_32
+        credui
     )
 endif()

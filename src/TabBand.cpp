@@ -33,6 +33,7 @@
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
+#include "FtpPidl.h"
 
 namespace shelltabs {
 
@@ -98,6 +99,20 @@ std::wstring TrimWhitespace(const std::wstring& value) {
     }
     const size_t last = value.find_last_not_of(L" \t\r\n");
     return value.substr(first, last - first + 1);
+}
+
+bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return false;
+    }
+    shelltabs::FtpUrlParts parts;
+    std::vector<std::wstring> segments;
+    bool isDirectory = true;
+    if (!shelltabs::ftp::TryParseFtpPidl(pidl, &parts, &segments, &isDirectory)) {
+        return false;
+    }
+    ComPtr<IShellFolder> folder;
+    return SUCCEEDED(SHBindToObject(nullptr, pidl, nullptr, IID_PPV_ARGS(&folder)));
 }
 }
 
@@ -1419,6 +1434,7 @@ void TabBand::NavigateToTab(TabLocation location) {
     m_tabs.SetSelectedLocation(location);
     SaveSession();
     m_internalNavigation = true;
+    EnsureFtpNamespaceBinding(tab->pidl.get());
     const HRESULT hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER);
     if (FAILED(hr)) {
         m_internalNavigation = false;
