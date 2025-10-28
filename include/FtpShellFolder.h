@@ -9,10 +9,9 @@
 #include <string_view>
 #include <vector>
 
+#include <propkey.h>
 #include <shobjidl.h>
 #include <wrl/client.h>
-
-struct PROPERTYKEY;
 
 namespace shelltabs::ftp {
 
@@ -20,7 +19,7 @@ class FtpShellFolder : public IShellFolder2, public IPersistFolder2 {
 public:
     FtpShellFolder();
     FtpShellFolder(const FtpUrlParts& root, const std::vector<std::wstring>& segments);
-    ~FtpShellFolder() override;
+    ~FtpShellFolder();
 
     FtpShellFolder(const FtpShellFolder&) = delete;
     FtpShellFolder& operator=(const FtpShellFolder&) = delete;
@@ -52,9 +51,9 @@ public:
     IFACEMETHODIMP EnumSearches(IEnumExtraSearch** ppEnum) override;
     IFACEMETHODIMP GetDefaultColumn(DWORD dwRes, ULONG* pSort, ULONG* pDisplay) override;
     IFACEMETHODIMP GetDefaultColumnState(UINT iColumn, SHCOLSTATEF* pcsFlags) override;
-    IFACEMETHODIMP GetDetailsEx(PCUITEMID_CHILD pidl, const PROPERTYKEY* pkey, VARIANT* pv) override;
+    IFACEMETHODIMP GetDetailsEx(PCUITEMID_CHILD pidl, const SHCOLUMNID* pscid, VARIANT* pv) override;
     IFACEMETHODIMP GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, SHELLDETAILS* pDetails) override;
-    IFACEMETHODIMP MapColumnToSCID(UINT iColumn, PROPERTYKEY* pkey) override;
+    IFACEMETHODIMP MapColumnToSCID(UINT iColumn, SHCOLUMNID* pscid) override;
 
     // IPersist
     IFACEMETHODIMP GetClassID(CLSID* pClassID) override;

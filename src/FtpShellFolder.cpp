@@ -17,7 +17,6 @@
 #include <vector>
 
 #include <commctrl.h>
-#include <propkey.h>
 #include <propvarutil.h>
 #include <strsafe.h>
 #include <winnls.h>
@@ -31,6 +30,12 @@ using Microsoft::WRL::ComPtr;
 namespace shelltabs::ftp {
 
 namespace {
+
+#ifdef SHCONTF_ALLFOLDERS
+constexpr SHCONTF kShcontfAllFolders = SHCONTF_ALLFOLDERS;
+#else
+constexpr SHCONTF kShcontfAllFolders = static_cast<SHCONTF>(0x00000080);
+#endif
 
 std::wstring BuildCanonicalUrl(const FtpUrlParts& parts) {
     std::wstring url = L"ftp://";
@@ -149,7 +154,7 @@ struct ColumnDefinition {
     SHCOLSTATEF state = SHCOLSTATE_ONBYDEFAULT;
 };
 
-constexpr ColumnDefinition kColumnDefinitions[] = {
+const ColumnDefinition kColumnDefinitions[] = {
     {PKEY_ItemNameDisplay, L"Name", LVCFMT_LEFT, 30, SHCOLSTATE_ONBYDEFAULT | SHCOLSTATE_TYPE_STR},
     {PKEY_Size, L"Size", LVCFMT_RIGHT, 16, SHCOLSTATE_ONBYDEFAULT | SHCOLSTATE_TYPE_INT | SHCOLSTATE_SECONDARYUI},
     {PKEY_DateModified, L"Date modified", LVCFMT_LEFT, 24, SHCOLSTATE_ONBYDEFAULT | SHCOLSTATE_TYPE_DATE},
@@ -402,7 +407,7 @@ private:
     bool ShouldInclude(const FtpDirectoryEntry& entry) const {
         const bool isDirectory = entry.isDirectory;
         if (isDirectory) {
-            if ((flags_ & (SHCONTF_FOLDERS | SHCONTF_ALLFOLDERS)) == 0) {
+            if ((flags_ & (SHCONTF_FOLDERS | kShcontfAllFolders)) == 0) {
                 return false;
             }
         } else {
@@ -1059,7 +1064,7 @@ IFACEMETHODIMP FtpShellFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFl
     return AssignToStrRet(name, pName);
 }
 
-IFACEMETHODIMP FtpShellFolder::SetNameOf(HWND, PCUITEMID_CHILD, PCWSTR, SHGDNF, PIDLIST_RELATIVE**) {
+IFACEMETHODIMP FtpShellFolder::SetNameOf(HWND, PCUITEMID_CHILD, PCWSTR, SHGDNF, PIDLIST_RELATIVE*) {
     return E_NOTIMPL;
 }
 
@@ -1099,27 +1104,28 @@ IFACEMETHODIMP FtpShellFolder::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF* 
     return S_OK;
 }
 
-IFACEMETHODIMP FtpShellFolder::GetDetailsEx(PCUITEMID_CHILD pidl, const PROPERTYKEY* pkey, VARIANT* pv) {
-    if (!pkey || !pv) {
+IFACEMETHODIMP FtpShellFolder::GetDetailsEx(PCUITEMID_CHILD pidl, const SHCOLUMNID* pscid, VARIANT* pv) {
+    if (!pscid || !pv) {
         return E_POINTER;
     }
     VariantInit(pv);
     if (!pidl) {
         return E_INVALIDARG;
     }
+    const PROPERTYKEY key{pscid->fmtid, pscid->pid};
     WIN32_FIND_DATAW findData{};
     if (!TryGetFindData(pidl, &findData)) {
         return S_FALSE;
     }
-    if (IsEqualPropertyKey(*pkey, PKEY_ItemNameDisplay)) {
-        return InitPropVariantFromString(findData.cFileName, pv);
+    if (IsEqualPropertyKey(key, PKEY_ItemNameDisplay)) {
+        return InitVariantFromString(findData.cFileName, pv);
     }
-    if (IsEqualPropertyKey(*pkey, PKEY_Size)) {
+    if (IsEqualPropertyKey(key, PKEY_Size)) {
         ULONGLONG size = GetFileSizeFromFindData(findData);
-        return InitPropVariantFromUInt64(size, pv);
+        return InitVariantFromUInt64(size, pv);
     }
-    if (IsEqualPropertyKey(*pkey, PKEY_DateModified)) {
-        return InitPropVariantFromFileTime(&findData.ftLastWriteTime, pv);
+    if (IsEqualPropertyKey(key, PKEY_DateModified)) {
+        return InitVariantFromFileTime(&findData.ftLastWriteTime, pv);
     }
     return S_FALSE;
 }
@@ -1158,14 +1164,15 @@ IFACEMETHODIMP FtpShellFolder::GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, 
     return AssignToStrRet(value, &pDetails->str);
 }
 
-IFACEMETHODIMP FtpShellFolder::MapColumnToSCID(UINT iColumn, PROPERTYKEY* pkey) {
-    if (!pkey) {
+IFACEMETHODIMP FtpShellFolder::MapColumnToSCID(UINT iColumn, SHCOLUMNID* pscid) {
+    if (!pscid) {
         return E_POINTER;
     }
     if (iColumn >= kColumnCount) {
         return E_INVALIDARG;
     }
-    *pkey = kColumnDefinitions[iColumn].key;
+    pscid->fmtid = kColumnDefinitions[iColumn].key.fmtid;
+    pscid->pid = kColumnDefinitions[iColumn].key.pid;
     return S_OK;
 }
 
