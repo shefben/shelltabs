@@ -12,15 +12,13 @@
 #include <shobjidl.h>
 #include <wrl/client.h>
 
-struct PROPERTYKEY;
-
 namespace shelltabs::ftp {
 
 class FtpShellFolder : public IShellFolder2, public IPersistFolder2 {
 public:
     FtpShellFolder();
     FtpShellFolder(const FtpUrlParts& root, const std::vector<std::wstring>& segments);
-    ~FtpShellFolder() override;
+    ~FtpShellFolder();
 
     FtpShellFolder(const FtpShellFolder&) = delete;
     FtpShellFolder& operator=(const FtpShellFolder&) = delete;

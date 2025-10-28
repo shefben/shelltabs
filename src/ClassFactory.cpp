@@ -311,10 +311,6 @@ private:
     std::atomic<long> m_refCount;
 };
 
-}  // namespace
-
-namespace shelltabs {
-
 HRESULT CreateFtpFolderClassFactory(REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
@@ -329,8 +325,6 @@ HRESULT CreateFtpFolderClassFactory(REFIID riid, void** object) {
     factory->Release();
     return hr;
 }
-
-}  // namespace shelltabs
 
 }  // namespace shelltabs
 
