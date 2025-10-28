@@ -153,5 +153,11 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+namespace ftp::testhooks {
+
+HRESULT ParseDirectoryListing(const std::string& raw, std::vector<FtpDirectoryEntry>* entries);
+
+}  // namespace ftp::testhooks
+
 }  // namespace shelltabs
 

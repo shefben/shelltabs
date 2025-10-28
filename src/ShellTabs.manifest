@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="ShellTabs.ShellTabs" processorArchitecture="*" type="win32" />
+  <file name="ShellTabs.dll">
+    <comClass clsid="{A9C6F73E-43F4-47C3-8E45-59F80335277E}" threadingModel="Apartment" progid="ShellTabs.Band.1" />
+    <comClass clsid="{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}" threadingModel="Apartment" progid="ShellTabs.BrowserHelper.1" />
+    <comClass clsid="{7F4CF5A4-41D0-4E5A-9C9C-B49B63833A9B}" threadingModel="Apartment" />
+    <comClass clsid="{1A5E6BC2-89A2-46D3-9077-0CF76C63FE13}" threadingModel="Apartment" />
+  </file>
+</assembly>

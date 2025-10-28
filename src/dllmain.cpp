@@ -49,6 +49,12 @@ constexpr wchar_t kOpenFolderCommandFriendlyName[] = L"Shell Tabs Open Folder Co
 constexpr wchar_t kOpenFolderCommandVerb[] = L"ShellTabs.OpenInNewTab";
 constexpr wchar_t kOpenFolderCommandKeyName[] = L"ShellTabs.OpenInNewTab";
 constexpr wchar_t kOpenFolderCommandLabel[] = L"Open in new tab";
+constexpr wchar_t kFtpFolderFriendlyName[] = L"Shell Tabs FTP Folder";
+constexpr wchar_t kFtpNamespaceFriendlyName[] = L"Shell Tabs FTP Sites";
+constexpr wchar_t kFtpNamespaceParsingName[] = L"ftp://";
+constexpr DWORD kFtpShellFolderAttributes = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR |
+                                             SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_STREAM | SFGAO_CANLINK;
+constexpr DWORD kFtpShellFolderFlags = 0x00000028;
 
 struct ScopedRegKey {
     ScopedRegKey() = default;
@@ -87,6 +93,11 @@ private:
 HRESULT WriteRegistryStringValue(HKEY key, const wchar_t* valueName, const wchar_t* value) {
     const DWORD length = static_cast<DWORD>((wcslen(value) + 1) * sizeof(wchar_t));
     const LONG status = RegSetValueExW(key, valueName, 0, REG_SZ, reinterpret_cast<const BYTE*>(value), length);
+    return status == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(status);
+}
+
+HRESULT WriteRegistryDwordValue(HKEY key, const wchar_t* valueName, DWORD value) {
+    const LONG status = RegSetValueExW(key, valueName, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(DWORD));
     return status == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(status);
 }
 
@@ -704,6 +715,163 @@ HRESULT RegisterOpenFolderCommand(const std::wstring& clsidString) {
     return S_OK;
 }
 
+HRESULT RegisterFtpShellFolderClass(const std::wstring& modulePath, const std::wstring& clsidString,
+                                    const std::wstring& appIdString) {
+    HRESULT hr = RegisterInprocServer(modulePath, clsidString, kFtpFolderFriendlyName, appIdString.c_str(), nullptr, nullptr,
+                                      {});
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring shellFolderKey = L"Software\\Classes\\CLSID\\" + clsidString + L"\\ShellFolder";
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, shellFolderKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryDwordValue(key.get(), L"Attributes", kFtpShellFolderAttributes);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryDwordValue(key.get(), L"FolderValueFlags", kFtpShellFolderFlags);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            return WriteRegistryDwordValue(key.get(), L"WantsFORPARSING", 1);
+        },
+        /*allowUserFallback=*/false);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return S_OK;
+}
+
+HRESULT RegisterNamespaceNode(const std::wstring& clsidString, const wchar_t* friendlyName,
+                              const std::wstring& parsingName) {
+    const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
+    DeleteRegistryKeyForTargets(UserTargets(), baseKey, /*ignoreAccessDenied=*/true);
+
+    HRESULT hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, baseKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            if (!parsingName.empty()) {
+                inner = WriteRegistryStringValue(key.get(), L"ParsingName", parsingName.c_str());
+                if (FAILED(inner)) {
+                    return inner;
+                }
+            }
+            return S_OK;
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring shellFolderKey = baseKey + L"\\ShellFolder";
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, shellFolderKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryDwordValue(key.get(), L"Attributes", kFtpShellFolderAttributes);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryDwordValue(key.get(), L"PinToNameSpaceTree", 1);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryDwordValue(key.get(), L"SortOrderIndex", 90);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryDwordValue(key.get(), L"WantsFORPARSING", 1);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            return WriteRegistryDwordValue(key.get(), L"FolderValueFlags", kFtpShellFolderFlags);
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring desktopKey =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\" + clsidString;
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, desktopKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+            }
+            return inner;
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring myComputerKey =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\" + clsidString;
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, myComputerKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            if (friendlyName && *friendlyName) {
+                inner = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
+            }
+            return inner;
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return S_OK;
+}
+
+HRESULT UnregisterNamespaceNode(const std::wstring& clsidString) {
+    const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
+    HRESULT hr = DeleteRegistryKeyEverywhere(baseKey, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring desktopKey =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\" + clsidString;
+    hr = DeleteRegistryKeyEverywhere(desktopKey, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    const std::wstring myComputerKey =
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\" + clsidString;
+    hr = DeleteRegistryKeyEverywhere(myComputerKey, /*ignoreAccessDenied=*/true);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return S_OK;
+}
+
 HRESULT UnregisterOpenFolderCommand() {
     constexpr const wchar_t* kScopes[] = {
         L"Software\\Classes\\Directory\\shell\\",
@@ -843,6 +1011,9 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     if (rclsid == CLSID_ShellTabsOpenFolderCommand) {
         return CreateOpenFolderCommandClassFactory(riid, object);
     }
+    if (rclsid == CLSID_ShellTabsFtpFolder) {
+        return CreateFtpFolderClassFactory(riid, object);
+    }
 
     return CLASS_E_CLASSNOTAVAILABLE;
 }
@@ -884,6 +1055,16 @@ STDAPI DllRegisterServer(void) {
                                               appIdString.c_str(), nullptr, nullptr, {}));
     RETURN_IF_FAILED_LOG(L"RegisterOpenFolderCommand", RegisterOpenFolderCommand(commandClsid));
 
+    const std::wstring ftpClsid = GuidToString(CLSID_ShellTabsFtpFolder);
+    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (FTP folder)",
+                         RegisterFtpShellFolderClass(modulePath, ftpClsid, appIdString));
+    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (FTP folder)",
+                         RegisterExplorerApproved(ftpClsid, kFtpFolderFriendlyName));
+
+    const std::wstring ftpNamespaceClsid = GuidToString(CLSID_ShellTabsFtpRoot);
+    RETURN_IF_FAILED_LOG(L"RegisterNamespaceNode (FTP)",
+                         RegisterNamespaceNode(ftpNamespaceClsid, kFtpNamespaceFriendlyName, kFtpNamespaceParsingName));
+
     LogMessage(LogLevel::Info, L"DllRegisterServer completed successfully");
     return S_OK;
 }
@@ -921,6 +1102,12 @@ STDAPI DllUnregisterServer(void) {
                          DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + commandClsid,
                                                       /*ignoreAccessDenied=*/true));
     RETURN_IF_FAILED_LOG(L"UnregisterOpenFolderCommand", UnregisterOpenFolderCommand());
+    const std::wstring ftpClsid = GuidToString(CLSID_ShellTabsFtpFolder);
+    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (FTP folder CLSID)",
+                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + ftpClsid, /*ignoreAccessDenied=*/true));
+    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (FTP folder)", UnregisterApprovedExtension(ftpClsid));
+    const std::wstring ftpNamespaceClsid = GuidToString(CLSID_ShellTabsFtpRoot);
+    RETURN_IF_FAILED_LOG(L"UnregisterNamespaceNode (FTP)", UnregisterNamespaceNode(ftpNamespaceClsid));
     RETURN_IF_FAILED_LOG(L"UnregisterAppId", UnregisterAppId(appIdString, moduleFileName));
 
     LogMessage(LogLevel::Info, L"DllUnregisterServer completed successfully");
@@ -928,4 +1115,16 @@ STDAPI DllUnregisterServer(void) {
 }
 
 #undef RETURN_IF_FAILED_LOG
+
+STDAPI DllInstall(BOOL install, PCWSTR cmdLine) {
+    UNREFERENCED_PARAMETER(cmdLine);
+    if (install) {
+        HRESULT hr = DllRegisterServer();
+        if (FAILED(hr)) {
+            DllUnregisterServer();
+        }
+        return hr;
+    }
+    return DllUnregisterServer();
+}
 
