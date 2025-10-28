@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include <propkey.h>
 #include <shobjidl.h>
 #include <wrl/client.h>
 
@@ -50,9 +51,9 @@ public:
     IFACEMETHODIMP EnumSearches(IEnumExtraSearch** ppEnum) override;
     IFACEMETHODIMP GetDefaultColumn(DWORD dwRes, ULONG* pSort, ULONG* pDisplay) override;
     IFACEMETHODIMP GetDefaultColumnState(UINT iColumn, SHCOLSTATEF* pcsFlags) override;
-    IFACEMETHODIMP GetDetailsEx(PCUITEMID_CHILD pidl, const PROPERTYKEY* pkey, VARIANT* pv) override;
+    IFACEMETHODIMP GetDetailsEx(PCUITEMID_CHILD pidl, const SHCOLUMNID* pscid, VARIANT* pv) override;
     IFACEMETHODIMP GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, SHELLDETAILS* pDetails) override;
-    IFACEMETHODIMP MapColumnToSCID(UINT iColumn, PROPERTYKEY* pkey) override;
+    IFACEMETHODIMP MapColumnToSCID(UINT iColumn, SHCOLUMNID* pscid) override;
 
     // IPersist
     IFACEMETHODIMP GetClassID(CLSID* pClassID) override;
