@@ -1982,8 +1982,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             if (!SendMessage(hwnd, TB_GETITEMRECT, i, reinterpret_cast<LPARAM>(&gradientRect))) {
                 continue;
             }
-            detectedLeft = std::min(detectedLeft, gradientRect.left);
-            detectedRight = std::max(detectedRight, gradientRect.right);
+            detectedLeft = std::min(detectedLeft, static_cast<int>(gradientRect.left));
+            detectedRight = std::max(detectedRight, static_cast<int>(gradientRect.right));
         }
         if (detectedLeft < detectedRight) {
             gradientStartX = detectedLeft;
