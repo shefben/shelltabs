@@ -1,5 +1,8 @@
 #pragma once
 
+#ifdef _WINSOCKAPI_
+#undef _WINSOCKAPI_
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -137,8 +140,7 @@ private:
                                                         const FtpConnectionOptions& options,
                                                         const FtpCredential& credentials,
                                                         HRESULT* openResult);
-    void ReleaseSession(const SessionKey& key, const std::shared_ptr<FtpTransportSession>& session, bool keepAlive,
-                        const FtpConnectionOptions& options);
+    void ReleaseSession(const SessionKey& key, const std::shared_ptr<FtpTransportSession>& session, bool keepAlive);
 
     FtpTransportType DetermineTransport(const FtpConnectionOptions& options) const;
     std::vector<FtpTransportType> BuildTransportPriority(const FtpConnectionOptions& options) const;
