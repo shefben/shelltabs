@@ -371,6 +371,7 @@ void CExplorerBHO::Disconnect() {
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
     RemoveProgressSubclass();
+    RemoveAddressEditSubclass();
     RemoveExplorerViewSubclass();
     DisconnectEvents();
     m_webBrowser.Reset();
@@ -892,6 +893,91 @@ HWND CExplorerBHO::FindProgressWindow() const {
         reinterpret_cast<LPARAM>(&data));
 
     return data.progress;
+}
+
+HWND CExplorerBHO::FindAddressEditControl() const {
+    auto resolveEdit = [&](HWND window) -> HWND {
+        if (!window || !IsWindow(window)) {
+            return nullptr;
+        }
+        HWND edit = nullptr;
+        if (MatchesClass(window, L"ComboBoxEx32")) {
+            edit = reinterpret_cast<HWND>(SendMessageW(window, CBEM_GETEDITCONTROL, 0, 0));
+            if (!edit) {
+                edit = FindDescendantWindow(window, L"Edit");
+            }
+        } else if (MatchesClass(window, L"Edit")) {
+            edit = window;
+        } else {
+            edit = FindDescendantWindow(window, L"Edit");
+        }
+        if (!edit || !IsWindow(edit)) {
+            return nullptr;
+        }
+        if (!MatchesClass(edit, L"Edit")) {
+            return nullptr;
+        }
+        if (!IsBreadcrumbToolbarAncestor(edit) || !IsWindowOwnedByThisExplorer(edit)) {
+            return nullptr;
+        }
+        return edit;
+    };
+
+    if (m_breadcrumbToolbar && IsWindow(m_breadcrumbToolbar)) {
+        if (HWND parent = GetParent(m_breadcrumbToolbar)) {
+            if (HWND edit = resolveEdit(parent)) {
+                return edit;
+            }
+            if (HWND grandparent = GetParent(parent)) {
+                if (HWND edit = resolveEdit(grandparent)) {
+                    return edit;
+                }
+            }
+        }
+    }
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return nullptr;
+    }
+
+    struct EnumData {
+        const CExplorerBHO* self = nullptr;
+        HWND edit = nullptr;
+    } data{this, nullptr};
+
+    EnumChildWindows(
+        frame,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto* data = reinterpret_cast<EnumData*>(param);
+            if (!data || data->edit) {
+                return FALSE;
+            }
+            if (!MatchesClass(hwnd, L"ComboBoxEx32") && !MatchesClass(hwnd, L"Edit")) {
+                return TRUE;
+            }
+            HWND edit = nullptr;
+            if (MatchesClass(hwnd, L"ComboBoxEx32")) {
+                edit = reinterpret_cast<HWND>(SendMessageW(hwnd, CBEM_GETEDITCONTROL, 0, 0));
+                if (!edit) {
+                    edit = FindDescendantWindow(hwnd, L"Edit");
+                }
+            } else {
+                edit = hwnd;
+            }
+            if (!edit || !IsWindow(edit) || !MatchesClass(edit, L"Edit")) {
+                return TRUE;
+            }
+            if (!data->self->IsBreadcrumbToolbarAncestor(edit) ||
+                !data->self->IsWindowOwnedByThisExplorer(edit)) {
+                return TRUE;
+            }
+            data->edit = edit;
+            return FALSE;
+        },
+        reinterpret_cast<LPARAM>(&data));
+
+    return data.edit;
 }
 
 bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
@@ -1637,6 +1723,7 @@ bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
         m_loggedBreadcrumbToolbarMissing = false;
         LogMessage(LogLevel::Info, L"Installed breadcrumb gradient subclass on hwnd=%p", toolbar);
         InvalidateRect(toolbar, nullptr, TRUE);
+        UpdateAddressEditSubclass();
         return true;
     }
 
@@ -1675,6 +1762,7 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
     }
     m_loggedBreadcrumbToolbarMissing = false;
 
+    RemoveAddressEditSubclass();
     RemoveProgressSubclass();
 }
 
@@ -1688,6 +1776,57 @@ void CExplorerBHO::RemoveProgressSubclass() {
     }
     m_progressWindow = nullptr;
     m_progressSubclassInstalled = false;
+}
+
+bool CExplorerBHO::InstallAddressEditSubclass(HWND editWindow) {
+    if (!editWindow || !IsWindow(editWindow)) {
+        return false;
+    }
+
+    if (SetWindowSubclass(editWindow, &CExplorerBHO::AddressEditSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_addressEditWindow = editWindow;
+        m_addressEditSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed address edit gradient subclass on hwnd=%p", editWindow);
+        return true;
+    }
+
+    LogLastError(L"SetWindowSubclass(address edit)", GetLastError());
+    return false;
+}
+
+void CExplorerBHO::RemoveAddressEditSubclass() {
+    if (m_addressEditWindow && m_addressEditSubclassInstalled) {
+        if (IsWindow(m_addressEditWindow)) {
+            RemoveWindowSubclass(m_addressEditWindow, &CExplorerBHO::AddressEditSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+            InvalidateRect(m_addressEditWindow, nullptr, TRUE);
+        }
+    }
+    m_addressEditWindow = nullptr;
+    m_addressEditSubclassInstalled = false;
+}
+
+void CExplorerBHO::UpdateAddressEditSubclass() {
+    if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors || !m_gdiplusInitialized) {
+        RemoveAddressEditSubclass();
+        return;
+    }
+
+    HWND edit = FindAddressEditControl();
+    if (!edit) {
+        RemoveAddressEditSubclass();
+        return;
+    }
+
+    if (m_addressEditSubclassInstalled && edit == m_addressEditWindow && IsWindow(edit)) {
+        InvalidateRect(edit, nullptr, TRUE);
+        return;
+    }
+
+    RemoveAddressEditSubclass();
+    if (InstallAddressEditSubclass(edit)) {
+        InvalidateRect(edit, nullptr, TRUE);
+    }
 }
 
 void CExplorerBHO::EnsureBreadcrumbHook() {
@@ -1815,11 +1954,13 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     if (toolbar == m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         InvalidateRect(toolbar, nullptr, TRUE);
         UpdateProgressSubclass();
+        UpdateAddressEditSubclass();
         return;
     }
 
     InstallBreadcrumbSubclass(toolbar);
     UpdateProgressSubclass();
+    UpdateAddressEditSubclass();
 }
 
 void CExplorerBHO::UpdateProgressSubclass() {
@@ -2489,6 +2630,125 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
     return true;
 }
 
+bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
+    if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors) {
+        return false;
+    }
+
+    PAINTSTRUCT ps{};
+    HDC dc = BeginPaint(hwnd, &ps);
+    if (!dc) {
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) {
+        EndPaint(hwnd, &ps);
+        return true;
+    }
+
+    const BOOL caretHidden = HideCaret(hwnd);
+
+    COLORREF backgroundColor = GetBkColor(dc);
+    if (backgroundColor == CLR_INVALID) {
+        backgroundColor = GetSysColor(COLOR_WINDOW);
+    }
+    const COLORREF originalTextColor = SetTextColor(dc, backgroundColor);
+    const int originalBkMode = SetBkMode(dc, OPAQUE);
+    SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
+    SetTextColor(dc, originalTextColor);
+    SetBkMode(dc, originalBkMode);
+
+    std::wstring text;
+    const int length = GetWindowTextLengthW(hwnd);
+    if (length > 0) {
+        text.resize(length);
+        int copied = GetWindowTextW(hwnd, text.data(), length + 1);
+        if (copied < 0) {
+            copied = 0;
+        }
+        text.resize(static_cast<size_t>(std::clamp(copied, 0, length)));
+    }
+
+    RECT formatRect = client;
+    SendMessageW(hwnd, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatRect));
+    if (formatRect.right <= formatRect.left) {
+        formatRect = client;
+    }
+
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    HFONT oldFont = nullptr;
+    if (font) {
+        oldFont = static_cast<HFONT>(SelectObject(dc, font));
+    }
+
+    const COLORREF gradientStart = m_breadcrumbFontGradientStartColor;
+    const COLORREF gradientEnd = m_breadcrumbFontGradientEndColor;
+    const int brightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
+
+    const COLORREF previousTextColor = GetTextColor(dc);
+    const int previousBkMode = SetBkMode(dc, TRANSPARENT);
+
+    auto applyBrightness = [&](BYTE channel) -> BYTE {
+        const int boosted = channel + ((255 - channel) * brightness) / 100;
+        return static_cast<BYTE>(std::clamp(boosted, 0, 255));
+    };
+
+    auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
+        const double value = static_cast<double>(start) +
+                             (static_cast<double>(end) - static_cast<double>(start)) * position;
+        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
+    };
+
+    const double gradientWidth = static_cast<double>(std::max<LONG>(1, formatRect.right - formatRect.left));
+
+    for (int i = 0; i < static_cast<int>(text.size()); ++i) {
+        LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, i, 0);
+        if (pos == -1) {
+            continue;
+        }
+        const int charX = static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(pos)));
+        const int charY = static_cast<SHORT>(HIWORD(static_cast<DWORD_PTR>(pos)));
+
+        LRESULT nextPos = SendMessageW(hwnd, EM_POSFROMCHAR, i + 1, 0);
+        int nextX = (nextPos == -1) ? charX : static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
+        if (nextPos == -1 || nextX <= charX) {
+            SIZE extent{};
+            if (GetTextExtentPoint32W(dc, &text[i], 1, &extent)) {
+                nextX = charX + extent.cx;
+            } else {
+                nextX = charX + 1;
+            }
+        }
+
+        const int charWidth = std::max(1, nextX - charX);
+        double centerX = static_cast<double>(charX) + static_cast<double>(charWidth) / 2.0;
+        double position = (centerX - static_cast<double>(formatRect.left)) / gradientWidth;
+        position = std::clamp(position, 0.0, 1.0);
+
+        const BYTE red = applyBrightness(interpolateChannel(GetRValue(gradientStart), GetRValue(gradientEnd), position));
+        const BYTE green = applyBrightness(interpolateChannel(GetGValue(gradientStart), GetGValue(gradientEnd), position));
+        const BYTE blue = applyBrightness(interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
+
+        SetTextColor(dc, RGB(red, green, blue));
+        ExtTextOutW(dc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
+    }
+
+    SetBkMode(dc, previousBkMode);
+    SetTextColor(dc, previousTextColor);
+
+    if (oldFont) {
+        SelectObject(dc, oldFont);
+    }
+
+    if (caretHidden) {
+        ShowCaret(hwnd);
+    }
+
+    EndPaint(hwnd, &ps);
+    return true;
+}
+
 LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam) {
     HHOOK hookHandle = nullptr;
 
@@ -2503,16 +2763,22 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
             }
         }
 
-        if (className) {
-            if (_wcsicmp(className, TOOLBARCLASSNAMEW) != 0) {
-                return CallNextHookEx(nullptr, code, wParam, lParam);
+        wchar_t classBuffer[64]{};
+        if (!className) {
+            if (GetClassNameW(hwnd, classBuffer, ARRAYSIZE(classBuffer)) > 0) {
+                className = classBuffer;
             }
-        } else {
-            wchar_t buffer[64]{};
-            if (GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer)) <= 0 ||
-                _wcsicmp(buffer, TOOLBARCLASSNAMEW) != 0) {
-                return CallNextHookEx(nullptr, code, wParam, lParam);
-            }
+        }
+
+        if (!className) {
+            return CallNextHookEx(nullptr, code, wParam, lParam);
+        }
+
+        const bool isToolbar = (_wcsicmp(className, TOOLBARCLASSNAMEW) == 0);
+        const bool isCombo = (_wcsicmp(className, L"ComboBoxEx32") == 0);
+        const bool isEdit = (_wcsicmp(className, L"Edit") == 0);
+        if (!isToolbar && !isCombo && !isEdit) {
+            return CallNextHookEx(nullptr, code, wParam, lParam);
         }
 
         std::vector<CExplorerBHO*> observers;
@@ -2527,28 +2793,50 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
 
         if (!observers.empty()) {
             for (CExplorerBHO* observer : observers) {
-                if (!observer ||
-                    (!observer->m_breadcrumbGradientEnabled && !observer->m_breadcrumbFontGradientEnabled) ||
-                    !observer->m_gdiplusInitialized) {
+                if (!observer || !observer->m_gdiplusInitialized) {
                     continue;
                 }
 
-                HWND start = hwnd;
-                if (create && create->lpcs && create->lpcs->hwndParent) {
-                    start = create->lpcs->hwndParent;
+                if (isToolbar) {
+                    if (!observer->m_breadcrumbGradientEnabled && !observer->m_breadcrumbFontGradientEnabled) {
+                        continue;
+                    }
+                    HWND start = hwnd;
+                    if (create && create->lpcs && create->lpcs->hwndParent) {
+                        start = create->lpcs->hwndParent;
+                    }
+
+                    if (!observer->IsBreadcrumbToolbarAncestor(start)) {
+                        continue;
+                    }
+                    if (!observer->IsWindowOwnedByThisExplorer(hwnd)) {
+                        continue;
+                    }
+
+                    if (observer->InstallBreadcrumbSubclass(hwnd)) {
+                        observer->LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
+                                                     L"Breadcrumb toolbar subclassed via CBT hook (hwnd=%p)", hwnd);
+                    }
+                    continue;
                 }
 
-                if (!observer->IsBreadcrumbToolbarAncestor(start)) {
+                if (!observer->m_breadcrumbFontGradientEnabled || !observer->m_useCustomBreadcrumbFontColors) {
+                    continue;
+                }
+
+                HWND ancestryCheck = hwnd;
+                if (create && create->lpcs && create->lpcs->hwndParent) {
+                    ancestryCheck = create->lpcs->hwndParent;
+                }
+                if (!observer->IsBreadcrumbToolbarAncestor(ancestryCheck) &&
+                    !observer->IsBreadcrumbToolbarAncestor(hwnd)) {
                     continue;
                 }
                 if (!observer->IsWindowOwnedByThisExplorer(hwnd)) {
                     continue;
                 }
 
-                if (observer->InstallBreadcrumbSubclass(hwnd)) {
-                    observer->LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
-                                                 L"Breadcrumb toolbar subclassed via CBT hook (hwnd=%p)", hwnd);
-                }
+                observer->UpdateAddressEditSubclass();
             }
         }
     }
@@ -2617,6 +2905,45 @@ LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM 
             break;
         case WM_NCDESTROY:
             self->RemoveProgressSubclass();
+            break;
+        default:
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                       UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_PAINT:
+            if (self->HandleAddressEditPaint(hwnd)) {
+                return 0;
+            }
+            break;
+        case WM_SETTEXT:
+        case EM_REPLACESEL:
+        case EM_SETSEL:
+        case WM_CUT:
+        case WM_PASTE:
+        case WM_UNDO:
+        case WM_CLEAR:
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+        case WM_SETFONT:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return result;
+        }
+        case WM_NCDESTROY:
+            self->RemoveAddressEditSubclass();
             break;
         default:
             break;
