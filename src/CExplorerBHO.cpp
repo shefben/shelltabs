@@ -2772,11 +2772,11 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd, HDC providedDc) {
     }
 
     PAINTSTRUCT ps{};
-    HDC dc = providedDc;
+    HDC targetDc = providedDc;
     bool beganPaint = false;
-    if (!dc) {
-        dc = BeginPaint(hwnd, &ps);
-        if (!dc) {
+    if (!targetDc) {
+        targetDc = BeginPaint(hwnd, &ps);
+        if (!targetDc) {
             return false;
         }
         beganPaint = true;
@@ -2790,17 +2790,35 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd, HDC providedDc) {
         return true;
     }
 
+    const LONG width = std::max<LONG>(0, client.right - client.left);
+    const LONG height = std::max<LONG>(0, client.bottom - client.top);
+
+    HDC paintDc = targetDc;
+    HDC memoryDc = nullptr;
+    HBITMAP memoryBitmap = nullptr;
+    HGDIOBJ previousBitmap = nullptr;
+
+    if (width > 0 && height > 0) {
+        memoryDc = CreateCompatibleDC(targetDc);
+        if (memoryDc) {
+            memoryBitmap = CreateCompatibleBitmap(targetDc, width, height);
+            if (memoryBitmap) {
+                previousBitmap = SelectObject(memoryDc, memoryBitmap);
+                paintDc = memoryDc;
+            } else {
+                DeleteDC(memoryDc);
+                memoryDc = nullptr;
+            }
+        }
+    }
+
     const BOOL caretHidden = HideCaret(hwnd);
 
-    COLORREF backgroundColor = GetBkColor(dc);
-    if (backgroundColor == CLR_INVALID) {
-        backgroundColor = GetSysColor(COLOR_WINDOW);
-    }
-    const COLORREF originalTextColor = SetTextColor(dc, backgroundColor);
-    const int originalBkMode = SetBkMode(dc, OPAQUE);
-    SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
-    SetTextColor(dc, originalTextColor);
-    SetBkMode(dc, originalBkMode);
+    const COLORREF originalTextColor = GetTextColor(paintDc);
+    const int originalBkMode = SetBkMode(paintDc, OPAQUE);
+    SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(paintDc), PRF_CLIENT);
+    SetBkMode(paintDc, originalBkMode);
+    SetTextColor(paintDc, originalTextColor);
 
     std::wstring text;
     const int length = GetWindowTextLengthW(hwnd);
@@ -2822,15 +2840,15 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd, HDC providedDc) {
     HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
     HFONT oldFont = nullptr;
     if (font) {
-        oldFont = static_cast<HFONT>(SelectObject(dc, font));
+        oldFont = static_cast<HFONT>(SelectObject(paintDc, font));
     }
 
     const COLORREF gradientStart = m_breadcrumbFontGradientStartColor;
     const COLORREF gradientEnd = m_breadcrumbFontGradientEndColor;
     const int brightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
 
-    const COLORREF previousTextColor = GetTextColor(dc);
-    const int previousBkMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF previousTextColor = GetTextColor(paintDc);
+    const int previousBkMode = SetBkMode(paintDc, TRANSPARENT);
 
     auto applyBrightness = [&](BYTE channel) -> BYTE {
         const int boosted = channel + ((255 - channel) * brightness) / 100;
@@ -2857,7 +2875,7 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd, HDC providedDc) {
         int nextX = (nextPos == -1) ? charX : static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
         if (nextPos == -1 || nextX <= charX) {
             SIZE extent{};
-            if (GetTextExtentPoint32W(dc, &text[i], 1, &extent)) {
+            if (GetTextExtentPoint32W(paintDc, &text[i], 1, &extent)) {
                 nextX = charX + extent.cx;
             } else {
                 nextX = charX + 1;
@@ -2873,15 +2891,24 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd, HDC providedDc) {
         const BYTE green = applyBrightness(interpolateChannel(GetGValue(gradientStart), GetGValue(gradientEnd), position));
         const BYTE blue = applyBrightness(interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
 
-        SetTextColor(dc, RGB(red, green, blue));
-        ExtTextOutW(dc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
+        SetTextColor(paintDc, RGB(red, green, blue));
+        ExtTextOutW(paintDc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
     }
 
-    SetBkMode(dc, previousBkMode);
-    SetTextColor(dc, previousTextColor);
+    SetBkMode(paintDc, previousBkMode);
+    SetTextColor(paintDc, previousTextColor);
 
     if (oldFont) {
-        SelectObject(dc, oldFont);
+        SelectObject(paintDc, oldFont);
+    }
+
+    if (memoryDc) {
+        BitBlt(targetDc, 0, 0, width, height, memoryDc, 0, 0, SRCCOPY);
+        if (previousBitmap) {
+            SelectObject(memoryDc, previousBitmap);
+        }
+        DeleteObject(memoryBitmap);
+        DeleteDC(memoryDc);
     }
 
     if (caretHidden) {
@@ -3087,8 +3114,14 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
 
     switch (msg) {
         case WM_PAINT:
+        case WM_PRINTCLIENT:
             if (self->HandleAddressEditPaint(hwnd, reinterpret_cast<HDC>(wParam))) {
                 return 0;
+            }
+            break;
+        case WM_ERASEBKGND:
+            if (self->m_breadcrumbFontGradientEnabled && self->m_useCustomBreadcrumbFontColors) {
+                return 1;
             }
             break;
         case WM_SETTEXT:
