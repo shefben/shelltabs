@@ -980,6 +980,80 @@ HWND CExplorerBHO::FindAddressEditControl() const {
     return data.edit;
 }
 
+void CExplorerBHO::CollectSearchEditControls(std::vector<HWND>& controls) const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return;
+    }
+
+    struct EnumData {
+        const CExplorerBHO* self = nullptr;
+        std::vector<HWND>* results = nullptr;
+    } data{this, &controls};
+
+    EnumChildWindows(
+        frame,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto* data = reinterpret_cast<EnumData*>(param);
+            if (!data || !data->self || !data->results) {
+                return FALSE;
+            }
+            if (data->self->IsSearchEditControl(hwnd) && IsWindowVisible(hwnd)) {
+                if (std::find(data->results->begin(), data->results->end(), hwnd) == data->results->end()) {
+                    data->results->push_back(hwnd);
+                }
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&data));
+}
+
+bool CExplorerBHO::IsSearchEditControl(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd) || !MatchesClass(hwnd, L"Edit")) {
+        return false;
+    }
+
+    if (!IsWindowOwnedByThisExplorer(hwnd)) {
+        return false;
+    }
+
+    static const std::array<const wchar_t*, 11> kSearchAncestors = {
+        L"SearchEditBoxWrapper",
+        L"SearchEditBox",
+        L"SearchControl",
+        L"SearchBand",
+        L"SearchBox",
+        L"SearchBoxWindow",
+        L"SearchPane",
+        L"SearchTextField",
+        L"SearchBoxContainer",
+        L"Windows.UI.Composition",
+        L"NativeHWNDHost",
+    };
+
+    HWND current = GetParent(hwnd);
+    int depth = 0;
+    while (current && depth++ < 12) {
+        for (const wchar_t* candidate : kSearchAncestors) {
+            if (MatchesClass(current, candidate)) {
+                return true;
+            }
+        }
+
+        if (MatchesClass(current, TOOLBARCLASSNAME) || MatchesClass(current, L"Breadcrumb Parent") ||
+            MatchesClass(current, L"ComboBoxEx32")) {
+            return false;
+        }
+        if (MatchesClass(current, L"SysListView32") || MatchesClass(current, L"DirectUIHWND")) {
+            return false;
+        }
+
+        current = GetParent(current);
+    }
+
+    return false;
+}
+
 bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
     HWND current = hwnd;
     bool sawRebar = false;
@@ -1784,8 +1858,6 @@ bool CExplorerBHO::InstallAddressEditSubclass(HWND editWindow) {
     }
 
     if (SetWindowSubclass(editWindow, &CExplorerBHO::AddressEditSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-        m_addressEditWindow = editWindow;
-        m_addressEditSubclassInstalled = true;
         LogMessage(LogLevel::Info, L"Installed address edit gradient subclass on hwnd=%p", editWindow);
         return true;
     }
@@ -1795,15 +1867,32 @@ bool CExplorerBHO::InstallAddressEditSubclass(HWND editWindow) {
 }
 
 void CExplorerBHO::RemoveAddressEditSubclass() {
-    if (m_addressEditWindow && m_addressEditSubclassInstalled) {
-        if (IsWindow(m_addressEditWindow)) {
-            RemoveWindowSubclass(m_addressEditWindow, &CExplorerBHO::AddressEditSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-            InvalidateRect(m_addressEditWindow, nullptr, TRUE);
-        }
+    if (m_gradientEditWindows.empty()) {
+        return;
     }
-    m_addressEditWindow = nullptr;
-    m_addressEditSubclassInstalled = false;
+
+    auto windows = m_gradientEditWindows;
+    for (HWND hwnd : windows) {
+        RemoveGradientEditWindow(hwnd);
+    }
+}
+
+void CExplorerBHO::RemoveGradientEditWindow(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+
+    auto it = std::find(m_gradientEditWindows.begin(), m_gradientEditWindows.end(), hwnd);
+    if (it == m_gradientEditWindows.end()) {
+        return;
+    }
+
+    if (IsWindow(hwnd)) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::AddressEditSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        InvalidateRect(hwnd, nullptr, TRUE);
+    }
+
+    m_gradientEditWindows.erase(it);
 }
 
 void CExplorerBHO::UpdateAddressEditSubclass() {
@@ -1812,21 +1901,53 @@ void CExplorerBHO::UpdateAddressEditSubclass() {
         return;
     }
 
-    HWND edit = FindAddressEditControl();
-    if (!edit) {
+    std::vector<HWND> desired;
+    if (HWND addressEdit = FindAddressEditControl()) {
+        desired.push_back(addressEdit);
+    }
+    CollectSearchEditControls(desired);
+
+    desired.erase(std::remove_if(desired.begin(), desired.end(), [](HWND hwnd) {
+                        return hwnd == nullptr;
+                    }),
+                  desired.end());
+
+    if (desired.empty()) {
         RemoveAddressEditSubclass();
         return;
     }
 
-    if (m_addressEditSubclassInstalled && edit == m_addressEditWindow && IsWindow(edit)) {
-        InvalidateRect(edit, nullptr, TRUE);
-        return;
+    std::vector<HWND> retained;
+    for (HWND existing : m_gradientEditWindows) {
+        if (!existing || !IsWindow(existing) ||
+            std::find(desired.begin(), desired.end(), existing) == desired.end()) {
+            if (existing && IsWindow(existing)) {
+                RemoveWindowSubclass(existing, &CExplorerBHO::AddressEditSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+                InvalidateRect(existing, nullptr, TRUE);
+            }
+        }
     }
 
-    RemoveAddressEditSubclass();
-    if (InstallAddressEditSubclass(edit)) {
-        InvalidateRect(edit, nullptr, TRUE);
+    for (HWND target : desired) {
+        if (!target || !IsWindow(target)) {
+            continue;
+        }
+
+        if (std::find(retained.begin(), retained.end(), target) != retained.end()) {
+            continue;
+        }
+
+        const bool alreadyInstalled =
+            std::find(m_gradientEditWindows.begin(), m_gradientEditWindows.end(), target) != m_gradientEditWindows.end();
+
+        if (alreadyInstalled || InstallAddressEditSubclass(target)) {
+            retained.push_back(target);
+            InvalidateRect(target, nullptr, TRUE);
+        }
     }
+
+    m_gradientEditWindows = std::move(retained);
 }
 
 void CExplorerBHO::EnsureBreadcrumbHook() {
@@ -2562,20 +2683,27 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     return true;
 }
 
-bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
+bool CExplorerBHO::HandleProgressPaint(HWND hwnd, HDC providedDc) {
     if (!m_useCustomProgressGradientColors) {
         return false;
     }
 
     PAINTSTRUCT ps{};
-    HDC dc = BeginPaint(hwnd, &ps);
+    HDC dc = providedDc;
+    bool beganPaint = false;
     if (!dc) {
-        return false;
+        dc = BeginPaint(hwnd, &ps);
+        if (!dc) {
+            return false;
+        }
+        beganPaint = true;
     }
 
     RECT client{};
     if (!GetClientRect(hwnd, &client)) {
-        EndPaint(hwnd, &ps);
+        if (beganPaint) {
+            EndPaint(hwnd, &ps);
+        }
         return true;
     }
 
@@ -2622,42 +2750,75 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
             vertex[1].Alpha = 0xFFFF;
 
             GRADIENT_RECT gradientRect{0, 1};
-            GradientFill(dc, vertex, 2, &gradientRect, 1, GRADIENT_FILL_RECT_H);
+            if (!GradientFill(dc, vertex, 2, &gradientRect, 1, GRADIENT_FILL_RECT_H)) {
+                const HBRUSH fallbackBrush = CreateSolidBrush(m_progressGradientStartColor);
+                if (fallbackBrush) {
+                    FillRect(dc, &fillRect, fallbackBrush);
+                    DeleteObject(fallbackBrush);
+                }
+            }
         }
     }
 
-    EndPaint(hwnd, &ps);
+    if (beganPaint) {
+        EndPaint(hwnd, &ps);
+    }
     return true;
 }
 
-bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
+bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd, HDC providedDc) {
     if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors) {
         return false;
     }
 
     PAINTSTRUCT ps{};
-    HDC dc = BeginPaint(hwnd, &ps);
-    if (!dc) {
-        return false;
+    HDC targetDc = providedDc;
+    bool beganPaint = false;
+    if (!targetDc) {
+        targetDc = BeginPaint(hwnd, &ps);
+        if (!targetDc) {
+            return false;
+        }
+        beganPaint = true;
     }
 
     RECT client{};
     if (!GetClientRect(hwnd, &client)) {
-        EndPaint(hwnd, &ps);
+        if (beganPaint) {
+            EndPaint(hwnd, &ps);
+        }
         return true;
+    }
+
+    const LONG width = std::max<LONG>(0, client.right - client.left);
+    const LONG height = std::max<LONG>(0, client.bottom - client.top);
+
+    HDC paintDc = targetDc;
+    HDC memoryDc = nullptr;
+    HBITMAP memoryBitmap = nullptr;
+    HGDIOBJ previousBitmap = nullptr;
+
+    if (width > 0 && height > 0) {
+        memoryDc = CreateCompatibleDC(targetDc);
+        if (memoryDc) {
+            memoryBitmap = CreateCompatibleBitmap(targetDc, width, height);
+            if (memoryBitmap) {
+                previousBitmap = SelectObject(memoryDc, memoryBitmap);
+                paintDc = memoryDc;
+            } else {
+                DeleteDC(memoryDc);
+                memoryDc = nullptr;
+            }
+        }
     }
 
     const BOOL caretHidden = HideCaret(hwnd);
 
-    COLORREF backgroundColor = GetBkColor(dc);
-    if (backgroundColor == CLR_INVALID) {
-        backgroundColor = GetSysColor(COLOR_WINDOW);
-    }
-    const COLORREF originalTextColor = SetTextColor(dc, backgroundColor);
-    const int originalBkMode = SetBkMode(dc, OPAQUE);
-    SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
-    SetTextColor(dc, originalTextColor);
-    SetBkMode(dc, originalBkMode);
+    const COLORREF originalTextColor = GetTextColor(paintDc);
+    const int originalBkMode = SetBkMode(paintDc, OPAQUE);
+    SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(paintDc), PRF_CLIENT);
+    SetBkMode(paintDc, originalBkMode);
+    SetTextColor(paintDc, originalTextColor);
 
     std::wstring text;
     const int length = GetWindowTextLengthW(hwnd);
@@ -2679,15 +2840,15 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
     HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
     HFONT oldFont = nullptr;
     if (font) {
-        oldFont = static_cast<HFONT>(SelectObject(dc, font));
+        oldFont = static_cast<HFONT>(SelectObject(paintDc, font));
     }
 
     const COLORREF gradientStart = m_breadcrumbFontGradientStartColor;
     const COLORREF gradientEnd = m_breadcrumbFontGradientEndColor;
     const int brightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
 
-    const COLORREF previousTextColor = GetTextColor(dc);
-    const int previousBkMode = SetBkMode(dc, TRANSPARENT);
+    const COLORREF previousTextColor = GetTextColor(paintDc);
+    const int previousBkMode = SetBkMode(paintDc, TRANSPARENT);
 
     auto applyBrightness = [&](BYTE channel) -> BYTE {
         const int boosted = channel + ((255 - channel) * brightness) / 100;
@@ -2714,7 +2875,7 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
         int nextX = (nextPos == -1) ? charX : static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
         if (nextPos == -1 || nextX <= charX) {
             SIZE extent{};
-            if (GetTextExtentPoint32W(dc, &text[i], 1, &extent)) {
+            if (GetTextExtentPoint32W(paintDc, &text[i], 1, &extent)) {
                 nextX = charX + extent.cx;
             } else {
                 nextX = charX + 1;
@@ -2730,22 +2891,33 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
         const BYTE green = applyBrightness(interpolateChannel(GetGValue(gradientStart), GetGValue(gradientEnd), position));
         const BYTE blue = applyBrightness(interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
 
-        SetTextColor(dc, RGB(red, green, blue));
-        ExtTextOutW(dc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
+        SetTextColor(paintDc, RGB(red, green, blue));
+        ExtTextOutW(paintDc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
     }
 
-    SetBkMode(dc, previousBkMode);
-    SetTextColor(dc, previousTextColor);
+    SetBkMode(paintDc, previousBkMode);
+    SetTextColor(paintDc, previousTextColor);
 
     if (oldFont) {
-        SelectObject(dc, oldFont);
+        SelectObject(paintDc, oldFont);
+    }
+
+    if (memoryDc) {
+        BitBlt(targetDc, 0, 0, width, height, memoryDc, 0, 0, SRCCOPY);
+        if (previousBitmap) {
+            SelectObject(memoryDc, previousBitmap);
+        }
+        DeleteObject(memoryBitmap);
+        DeleteDC(memoryDc);
     }
 
     if (caretHidden) {
         ShowCaret(hwnd);
     }
 
-    EndPaint(hwnd, &ps);
+    if (beganPaint) {
+        EndPaint(hwnd, &ps);
+    }
     return true;
 }
 
@@ -2888,7 +3060,13 @@ LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM 
 
     switch (msg) {
         case WM_PAINT:
-            if (self->HandleProgressPaint(hwnd)) {
+            if (self->HandleProgressPaint(hwnd, reinterpret_cast<HDC>(wParam))) {
+                return 0;
+            }
+            break;
+        case WM_PRINTCLIENT:
+            if (self->m_useCustomProgressGradientColors &&
+                self->HandleProgressPaint(hwnd, reinterpret_cast<HDC>(wParam))) {
                 return 0;
             }
             break;
@@ -2897,6 +3075,20 @@ LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM 
                 return 1;
             }
             break;
+        case PBM_SETPOS:
+        case PBM_SETRANGE:
+        case PBM_SETRANGE32:
+        case PBM_DELTAPOS:
+        case PBM_STEPIT:
+        case PBM_SETSTEP:
+        case PBM_SETSTATE:
+        case PBM_SETMARQUEE: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (self->m_useCustomProgressGradientColors) {
+                RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
+            }
+            return result;
+        }
         case WM_THEMECHANGED:
         case WM_SETTINGCHANGE:
             if (self->m_useCustomProgressGradientColors) {
@@ -2922,8 +3114,14 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
 
     switch (msg) {
         case WM_PAINT:
-            if (self->HandleAddressEditPaint(hwnd)) {
+        case WM_PRINTCLIENT:
+            if (self->HandleAddressEditPaint(hwnd, reinterpret_cast<HDC>(wParam))) {
                 return 0;
+            }
+            break;
+        case WM_ERASEBKGND:
+            if (self->m_breadcrumbFontGradientEnabled && self->m_useCustomBreadcrumbFontColors) {
+                return 1;
             }
             break;
         case WM_SETTEXT:
@@ -2938,12 +3136,17 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
         case WM_SETFONT:
         case WM_SETFOCUS:
         case WM_KILLFOCUS: {
-            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-            InvalidateRect(hwnd, nullptr, TRUE);
-            return result;
+            if (self->m_breadcrumbFontGradientEnabled && self->m_useCustomBreadcrumbFontColors) {
+                SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+                RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
+                return result;
+            }
+            break;
         }
         case WM_NCDESTROY:
-            self->RemoveAddressEditSubclass();
+            self->RemoveGradientEditWindow(hwnd);
             break;
         default:
             break;
