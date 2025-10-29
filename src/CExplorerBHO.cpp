@@ -1055,6 +1055,10 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
         if (SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
             m_listView = listView;
             m_listViewSubclassInstalled = true;
+            ApplyListViewBackgroundMode();
+            if (m_folderBackgroundImageActive) {
+                InvalidateRect(m_listView, nullptr, TRUE);
+            }
             installed = true;
             LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
         } else {
@@ -1762,6 +1766,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
     m_progressGradientStartColor = options.progressBarGradientStartColor;
     m_progressGradientEndColor = options.progressBarGradientEndColor;
+    UpdateFolderBackgroundOptions(options);
 
     UpdateProgressSubclass();
 
@@ -1849,6 +1854,88 @@ void CExplorerBHO::UpdateProgressSubclass() {
     if (InstallProgressSubclass(progress)) {
         InvalidateRect(progress, nullptr, TRUE);
     }
+}
+
+void CExplorerBHO::UpdateFolderBackgroundOptions(const ShellTabsOptions& options) {
+    const bool enabled = options.enableFolderViewBackgroundImage;
+    const std::wstring& path = options.folderViewBackgroundImagePath;
+
+    bool changed = (m_folderBackgroundImageEnabled != enabled);
+    if (!changed) {
+        changed = _wcsicmp(m_folderBackgroundImagePath.c_str(), path.c_str()) != 0;
+    }
+
+    if (!changed) {
+        return;
+    }
+
+    m_folderBackgroundImageEnabled = enabled;
+    m_folderBackgroundImagePath = path;
+
+    ReloadFolderBackgroundImage();
+    ApplyListViewBackgroundMode();
+
+    if (m_listView && IsWindow(m_listView)) {
+        InvalidateRect(m_listView, nullptr, TRUE);
+    }
+}
+
+void CExplorerBHO::ReloadFolderBackgroundImage() {
+    m_folderBackgroundImage.reset();
+    m_folderBackgroundImageActive = false;
+
+    if (!m_folderBackgroundImageEnabled) {
+        LogMessage(LogLevel::Info, L"Folder view background image disabled");
+        return;
+    }
+
+    if (!m_gdiplusInitialized) {
+        LogMessage(LogLevel::Warning,
+                   L"Folder view background image unavailable: GDI+ initialization failed previously");
+        return;
+    }
+
+    if (m_folderBackgroundImagePath.empty()) {
+        LogMessage(LogLevel::Warning, L"Folder view background image path is empty; disabling");
+        return;
+    }
+
+    const DWORD attributes = GetFileAttributesW(m_folderBackgroundImagePath.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        LogMessage(LogLevel::Warning, L"Folder view background image not found: %s",
+                   m_folderBackgroundImagePath.c_str());
+        return;
+    }
+
+    auto image = std::make_unique<Gdiplus::Image>(m_folderBackgroundImagePath.c_str());
+    if (!image) {
+        LogMessage(LogLevel::Warning, L"Failed to allocate folder view background image: %s",
+                   m_folderBackgroundImagePath.c_str());
+        return;
+    }
+
+    if (image->GetLastStatus() != Gdiplus::Ok || image->GetWidth() == 0 || image->GetHeight() == 0) {
+        LogMessage(LogLevel::Warning,
+                   L"Failed to load folder view background image '%s' (status=%d width=%u height=%u)",
+                   m_folderBackgroundImagePath.c_str(), static_cast<int>(image->GetLastStatus()),
+                   image->GetWidth(), image->GetHeight());
+        return;
+    }
+
+    m_folderBackgroundImage = std::move(image);
+    m_folderBackgroundImageActive = true;
+    LogMessage(LogLevel::Info, L"Folder view background image ready: %s",
+               m_folderBackgroundImagePath.c_str());
+}
+
+void CExplorerBHO::ApplyListViewBackgroundMode() {
+    if (!m_listView || !IsWindow(m_listView)) {
+        return;
+    }
+
+    const COLORREF color = m_folderBackgroundImageActive ? CLR_NONE : CLR_DEFAULT;
+    ListView_SetBkColor(m_listView, color);
+    ListView_SetTextBkColor(m_listView, color);
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
@@ -2489,6 +2576,57 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
     return true;
 }
 
+bool CExplorerBHO::HandleListViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM, LRESULT* result) {
+    if (!result) {
+        return false;
+    }
+
+    switch (msg) {
+        case WM_ERASEBKGND: {
+            if (!m_folderBackgroundImageActive || !wParam || !m_folderBackgroundImage) {
+                break;
+            }
+
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (!dc) {
+                break;
+            }
+
+            RECT client{};
+            if (!GetClientRect(hwnd, &client)) {
+                break;
+            }
+
+            const int width = client.right - client.left;
+            const int height = client.bottom - client.top;
+            if (width <= 0 || height <= 0) {
+                break;
+            }
+
+            Gdiplus::Graphics graphics(dc);
+            if (graphics.GetLastStatus() != Gdiplus::Ok) {
+                break;
+            }
+
+            graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+            graphics.SetSmoothingMode(Gdiplus::SmoothingModeHighQuality);
+            const Gdiplus::Rect targetRect(client.left, client.top, width, height);
+            graphics.DrawImage(m_folderBackgroundImage.get(), targetRect);
+            *result = 1;
+            return true;
+        }
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+            ApplyListViewBackgroundMode();
+            break;
+        default:
+            break;
+    }
+
+    return false;
+}
+
 LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam) {
     HHOOK hookHandle = nullptr;
 
@@ -2635,6 +2773,13 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
     LRESULT result = 0;
     if (self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result)) {
         return result;
+    }
+
+    if (hwnd == self->m_listView) {
+        LRESULT listResult = 0;
+        if (self->HandleListViewMessage(hwnd, msg, wParam, lParam, &listResult)) {
+            return listResult;
+        }
     }
 
     if (msg == WM_NCDESTROY) {

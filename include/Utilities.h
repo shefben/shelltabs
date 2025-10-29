@@ -60,6 +60,7 @@ bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstri
                         COLORREF* color = nullptr);
 bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value);
 bool BrowseForFolder(HWND parent, std::wstring* path);
+bool BrowseForImageFile(HWND parent, std::wstring* path);
 
 void LogUnhandledException(const wchar_t* context, const wchar_t* details = nullptr);
 void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details);

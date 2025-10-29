@@ -28,6 +28,7 @@ constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradi
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
+constexpr wchar_t kFolderBackgroundImageToken[] = L"folder_background_image";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -139,6 +140,61 @@ std::wstring ColorToHexString(COLORREF color) {
                                 static_cast<unsigned int>(GetBValue(color));
     stream << packed;
     return stream.str();
+}
+
+std::wstring EncodeOptionString(const std::wstring& value) {
+    if (value.empty()) {
+        return {};
+    }
+
+    const std::string utf8 = WideToUtf8(value);
+    if (utf8.empty()) {
+        return {};
+    }
+
+    static constexpr wchar_t kHexDigits[] = L"0123456789ABCDEF";
+    std::wstring encoded;
+    encoded.reserve(utf8.size() * 2);
+    for (unsigned char byte : utf8) {
+        encoded.push_back(kHexDigits[(byte >> 4) & 0x0F]);
+        encoded.push_back(kHexDigits[byte & 0x0F]);
+    }
+    return encoded;
+}
+
+int HexCharToValue(wchar_t ch) {
+    if (ch >= L'0' && ch <= L'9') {
+        return static_cast<int>(ch - L'0');
+    }
+    if (ch >= L'a' && ch <= L'f') {
+        return static_cast<int>(ch - L'a' + 10);
+    }
+    if (ch >= L'A' && ch <= L'F') {
+        return static_cast<int>(ch - L'A' + 10);
+    }
+    return -1;
+}
+
+std::wstring DecodeOptionString(const std::wstring& value) {
+    if (value.empty()) {
+        return {};
+    }
+    if ((value.size() % 2) != 0) {
+        return {};
+    }
+
+    std::string utf8;
+    utf8.reserve(value.size() / 2);
+    for (size_t i = 0; i < value.size(); i += 2) {
+        const int high = HexCharToValue(value[i]);
+        const int low = HexCharToValue(value[i + 1]);
+        if (high < 0 || low < 0) {
+            return {};
+        }
+        utf8.push_back(static_cast<char>((high << 4) | low));
+    }
+
+    return Utf8ToWide(utf8);
 }
 
 }  // namespace
@@ -366,6 +422,16 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kFolderBackgroundImageToken) {
+            if (tokens.size() >= 2) {
+                m_options.enableFolderViewBackgroundImage = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.folderViewBackgroundImagePath = DecodeOptionString(tokens[2]);
+            }
+            continue;
+        }
     }
 
     return true;
@@ -442,6 +508,12 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += ColorToHexString(m_options.customTabUnselectedColor);
     content += L"\n";
+    content += kFolderBackgroundImageToken;
+    content += L"|";
+    content += m_options.enableFolderViewBackgroundImage ? L"1" : L"0";
+    content += L"|";
+    content += EncodeOptionString(m_options.folderViewBackgroundImagePath);
+    content += L"\n";
 
     const std::string utf8 = WideToUtf8(content);
 
@@ -475,7 +547,9 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
-           left.customTabUnselectedColor == right.customTabUnselectedColor;
+           left.customTabUnselectedColor == right.customTabUnselectedColor &&
+           left.enableFolderViewBackgroundImage == right.enableFolderViewBackgroundImage &&
+           left.folderViewBackgroundImagePath == right.folderViewBackgroundImagePath;
 }
 
 }  // namespace shelltabs

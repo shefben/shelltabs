@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <CommCtrl.h>
 #include <prsht.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <cwchar>
@@ -39,6 +40,8 @@ constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
 constexpr int kEditorHeight = 220;
+constexpr int kCustomizationContentHeight = 520;
+constexpr int kCustomizationScrollStep = 20;
 
 enum ControlIds : int {
     IDC_MAIN_REOPEN = 5001,
@@ -79,6 +82,10 @@ enum ControlIds : int {
     IDC_MAIN_PROGRESS_END_LABEL = 5036,
     IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
     IDC_MAIN_PROGRESS_END_BUTTON = 5038,
+    IDC_MAIN_FOLDER_BACKGROUND_CHECK = 5039,
+    IDC_MAIN_FOLDER_BACKGROUND_PATH = 5040,
+    IDC_MAIN_FOLDER_BACKGROUND_BROWSE = 5041,
+    IDC_MAIN_FOLDER_BACKGROUND_CLEAR = 5042,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -234,9 +241,9 @@ std::vector<BYTE> BuildMainPageTemplate() {
 std::vector<BYTE> BuildCustomizationPageTemplate() {
     std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
-    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VSCROLL;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 36;
+    dlg->cdit = 41;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -337,6 +344,24 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         AppendWord(data, 0);
     };
 
+    auto addEdit = [&](int controlId, int x, int y, int cx, int cy, DWORD style) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = style;
+        item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0081);
+        AppendString(data, L"");
+        AppendWord(data, 0);
+    };
+
     auto addSlider = [&](int controlId, int x, int y) {
         AlignDialogBuffer(data);
         size_t innerOffset = data.size();
@@ -387,11 +412,37 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* folderGroup = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    folderGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
+    folderGroup->dwExtendedStyle = 0;
+    folderGroup->x = 6;
+    folderGroup->y = 332;
+    folderGroup->cx = kMainDialogWidth - 12;
+    folderGroup->cy = 72;
+    folderGroup->id = 0;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Folder View");
+    AppendWord(data, 0);
+
+    const int folderButtonWidth = 50;
+    const int folderButtonSpacing = 6;
+    const int folderEditWidth = kMainDialogWidth - 32 - 2 * (folderButtonWidth + folderButtonSpacing);
+    addCheckbox(IDC_MAIN_FOLDER_BACKGROUND_CHECK, 16, 348, L"Use background image in folder view");
+    addEdit(IDC_MAIN_FOLDER_BACKGROUND_PATH, 16, 366, folderEditWidth, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | ES_READONLY);
+    addButton(IDC_MAIN_FOLDER_BACKGROUND_BROWSE, 16 + folderEditWidth + folderButtonSpacing, 365, L"Browse...");
+    addButton(IDC_MAIN_FOLDER_BACKGROUND_CLEAR,
+              16 + folderEditWidth + folderButtonSpacing + folderButtonWidth + folderButtonSpacing, 365, L"Clear");
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* tabsGroup = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     tabsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
     tabsGroup->dwExtendedStyle = 0;
     tabsGroup->x = 6;
-    tabsGroup->y = 332;
+    tabsGroup->y = 412;
     tabsGroup->cx = kMainDialogWidth - 12;
     tabsGroup->cy = 88;
     tabsGroup->id = 0;
@@ -727,6 +778,7 @@ struct OptionsDialogData {
     HBRUSH progressEndBrush = nullptr;
     HBRUSH tabSelectedBrush = nullptr;
     HBRUSH tabUnselectedBrush = nullptr;
+    int customizationScrollPos = 0;
 };
 
 struct GroupEditorContext {
@@ -850,6 +902,14 @@ void UpdateTabColorControlsEnabled(HWND hwnd, bool selectedEnabled, bool unselec
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_TAB_UNSELECTED_BUTTON), unselectedEnabled);
 }
 
+void UpdateFolderBackgroundControlsEnabled(HWND hwnd, bool enabled) {
+    const int controls[] = {IDC_MAIN_FOLDER_BACKGROUND_PATH, IDC_MAIN_FOLDER_BACKGROUND_BROWSE,
+                            IDC_MAIN_FOLDER_BACKGROUND_CLEAR};
+    for (int id : controls) {
+        EnableWindow(GetDlgItem(hwnd, id), enabled);
+    }
+}
+
 void SetPreviewColor(HWND hwnd, int controlId, HBRUSH* brush, COLORREF color) {
     if (!brush) {
         return;
@@ -862,6 +922,138 @@ void SetPreviewColor(HWND hwnd, int controlId, HBRUSH* brush, COLORREF color) {
     if (HWND ctrl = GetDlgItem(hwnd, controlId)) {
         InvalidateRect(ctrl, nullptr, TRUE);
     }
+}
+
+int GetCustomizationMaxScroll(HWND hwnd) {
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    const int visibleHeight = client.bottom - client.top;
+    const int maxScroll = kCustomizationContentHeight - visibleHeight;
+    return maxScroll > 0 ? maxScroll : 0;
+}
+
+void UpdateCustomizationScrollInfo(HWND hwnd, OptionsDialogData* data) {
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    const int visibleHeight = client.bottom - client.top;
+    const int maxScroll = kCustomizationContentHeight - visibleHeight;
+    if (data) {
+        const int clamped = (maxScroll > 0)
+                                ? std::clamp(data->customizationScrollPos, 0, maxScroll)
+                                : 0;
+        if (clamped != data->customizationScrollPos) {
+            data->customizationScrollPos = clamped;
+        }
+    }
+
+    SCROLLINFO info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_PAGE | SIF_RANGE | SIF_POS;
+    info.nMin = 0;
+    info.nMax = kCustomizationContentHeight;
+    info.nPage = static_cast<UINT>(visibleHeight);
+    info.nPos = data ? data->customizationScrollPos : 0;
+    SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
+}
+
+void SetCustomizationScrollPosition(HWND hwnd, OptionsDialogData* data, int position) {
+    if (!data) {
+        return;
+    }
+    const int maxScroll = GetCustomizationMaxScroll(hwnd);
+    position = std::clamp(position, 0, maxScroll);
+    const int oldPosition = data->customizationScrollPos;
+    data->customizationScrollPos = position;
+    if (position != oldPosition) {
+        ScrollWindowEx(hwnd, 0, oldPosition - position, nullptr, nullptr, nullptr, nullptr,
+                       SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+    }
+    SCROLLINFO info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_POS;
+    info.nPos = position;
+    SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
+}
+
+void HandleCustomizationScrollCommand(HWND hwnd, OptionsDialogData* data, int request) {
+    if (!data) {
+        return;
+    }
+
+    SCROLLINFO info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_ALL;
+    GetScrollInfo(hwnd, SB_VERT, &info);
+
+    int newPos = data->customizationScrollPos;
+    const int page = static_cast<int>(info.nPage);
+    switch (request) {
+        case SB_TOP:
+            newPos = 0;
+            break;
+        case SB_BOTTOM:
+            newPos = GetCustomizationMaxScroll(hwnd);
+            break;
+        case SB_LINEUP:
+            newPos -= kCustomizationScrollStep;
+            break;
+        case SB_LINEDOWN:
+            newPos += kCustomizationScrollStep;
+            break;
+        case SB_PAGEUP:
+            newPos -= page > 0 ? page : kCustomizationScrollStep;
+            break;
+        case SB_PAGEDOWN:
+            newPos += page > 0 ? page : kCustomizationScrollStep;
+            break;
+        case SB_THUMBTRACK:
+        case SB_THUMBPOSITION:
+            newPos = static_cast<int>(info.nTrackPos);
+            break;
+        case SB_ENDSCROLL:
+        default:
+            return;
+    }
+
+    SetCustomizationScrollPosition(hwnd, data, newPos);
+}
+
+bool HandleCustomizationMouseWheel(HWND hwnd, OptionsDialogData* data, WPARAM wParam) {
+    if (!data) {
+        return false;
+    }
+
+    SCROLLINFO info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_ALL;
+    GetScrollInfo(hwnd, SB_VERT, &info);
+    if (info.nMax <= info.nPage) {
+        return false;
+    }
+
+    const int wheelDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+    if (wheelDelta == 0) {
+        return false;
+    }
+
+    UINT lines = 0;
+    if (!SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0) || lines == 0) {
+        lines = 3;
+    }
+    int increment = 0;
+    if (lines == WHEEL_PAGESCROLL) {
+        increment = static_cast<int>(info.nPage);
+        if (increment <= 0) {
+            increment = kCustomizationScrollStep * 3;
+        }
+    } else {
+        increment = static_cast<int>(lines) * kCustomizationScrollStep;
+    }
+
+    const int direction = (wheelDelta > 0) ? -1 : 1;
+    const int delta = direction * increment;
+    SetCustomizationScrollPosition(hwnd, data, data->customizationScrollPos + delta);
+    return true;
 }
 
 bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) {
@@ -1417,7 +1609,15 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                 data->workingOptions.customTabUnselectedColor);
                 UpdateTabColorControlsEnabled(hwnd, data->workingOptions.useCustomTabSelectedColor,
                                               data->workingOptions.useCustomTabUnselectedColor);
+                CheckDlgButton(hwnd, IDC_MAIN_FOLDER_BACKGROUND_CHECK,
+                               data->workingOptions.enableFolderViewBackgroundImage ? BST_CHECKED : BST_UNCHECKED);
+                SetDlgItemTextW(hwnd, IDC_MAIN_FOLDER_BACKGROUND_PATH,
+                                data->workingOptions.folderViewBackgroundImagePath.c_str());
+                UpdateFolderBackgroundControlsEnabled(
+                    hwnd, data->workingOptions.enableFolderViewBackgroundImage);
             }
+            UpdateCustomizationScrollInfo(hwnd, data);
+            SetCustomizationScrollPosition(hwnd, data, data ? data->customizationScrollPos : 0);
             return TRUE;
         }
         case WM_CTLCOLORDLG: {
@@ -1467,6 +1667,50 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                             UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
                         }
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                case IDC_MAIN_FOLDER_BACKGROUND_CHECK:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        const bool enabled =
+                            IsDlgButtonChecked(hwnd, IDC_MAIN_FOLDER_BACKGROUND_CHECK) == BST_CHECKED;
+                        if (data) {
+                            data->workingOptions.enableFolderViewBackgroundImage = enabled;
+                        }
+                        UpdateFolderBackgroundControlsEnabled(hwnd, enabled);
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                case IDC_MAIN_FOLDER_BACKGROUND_BROWSE:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            std::wstring path = data->workingOptions.folderViewBackgroundImagePath;
+                            if (BrowseForImageFile(GetAncestor(hwnd, GA_ROOT), &path)) {
+                                data->workingOptions.folderViewBackgroundImagePath = path;
+                                data->workingOptions.enableFolderViewBackgroundImage = true;
+                                SetDlgItemTextW(hwnd, IDC_MAIN_FOLDER_BACKGROUND_PATH, path.c_str());
+                                CheckDlgButton(hwnd, IDC_MAIN_FOLDER_BACKGROUND_CHECK, BST_CHECKED);
+                                UpdateFolderBackgroundControlsEnabled(hwnd, true);
+                                SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                            }
+                        }
+                    }
+                    return TRUE;
+                case IDC_MAIN_FOLDER_BACKGROUND_CLEAR:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            if (!data->workingOptions.folderViewBackgroundImagePath.empty() ||
+                                data->workingOptions.enableFolderViewBackgroundImage) {
+                                data->workingOptions.folderViewBackgroundImagePath.clear();
+                                data->workingOptions.enableFolderViewBackgroundImage = false;
+                                SetDlgItemTextW(hwnd, IDC_MAIN_FOLDER_BACKGROUND_PATH, L"");
+                                CheckDlgButton(hwnd, IDC_MAIN_FOLDER_BACKGROUND_CHECK, BST_UNCHECKED);
+                                UpdateFolderBackgroundControlsEnabled(hwnd, false);
+                                SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                            }
+                        }
                     }
                     return TRUE;
                 case IDC_MAIN_BREADCRUMB_BG_START_BUTTON:
@@ -1577,6 +1821,26 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             return TRUE;
         }
+        case WM_SIZE: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            UpdateCustomizationScrollInfo(hwnd, data);
+            if (data) {
+                SetCustomizationScrollPosition(hwnd, data, data->customizationScrollPos);
+            }
+            return TRUE;
+        }
+        case WM_VSCROLL: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            HandleCustomizationScrollCommand(hwnd, data, LOWORD(wParam));
+            return TRUE;
+        }
+        case WM_MOUSEWHEEL: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (HandleCustomizationMouseWheel(hwnd, data, wParam)) {
+                return TRUE;
+            }
+            break;
+        }
         case WM_NOTIFY: {
             if (((LPNMHDR)lParam)->code == PSN_APPLY) {
                 auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
@@ -1601,6 +1865,12 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
                     data->workingOptions.useCustomTabUnselectedColor =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+                    data->workingOptions.enableFolderViewBackgroundImage =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_FOLDER_BACKGROUND_CHECK) == BST_CHECKED;
+                    wchar_t backgroundPath[1024];
+                    GetDlgItemTextW(hwnd, IDC_MAIN_FOLDER_BACKGROUND_PATH, backgroundPath,
+                                    ARRAYSIZE(backgroundPath));
+                    data->workingOptions.folderViewBackgroundImagePath = backgroundPath;
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);

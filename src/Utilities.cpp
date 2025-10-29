@@ -8,6 +8,7 @@
 #include <commdlg.h>
 
 #include <array>
+#include <iterator>
 #include <string>
 #include <vector>
 #include <cwchar>
@@ -816,6 +817,60 @@ bool BrowseForFolder(HWND parent, std::wstring* path) {
         *path = buffer;
     }
     return success;
+}
+
+bool BrowseForImageFile(HWND parent, std::wstring* path) {
+    if (!path) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || !dialog) {
+        return false;
+    }
+
+    DWORD options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options))) {
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+    }
+
+    static const COMDLG_FILTERSPEC filters[] = {
+        {L"Image Files", L"*.bmp;*.dib;*.jpg;*.jpeg;*.jpe;*.jfif;*.png;*.gif;*.tif;*.tiff;*.webp"},
+        {L"All Files", L"*.*"},
+    };
+    dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+    dialog->SetFileTypeIndex(1);
+    dialog->SetTitle(L"Select Background Image");
+
+    if (!path->empty()) {
+        dialog->SetFileName(PathFindFileNameW(path->c_str()));
+        Microsoft::WRL::ComPtr<IShellItem> existing;
+        if (SUCCEEDED(SHCreateItemFromParsingName(path->c_str(), nullptr, IID_PPV_ARGS(&existing))) && existing) {
+            Microsoft::WRL::ComPtr<IShellItem> parentItem;
+            if (SUCCEEDED(existing->GetParent(&parentItem)) && parentItem) {
+                dialog->SetFolder(parentItem.Get());
+            }
+        }
+    }
+
+    hr = dialog->Show(parent);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellItem> result;
+    if (FAILED(dialog->GetResult(&result)) || !result) {
+        return false;
+    }
+
+    std::wstring selected;
+    if (!TryGetFileSystemPath(result.Get(), &selected) || selected.empty()) {
+        return false;
+    }
+
+    *path = std::move(selected);
+    return true;
 }
 
 }  // namespace shelltabs

@@ -26,6 +26,8 @@ struct ShellTabsOptions {
     COLORREF customTabSelectedColor = RGB(0, 120, 215);
     bool useCustomTabUnselectedColor = false;
     COLORREF customTabUnselectedColor = RGB(200, 200, 200);
+    bool enableFolderViewBackgroundImage = false;
+    std::wstring folderViewBackgroundImagePath;
 };
 
 class OptionsStore {

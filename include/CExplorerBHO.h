@@ -22,6 +22,10 @@
 #include <shlobj.h>
 
 #include <wrl/client.h>
+
+namespace Gdiplus {
+class Image;
+}
 namespace shelltabs {
 
 class CExplorerBHO : public IObjectWithSite, public IDispatch {
@@ -66,6 +70,7 @@ private:
     void RemoveExplorerViewSubclass();
     bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
     bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+    bool HandleListViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
     void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
     void HandleExplorerCommand(UINT commandId);
@@ -98,6 +103,9 @@ private:
         Discovered,
     };
     void LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const;
+    void UpdateFolderBackgroundOptions(const ShellTabsOptions& options);
+    void ReloadFolderBackgroundImage();
+    void ApplyListViewBackgroundMode();
     static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
@@ -155,6 +163,10 @@ private:
     HMENU m_trackedContextMenu = nullptr;
     std::vector<std::wstring> m_pendingOpenInNewTabPaths;
     bool m_contextMenuInserted = false;
+    bool m_folderBackgroundImageEnabled = false;
+    bool m_folderBackgroundImageActive = false;
+    std::wstring m_folderBackgroundImagePath;
+    std::unique_ptr<Gdiplus::Image> m_folderBackgroundImage;
     static constexpr UINT kOpenInNewTabCommandId = 0xE170;
     static constexpr UINT kMaxTrackedSelection = 16;
 };
