@@ -25,6 +25,7 @@ constexpr wchar_t kBreadcrumbFontBrightnessToken[] = L"breadcrumb_font_brightnes
 constexpr wchar_t kBreadcrumbFontTransparencyToken[] = L"breadcrumb_font_transparency";  // legacy
 constexpr wchar_t kBreadcrumbGradientColorsToken[] = L"breadcrumb_gradient_colors";
 constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradient_colors";
+constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
 constexpr wchar_t kCommentChar = L'#';
@@ -329,6 +330,21 @@ bool OptionsStore::Load() {
             continue;
         }
 
+        if (tokens[0] == kProgressGradientColorsToken) {
+            if (tokens.size() >= 2) {
+                m_options.useCustomProgressBarGradientColors = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.progressBarGradientStartColor =
+                    ParseColorValue(tokens[2], m_options.progressBarGradientStartColor);
+            }
+            if (tokens.size() >= 4) {
+                m_options.progressBarGradientEndColor =
+                    ParseColorValue(tokens[3], m_options.progressBarGradientEndColor);
+            }
+            continue;
+        }
+
         if (tokens[0] == kTabSelectedColorToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomTabSelectedColor = ParseBool(tokens[1]);
@@ -406,6 +422,14 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += ColorToHexString(m_options.breadcrumbFontGradientEndColor);
     content += L"\n";
+    content += kProgressGradientColorsToken;
+    content += L"|";
+    content += m_options.useCustomProgressBarGradientColors ? L"1" : L"0";
+    content += L"|";
+    content += ColorToHexString(m_options.progressBarGradientStartColor);
+    content += L"|";
+    content += ColorToHexString(m_options.progressBarGradientEndColor);
+    content += L"\n";
     content += kTabSelectedColorToken;
     content += L"|";
     content += m_options.useCustomTabSelectedColor ? L"1" : L"0";
@@ -445,6 +469,9 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useCustomBreadcrumbFontColors == right.useCustomBreadcrumbFontColors &&
            left.breadcrumbFontGradientStartColor == right.breadcrumbFontGradientStartColor &&
            left.breadcrumbFontGradientEndColor == right.breadcrumbFontGradientEndColor &&
+           left.useCustomProgressBarGradientColors == right.useCustomProgressBarGradientColors &&
+           left.progressBarGradientStartColor == right.progressBarGradientStartColor &&
+           left.progressBarGradientEndColor == right.progressBarGradientEndColor &&
            left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&

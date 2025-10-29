@@ -19,6 +19,9 @@ struct ShellTabsOptions {
     bool useCustomBreadcrumbFontColors = false;
     COLORREF breadcrumbFontGradientStartColor = RGB(255, 255, 255);
     COLORREF breadcrumbFontGradientEndColor = RGB(255, 255, 255);
+    bool useCustomProgressBarGradientColors = false;
+    COLORREF progressBarGradientStartColor = RGB(0, 120, 215);
+    COLORREF progressBarGradientEndColor = RGB(0, 153, 255);
     bool useCustomTabSelectedColor = false;
     COLORREF customTabSelectedColor = RGB(0, 120, 215);
     bool useCustomTabUnselectedColor = false;
