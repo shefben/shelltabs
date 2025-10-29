@@ -28,6 +28,10 @@ constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradi
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
+constexpr wchar_t kFolderBackgroundEnabledToken[] = L"folder_background_enabled";
+constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
+constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
+constexpr wchar_t kBackgroundCacheDirectory[] = L"Backgrounds";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -94,6 +98,21 @@ std::wstring ResolveDirectory() {
         base.push_back(L'\\');
     }
     base += kStorageDirectory;
+    CreateDirectoryW(base.c_str(), nullptr);
+    return base;
+}
+
+std::wstring ResolveBackgroundCacheDirectory() {
+    std::wstring base = ResolveDirectory();
+    if (base.empty()) {
+        return {};
+    }
+
+    if (!base.empty() && base.back() != L'\\') {
+        base.push_back(L'\\');
+    }
+
+    base += kBackgroundCacheDirectory;
     CreateDirectoryW(base.c_str(), nullptr);
     return base;
 }
@@ -170,6 +189,14 @@ std::wstring OptionsStore::ResolveStoragePath() const {
     }
     directory += kStorageFile;
     return directory;
+}
+
+std::wstring OptionsStore::GetStorageDirectory() const {
+    return ResolveDirectory();
+}
+
+std::wstring OptionsStore::EnsureBackgroundCacheDirectory() const {
+    return ResolveBackgroundCacheDirectory();
 }
 
 bool OptionsStore::Load() {
@@ -366,6 +393,39 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kFolderBackgroundEnabledToken) {
+            if (tokens.size() >= 2) {
+                m_options.enableFolderBackgrounds = ParseBool(tokens[1]);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kFolderBackgroundUniversalToken) {
+            if (tokens.size() >= 2) {
+                m_options.universalFolderBackgroundImage = tokens[1];
+            }
+            if (tokens.size() >= 3) {
+                m_options.universalFolderBackgroundDisplayName = tokens[2];
+            }
+            continue;
+        }
+
+        if (tokens[0] == kFolderBackgroundEntryToken) {
+            if (tokens.size() >= 3) {
+                FolderBackgroundAssignment assignment;
+                assignment.folderPath = tokens[1];
+                assignment.imagePath = tokens[2];
+                if (tokens.size() >= 4) {
+                    assignment.displayName = tokens[3];
+                }
+                if (assignment.displayName.empty()) {
+                    assignment.displayName = PathFindFileNameW(assignment.imagePath.c_str());
+                }
+                m_options.folderBackgrounds.push_back(std::move(assignment));
+            }
+            continue;
+        }
     }
 
     return true;
@@ -442,6 +502,26 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += ColorToHexString(m_options.customTabUnselectedColor);
     content += L"\n";
+    content += kFolderBackgroundEnabledToken;
+    content += L"|";
+    content += m_options.enableFolderBackgrounds ? L"1" : L"0";
+    content += L"\n";
+    content += kFolderBackgroundUniversalToken;
+    content += L"|";
+    content += m_options.universalFolderBackgroundImage;
+    content += L"|";
+    content += m_options.universalFolderBackgroundDisplayName;
+    content += L"\n";
+    for (const auto& assignment : m_options.folderBackgrounds) {
+        content += kFolderBackgroundEntryToken;
+        content += L"|";
+        content += assignment.folderPath;
+        content += L"|";
+        content += assignment.imagePath;
+        content += L"|";
+        content += assignment.displayName;
+        content += L"\n";
+    }
 
     const std::string utf8 = WideToUtf8(content);
 
@@ -455,6 +535,11 @@ bool OptionsStore::Save() const {
     const BOOL result = WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr);
     CloseHandle(file);
     return result != FALSE;
+}
+
+bool operator==(const FolderBackgroundAssignment& left, const FolderBackgroundAssignment& right) noexcept {
+    return left.folderPath == right.folderPath && left.imagePath == right.imagePath &&
+           left.displayName == right.displayName;
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
@@ -475,7 +560,11 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
-           left.customTabUnselectedColor == right.customTabUnselectedColor;
+           left.customTabUnselectedColor == right.customTabUnselectedColor &&
+           left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
+           left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
+           left.universalFolderBackgroundDisplayName == right.universalFolderBackgroundDisplayName &&
+           left.folderBackgrounds == right.folderBackgrounds;
 }
 
 }  // namespace shelltabs

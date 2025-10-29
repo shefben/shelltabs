@@ -22,6 +22,13 @@
 #include <shlobj.h>
 
 #include <wrl/client.h>
+
+#include "OptionsStore.h"
+
+namespace Gdiplus {
+class Image;
+}
+
 namespace shelltabs {
 
 class CExplorerBHO : public IObjectWithSite, public IDispatch {
@@ -91,6 +98,11 @@ private:
     bool HandleBreadcrumbPaint(HWND hwnd);
     bool HandleProgressPaint(HWND hwnd);
     bool HandleAddressEditPaint(HWND hwnd);
+    void UpdateFolderBackgroundConfiguration(const ShellTabsOptions& options);
+    std::wstring GetCurrentFolderPath() const;
+    const FolderBackgroundAssignment* ResolveBackgroundForPath(const std::wstring& folder) const;
+    bool RenderFolderBackground(HWND hwnd, HDC dc);
+    void ResetActiveBackground();
     enum class BreadcrumbDiscoveryStage {
         None,
         ServiceUnavailable,
@@ -166,6 +178,12 @@ private:
     bool m_contextMenuInserted = false;
     static constexpr UINT kOpenInNewTabCommandId = 0xE170;
     static constexpr UINT kMaxTrackedSelection = 16;
+    bool m_folderBackgroundsEnabled = false;
+    std::wstring m_universalBackgroundImage;
+    std::vector<FolderBackgroundAssignment> m_folderBackgroundAssignments;
+    std::wstring m_activeFolderPath;
+    std::wstring m_activeBackgroundPath;
+    std::unique_ptr<Gdiplus::Image> m_activeBackgroundImage;
 };
 
 }  // namespace shelltabs

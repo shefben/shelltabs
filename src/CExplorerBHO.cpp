@@ -104,6 +104,21 @@ std::wstring NormalizeMenuText(const std::wstring& value) {
     return normalized.substr(first, last - first + 1);
 }
 
+std::wstring NormalizeFolderPathForComparison(const std::wstring& value) {
+    std::wstring normalized = value;
+    while (normalized.size() > 1 && normalized.back() == L'\\') {
+        const size_t length = normalized.size();
+        if (length == 3 && normalized[1] == L':' && normalized[2] == L'\\') {
+            break;
+        }
+        if (length <= 2) {
+            break;
+        }
+        normalized.pop_back();
+    }
+    return normalized;
+}
+
 COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
     if (!dc || rect.left >= rect.right || rect.top >= rect.bottom) {
         return GetSysColor(COLOR_WINDOW);
@@ -1197,6 +1212,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     m_shellViewWindow = nullptr;
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
+    ResetActiveBackground();
 }
 
 bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -1252,6 +1268,13 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case WM_CANCELMODE: {
             HandleExplorerMenuDismiss(m_trackedContextMenu);
+            break;
+        }
+        case WM_ERASEBKGND: {
+            if (hwnd == m_listView && RenderFolderBackground(hwnd, reinterpret_cast<HDC>(wParam))) {
+                *result = 1;
+                return true;
+            }
             break;
         }
         default:
@@ -1901,6 +1924,8 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
     m_progressGradientStartColor = options.progressBarGradientStartColor;
     m_progressGradientEndColor = options.progressBarGradientEndColor;
+
+    UpdateFolderBackgroundConfiguration(options);
 
     UpdateProgressSubclass();
 
@@ -2749,6 +2774,165 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
     return true;
 }
 
+void CExplorerBHO::ResetActiveBackground() {
+    m_activeBackgroundImage.reset();
+    m_activeBackgroundPath.clear();
+    m_activeFolderPath.clear();
+}
+
+void CExplorerBHO::UpdateFolderBackgroundConfiguration(const ShellTabsOptions& options) {
+    const bool wasEnabled = m_folderBackgroundsEnabled;
+    const std::wstring previousBackground = m_universalBackgroundImage;
+
+    const auto previousAssignments = m_folderBackgroundAssignments;
+
+    m_folderBackgroundsEnabled = options.enableFolderBackgrounds && m_gdiplusInitialized;
+    m_universalBackgroundImage = options.universalFolderBackgroundImage;
+    m_folderBackgroundAssignments.clear();
+    for (const auto& assignment : options.folderBackgrounds) {
+        if (assignment.folderPath.empty() || assignment.imagePath.empty()) {
+            continue;
+        }
+        FolderBackgroundAssignment normalized = assignment;
+        normalized.folderPath = NormalizeFolderPathForComparison(normalized.folderPath);
+        m_folderBackgroundAssignments.push_back(std::move(normalized));
+    }
+
+    const bool optionsChanged =
+        wasEnabled != m_folderBackgroundsEnabled ||
+        _wcsicmp(previousBackground.c_str(), m_universalBackgroundImage.c_str()) != 0;
+
+    bool assignmentsChanged = previousAssignments.size() != m_folderBackgroundAssignments.size();
+    if (!assignmentsChanged) {
+        for (size_t i = 0; i < previousAssignments.size(); ++i) {
+            const auto& before = previousAssignments[i];
+            const auto& after = m_folderBackgroundAssignments[i];
+            if (_wcsicmp(before.folderPath.c_str(), after.folderPath.c_str()) != 0 ||
+                _wcsicmp(before.imagePath.c_str(), after.imagePath.c_str()) != 0) {
+                assignmentsChanged = true;
+                break;
+            }
+        }
+    }
+
+    if (optionsChanged || assignmentsChanged) {
+        ResetActiveBackground();
+        if (m_listView && IsWindow(m_listView)) {
+            InvalidateRect(m_listView, nullptr, TRUE);
+        }
+    }
+
+    if (!m_folderBackgroundsEnabled) {
+        ResetActiveBackground();
+    }
+}
+
+std::wstring CExplorerBHO::GetCurrentFolderPath() const {
+    if (!m_shellView) {
+        return {};
+    }
+
+    Microsoft::WRL::ComPtr<IFolderView2> folderView;
+    HRESULT hr = m_shellView.As(&folderView);
+    if (FAILED(hr) || !folderView) {
+        return {};
+    }
+
+    Microsoft::WRL::ComPtr<IPersistFolder2> persistFolder;
+    hr = folderView->GetFolder(IID_PPV_ARGS(&persistFolder));
+    if (FAILED(hr) || !persistFolder) {
+        return {};
+    }
+
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    hr = persistFolder->GetCurFolder(&pidl);
+    if (FAILED(hr) || !pidl) {
+        return {};
+    }
+
+    std::wstring path;
+    wchar_t buffer[MAX_PATH];
+    if (SHGetPathFromIDListW(pidl, buffer)) {
+        path = buffer;
+    }
+    CoTaskMemFree(pidl);
+
+    if (!path.empty()) {
+        path = NormalizeFolderPathForComparison(path);
+    }
+    return path;
+}
+
+const FolderBackgroundAssignment* CExplorerBHO::ResolveBackgroundForPath(const std::wstring& folder) const {
+    if (folder.empty()) {
+        return nullptr;
+    }
+
+    for (const auto& assignment : m_folderBackgroundAssignments) {
+        if (_wcsicmp(assignment.folderPath.c_str(), folder.c_str()) == 0) {
+            return &assignment;
+        }
+    }
+
+    return nullptr;
+}
+
+bool CExplorerBHO::RenderFolderBackground(HWND hwnd, HDC dc) {
+    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized || !hwnd || !dc) {
+        return false;
+    }
+
+    const std::wstring folder = NormalizeFolderPathForComparison(GetCurrentFolderPath());
+
+    std::wstring backgroundPath;
+    const FolderBackgroundAssignment* assignment = ResolveBackgroundForPath(folder);
+    if (assignment) {
+        const DWORD attributes = GetFileAttributesW(assignment->imagePath.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES) {
+            backgroundPath = assignment->imagePath;
+        }
+    }
+
+    if (backgroundPath.empty() && !m_universalBackgroundImage.empty()) {
+        const DWORD attributes = GetFileAttributesW(m_universalBackgroundImage.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES) {
+            backgroundPath = m_universalBackgroundImage;
+        }
+    }
+
+    if (backgroundPath.empty()) {
+        return false;
+    }
+
+    if (_wcsicmp(backgroundPath.c_str(), m_activeBackgroundPath.c_str()) != 0) {
+        std::unique_ptr<Gdiplus::Image> image = std::make_unique<Gdiplus::Image>(backgroundPath.c_str());
+        if (!image || image->GetLastStatus() != Gdiplus::Ok) {
+            return false;
+        }
+        m_activeBackgroundImage = std::move(image);
+        m_activeBackgroundPath = backgroundPath;
+    }
+
+    if (!m_activeBackgroundImage) {
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+    graphics.DrawImage(m_activeBackgroundImage.get(), Gdiplus::Rect(client.left, client.top,
+                                                                   client.right - client.left,
+                                                                   client.bottom - client.top));
+
+    m_activeFolderPath = folder;
+    return true;
+}
+
 LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam) {
     HHOOK hookHandle = nullptr;
 
@@ -2968,6 +3152,7 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         if (hwnd == self->m_listView) {
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
+            self->ResetActiveBackground();
         } else if (hwnd == self->m_treeView) {
             self->m_treeView = nullptr;
             self->m_treeViewSubclassInstalled = false;
