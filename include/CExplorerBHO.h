@@ -57,11 +57,15 @@ private:
     HWND FindBreadcrumbToolbar() const;
     HWND FindBreadcrumbToolbarInWindow(HWND root) const;
     HWND FindProgressWindow() const;
+    HWND FindAddressEditControl() const;
     HWND GetTopLevelExplorerWindow() const;
     bool InstallBreadcrumbSubclass(HWND toolbar);
     bool InstallProgressSubclass(HWND progressWindow);
+    bool InstallAddressEditSubclass(HWND editWindow);
     void UpdateProgressSubclass();
     void RemoveProgressSubclass();
+    void UpdateAddressEditSubclass();
+    void RemoveAddressEditSubclass();
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
     bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
@@ -86,6 +90,7 @@ private:
     bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
     bool HandleBreadcrumbPaint(HWND hwnd);
     bool HandleProgressPaint(HWND hwnd);
+    bool HandleAddressEditPaint(HWND hwnd);
     enum class BreadcrumbDiscoveryStage {
         None,
         ServiceUnavailable,
@@ -103,6 +108,8 @@ private:
                                                    UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                  UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                    UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                      UINT_PTR subclassId, DWORD_PTR refData);
 
@@ -131,6 +138,8 @@ private:
     COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
     HWND m_progressWindow = nullptr;
     bool m_progressSubclassInstalled = false;
+    HWND m_addressEditWindow = nullptr;
+    bool m_addressEditSubclassInstalled = false;
     bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,
