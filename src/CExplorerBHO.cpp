@@ -142,6 +142,16 @@ COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
     return RGB(totalRed / count, totalGreen / count, totalBlue / count);
 }
 
+const std::array<COLORREF, 7> kBreadcrumbRainbowColors = {
+    RGB(255, 59, 48),   // red
+    RGB(255, 149, 0),   // orange
+    RGB(255, 204, 0),   // yellow
+    RGB(52, 199, 89),   // green
+    RGB(0, 122, 255),   // blue
+    RGB(88, 86, 214),   // indigo
+    RGB(175, 82, 222)   // violet
+};
+
 bool TryGetMenuItemText(HMENU menu, UINT position, std::wstring& text) {
     text.clear();
     if (!menu) {
@@ -370,6 +380,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 void CExplorerBHO::Disconnect() {
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
+    RemoveAddressEditSubclass();
     RemoveExplorerViewSubclass();
     DisconnectEvents();
     m_webBrowser.Reset();
@@ -847,6 +858,90 @@ HWND CExplorerBHO::FindBreadcrumbToolbarInWindow(HWND root) const {
     }
 
     return data.toolbar;
+}
+
+HWND CExplorerBHO::FindAddressEditInContainer(HWND root) const {
+    if (!root || !IsWindow(root)) {
+        return nullptr;
+    }
+
+    for (HWND child = GetWindow(root, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (MatchesClass(child, L"ComboBoxEx32") || MatchesClass(child, L"ComboBox")) {
+            COMBOBOXINFO info{};
+            info.cbSize = sizeof(info);
+            if (GetComboBoxInfo(child, &info) && info.hwndItem) {
+                if (IsAddressEditCandidate(info.hwndItem)) {
+                    return info.hwndItem;
+                }
+            }
+        } else if (MatchesClass(child, L"Edit")) {
+            if (IsAddressEditCandidate(child)) {
+                return child;
+            }
+        }
+
+        if (HWND nested = FindAddressEditInContainer(child)) {
+            return nested;
+        }
+    }
+
+    return nullptr;
+}
+
+HWND CExplorerBHO::FindAddressEdit() const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return nullptr;
+    }
+
+    const std::array<const wchar_t*, 5> kRootClasses = {L"Address Band Root", L"AddressBandRoot",
+                                                        L"CabinetAddressBand", L"Breadcrumb Parent",
+                                                        L"NavigationBand"};
+    for (const auto* rootClass : kRootClasses) {
+        if (!rootClass) {
+            continue;
+        }
+        HWND root = FindDescendantWindow(frame, rootClass);
+        if (root) {
+            if (HWND edit = FindAddressEditInContainer(root)) {
+                return edit;
+            }
+        }
+    }
+
+    return FindAddressEditInContainer(frame);
+}
+
+bool CExplorerBHO::IsAddressEditCandidate(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+    if (!MatchesClass(hwnd, L"Edit")) {
+        return false;
+    }
+    if (!IsWindowOwnedByThisExplorer(hwnd)) {
+        return false;
+    }
+
+    HWND current = hwnd;
+    bool sawCombo = false;
+    int depth = 0;
+    while (current && depth++ < 24) {
+        if (MatchesClass(current, L"ComboBoxEx32") || MatchesClass(current, L"ComboBox")) {
+            sawCombo = true;
+        }
+        if (MatchesClass(current, L"Breadcrumb Parent") || MatchesClass(current, L"Address Band Root") ||
+            MatchesClass(current, L"AddressBandRoot") || MatchesClass(current, L"CabinetAddressBand") ||
+            MatchesClass(current, L"NavigationBand")) {
+            return sawCombo;
+        }
+        if (MatchesClass(current, L"CabinetWClass")) {
+            break;
+        }
+        current = GetParent(current);
+    }
+
+    return false;
 }
 
 bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
@@ -1615,6 +1710,67 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
     m_loggedBreadcrumbToolbarMissing = false;
 }
 
+bool CExplorerBHO::InstallAddressEditSubclass(HWND edit) {
+    if (!edit || !IsWindow(edit)) {
+        return false;
+    }
+
+    if (edit == m_addressEdit && m_addressEditSubclassInstalled) {
+        return true;
+    }
+
+    RemoveAddressEditSubclass();
+
+    if (SetWindowSubclass(edit, &CExplorerBHO::AddressEditSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_addressEdit = edit;
+        m_addressEditSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed address edit gradient subclass on hwnd=%p", edit);
+        InvalidateRect(edit, nullptr, TRUE);
+        return true;
+    }
+
+    LogLastError(L"SetWindowSubclass(address edit)", GetLastError());
+    m_addressEdit = edit;
+    m_addressEditSubclassInstalled = false;
+    return false;
+}
+
+void CExplorerBHO::RemoveAddressEditSubclass() {
+    if (m_addressEdit && m_addressEditSubclassInstalled) {
+        if (IsWindow(m_addressEdit)) {
+            RemoveWindowSubclass(m_addressEdit, &CExplorerBHO::AddressEditSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+            InvalidateRect(m_addressEdit, nullptr, TRUE);
+        }
+    }
+    m_addressEdit = nullptr;
+    m_addressEditSubclassInstalled = false;
+}
+
+void CExplorerBHO::UpdateAddressEditSubclass() {
+    if (!m_breadcrumbFontGradientEnabled || !m_gdiplusInitialized) {
+        RemoveAddressEditSubclass();
+        return;
+    }
+
+    HWND edit = m_addressEdit;
+    if (!edit || !IsWindow(edit) || !IsAddressEditCandidate(edit)) {
+        edit = FindAddressEdit();
+    }
+
+    if (!edit) {
+        RemoveAddressEditSubclass();
+        return;
+    }
+
+    if (edit == m_addressEdit && m_addressEditSubclassInstalled) {
+        InvalidateRect(edit, nullptr, TRUE);
+        return;
+    }
+
+    InstallAddressEditSubclass(edit);
+}
+
 void CExplorerBHO::EnsureBreadcrumbHook() {
     if (m_breadcrumbHookRegistered) {
         return;
@@ -1699,11 +1855,13 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         }
         RemoveBreadcrumbHook();
         RemoveBreadcrumbSubclass();
+        RemoveAddressEditSubclass();
         m_loggedBreadcrumbToolbarMissing = false;
         return;
     }
 
     EnsureBreadcrumbHook();
+    UpdateAddressEditSubclass();
 
     if (m_breadcrumbLogState != BreadcrumbLogState::Searching) {
         LogMessage(LogLevel::Info,
@@ -1734,10 +1892,12 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
 
     if (toolbar == m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         InvalidateRect(toolbar, nullptr, TRUE);
+        UpdateAddressEditSubclass();
         return;
     }
 
     InstallBreadcrumbSubclass(toolbar);
+    UpdateAddressEditSubclass();
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
@@ -1905,16 +2065,6 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     Gdiplus::Color buttonTextPaintEnd;
     RECT buttonRect{};
 
-    static const std::array<COLORREF, 7> kRainbowColors = {
-        RGB(255, 59, 48),   // red
-        RGB(255, 149, 0),   // orange
-        RGB(255, 204, 0),   // yellow
-        RGB(52, 199, 89),   // green
-        RGB(0, 122, 255),   // blue
-        RGB(88, 86, 214),   // indigo
-        RGB(175, 82, 222)   // violet
-    };
-
     HIMAGELIST imageList = reinterpret_cast<HIMAGELIST>(SendMessage(hwnd, TB_GETIMAGELIST, 0, 0));
     if (!imageList) {
         imageList = reinterpret_cast<HIMAGELIST>(SendMessage(hwnd, TB_GETIMAGELIST, 1, 0));
@@ -2042,11 +2192,11 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             endRgb = m_breadcrumbGradientEndColor;
             ++colorIndex;
         } else {
-            const size_t startIndex = static_cast<size_t>(colorIndex % kRainbowColors.size());
-            const size_t endIndex = static_cast<size_t>((colorIndex + 1) % kRainbowColors.size());
+            const size_t startIndex = static_cast<size_t>(colorIndex % kBreadcrumbRainbowColors.size());
+            const size_t endIndex = static_cast<size_t>((colorIndex + 1) % kBreadcrumbRainbowColors.size());
             ++colorIndex;
-            startRgb = kRainbowColors[startIndex];
-            endRgb = kRainbowColors[endIndex];
+            startRgb = kBreadcrumbRainbowColors[startIndex];
+            endRgb = kBreadcrumbRainbowColors[endIndex];
         }
 
         auto darkenChannel = [](BYTE channel) -> BYTE {
@@ -2310,6 +2460,269 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     return true;
 }
 
+bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
+    if (!m_breadcrumbFontGradientEnabled || !m_gdiplusInitialized) {
+        return false;
+    }
+
+    PAINTSTRUCT ps{};
+    HDC dc = BeginPaint(hwnd, &ps);
+    if (!dc) {
+        return true;
+    }
+
+    HandleAddressEditPaintToDc(hwnd, dc, ps.rcPaint);
+    EndPaint(hwnd, &ps);
+    return true;
+}
+
+bool CExplorerBHO::HandleAddressEditPaintToDc(HWND hwnd, HDC dc, const RECT& paintRect) {
+    if (!hwnd || !dc) {
+        return false;
+    }
+
+    UNREFERENCED_PARAMETER(paintRect);
+
+    const BOOL caretHidden = HideCaret(hwnd);
+
+    RECT client{};
+    GetClientRect(hwnd, &client);
+
+    RECT textRect = client;
+    SendMessage(hwnd, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&textRect));
+    if (textRect.right <= textRect.left || textRect.bottom <= textRect.top) {
+        textRect = client;
+    }
+
+    HBRUSH backgroundBrush = nullptr;
+    if (HWND parent = GetParent(hwnd)) {
+        const LRESULT brushResult =
+            SendMessage(parent, WM_CTLCOLOREDIT, reinterpret_cast<WPARAM>(dc), reinterpret_cast<LPARAM>(hwnd));
+        if (brushResult) {
+            backgroundBrush = reinterpret_cast<HBRUSH>(brushResult);
+        }
+    }
+    if (!backgroundBrush) {
+        backgroundBrush = GetSysColorBrush(IsWindowEnabled(hwnd) ? COLOR_WINDOW : COLOR_BTNFACE);
+    }
+
+    FillRect(dc, &client, backgroundBrush);
+
+    const int textLength = GetWindowTextLengthW(hwnd);
+    std::wstring text;
+    if (textLength > 0) {
+        text.resize(static_cast<size_t>(textLength) + 1, L'\0');
+        int copied = GetWindowTextW(hwnd, text.data(), textLength + 1);
+        if (copied < 0) {
+            copied = 0;
+        }
+        text.resize(static_cast<size_t>(copied));
+    }
+
+    DWORD selectionStart = 0;
+    DWORD selectionEnd = 0;
+    SendMessage(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selectionStart), reinterpret_cast<LPARAM>(&selectionEnd));
+    if (selectionStart > selectionEnd) {
+        std::swap(selectionStart, selectionEnd);
+    }
+
+    HFONT fontHandle = reinterpret_cast<HFONT>(SendMessage(hwnd, WM_GETFONT, 0, 0));
+    if (!fontHandle) {
+        fontHandle = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    }
+    HFONT previousFont = nullptr;
+    if (fontHandle) {
+        previousFont = static_cast<HFONT>(SelectObject(dc, fontHandle));
+    }
+
+    TEXTMETRICW metrics{};
+    GetTextMetricsW(dc, &metrics);
+
+    const int totalLength = static_cast<int>(text.size());
+    std::wstring visibleText;
+    std::vector<float> charPositions;
+    int visibleStartIndex = 0;
+    bool capturing = false;
+    float layoutTop = static_cast<float>(textRect.top + (textRect.bottom - textRect.top - metrics.tmHeight) / 2);
+
+    for (int index = 0; index <= totalLength; ++index) {
+        LRESULT posResult = SendMessage(hwnd, EM_POSFROMCHAR, index, 0);
+        if (posResult == -1) {
+            if (capturing) {
+                break;
+            }
+            continue;
+        }
+
+        const float x = static_cast<float>(GET_X_LPARAM(posResult));
+        const float y = static_cast<float>(GET_Y_LPARAM(posResult));
+        if (!capturing) {
+            if (x + 1.5f < static_cast<float>(textRect.left)) {
+                continue;
+            }
+            capturing = true;
+            visibleStartIndex = index;
+            layoutTop = y;
+        }
+
+        charPositions.push_back(x);
+        if (index < totalLength) {
+            visibleText.push_back(text[index]);
+        }
+    }
+
+    if (!capturing) {
+        visibleStartIndex = 0;
+        layoutTop = static_cast<float>(textRect.top + (textRect.bottom - textRect.top - metrics.tmHeight) / 2);
+        const float startX = static_cast<float>(textRect.left);
+        const float endX = static_cast<float>(textRect.right);
+        charPositions = {startX, endX};
+    } else if (charPositions.size() == visibleText.size()) {
+        SIZE extent{};
+        if (!visibleText.empty() &&
+            GetTextExtentPoint32W(dc, visibleText.c_str(), static_cast<int>(visibleText.size()), &extent)) {
+            const float endX =
+                charPositions.empty() ? static_cast<float>(textRect.left + extent.cx)
+                                      : charPositions.front() + static_cast<float>(extent.cx);
+            charPositions.push_back(endX);
+        } else {
+            const float fallback =
+                charPositions.empty() ? static_cast<float>(textRect.left) : charPositions.back() + 1.0f;
+            charPositions.push_back(fallback);
+        }
+    }
+
+    if (charPositions.size() < 2) {
+        const float startX = charPositions.empty() ? static_cast<float>(textRect.left) : charPositions.front();
+        charPositions = {startX, startX + 1.0f};
+    }
+
+    const float textHeight = static_cast<float>(metrics.tmHeight);
+    const float startX = charPositions.front();
+    const float endX = charPositions.back();
+    const float textWidth = std::max(endX - startX, 1.0f);
+
+    const int fontBrightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
+    auto applyBrightness = [&](COLORREF color) -> Gdiplus::Color {
+        auto adjust = [&](BYTE channel) -> BYTE {
+            const int boosted = channel + ((255 - channel) * fontBrightness) / 100;
+            return static_cast<BYTE>(std::clamp(boosted, 0, 255));
+        };
+        return Gdiplus::Color(255, adjust(GetRValue(color)), adjust(GetGValue(color)), adjust(GetBValue(color)));
+    };
+
+    std::vector<Gdiplus::Color> gradientColors;
+    std::vector<Gdiplus::REAL> gradientPositions;
+    if (m_useCustomBreadcrumbFontColors) {
+        gradientColors = {applyBrightness(m_breadcrumbFontGradientStartColor),
+                          applyBrightness(m_breadcrumbFontGradientEndColor)};
+        gradientPositions = {0.0f, 1.0f};
+    } else if (m_useCustomBreadcrumbGradientColors) {
+        gradientColors = {applyBrightness(m_breadcrumbGradientStartColor),
+                          applyBrightness(m_breadcrumbGradientEndColor)};
+        gradientPositions = {0.0f, 1.0f};
+    } else {
+        const size_t colorCount = kBreadcrumbRainbowColors.size();
+        if (colorCount > 1) {
+            gradientColors.reserve(colorCount);
+            gradientPositions.reserve(colorCount);
+            const double denominator = static_cast<double>(colorCount - 1);
+            for (size_t i = 0; i < colorCount; ++i) {
+                gradientColors.push_back(applyBrightness(kBreadcrumbRainbowColors[i]));
+                gradientPositions.push_back(
+                    static_cast<Gdiplus::REAL>(static_cast<double>(i) / denominator));
+            }
+        } else {
+            const Gdiplus::Color base = applyBrightness(kBreadcrumbRainbowColors.front());
+            gradientColors = {base, base};
+            gradientPositions = {0.0f, 1.0f};
+        }
+    }
+
+    const bool hasFocus = (GetFocus() == hwnd);
+    const COLORREF selectionBackground = GetSysColor(hasFocus ? COLOR_HIGHLIGHT : COLOR_3DFACE);
+    const COLORREF selectionText = GetSysColor(hasFocus ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT);
+
+    const int visibleLength = static_cast<int>(visibleText.size());
+    int selectionVisibleStart =
+        std::clamp(static_cast<int>(selectionStart) - visibleStartIndex, 0, visibleLength);
+    int selectionVisibleEnd =
+        std::clamp(static_cast<int>(selectionEnd) - visibleStartIndex, 0, visibleLength);
+    if (selectionVisibleStart > selectionVisibleEnd) {
+        std::swap(selectionVisibleStart, selectionVisibleEnd);
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() == Gdiplus::Ok) {
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+        graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+
+        if (selectionVisibleStart < selectionVisibleEnd &&
+            static_cast<size_t>(selectionVisibleEnd) < charPositions.size()) {
+            const float selLeft = charPositions[static_cast<size_t>(selectionVisibleStart)];
+            const float selRight = charPositions[static_cast<size_t>(selectionVisibleEnd)];
+            const float selWidth = std::max(selRight - selLeft, 0.0f);
+            if (selWidth > 0.0f) {
+                Gdiplus::SolidBrush selectionBrush(
+                    Gdiplus::Color(255, GetRValue(selectionBackground), GetGValue(selectionBackground),
+                                   GetBValue(selectionBackground)));
+                graphics.FillRectangle(&selectionBrush,
+                                       Gdiplus::RectF(selLeft, layoutTop, selWidth, textHeight));
+            }
+        }
+
+        if (!visibleText.empty()) {
+            Gdiplus::LinearGradientBrush textBrush(Gdiplus::PointF(startX, layoutTop),
+                                                   Gdiplus::PointF(endX, layoutTop), gradientColors.front(),
+                                                   gradientColors.back());
+            textBrush.SetGammaCorrection(TRUE);
+            if (gradientColors.size() > 2 && gradientColors.size() == gradientPositions.size()) {
+                textBrush.SetInterpolationColors(gradientColors.data(), gradientPositions.data(),
+                                                 static_cast<INT>(gradientColors.size()));
+            }
+
+            Gdiplus::Font font(dc, fontHandle);
+            Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericTypographic());
+            format.SetFormatFlags(Gdiplus::StringFormatFlagsMeasureTrailingSpaces |
+                                  Gdiplus::StringFormatFlagsNoClip);
+            format.SetAlignment(Gdiplus::StringAlignmentNear);
+            format.SetLineAlignment(Gdiplus::StringAlignmentNear);
+
+            Gdiplus::RectF layoutRect(startX, layoutTop, textWidth, textHeight);
+            graphics.DrawString(visibleText.c_str(), static_cast<INT>(visibleText.size()), &font, layoutRect, &format,
+                                &textBrush);
+
+            if (selectionVisibleStart < selectionVisibleEnd &&
+                static_cast<size_t>(selectionVisibleEnd) < charPositions.size()) {
+                const float selLeft = charPositions[static_cast<size_t>(selectionVisibleStart)];
+                const float selRight = charPositions[static_cast<size_t>(selectionVisibleEnd)];
+                const float selWidth = std::max(selRight - selLeft, 0.0f);
+                if (selWidth > 0.0f) {
+                    Gdiplus::RectF selectionClip(selLeft, layoutTop, selWidth, textHeight);
+                    graphics.SetClip(selectionClip);
+                    Gdiplus::SolidBrush selectionTextBrush(
+                        Gdiplus::Color(255, GetRValue(selectionText), GetGValue(selectionText),
+                                       GetBValue(selectionText)));
+                    graphics.DrawString(visibleText.c_str(), static_cast<INT>(visibleText.size()), &font, layoutRect,
+                                        &format, &selectionTextBrush);
+                    graphics.ResetClip();
+                }
+            }
+        }
+    }
+
+    if (previousFont) {
+        SelectObject(dc, previousFont);
+    }
+
+    if (caretHidden) {
+        ShowCaret(hwnd);
+    }
+
+    return true;
+}
+
 LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam) {
     HHOOK hookHandle = nullptr;
 
@@ -2317,23 +2730,30 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
         HWND hwnd = reinterpret_cast<HWND>(wParam);
         const CBT_CREATEWNDW* create = reinterpret_cast<CBT_CREATEWNDW*>(lParam);
 
-        const wchar_t* className = nullptr;
-        if (create && create->lpcs) {
-            if (HIWORD(create->lpcs->lpszClass)) {
-                className = create->lpcs->lpszClass;
+        bool isToolbar = false;
+        bool isEdit = false;
+        auto classifyWindow = [&](const wchar_t* name) {
+            if (!name) {
+                return;
+            }
+            if (_wcsicmp(name, TOOLBARCLASSNAMEW) == 0) {
+                isToolbar = true;
+            } else if (_wcsicmp(name, L"Edit") == 0) {
+                isEdit = true;
+            }
+        };
+
+        if (create && create->lpcs && HIWORD(create->lpcs->lpszClass)) {
+            classifyWindow(create->lpcs->lpszClass);
+        } else {
+            wchar_t buffer[64]{};
+            if (GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer)) > 0) {
+                classifyWindow(buffer);
             }
         }
 
-        if (className) {
-            if (_wcsicmp(className, TOOLBARCLASSNAMEW) != 0) {
-                return CallNextHookEx(nullptr, code, wParam, lParam);
-            }
-        } else {
-            wchar_t buffer[64]{};
-            if (GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer)) <= 0 ||
-                _wcsicmp(buffer, TOOLBARCLASSNAMEW) != 0) {
-                return CallNextHookEx(nullptr, code, wParam, lParam);
-            }
+        if (!isToolbar && !isEdit) {
+            return CallNextHookEx(nullptr, code, wParam, lParam);
         }
 
         std::vector<CExplorerBHO*> observers;
@@ -2348,27 +2768,41 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
 
         if (!observers.empty()) {
             for (CExplorerBHO* observer : observers) {
-                if (!observer ||
-                    (!observer->m_breadcrumbGradientEnabled && !observer->m_breadcrumbFontGradientEnabled) ||
-                    !observer->m_gdiplusInitialized) {
+                if (!observer || !observer->m_gdiplusInitialized) {
                     continue;
                 }
 
-                HWND start = hwnd;
-                if (create && create->lpcs && create->lpcs->hwndParent) {
-                    start = create->lpcs->hwndParent;
-                }
+                if (isToolbar) {
+                    if (!observer->m_breadcrumbGradientEnabled && !observer->m_breadcrumbFontGradientEnabled) {
+                        continue;
+                    }
 
-                if (!observer->IsBreadcrumbToolbarAncestor(start)) {
-                    continue;
-                }
-                if (!observer->IsWindowOwnedByThisExplorer(hwnd)) {
-                    continue;
-                }
+                    HWND start = hwnd;
+                    if (create && create->lpcs && create->lpcs->hwndParent) {
+                        start = create->lpcs->hwndParent;
+                    }
 
-                if (observer->InstallBreadcrumbSubclass(hwnd)) {
-                    observer->LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
-                                                 L"Breadcrumb toolbar subclassed via CBT hook (hwnd=%p)", hwnd);
+                    if (!observer->IsBreadcrumbToolbarAncestor(start)) {
+                        continue;
+                    }
+                    if (!observer->IsWindowOwnedByThisExplorer(hwnd)) {
+                        continue;
+                    }
+
+                    if (observer->InstallBreadcrumbSubclass(hwnd)) {
+                        observer->LogBreadcrumbStage(BreadcrumbDiscoveryStage::Discovered,
+                                                     L"Breadcrumb toolbar subclassed via CBT hook (hwnd=%p)", hwnd);
+                    }
+                } else if (isEdit) {
+                    if (!observer->m_breadcrumbFontGradientEnabled) {
+                        continue;
+                    }
+                    if (!observer->IsAddressEditCandidate(hwnd)) {
+                        continue;
+                    }
+                    if (observer->InstallAddressEditSubclass(hwnd)) {
+                        LogMessage(LogLevel::Info, L"Address edit subclass installed via CBT hook (hwnd=%p)", hwnd);
+                    }
                 }
             }
         }
@@ -2404,6 +2838,61 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
             break;
         case WM_NCDESTROY:
             self->RemoveBreadcrumbSubclass();
+            break;
+        default:
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                       UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_PAINT:
+            if (self->HandleAddressEditPaint(hwnd)) {
+                return 0;
+            }
+            break;
+        case WM_PRINTCLIENT: {
+            if (self->m_breadcrumbFontGradientEnabled && self->m_gdiplusInitialized) {
+                RECT client{};
+                GetClientRect(hwnd, &client);
+                if (self->HandleAddressEditPaintToDc(hwnd, reinterpret_cast<HDC>(wParam), client)) {
+                    return 0;
+                }
+            }
+            break;
+        }
+        case WM_ERASEBKGND:
+            if (self->m_breadcrumbFontGradientEnabled && self->m_gdiplusInitialized) {
+                return 1;
+            }
+            break;
+        case WM_SETTEXT:
+        case WM_CUT:
+        case WM_PASTE:
+        case WM_CLEAR:
+        case WM_UNDO:
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        case WM_CHAR:
+        case EM_SETSEL:
+        case EM_REPLACESEL:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+            InvalidateRect(hwnd, nullptr, FALSE);
+            break;
+        case WM_STYLECHANGED:
+            InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        case WM_NCDESTROY:
+            self->RemoveAddressEditSubclass();
             break;
         default:
             break;

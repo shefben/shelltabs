@@ -58,6 +58,11 @@ private:
     HWND FindBreadcrumbToolbarInWindow(HWND root) const;
     HWND GetTopLevelExplorerWindow() const;
     bool InstallBreadcrumbSubclass(HWND toolbar);
+    void UpdateAddressEditSubclass();
+    void RemoveAddressEditSubclass();
+    HWND FindAddressEdit() const;
+    HWND FindAddressEditInContainer(HWND root) const;
+    bool InstallAddressEditSubclass(HWND edit);
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
     bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
@@ -81,6 +86,9 @@ private:
     bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
     bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
     bool HandleBreadcrumbPaint(HWND hwnd);
+    bool HandleAddressEditPaint(HWND hwnd);
+    bool HandleAddressEditPaintToDc(HWND hwnd, HDC dc, const RECT& paintRect);
+    bool IsAddressEditCandidate(HWND hwnd) const;
     enum class BreadcrumbDiscoveryStage {
         None,
         ServiceUnavailable,
@@ -96,6 +104,8 @@ private:
     static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                    UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                      UINT_PTR subclassId, DWORD_PTR refData);
 
@@ -109,6 +119,8 @@ private:
     bool m_shouldRetryEnsure = true;
     HWND m_breadcrumbToolbar = nullptr;
     bool m_breadcrumbSubclassInstalled = false;
+    HWND m_addressEdit = nullptr;
+    bool m_addressEditSubclassInstalled = false;
     bool m_breadcrumbGradientEnabled = false;
     bool m_breadcrumbFontGradientEnabled = false;
     int m_breadcrumbGradientTransparency = 45;
