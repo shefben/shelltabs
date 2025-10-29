@@ -65,6 +65,8 @@ private:
     HWND FindBreadcrumbToolbarInWindow(HWND root) const;
     HWND FindProgressWindow() const;
     HWND FindAddressEditControl() const;
+    void CollectSearchEditControls(std::vector<HWND>& controls) const;
+    bool IsSearchEditControl(HWND hwnd) const;
     HWND GetTopLevelExplorerWindow() const;
     bool InstallBreadcrumbSubclass(HWND toolbar);
     bool InstallProgressSubclass(HWND progressWindow);
@@ -73,6 +75,7 @@ private:
     void RemoveProgressSubclass();
     void UpdateAddressEditSubclass();
     void RemoveAddressEditSubclass();
+    void RemoveGradientEditWindow(HWND hwnd);
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
     bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
@@ -96,8 +99,6 @@ private:
     bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
     bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
     bool HandleBreadcrumbPaint(HWND hwnd);
-    bool HandleProgressPaint(HWND hwnd);
-    bool HandleAddressEditPaint(HWND hwnd);
     void UpdateFolderBackgroundConfiguration(const ShellTabsOptions& options);
     std::wstring GetCurrentFolderPath() const;
     const FolderBackgroundAssignment* ResolveBackgroundForPath(const std::wstring& folder) const;
@@ -150,8 +151,7 @@ private:
     COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
     HWND m_progressWindow = nullptr;
     bool m_progressSubclassInstalled = false;
-    HWND m_addressEditWindow = nullptr;
-    bool m_addressEditSubclassInstalled = false;
+    std::vector<HWND> m_gradientEditWindows;
     bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,

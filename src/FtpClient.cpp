@@ -961,7 +961,7 @@ public:
         FILE* file = nullptr;
         const errno_t openResult = _wfopen_s(&file, localPath.c_str(), L"wb");
         if (openResult != 0 || !file) {
-            int lastDosError = 0;
+            unsigned long lastDosError = 0;
             _get_doserrno(&lastDosError);
             const DWORD error = lastDosError != 0 ? static_cast<DWORD>(lastDosError) : ERROR_OPEN_FAILED;
             return HRESULT_FROM_WIN32(error);
@@ -1008,7 +1008,7 @@ public:
         FILE* file = nullptr;
         const errno_t openResult = _wfopen_s(&file, localPath.c_str(), L"rb");
         if (openResult != 0 || !file) {
-            int lastDosError = 0;
+            unsigned long lastDosError = 0;
             _get_doserrno(&lastDosError);
             const DWORD error = lastDosError != 0 ? static_cast<DWORD>(lastDosError) : ERROR_OPEN_FAILED;
             return HRESULT_FROM_WIN32(error);
