@@ -34,7 +34,7 @@ namespace {
 
 constexpr int kMainCheckboxWidth = 210;
 constexpr int kMainDialogWidth = 260;
-constexpr int kMainDialogHeight = 360;
+constexpr int kMainDialogHeight = 430;
 constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
@@ -72,6 +72,13 @@ enum ControlIds : int {
     IDC_MAIN_TAB_UNSELECTED_CHECK = 5029,
     IDC_MAIN_TAB_UNSELECTED_PREVIEW = 5030,
     IDC_MAIN_TAB_UNSELECTED_BUTTON = 5031,
+    IDC_MAIN_PROGRESS_CUSTOM = 5032,
+    IDC_MAIN_PROGRESS_START_LABEL = 5033,
+    IDC_MAIN_PROGRESS_START_PREVIEW = 5034,
+    IDC_MAIN_PROGRESS_START_BUTTON = 5035,
+    IDC_MAIN_PROGRESS_END_LABEL = 5036,
+    IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
+    IDC_MAIN_PROGRESS_END_BUTTON = 5038,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -229,7 +236,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 30;
+    dlg->cdit = 36;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -250,7 +257,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     breadcrumbGroup->x = 6;
     breadcrumbGroup->y = 6;
     breadcrumbGroup->cx = kMainDialogWidth - 12;
-    breadcrumbGroup->cy = 260;
+    breadcrumbGroup->cy = 310;
     breadcrumbGroup->id = 0;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
@@ -369,6 +376,13 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addStatic(IDC_MAIN_BREADCRUMB_FONT_END_LABEL, 24, 236, 60, 10, L"End:");
     addPreview(IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, 86, 234);
     addButton(IDC_MAIN_BREADCRUMB_FONT_END_BUTTON, 124, 233, L"Choose");
+    addCheckbox(IDC_MAIN_PROGRESS_CUSTOM, 16, 258, L"Use custom progress bar gradient colors");
+    addStatic(IDC_MAIN_PROGRESS_START_LABEL, 24, 276, 60, 10, L"Start:");
+    addPreview(IDC_MAIN_PROGRESS_START_PREVIEW, 86, 274);
+    addButton(IDC_MAIN_PROGRESS_START_BUTTON, 124, 273, L"Choose");
+    addStatic(IDC_MAIN_PROGRESS_END_LABEL, 24, 296, 60, 10, L"End:");
+    addPreview(IDC_MAIN_PROGRESS_END_PREVIEW, 86, 294);
+    addButton(IDC_MAIN_PROGRESS_END_BUTTON, 124, 293, L"Choose");
 
     AlignDialogBuffer(data);
     offset = data.size();
@@ -377,7 +391,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     tabsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
     tabsGroup->dwExtendedStyle = 0;
     tabsGroup->x = 6;
-    tabsGroup->y = 272;
+    tabsGroup->y = 332;
     tabsGroup->cx = kMainDialogWidth - 12;
     tabsGroup->cy = 88;
     tabsGroup->id = 0;
@@ -386,12 +400,12 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     AppendString(data, L"Tabs");
     AppendWord(data, 0);
 
-    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 288, L"Use custom selected tab color");
-    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 306);
-    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 305, L"Choose");
-    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 324, L"Use custom unselected tab color");
-    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 342);
-    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 341, L"Choose");
+    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 348, L"Use custom selected tab color");
+    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 366);
+    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 365, L"Choose");
+    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 384, L"Use custom unselected tab color");
+    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 402);
+    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 401, L"Choose");
 
     AlignDialogBuffer(data);
     return data;
@@ -709,6 +723,8 @@ struct OptionsDialogData {
     HBRUSH breadcrumbBgEndBrush = nullptr;
     HBRUSH breadcrumbFontStartBrush = nullptr;
     HBRUSH breadcrumbFontEndBrush = nullptr;
+    HBRUSH progressStartBrush = nullptr;
+    HBRUSH progressEndBrush = nullptr;
     HBRUSH tabSelectedBrush = nullptr;
     HBRUSH tabUnselectedBrush = nullptr;
 };
@@ -818,6 +834,15 @@ void UpdateGradientColorControlsEnabled(HWND hwnd, bool backgroundEnabled, bool 
     }
 }
 
+void UpdateProgressColorControlsEnabled(HWND hwnd, bool enabled) {
+    const int controls[] = {IDC_MAIN_PROGRESS_START_LABEL,   IDC_MAIN_PROGRESS_START_PREVIEW,
+                            IDC_MAIN_PROGRESS_START_BUTTON, IDC_MAIN_PROGRESS_END_LABEL,
+                            IDC_MAIN_PROGRESS_END_PREVIEW,  IDC_MAIN_PROGRESS_END_BUTTON};
+    for (int id : controls) {
+        EnableWindow(GetDlgItem(hwnd, id), enabled);
+    }
+}
+
 void UpdateTabColorControlsEnabled(HWND hwnd, bool selectedEnabled, bool unselectedEnabled) {
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW), selectedEnabled);
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_TAB_SELECTED_BUTTON), selectedEnabled);
@@ -873,6 +898,18 @@ bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) 
             targetBrush = &data->breadcrumbFontEndBrush;
             previewId = IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW;
             targetColor = &data->workingOptions.breadcrumbFontGradientEndColor;
+            break;
+        case IDC_MAIN_PROGRESS_START_BUTTON:
+            initial = data->workingOptions.progressBarGradientStartColor;
+            targetBrush = &data->progressStartBrush;
+            previewId = IDC_MAIN_PROGRESS_START_PREVIEW;
+            targetColor = &data->workingOptions.progressBarGradientStartColor;
+            break;
+        case IDC_MAIN_PROGRESS_END_BUTTON:
+            initial = data->workingOptions.progressBarGradientEndColor;
+            targetBrush = &data->progressEndBrush;
+            previewId = IDC_MAIN_PROGRESS_END_PREVIEW;
+            targetColor = &data->workingOptions.progressBarGradientEndColor;
             break;
         case IDC_MAIN_TAB_SELECTED_BUTTON:
             initial = data->workingOptions.customTabSelectedColor;
@@ -1363,6 +1400,13 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                 data->workingOptions.breadcrumbFontGradientStartColor);
                 SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, &data->breadcrumbFontEndBrush,
                                 data->workingOptions.breadcrumbFontGradientEndColor);
+                CheckDlgButton(hwnd, IDC_MAIN_PROGRESS_CUSTOM,
+                               data->workingOptions.useCustomProgressBarGradientColors ? BST_CHECKED : BST_UNCHECKED);
+                SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_START_PREVIEW, &data->progressStartBrush,
+                                data->workingOptions.progressBarGradientStartColor);
+                SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_END_PREVIEW, &data->progressEndBrush,
+                                data->workingOptions.progressBarGradientEndColor);
+                UpdateProgressColorControlsEnabled(hwnd, data->workingOptions.useCustomProgressBarGradientColors);
                 CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
                                data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
@@ -1389,6 +1433,7 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 case IDC_MAIN_BREADCRUMB_FONT:
                 case IDC_MAIN_BREADCRUMB_BG_CUSTOM:
                 case IDC_MAIN_BREADCRUMB_FONT_CUSTOM:
+                case IDC_MAIN_PROGRESS_CUSTOM:
                     if (HIWORD(wParam) == BN_CLICKED) {
                         auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                         if (data) {
@@ -1403,6 +1448,9 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                 IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
                             UpdateGradientColorControlsEnabled(hwnd, backgroundEnabled && bgCustom,
                                                                fontEnabled && fontCustom);
+                            const bool progressCustom =
+                                IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
+                            UpdateProgressColorControlsEnabled(hwnd, progressCustom);
                         }
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
@@ -1425,6 +1473,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 case IDC_MAIN_BREADCRUMB_BG_END_BUTTON:
                 case IDC_MAIN_BREADCRUMB_FONT_START_BUTTON:
                 case IDC_MAIN_BREADCRUMB_FONT_END_BUTTON:
+                case IDC_MAIN_PROGRESS_START_BUTTON:
+                case IDC_MAIN_PROGRESS_END_BUTTON:
                 case IDC_MAIN_TAB_SELECTED_BUTTON:
                 case IDC_MAIN_TAB_UNSELECTED_BUTTON:
                     if (HIWORD(wParam) == BN_CLICKED) {
@@ -1466,6 +1516,14 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 case IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW:
                     brush = data->breadcrumbFontEndBrush;
                     color = data->workingOptions.breadcrumbFontGradientEndColor;
+                    break;
+                case IDC_MAIN_PROGRESS_START_PREVIEW:
+                    brush = data->progressStartBrush;
+                    color = data->workingOptions.progressBarGradientStartColor;
+                    break;
+                case IDC_MAIN_PROGRESS_END_PREVIEW:
+                    brush = data->progressEndBrush;
+                    color = data->workingOptions.progressBarGradientEndColor;
                     break;
                 case IDC_MAIN_TAB_SELECTED_PREVIEW:
                     brush = data->tabSelectedBrush;
@@ -1537,6 +1595,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
                     data->workingOptions.useCustomBreadcrumbFontColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
+                    data->workingOptions.useCustomProgressBarGradientColors =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
                     data->workingOptions.useCustomTabSelectedColor =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
                     data->workingOptions.useCustomTabUnselectedColor =
@@ -1727,6 +1787,14 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     if (data.breadcrumbFontEndBrush) {
         DeleteObject(data.breadcrumbFontEndBrush);
         data.breadcrumbFontEndBrush = nullptr;
+    }
+    if (data.progressStartBrush) {
+        DeleteObject(data.progressStartBrush);
+        data.progressStartBrush = nullptr;
+    }
+    if (data.progressEndBrush) {
+        DeleteObject(data.progressEndBrush);
+        data.progressEndBrush = nullptr;
     }
     if (data.tabSelectedBrush) {
         DeleteObject(data.tabSelectedBrush);

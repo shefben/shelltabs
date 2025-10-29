@@ -370,6 +370,7 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 void CExplorerBHO::Disconnect() {
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
+    RemoveProgressSubclass();
     RemoveExplorerViewSubclass();
     DisconnectEvents();
     m_webBrowser.Reset();
@@ -847,6 +848,50 @@ HWND CExplorerBHO::FindBreadcrumbToolbarInWindow(HWND root) const {
     }
 
     return data.toolbar;
+}
+
+HWND CExplorerBHO::FindProgressWindow() const {
+    if (m_breadcrumbToolbar && IsWindow(m_breadcrumbToolbar)) {
+        HWND breadcrumbParent = GetParent(m_breadcrumbToolbar);
+        if (breadcrumbParent) {
+            if (MatchesClass(breadcrumbParent, PROGRESS_CLASSW)) {
+                return breadcrumbParent;
+            }
+            HWND progressParent = GetParent(breadcrumbParent);
+            if (progressParent && MatchesClass(progressParent, PROGRESS_CLASSW)) {
+                return progressParent;
+            }
+        }
+    }
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return nullptr;
+    }
+
+    struct EnumData {
+        HWND progress = nullptr;
+    } data{};
+
+    EnumChildWindows(
+        frame,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto* data = reinterpret_cast<EnumData*>(param);
+            if (!data || data->progress) {
+                return FALSE;
+            }
+            if (!MatchesClass(hwnd, PROGRESS_CLASSW)) {
+                return TRUE;
+            }
+            if (!FindDescendantWindow(hwnd, L"Breadcrumb Parent")) {
+                return TRUE;
+            }
+            data->progress = hwnd;
+            return FALSE;
+        },
+        reinterpret_cast<LPARAM>(&data));
+
+    return data.progress;
 }
 
 bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
@@ -1599,6 +1644,22 @@ bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
     return false;
 }
 
+bool CExplorerBHO::InstallProgressSubclass(HWND progressWindow) {
+    if (!progressWindow || !IsWindow(progressWindow)) {
+        return false;
+    }
+
+    if (SetWindowSubclass(progressWindow, &CExplorerBHO::ProgressSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_progressWindow = progressWindow;
+        m_progressSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed progress gradient subclass on hwnd=%p", progressWindow);
+        return true;
+    }
+
+    LogLastError(L"SetWindowSubclass(progress window)", GetLastError());
+    return false;
+}
+
 void CExplorerBHO::RemoveBreadcrumbSubclass() {
     if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         if (IsWindow(m_breadcrumbToolbar)) {
@@ -1613,6 +1674,20 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
         m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     }
     m_loggedBreadcrumbToolbarMissing = false;
+
+    RemoveProgressSubclass();
+}
+
+void CExplorerBHO::RemoveProgressSubclass() {
+    if (m_progressWindow && m_progressSubclassInstalled) {
+        if (IsWindow(m_progressWindow)) {
+            RemoveWindowSubclass(m_progressWindow, &CExplorerBHO::ProgressSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+            InvalidateRect(m_progressWindow, nullptr, TRUE);
+        }
+    }
+    m_progressWindow = nullptr;
+    m_progressSubclassInstalled = false;
 }
 
 void CExplorerBHO::EnsureBreadcrumbHook() {
@@ -1684,6 +1759,11 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomBreadcrumbFontColors = options.useCustomBreadcrumbFontColors;
     m_breadcrumbFontGradientStartColor = options.breadcrumbFontGradientStartColor;
     m_breadcrumbFontGradientEndColor = options.breadcrumbFontGradientEndColor;
+    m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
+    m_progressGradientStartColor = options.progressBarGradientStartColor;
+    m_progressGradientEndColor = options.progressBarGradientEndColor;
+
+    UpdateProgressSubclass();
 
     const bool gradientsEnabled = (m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled);
     if (!gradientsEnabled || !m_gdiplusInitialized) {
@@ -1734,10 +1814,41 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
 
     if (toolbar == m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         InvalidateRect(toolbar, nullptr, TRUE);
+        UpdateProgressSubclass();
         return;
     }
 
     InstallBreadcrumbSubclass(toolbar);
+    UpdateProgressSubclass();
+}
+
+void CExplorerBHO::UpdateProgressSubclass() {
+    if (!m_useCustomProgressGradientColors) {
+        if (m_progressSubclassInstalled) {
+            LogMessage(LogLevel::Info, L"Progress gradients disabled; removing subclass");
+        }
+        RemoveProgressSubclass();
+        return;
+    }
+
+    HWND progress = FindProgressWindow();
+    if (!progress) {
+        if (m_progressSubclassInstalled) {
+            LogMessage(LogLevel::Info, L"Progress window not found; removing subclass");
+        }
+        RemoveProgressSubclass();
+        return;
+    }
+
+    if (m_progressSubclassInstalled && progress == m_progressWindow) {
+        InvalidateRect(progress, nullptr, TRUE);
+        return;
+    }
+
+    RemoveProgressSubclass();
+    if (InstallProgressSubclass(progress)) {
+        InvalidateRect(progress, nullptr, TRUE);
+    }
 }
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
@@ -2310,6 +2421,74 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     return true;
 }
 
+bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
+    if (!m_useCustomProgressGradientColors) {
+        return false;
+    }
+
+    PAINTSTRUCT ps{};
+    HDC dc = BeginPaint(hwnd, &ps);
+    if (!dc) {
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) {
+        EndPaint(hwnd, &ps);
+        return true;
+    }
+
+    RECT inner = client;
+    DrawEdge(dc, &inner, EDGE_SUNKEN, BF_RECT | BF_ADJUST);
+
+    FillRect(dc, &inner, GetSysColorBrush(COLOR_WINDOW));
+
+    PBRANGE range{};
+    SendMessageW(hwnd, PBM_GETRANGE, TRUE, reinterpret_cast<LPARAM>(&range));
+    if (range.iHigh <= range.iLow) {
+        range.iLow = 0;
+        range.iHigh = 100;
+    }
+
+    LRESULT position = SendMessageW(hwnd, PBM_GETPOS, 0, 0);
+    const int span = range.iHigh - range.iLow;
+    double fraction = 0.0;
+    if (span > 0) {
+        fraction = static_cast<double>(position - range.iLow) / static_cast<double>(span);
+    }
+    fraction = std::clamp(fraction, 0.0, 1.0);
+
+    const LONG width = inner.right - inner.left;
+    if (fraction > 0.0 && width > 0) {
+        const LONG progressWidth = static_cast<LONG>(std::lround(fraction * static_cast<double>(width)));
+        if (progressWidth > 0) {
+            RECT fillRect = inner;
+            fillRect.right = std::min(fillRect.left + progressWidth, inner.right);
+
+            TRIVERTEX vertex[2] = {};
+            vertex[0].x = fillRect.left;
+            vertex[0].y = fillRect.top;
+            vertex[0].Red = static_cast<COLOR16>(GetRValue(m_progressGradientStartColor) << 8);
+            vertex[0].Green = static_cast<COLOR16>(GetGValue(m_progressGradientStartColor) << 8);
+            vertex[0].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientStartColor) << 8);
+            vertex[0].Alpha = 0xFFFF;
+
+            vertex[1].x = fillRect.right;
+            vertex[1].y = fillRect.bottom;
+            vertex[1].Red = static_cast<COLOR16>(GetRValue(m_progressGradientEndColor) << 8);
+            vertex[1].Green = static_cast<COLOR16>(GetGValue(m_progressGradientEndColor) << 8);
+            vertex[1].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientEndColor) << 8);
+            vertex[1].Alpha = 0xFFFF;
+
+            const GRADIENT_RECT gradientRect{0, 1};
+            GradientFill(dc, vertex, 2, &gradientRect, 1, GRADIENT_FILL_RECT_H);
+        }
+    }
+
+    EndPaint(hwnd, &ps);
+    return true;
+}
+
 LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam) {
     HHOOK hookHandle = nullptr;
 
@@ -2404,6 +2583,40 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
             break;
         case WM_NCDESTROY:
             self->RemoveBreadcrumbSubclass();
+            break;
+        default:
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                    UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_PAINT:
+            if (self->HandleProgressPaint(hwnd)) {
+                return 0;
+            }
+            break;
+        case WM_ERASEBKGND:
+            if (self->m_useCustomProgressGradientColors) {
+                return 1;
+            }
+            break;
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+            if (self->m_useCustomProgressGradientColors) {
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
+            break;
+        case WM_NCDESTROY:
+            self->RemoveProgressSubclass();
             break;
         default:
             break;

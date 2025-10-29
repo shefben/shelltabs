@@ -56,8 +56,12 @@ private:
     void RemoveBreadcrumbSubclass();
     HWND FindBreadcrumbToolbar() const;
     HWND FindBreadcrumbToolbarInWindow(HWND root) const;
+    HWND FindProgressWindow() const;
     HWND GetTopLevelExplorerWindow() const;
     bool InstallBreadcrumbSubclass(HWND toolbar);
+    bool InstallProgressSubclass(HWND progressWindow);
+    void UpdateProgressSubclass();
+    void RemoveProgressSubclass();
     void UpdateExplorerViewSubclass();
     void RemoveExplorerViewSubclass();
     bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
@@ -81,6 +85,7 @@ private:
     bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
     bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
     bool HandleBreadcrumbPaint(HWND hwnd);
+    bool HandleProgressPaint(HWND hwnd);
     enum class BreadcrumbDiscoveryStage {
         None,
         ServiceUnavailable,
@@ -96,6 +101,8 @@ private:
     static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                 UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                      UINT_PTR subclassId, DWORD_PTR refData);
 
@@ -119,6 +126,11 @@ private:
     bool m_useCustomBreadcrumbFontColors = false;
     COLORREF m_breadcrumbFontGradientStartColor = RGB(255, 255, 255);
     COLORREF m_breadcrumbFontGradientEndColor = RGB(255, 255, 255);
+    bool m_useCustomProgressGradientColors = false;
+    COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
+    COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
+    HWND m_progressWindow = nullptr;
+    bool m_progressSubclassInstalled = false;
     bool m_breadcrumbHookRegistered = false;
     enum class BreadcrumbLogState {
         Unknown,
