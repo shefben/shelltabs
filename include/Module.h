@@ -1,5 +1,8 @@
 #pragma once
 
+#ifdef _WINSOCKAPI_
+#undef _WINSOCKAPI_
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>

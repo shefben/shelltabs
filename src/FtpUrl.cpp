@@ -157,7 +157,7 @@ bool TryParseFtpUrl(const std::wstring& url, FtpUrlParts* parts) {
         return false;
     }
 
-    DWORD scheme = URL_SCHEME_INVALID;
+    DWORD scheme = static_cast<DWORD>(URL_SCHEME_INVALID);
     if (FAILED(uri->GetScheme(&scheme)) || scheme != URL_SCHEME_FTP) {
         return false;
     }

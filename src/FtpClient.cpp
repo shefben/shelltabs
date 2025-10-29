@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cwchar>
 #include <cwctype>
+#include <errno.h>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -957,9 +958,13 @@ public:
         if (response.status != 150 && response.status != 125) {
             return HResultFromFtpReply(response.status);
         }
-        FILE* file = _wfopen(localPath.c_str(), L"wb");
-        if (!file) {
-            return HRESULT_FROM_WIN32(GetLastError());
+        FILE* file = nullptr;
+        const errno_t openResult = _wfopen_s(&file, localPath.c_str(), L"wb");
+        if (openResult != 0 || !file) {
+            int lastDosError = 0;
+            _get_doserrno(&lastDosError);
+            const DWORD error = lastDosError != 0 ? static_cast<DWORD>(lastDosError) : ERROR_OPEN_FAILED;
+            return HRESULT_FROM_WIN32(error);
         }
         std::unique_ptr<FILE, decltype(&fclose)> fileCloser(file, &fclose);
         char chunk[4096];
@@ -1000,9 +1005,13 @@ public:
         if (response.status != 150 && response.status != 125) {
             return HResultFromFtpReply(response.status);
         }
-        FILE* file = _wfopen(localPath.c_str(), L"rb");
-        if (!file) {
-            return HRESULT_FROM_WIN32(GetLastError());
+        FILE* file = nullptr;
+        const errno_t openResult = _wfopen_s(&file, localPath.c_str(), L"rb");
+        if (openResult != 0 || !file) {
+            int lastDosError = 0;
+            _get_doserrno(&lastDosError);
+            const DWORD error = lastDosError != 0 ? static_cast<DWORD>(lastDosError) : ERROR_OPEN_FAILED;
+            return HRESULT_FROM_WIN32(error);
         }
         std::unique_ptr<FILE, decltype(&fclose)> fileCloser(file, &fclose);
         char chunk[4096];
@@ -1226,7 +1235,7 @@ HRESULT FtpClient::ExecuteOperation(const FtpConnectionOptions& options, const F
             }
             FtpCommandStateMachine machine(options, credentials, *context);
             ExecuteResult result = ExecuteStateMachine(*session, machine, options, credentials, *context);
-            ReleaseSession(key, session, SUCCEEDED(result.hr), options);
+            ReleaseSession(key, session, SUCCEEDED(result.hr));
             if (SUCCEEDED(result.hr)) {
                 if (persist && !credentials.password.empty()) {
                     PersistCredentials(options, credentials);
@@ -1280,7 +1289,6 @@ HRESULT FtpClient::AcquireCredentials(const FtpConnectionOptions& options, HWND 
     info.hwndParent = credentialParent;
     info.pszMessageText = L"Enter FTP credentials";
     info.pszCaptionText = L"ShellTabs";
-    DWORD authError = 0;
     const std::wstring server = FormatHostPort(options.host, options.port);
     DWORD status = CredUIPromptForCredentialsW(&info, server.c_str(), nullptr, 0, userName.Data(),
                                               static_cast<ULONG>(userName.Size()), password.Data(),
@@ -1423,8 +1431,7 @@ std::shared_ptr<FtpClient::FtpTransportSession> FtpClient::AcquireSession(const 
     return session;
 }
 
-void FtpClient::ReleaseSession(const SessionKey& key, const std::shared_ptr<FtpTransportSession>& session, bool keepAlive,
-                               const FtpConnectionOptions& options) {
+void FtpClient::ReleaseSession(const SessionKey& key, const std::shared_ptr<FtpTransportSession>& session, bool keepAlive) {
     if (!session) {
         return;
     }
