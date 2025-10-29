@@ -2621,7 +2621,7 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
             vertex[1].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientEndColor) << 8);
             vertex[1].Alpha = 0xFFFF;
 
-            const GRADIENT_RECT gradientRect{0, 1};
+            GRADIENT_RECT gradientRect{0, 1};
             GradientFill(dc, vertex, 2, &gradientRect, 1, GRADIENT_FILL_RECT_H);
         }
     }
