@@ -25,12 +25,15 @@ struct PreviewImage {
     SIZE size{};
 };
 
+inline constexpr SIZE kPreviewImageSize{192, 128};
+
 // Provides cached thumbnails for PIDLs using IShellItemImageFactory.
 class PreviewCache {
 public:
     static PreviewCache& Instance();
 
     std::optional<PreviewImage> GetPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize);
+    void StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, const SIZE& desiredSize);
     void Clear();
 
 private:
