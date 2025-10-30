@@ -16,6 +16,7 @@ namespace shelltabs {
 
 class TabBand;
 class TaskbarProxyWindow;
+struct FrameTabEntry;
 
 class TaskbarTabController {
 public:
