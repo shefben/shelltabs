@@ -2127,7 +2127,7 @@ void CExplorerBHO::RequestAddressEditRedraw(HWND hwnd) const {
         return;
     }
 
-    if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors) {
+    if (!m_breadcrumbFontGradientEnabled) {
         return;
     }
 
@@ -2135,7 +2135,7 @@ void CExplorerBHO::RequestAddressEditRedraw(HWND hwnd) const {
 }
 
 void CExplorerBHO::UpdateAddressEditSubclass() {
-    if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors || !m_gdiplusInitialized) {
+    if (!m_breadcrumbFontGradientEnabled || !m_gdiplusInitialized) {
         RemoveAddressEditSubclass();
         return;
     }
@@ -3009,7 +3009,7 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
 }
 
 bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
-    if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors) {
+    if (!m_breadcrumbFontGradientEnabled || !m_gdiplusInitialized) {
         return false;
     }
 
@@ -3063,8 +3063,40 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
         oldFont = static_cast<HFONT>(SelectObject(dc, font));
     }
 
-    const COLORREF gradientStart = m_breadcrumbFontGradientStartColor;
-    const COLORREF gradientEnd = m_breadcrumbFontGradientEndColor;
+    static const std::array<COLORREF, 7> kRainbowColors = {
+        RGB(255, 59, 48),   // red
+        RGB(255, 149, 0),   // orange
+        RGB(255, 204, 0),   // yellow
+        RGB(52, 199, 89),   // green
+        RGB(0, 122, 255),   // blue
+        RGB(88, 86, 214),   // indigo
+        RGB(175, 82, 222)   // violet
+    };
+
+    COLORREF gradientStart = m_breadcrumbFontGradientStartColor;
+    COLORREF gradientEnd = m_breadcrumbFontGradientEndColor;
+    if (!m_useCustomBreadcrumbFontColors) {
+        if (m_useCustomBreadcrumbGradientColors) {
+            gradientStart = m_breadcrumbGradientStartColor;
+            gradientEnd = m_breadcrumbGradientEndColor;
+        } else {
+            gradientStart = kRainbowColors.front();
+            gradientEnd = kRainbowColors[1];
+        }
+    }
+
+    if (gradientStart == gradientEnd) {
+        auto brightenChannel = [](BYTE channel) -> BYTE {
+            return static_cast<BYTE>(std::clamp<int>(channel + 20, 0, 255));
+        };
+        gradientEnd = RGB(brightenChannel(GetRValue(gradientEnd)), brightenChannel(GetGValue(gradientEnd)),
+                          brightenChannel(GetBValue(gradientEnd)));
+        if (gradientStart == gradientEnd) {
+            gradientEnd = RGB(std::min(255, GetRValue(gradientEnd) + 10),
+                              std::min(255, GetGValue(gradientEnd) + 10),
+                              std::min(255, GetBValue(gradientEnd) + 10));
+        }
+    }
     const int brightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
 
     const COLORREF previousTextColor = GetTextColor(dc);
@@ -3254,7 +3286,7 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
                     continue;
                 }
 
-                if (!observer->m_breadcrumbFontGradientEnabled || !observer->m_useCustomBreadcrumbFontColors) {
+                if (!observer->m_breadcrumbFontGradientEnabled) {
                     continue;
                 }
 
