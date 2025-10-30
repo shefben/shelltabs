@@ -34,6 +34,7 @@
 #include "Module.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
+#include "TabBandWindow.h"
 #include "Utilities.h"
 
 namespace shelltabs {
@@ -88,6 +89,8 @@ enum ControlIds : int {
     IDC_MAIN_PROGRESS_END_LABEL = 5036,
     IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
     IDC_MAIN_PROGRESS_END_BUTTON = 5038,
+    IDC_MAIN_DOCK_LABEL = 5039,
+    IDC_MAIN_DOCK_COMBO = 5040,
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
     IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
@@ -188,7 +191,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 3;
+    dlg->cdit = 5;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -245,6 +248,38 @@ std::vector<BYTE> BuildMainPageTemplate() {
     exampleStatic->id = static_cast<WORD>(IDC_MAIN_EXAMPLE);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* dockLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    dockLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    dockLabel->dwExtendedStyle = 0;
+    dockLabel->x = 10;
+    dockLabel->y = 122;
+    dockLabel->cx = kMainDialogWidth - 20;
+    dockLabel->cy = 12;
+    dockLabel->id = static_cast<WORD>(IDC_MAIN_DOCK_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Tab bar docking location:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* dockCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    dockCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+    dockCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    dockCombo->x = 10;
+    dockCombo->y = 136;
+    dockCombo->cx = kMainDialogWidth - 20;
+    dockCombo->cy = 70;
+    dockCombo->id = static_cast<WORD>(IDC_MAIN_DOCK_COMBO);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0085);
     AppendString(data, L"");
     AppendWord(data, 0);
 
@@ -2108,6 +2143,46 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                     L"Example: if a group opens to C:\\test and you browse to C\\test\\child, "
                     L"enabling this option reopens the child folder next time.";
                 SetDlgItemTextW(hwnd, IDC_MAIN_EXAMPLE, example);
+
+                HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
+                if (combo) {
+                    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+                    const uint32_t mask = TabBandWindow::GetAvailableDockMask();
+                    struct DockEntry {
+                        TabBandDockMode mode;
+                        const wchar_t* label;
+                        uint32_t requiredMask;
+                    } entries[] = {
+                        {TabBandDockMode::kAutomatic, L"Let Explorer decide", 0},
+                        {TabBandDockMode::kTop, L"Top toolbar", 1u << static_cast<uint32_t>(TabBandDockMode::kTop)},
+                        {TabBandDockMode::kBottom, L"Bottom toolbar", 1u << static_cast<uint32_t>(TabBandDockMode::kBottom)},
+                        {TabBandDockMode::kLeft, L"Left vertical band", 1u << static_cast<uint32_t>(TabBandDockMode::kLeft)},
+                        {TabBandDockMode::kRight, L"Right vertical band", 1u << static_cast<uint32_t>(TabBandDockMode::kRight)},
+                    };
+
+                    int selectionIndex = -1;
+                    for (const auto& entry : entries) {
+                        if (entry.mode != TabBandDockMode::kAutomatic && entry.requiredMask != 0 &&
+                            (mask & entry.requiredMask) == 0) {
+                            continue;
+                        }
+
+                        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
+                                                                         reinterpret_cast<LPARAM>(entry.label)));
+                        if (index >= 0) {
+                            SendMessageW(combo, CB_SETITEMDATA, index,
+                                         static_cast<LPARAM>(entry.mode));
+                            if (data->workingOptions.tabDockMode == entry.mode && selectionIndex < 0) {
+                                selectionIndex = index;
+                            }
+                        }
+                    }
+
+                    if (selectionIndex < 0) {
+                        selectionIndex = 0;
+                    }
+                    SendMessageW(combo, CB_SETCURSEL, selectionIndex, 0);
+                }
             }
             return TRUE;
         }
@@ -2126,6 +2201,11 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
+                case IDC_MAIN_DOCK_COMBO:
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
                 default:
                     break;
             }
@@ -2139,6 +2219,17 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
                     data->workingOptions.persistGroupPaths =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
+                    HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
+                    if (combo) {
+                        const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+                        if (selection >= 0) {
+                            const LRESULT value = SendMessageW(combo, CB_GETITEMDATA, selection, 0);
+                            if (value != CB_ERR) {
+                                data->workingOptions.tabDockMode =
+                                    static_cast<TabBandDockMode>(value);
+                            }
+                        }
+                    }
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);

@@ -42,6 +42,56 @@ using Microsoft::WRL::ComPtr;
 namespace shelltabs {
 
 namespace {
+
+std::atomic<uint32_t> g_availableDockMask{0};
+
+TabBandDockMode DockModeFromRebarStyle(DWORD style) {
+    if ((style & CCS_VERT) != 0) {
+        if ((style & CCS_RIGHT) != 0) {
+            return TabBandDockMode::kRight;
+        }
+        return TabBandDockMode::kLeft;
+    }
+    if ((style & CCS_BOTTOM) != 0) {
+        return TabBandDockMode::kBottom;
+    }
+    return TabBandDockMode::kTop;
+}
+
+uint32_t DockModeToMask(TabBandDockMode mode) {
+    return 1u << static_cast<uint32_t>(mode);
+}
+
+void UpdateAvailableDockMaskFromFrame(HWND frame) {
+    if (!frame) {
+        return;
+    }
+
+    uint32_t mask = 0;
+    EnumChildWindows(
+        frame,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            wchar_t className[64] = {};
+            if (GetClassNameW(hwnd, className, ARRAYSIZE(className)) == 0) {
+                return TRUE;
+            }
+            if (wcscmp(className, L"ReBarWindow32") != 0) {
+                return TRUE;
+            }
+
+            const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE));
+            const auto mode = DockModeFromRebarStyle(style);
+            if (mode != TabBandDockMode::kAutomatic) {
+                *reinterpret_cast<uint32_t*>(param) |= DockModeToMask(mode);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&mask));
+
+    if (mask != 0) {
+        g_availableDockMask.store(mask, std::memory_order_release);
+    }
+}
 // Older Windows SDKs used by consumers of the project might not expose the
 // SID_SDataObject symbol (the service identifier for the current data object).
 // Define the GUID locally so the build remains compatible with those SDKs.
@@ -389,6 +439,20 @@ TabBandWindow::TabBandWindow(TabBand* owner) : m_owner(owner) {
 }
 
 TabBandWindow::~TabBandWindow() { Destroy(); }
+
+void TabBandWindow::SetPreferredDockMode(TabBandDockMode mode) {
+    m_preferredDockMode = mode;
+    EnsureRebarIntegration();
+}
+
+uint32_t TabBandWindow::GetAvailableDockMask() {
+    uint32_t mask = g_availableDockMask.load(std::memory_order_acquire);
+    if (mask == 0) {
+        mask |= DockModeToMask(TabBandDockMode::kTop);
+        mask |= DockModeToMask(TabBandDockMode::kBottom);
+    }
+    return mask;
+}
 
 HWND TabBandWindow::Create(HWND parent) {
     if (m_hwnd) {
@@ -1692,26 +1756,38 @@ void TabBandWindow::RefreshRebarMetrics() {
 
 
 void TabBandWindow::EnsureRebarIntegration() {
-	if (!m_hwnd) return;
-	if (!m_parentRebar || !IsWindow(m_parentRebar)) {
-		HWND parent = GetParent(m_hwnd);
-		while (parent && !IsRebarWindow(parent)) parent = GetParent(parent);
-		m_parentRebar = parent;
-		m_rebarBandIndex = -1;
-		if (m_parentRebar) {
+        if (!m_hwnd) return;
+        if (!m_parentRebar || !IsWindow(m_parentRebar)) {
+                HWND parent = GetParent(m_hwnd);
+                while (parent && !IsRebarWindow(parent)) parent = GetParent(parent);
+                m_parentRebar = parent;
+                m_rebarBandIndex = -1;
+                if (m_parentRebar) {
             InstallRebarDarkSubclass();   // NEW: we own the bar bg now
             UpdateRebarColors();  // NEW
-		}
-	}
+                }
+        }
 
-	if (!m_parentRebar) return;
+        if (!m_parentRebar) return;
 
-	const int index = FindRebarBandIndex();
-	if (index >= 0) {
-		m_rebarBandIndex = index;
+        HWND frame = GetAncestor(m_parentRebar, GA_ROOT);
+        UpdateAvailableDockMaskFromFrame(frame);
+
+        const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(m_parentRebar, GWL_STYLE));
+        const TabBandDockMode detectedMode = DockModeFromRebarStyle(style);
+        if (detectedMode != TabBandDockMode::kAutomatic && detectedMode != m_currentDockMode) {
+            m_currentDockMode = detectedMode;
+            if (m_owner) {
+                m_owner->OnDockingModeChanged(detectedMode);
+            }
+        }
+
+        const int index = FindRebarBandIndex();
+        if (index >= 0) {
+                m_rebarBandIndex = index;
         AdjustBandHeightToRow();
-		RefreshRebarMetrics();
-	}
+                RefreshRebarMetrics();
+        }
 }
 
 
