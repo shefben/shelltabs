@@ -62,35 +62,41 @@ enum ControlIds : int {
     IDC_MAIN_BREADCRUMB_FONT_LABEL = 5009,
     IDC_MAIN_BREADCRUMB_FONT_SLIDER = 5010,
     IDC_MAIN_BREADCRUMB_FONT_VALUE = 5011,
-    IDC_MAIN_BREADCRUMB_BG_CUSTOM = 5012,
-    IDC_MAIN_BREADCRUMB_BG_START_LABEL = 5013,
-    IDC_MAIN_BREADCRUMB_BG_START_PREVIEW = 5014,
-    IDC_MAIN_BREADCRUMB_BG_START_BUTTON = 5015,
-    IDC_MAIN_BREADCRUMB_BG_END_LABEL = 5016,
-    IDC_MAIN_BREADCRUMB_BG_END_PREVIEW = 5017,
-    IDC_MAIN_BREADCRUMB_BG_END_BUTTON = 5018,
-    IDC_MAIN_BREADCRUMB_FONT_CUSTOM = 5019,
-    IDC_MAIN_BREADCRUMB_FONT_START_LABEL = 5020,
-    IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW = 5021,
-    IDC_MAIN_BREADCRUMB_FONT_START_BUTTON = 5022,
-    IDC_MAIN_BREADCRUMB_FONT_END_LABEL = 5023,
-    IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW = 5024,
-    IDC_MAIN_BREADCRUMB_FONT_END_BUTTON = 5025,
-    IDC_MAIN_TAB_SELECTED_CHECK = 5026,
-    IDC_MAIN_TAB_SELECTED_PREVIEW = 5027,
-    IDC_MAIN_TAB_SELECTED_BUTTON = 5028,
-    IDC_MAIN_TAB_UNSELECTED_CHECK = 5029,
-    IDC_MAIN_TAB_UNSELECTED_PREVIEW = 5030,
-    IDC_MAIN_TAB_UNSELECTED_BUTTON = 5031,
-    IDC_MAIN_PROGRESS_CUSTOM = 5032,
-    IDC_MAIN_PROGRESS_START_LABEL = 5033,
-    IDC_MAIN_PROGRESS_START_PREVIEW = 5034,
-    IDC_MAIN_PROGRESS_START_BUTTON = 5035,
-    IDC_MAIN_PROGRESS_END_LABEL = 5036,
-    IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
-    IDC_MAIN_PROGRESS_END_BUTTON = 5038,
-    IDC_MAIN_DOCK_LABEL = 5039,
-    IDC_MAIN_DOCK_COMBO = 5040,
+    IDC_MAIN_BREADCRUMB_HIGHLIGHT_LABEL = 5012,
+    IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER = 5013,
+    IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE = 5014,
+    IDC_MAIN_BREADCRUMB_DROPDOWN_LABEL = 5015,
+    IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER = 5016,
+    IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE = 5017,
+    IDC_MAIN_BREADCRUMB_BG_CUSTOM = 5018,
+    IDC_MAIN_BREADCRUMB_BG_START_LABEL = 5019,
+    IDC_MAIN_BREADCRUMB_BG_START_PREVIEW = 5020,
+    IDC_MAIN_BREADCRUMB_BG_START_BUTTON = 5021,
+    IDC_MAIN_BREADCRUMB_BG_END_LABEL = 5022,
+    IDC_MAIN_BREADCRUMB_BG_END_PREVIEW = 5023,
+    IDC_MAIN_BREADCRUMB_BG_END_BUTTON = 5024,
+    IDC_MAIN_BREADCRUMB_FONT_CUSTOM = 5025,
+    IDC_MAIN_BREADCRUMB_FONT_START_LABEL = 5026,
+    IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW = 5027,
+    IDC_MAIN_BREADCRUMB_FONT_START_BUTTON = 5028,
+    IDC_MAIN_BREADCRUMB_FONT_END_LABEL = 5029,
+    IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW = 5030,
+    IDC_MAIN_BREADCRUMB_FONT_END_BUTTON = 5031,
+    IDC_MAIN_TAB_SELECTED_CHECK = 5032,
+    IDC_MAIN_TAB_SELECTED_PREVIEW = 5033,
+    IDC_MAIN_TAB_SELECTED_BUTTON = 5034,
+    IDC_MAIN_TAB_UNSELECTED_CHECK = 5035,
+    IDC_MAIN_TAB_UNSELECTED_PREVIEW = 5036,
+    IDC_MAIN_TAB_UNSELECTED_BUTTON = 5037,
+    IDC_MAIN_PROGRESS_CUSTOM = 5038,
+    IDC_MAIN_PROGRESS_START_LABEL = 5039,
+    IDC_MAIN_PROGRESS_START_PREVIEW = 5040,
+    IDC_MAIN_PROGRESS_START_BUTTON = 5041,
+    IDC_MAIN_PROGRESS_END_LABEL = 5042,
+    IDC_MAIN_PROGRESS_END_PREVIEW = 5043,
+    IDC_MAIN_PROGRESS_END_BUTTON = 5044,
+    IDC_MAIN_DOCK_LABEL = 5045,
+    IDC_MAIN_DOCK_COMBO = 5046,
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
     IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
@@ -482,27 +488,34 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addStatic(IDC_MAIN_BREADCRUMB_FONT_LABEL, 24, 102, kMainDialogWidth - 32, 10, L"Font brightness:");
     addSlider(IDC_MAIN_BREADCRUMB_FONT_SLIDER, 24, 116);
     addStatic(IDC_MAIN_BREADCRUMB_FONT_VALUE, 200, 118, 40, 12, L"", SS_RIGHT);
-    addCheckbox(IDC_MAIN_BREADCRUMB_BG_CUSTOM, 16, 138, L"Use custom background gradient colors");
-    addStatic(IDC_MAIN_BREADCRUMB_BG_START_LABEL, 24, 156, 60, 10, L"Start:");
-    addPreview(IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, 86, 154);
-    addButton(IDC_MAIN_BREADCRUMB_BG_START_BUTTON, 124, 153, L"Choose");
-    addStatic(IDC_MAIN_BREADCRUMB_BG_END_LABEL, 24, 176, 60, 10, L"End:");
-    addPreview(IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, 86, 174);
-    addButton(IDC_MAIN_BREADCRUMB_BG_END_BUTTON, 124, 173, L"Choose");
-    addCheckbox(IDC_MAIN_BREADCRUMB_FONT_CUSTOM, 16, 198, L"Use custom breadcrumb text colors");
-    addStatic(IDC_MAIN_BREADCRUMB_FONT_START_LABEL, 24, 216, 60, 10, L"Start:");
-    addPreview(IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, 86, 214);
-    addButton(IDC_MAIN_BREADCRUMB_FONT_START_BUTTON, 124, 213, L"Choose");
-    addStatic(IDC_MAIN_BREADCRUMB_FONT_END_LABEL, 24, 236, 60, 10, L"End:");
-    addPreview(IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, 86, 234);
-    addButton(IDC_MAIN_BREADCRUMB_FONT_END_BUTTON, 124, 233, L"Choose");
-    addCheckbox(IDC_MAIN_PROGRESS_CUSTOM, 16, 258, L"Use custom progress bar gradient colors");
-    addStatic(IDC_MAIN_PROGRESS_START_LABEL, 24, 276, 60, 10, L"Start:");
-    addPreview(IDC_MAIN_PROGRESS_START_PREVIEW, 86, 274);
-    addButton(IDC_MAIN_PROGRESS_START_BUTTON, 124, 273, L"Choose");
-    addStatic(IDC_MAIN_PROGRESS_END_LABEL, 24, 296, 60, 10, L"End:");
-    addPreview(IDC_MAIN_PROGRESS_END_PREVIEW, 86, 294);
-    addButton(IDC_MAIN_PROGRESS_END_BUTTON, 124, 293, L"Choose");
+    addStatic(IDC_MAIN_BREADCRUMB_HIGHLIGHT_LABEL, 24, 140, kMainDialogWidth - 32, 10, L"Highlight intensity:");
+    addSlider(IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER, 24, 154);
+    addStatic(IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE, 200, 156, 40, 12, L"", SS_RIGHT);
+    addStatic(IDC_MAIN_BREADCRUMB_DROPDOWN_LABEL, 24, 178, kMainDialogWidth - 32, 10,
+              L"Dropdown arrow intensity:");
+    addSlider(IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER, 24, 192);
+    addStatic(IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE, 200, 194, 40, 12, L"", SS_RIGHT);
+    addCheckbox(IDC_MAIN_BREADCRUMB_BG_CUSTOM, 16, 218, L"Use custom background gradient colors");
+    addStatic(IDC_MAIN_BREADCRUMB_BG_START_LABEL, 24, 236, 60, 10, L"Start:");
+    addPreview(IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, 86, 234);
+    addButton(IDC_MAIN_BREADCRUMB_BG_START_BUTTON, 124, 233, L"Choose");
+    addStatic(IDC_MAIN_BREADCRUMB_BG_END_LABEL, 24, 256, 60, 10, L"End:");
+    addPreview(IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, 86, 254);
+    addButton(IDC_MAIN_BREADCRUMB_BG_END_BUTTON, 124, 253, L"Choose");
+    addCheckbox(IDC_MAIN_BREADCRUMB_FONT_CUSTOM, 16, 278, L"Use custom breadcrumb text colors");
+    addStatic(IDC_MAIN_BREADCRUMB_FONT_START_LABEL, 24, 296, 60, 10, L"Start:");
+    addPreview(IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, 86, 294);
+    addButton(IDC_MAIN_BREADCRUMB_FONT_START_BUTTON, 124, 293, L"Choose");
+    addStatic(IDC_MAIN_BREADCRUMB_FONT_END_LABEL, 24, 316, 60, 10, L"End:");
+    addPreview(IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, 86, 314);
+    addButton(IDC_MAIN_BREADCRUMB_FONT_END_BUTTON, 124, 313, L"Choose");
+    addCheckbox(IDC_MAIN_PROGRESS_CUSTOM, 16, 338, L"Use custom progress bar gradient colors");
+    addStatic(IDC_MAIN_PROGRESS_START_LABEL, 24, 356, 60, 10, L"Start:");
+    addPreview(IDC_MAIN_PROGRESS_START_PREVIEW, 86, 354);
+    addButton(IDC_MAIN_PROGRESS_START_BUTTON, 124, 353, L"Choose");
+    addStatic(IDC_MAIN_PROGRESS_END_LABEL, 24, 376, 60, 10, L"End:");
+    addPreview(IDC_MAIN_PROGRESS_END_PREVIEW, 86, 374);
+    addButton(IDC_MAIN_PROGRESS_END_BUTTON, 124, 373, L"Choose");
 
     AlignDialogBuffer(data);
     offset = data.size();
@@ -511,7 +524,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     tabsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
     tabsGroup->dwExtendedStyle = 0;
     tabsGroup->x = 6;
-    tabsGroup->y = 332;
+    tabsGroup->y = 412;
     tabsGroup->cx = kMainDialogWidth - 12;
     tabsGroup->cy = 88;
     tabsGroup->id = 0;
@@ -520,12 +533,12 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     AppendString(data, L"Tabs");
     AppendWord(data, 0);
 
-    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 348, L"Use custom selected tab color");
-    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 366);
-    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 365, L"Choose");
-    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 384, L"Use custom unselected tab color");
-    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 402);
-    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 401, L"Choose");
+    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 428, L"Use custom selected tab color");
+    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 446);
+    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 445, L"Choose");
+    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 464, L"Use custom unselected tab color");
+    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 482);
+    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 481, L"Choose");
 
     auto addSizedPreview = [&](int controlId, int x, int y, int cx, int cy) {
         AlignDialogBuffer(data);
@@ -570,7 +583,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     backgroundsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
     backgroundsGroup->dwExtendedStyle = 0;
     backgroundsGroup->x = 6;
-    backgroundsGroup->y = 430;
+    backgroundsGroup->y = 510;
     backgroundsGroup->cx = kMainDialogWidth - 12;
     backgroundsGroup->cy = 310;
     backgroundsGroup->id = 0;
@@ -579,19 +592,19 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     AppendString(data, L"Folder Backgrounds");
     AppendWord(data, 0);
 
-    addCheckbox(IDC_CUSTOM_BACKGROUND_ENABLE, 16, 446, L"Enable custom folder backgrounds");
-    addStatic(0, 24, 466, kMainDialogWidth - 32, 10, L"Universal background image:");
-    addSizedPreview(IDC_CUSTOM_BACKGROUND_PREVIEW, 24, 482, kUniversalPreviewSize.cx, kUniversalPreviewSize.cy);
-    addSizedButton(IDC_CUSTOM_BACKGROUND_BROWSE, 130, 482, 90, 16, L"Browse...");
-    addStatic(IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, 130, 558, kMainDialogWidth - 146, 12, L"", SS_LEFT);
-    addStatic(0, 24, 566, kMainDialogWidth - 32, 10, L"Folder overrides:");
-    addListView(IDC_CUSTOM_BACKGROUND_LIST, 24, 580, 140, 96);
-    addStatic(0, 176, 580, 64, 10, L"Preview:");
-    addSizedPreview(IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, 176, 594, kFolderPreviewSize.cx, kFolderPreviewSize.cy);
-    addStatic(IDC_CUSTOM_BACKGROUND_FOLDER_NAME, 176, 662, kMainDialogWidth - 200, 12, L"", SS_LEFT);
-    addSizedButton(IDC_CUSTOM_BACKGROUND_ADD, 24, 684, 60, 16, L"Add");
-    addSizedButton(IDC_CUSTOM_BACKGROUND_EDIT, 92, 684, 60, 16, L"Edit");
-    addSizedButton(IDC_CUSTOM_BACKGROUND_REMOVE, 160, 684, 60, 16, L"Remove");
+    addCheckbox(IDC_CUSTOM_BACKGROUND_ENABLE, 16, 526, L"Enable custom folder backgrounds");
+    addStatic(0, 24, 546, kMainDialogWidth - 32, 10, L"Universal background image:");
+    addSizedPreview(IDC_CUSTOM_BACKGROUND_PREVIEW, 24, 562, kUniversalPreviewSize.cx, kUniversalPreviewSize.cy);
+    addSizedButton(IDC_CUSTOM_BACKGROUND_BROWSE, 130, 562, 90, 16, L"Browse...");
+    addStatic(IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, 130, 638, kMainDialogWidth - 146, 12, L"", SS_LEFT);
+    addStatic(0, 24, 646, kMainDialogWidth - 32, 10, L"Folder overrides:");
+    addListView(IDC_CUSTOM_BACKGROUND_LIST, 24, 660, 140, 96);
+    addStatic(0, 176, 660, 64, 10, L"Preview:");
+    addSizedPreview(IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, 176, 674, kFolderPreviewSize.cx, kFolderPreviewSize.cy);
+    addStatic(IDC_CUSTOM_BACKGROUND_FOLDER_NAME, 176, 742, kMainDialogWidth - 200, 12, L"", SS_LEFT);
+    addSizedButton(IDC_CUSTOM_BACKGROUND_ADD, 24, 764, 60, 16, L"Add");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_EDIT, 92, 764, 60, 16, L"Edit");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_REMOVE, 160, 764, 60, 16, L"Remove");
 
     AlignDialogBuffer(data);
     return data;
@@ -1635,6 +1648,29 @@ void UpdatePercentageLabel(HWND hwnd, int controlId, int value) {
     SetDlgItemTextW(hwnd, controlId, buffer);
 }
 
+int ClampMultiplierValue(int value) {
+    return std::clamp(value, 0, 200);
+}
+
+void ConfigureMultiplierSlider(HWND hwnd, int controlId, int value) {
+    HWND slider = GetDlgItem(hwnd, controlId);
+    if (!slider) {
+        return;
+    }
+    SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 200));
+    SendMessageW(slider, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(slider, TBM_SETLINESIZE, 0, 2);
+    SendMessageW(slider, TBM_SETTICFREQ, 20, 0);
+    SendMessageW(slider, TBM_SETPOS, TRUE, ClampMultiplierValue(value));
+}
+
+void UpdateMultiplierLabel(HWND hwnd, int controlId, int value) {
+    wchar_t buffer[16];
+    const int clamped = ClampMultiplierValue(value);
+    _snwprintf_s(buffer, ARRAYSIZE(buffer), _TRUNCATE, L"%d%%", clamped);
+    SetDlgItemTextW(hwnd, controlId, buffer);
+}
+
 void UpdateGradientControlsEnabled(HWND hwnd, bool backgroundEnabled, bool fontEnabled) {
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_LABEL), backgroundEnabled);
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER), backgroundEnabled);
@@ -1642,6 +1678,12 @@ void UpdateGradientControlsEnabled(HWND hwnd, bool backgroundEnabled, bool fontE
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_FONT_LABEL), fontEnabled);
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER), fontEnabled);
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE), fontEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_LABEL), backgroundEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER), backgroundEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE), backgroundEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_LABEL), fontEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER), fontEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE), fontEnabled);
 }
 
 void UpdateGradientColorControlsEnabled(HWND hwnd, bool backgroundEnabled, bool fontEnabled) {
@@ -2282,10 +2324,18 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                           data->workingOptions.breadcrumbGradientTransparency);
                 ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
                                           InvertPercentageValue(data->workingOptions.breadcrumbFontBrightness));
+                ConfigureMultiplierSlider(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER,
+                                           data->workingOptions.breadcrumbHighlightAlphaMultiplier);
+                ConfigureMultiplierSlider(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER,
+                                           data->workingOptions.breadcrumbDropdownAlphaMultiplier);
                 UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
                                      data->workingOptions.breadcrumbGradientTransparency);
                 UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
                                      data->workingOptions.breadcrumbFontBrightness);
+                UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE,
+                                      data->workingOptions.breadcrumbHighlightAlphaMultiplier);
+                UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE,
+                                      data->workingOptions.breadcrumbDropdownAlphaMultiplier);
                 CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM,
                                data->workingOptions.useCustomBreadcrumbGradientColors ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM,
@@ -2535,37 +2585,57 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 return TRUE;
             }
             const int controlId = GetDlgCtrlID(slider);
-            if (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER || controlId == IDC_MAIN_BREADCRUMB_FONT_SLIDER) {
-                const int labelId = (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER)
-                                        ? IDC_MAIN_BREADCRUMB_BG_VALUE
-                                        : IDC_MAIN_BREADCRUMB_FONT_VALUE;
-                const int sliderValue = ClampPercentageValue(
-                    static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                const int displayValue =
-                    (controlId == IDC_MAIN_BREADCRUMB_FONT_SLIDER) ? InvertPercentageValue(sliderValue)
-                                                                   : sliderValue;
-                UpdatePercentageLabel(hwnd, labelId, displayValue);
-                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                bool previewNeeded = false;
-                if (data) {
-                    if (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER) {
-                        if (data->workingOptions.breadcrumbGradientTransparency != sliderValue) {
-                            data->workingOptions.breadcrumbGradientTransparency = sliderValue;
-                            previewNeeded = true;
-                        }
-                    } else {
-                        const int brightnessValue = InvertPercentageValue(sliderValue);
-                        if (data->workingOptions.breadcrumbFontBrightness != brightnessValue) {
-                            data->workingOptions.breadcrumbFontBrightness = brightnessValue;
-                            previewNeeded = true;
-                        }
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            bool previewNeeded = false;
+            switch (controlId) {
+                case IDC_MAIN_BREADCRUMB_BG_SLIDER: {
+                    const int sliderValue = ClampPercentageValue(
+                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
+                    UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE, sliderValue);
+                    if (data && data->workingOptions.breadcrumbGradientTransparency != sliderValue) {
+                        data->workingOptions.breadcrumbGradientTransparency = sliderValue;
+                        previewNeeded = true;
                     }
+                    break;
                 }
-                if (previewNeeded) {
-                    ApplyCustomizationPreview(hwnd, data);
+                case IDC_MAIN_BREADCRUMB_FONT_SLIDER: {
+                    const int sliderValue = ClampPercentageValue(
+                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
+                    const int brightnessValue = InvertPercentageValue(sliderValue);
+                    UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE, brightnessValue);
+                    if (data && data->workingOptions.breadcrumbFontBrightness != brightnessValue) {
+                        data->workingOptions.breadcrumbFontBrightness = brightnessValue;
+                        previewNeeded = true;
+                    }
+                    break;
                 }
-                SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                case IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER: {
+                    const int sliderValue = ClampMultiplierValue(
+                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
+                    UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE, sliderValue);
+                    if (data && data->workingOptions.breadcrumbHighlightAlphaMultiplier != sliderValue) {
+                        data->workingOptions.breadcrumbHighlightAlphaMultiplier = sliderValue;
+                        previewNeeded = true;
+                    }
+                    break;
+                }
+                case IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER: {
+                    const int sliderValue = ClampMultiplierValue(
+                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
+                    UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE, sliderValue);
+                    if (data && data->workingOptions.breadcrumbDropdownAlphaMultiplier != sliderValue) {
+                        data->workingOptions.breadcrumbDropdownAlphaMultiplier = sliderValue;
+                        previewNeeded = true;
+                    }
+                    break;
+                }
+                default:
+                    return TRUE;
             }
+            if (previewNeeded) {
+                ApplyCustomizationPreview(hwnd, data);
+            }
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
             return TRUE;
         }
         case WM_SIZE: {
@@ -2657,6 +2727,12 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     const int brightnessSliderValue = ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
                         hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
                     data->workingOptions.breadcrumbFontBrightness = InvertPercentageValue(brightnessSliderValue);
+                    data->workingOptions.breadcrumbHighlightAlphaMultiplier =
+                        ClampMultiplierValue(static_cast<int>(SendDlgItemMessageW(
+                            hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER, TBM_GETPOS, 0, 0)));
+                    data->workingOptions.breadcrumbDropdownAlphaMultiplier =
+                        ClampMultiplierValue(static_cast<int>(SendDlgItemMessageW(
+                            hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER, TBM_GETPOS, 0, 0)));
                     data->workingOptions.useCustomBreadcrumbGradientColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
                     data->workingOptions.useCustomBreadcrumbFontColors =

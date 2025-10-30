@@ -26,6 +26,10 @@ constexpr wchar_t kBreadcrumbFontGradientToken[] = L"breadcrumb_font_gradient";
 constexpr wchar_t kBreadcrumbGradientTransparencyToken[] = L"breadcrumb_gradient_transparency";
 constexpr wchar_t kBreadcrumbFontBrightnessToken[] = L"breadcrumb_font_brightness";
 constexpr wchar_t kBreadcrumbFontTransparencyToken[] = L"breadcrumb_font_transparency";  // legacy
+constexpr wchar_t kBreadcrumbHighlightAlphaMultiplierToken[] =
+    L"breadcrumb_highlight_alpha_multiplier";
+constexpr wchar_t kBreadcrumbDropdownAlphaMultiplierToken[] =
+    L"breadcrumb_dropdown_alpha_multiplier";
 constexpr wchar_t kBreadcrumbGradientColorsToken[] = L"breadcrumb_gradient_colors";
 constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradient_colors";
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
@@ -364,6 +368,22 @@ bool OptionsStore::Load() {
             continue;
         }
 
+        if (tokens[0] == kBreadcrumbHighlightAlphaMultiplierToken) {
+            if (tokens.size() >= 2) {
+                m_options.breadcrumbHighlightAlphaMultiplier =
+                    ParseIntInRange(tokens[1], 0, 200, m_options.breadcrumbHighlightAlphaMultiplier);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kBreadcrumbDropdownAlphaMultiplierToken) {
+            if (tokens.size() >= 2) {
+                m_options.breadcrumbDropdownAlphaMultiplier =
+                    ParseIntInRange(tokens[1], 0, 200, m_options.breadcrumbDropdownAlphaMultiplier);
+            }
+            continue;
+        }
+
         if (tokens[0] == kBreadcrumbFontTransparencyToken) {
             if (tokens.size() >= 2) {
                 const int defaultBrightness = m_options.breadcrumbFontBrightness;
@@ -528,6 +548,14 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += std::to_wstring(std::clamp(m_options.breadcrumbFontBrightness, 0, 100));
     content += L"\n";
+    content += kBreadcrumbHighlightAlphaMultiplierToken;
+    content += L"|";
+    content += std::to_wstring(std::clamp(m_options.breadcrumbHighlightAlphaMultiplier, 0, 200));
+    content += L"\n";
+    content += kBreadcrumbDropdownAlphaMultiplierToken;
+    content += L"|";
+    content += std::to_wstring(std::clamp(m_options.breadcrumbDropdownAlphaMultiplier, 0, 200));
+    content += L"\n";
     content += kBreadcrumbGradientColorsToken;
     content += L"|";
     content += m_options.useCustomBreadcrumbGradientColors ? L"1" : L"0";
@@ -639,6 +667,8 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
            left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&
            left.breadcrumbFontBrightness == right.breadcrumbFontBrightness &&
+           left.breadcrumbHighlightAlphaMultiplier == right.breadcrumbHighlightAlphaMultiplier &&
+           left.breadcrumbDropdownAlphaMultiplier == right.breadcrumbDropdownAlphaMultiplier &&
            left.useCustomBreadcrumbGradientColors == right.useCustomBreadcrumbGradientColors &&
            left.breadcrumbGradientStartColor == right.breadcrumbGradientStartColor &&
            left.breadcrumbGradientEndColor == right.breadcrumbGradientEndColor &&
