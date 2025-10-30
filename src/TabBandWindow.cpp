@@ -1249,22 +1249,23 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 
 	std::unordered_map<OutlineKey, GroupOutline, OutlineKeyHasher, OutlineKeyEqual> outlines;
 
-	auto accumulate = [&](const VisualItem& item, const RECT& bounds, COLORREF color, bool headerVisible,
-			       bool updateColor) {
-		OutlineKey key{ item.data.location.groupIndex, item.row };
-		auto& outline = outlines[key];
-		if (!outline.initialized) {
-			outline.groupIndex = key.groupIndex;
-			outline.row = key.row;
-			outline.bounds = bounds;
-			outline.color = color;
-			outline.initialized = true;
-			outline.visible = headerVisible;
-		} else {
-			outline.bounds.left = std::min(outline.bounds.left, bounds.left);
-			outline.bounds.top = std::min(outline.bounds.top, bounds.top);
-			outline.bounds.right = std::max(outline.bounds.right, bounds.right);
-			outline.bounds.bottom = std::max(outline.bounds.bottom, bounds.bottom);
+        auto accumulate = [&](const VisualItem& item, const RECT& bounds, COLORREF color, bool headerVisible,
+                               bool updateColor) {
+                OutlineKey key{ item.data.location.groupIndex, item.row };
+                auto& outline = outlines[key];
+                if (!outline.initialized) {
+                        outline.groupIndex = key.groupIndex;
+                        outline.row = key.row;
+                        outline.bounds = bounds;
+                        outline.color = color;
+                        outline.initialized = true;
+                        outline.visible = headerVisible;
+                        outline.style = item.data.outlineStyle;
+                } else {
+                        outline.bounds.left = std::min(outline.bounds.left, bounds.left);
+                        outline.bounds.top = std::min(outline.bounds.top, bounds.top);
+                        outline.bounds.right = std::max(outline.bounds.right, bounds.right);
+                        outline.bounds.bottom = std::max(outline.bounds.bottom, bounds.bottom);
 			if (updateColor) {
 				outline.color = color;
 			}
@@ -1358,6 +1359,41 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 }
 
 void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const {
+    const auto createPenForOutline = [](const GroupOutline& outline) -> HPEN {
+        DWORD baseStyle = PS_SOLID;
+        switch (outline.style) {
+            case TabGroupOutlineStyle::kDashed:
+                baseStyle = PS_DASH;
+                break;
+            case TabGroupOutlineStyle::kDotted:
+                baseStyle = PS_DOT;
+                break;
+            case TabGroupOutlineStyle::kSolid:
+            default:
+                baseStyle = PS_SOLID;
+                break;
+        }
+
+        if (baseStyle == PS_SOLID) {
+            return CreatePen(PS_SOLID, kIslandOutlineThickness, outline.color);
+        }
+
+        LOGBRUSH brush{};
+        brush.lbStyle = BS_SOLID;
+        brush.lbColor = outline.color;
+        HPEN pen = ExtCreatePen(PS_GEOMETRIC | baseStyle, std::max(1, kIslandOutlineThickness), &brush, 0, nullptr);
+        if (pen) {
+            return pen;
+        }
+
+        pen = CreatePen(baseStyle, 1, outline.color);
+        if (pen) {
+            return pen;
+        }
+
+        return CreatePen(PS_SOLID, kIslandOutlineThickness, outline.color);
+    };
+
     for (const auto& outline : outlines) {
         if (!outline.initialized) {
             continue;
@@ -1371,7 +1407,7 @@ void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& o
             continue;
         }
 
-        HPEN pen = CreatePen(PS_SOLID, kIslandOutlineThickness, outline.color);
+        HPEN pen = createPenForOutline(outline);
         if (!pen) {
             continue;
         }

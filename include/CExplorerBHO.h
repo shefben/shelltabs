@@ -15,6 +15,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <exdisp.h>
@@ -22,9 +23,15 @@
 #include <shlobj.h>
 
 #include <wrl/client.h>
+
+namespace Gdiplus {
+class Bitmap;
+}
 namespace shelltabs {
 
-	class CExplorerBHO : public IObjectWithSite, public IDispatch {
+struct ShellTabsOptions;
+
+        class CExplorerBHO : public IObjectWithSite, public IDispatch {
 	public:
 		CExplorerBHO();
 		~CExplorerBHO();
@@ -66,14 +73,21 @@ namespace shelltabs {
 		void RemoveProgressSubclass();
 		void UpdateAddressEditSubclass();
 		void RemoveAddressEditSubclass();
-		void UpdateExplorerViewSubclass();
-		void RemoveExplorerViewSubclass();
-		bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
-		bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
-		void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
-		void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
-		void HandleExplorerCommand(UINT commandId);
-		void HandleExplorerMenuDismiss(HMENU menu);
+                void UpdateExplorerViewSubclass();
+                void RemoveExplorerViewSubclass();
+                bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
+                bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+                void ReloadFolderBackgrounds(const ShellTabsOptions& options);
+                void ClearFolderBackgrounds();
+                std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
+                const Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
+                bool DrawFolderBackground(HWND hwnd, HDC dc) const;
+                void UpdateCurrentFolderBackground();
+                void InvalidateFolderBackgroundTargets() const;
+                void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
+                void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
+                void HandleExplorerCommand(UINT commandId);
+                void HandleExplorerMenuDismiss(HMENU menu);
 		bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
 		bool CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const;
 		bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
@@ -158,11 +172,15 @@ namespace shelltabs {
 		HWND m_frameWindow = nullptr;
 		bool m_frameSubclassInstalled = false;
 		HWND m_listView = nullptr;
-		HWND m_treeView = nullptr;
-		bool m_listViewSubclassInstalled = false;
-		bool m_treeViewSubclassInstalled = false;
-		HMENU m_trackedContextMenu = nullptr;
-		std::vector<std::wstring> m_pendingOpenInNewTabPaths;
+                HWND m_treeView = nullptr;
+                bool m_listViewSubclassInstalled = false;
+                bool m_treeViewSubclassInstalled = false;
+                bool m_folderBackgroundsEnabled = false;
+                std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
+                std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
+                std::wstring m_currentFolderKey;
+                HMENU m_trackedContextMenu = nullptr;
+                std::vector<std::wstring> m_pendingOpenInNewTabPaths;
 		bool m_contextMenuInserted = false;
 		static constexpr UINT kOpenInNewTabCommandId = 0xE170;
 		static constexpr UINT kMaxTrackedSelection = 16;

@@ -25,6 +25,7 @@
 #include <wrl/client.h>
 #include <shobjidl_core.h>
 
+#include "BackgroundCache.h"
 #include "ComUtils.h"
 #include "Guids.h"
 #include "Logging.h"
@@ -382,6 +383,8 @@ void CExplorerBHO::Disconnect() {
     m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     m_loggedBreadcrumbToolbarMissing = false;
     m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
+    ClearFolderBackgrounds();
+    m_currentFolderKey.clear();
 }
 
 
@@ -1099,6 +1102,7 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
 
     m_shellView = shellView;
     m_shellViewWindow = viewWindow;
+    UpdateCurrentFolderBackground();
 }
 
 bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView) {
@@ -1199,11 +1203,175 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     ClearPendingOpenInNewTabState();
 }
 
+void CExplorerBHO::ClearFolderBackgrounds() {
+    m_folderBackgroundBitmaps.clear();
+    m_universalBackgroundBitmap.reset();
+    m_folderBackgroundsEnabled = false;
+}
+
+std::wstring CExplorerBHO::NormalizeBackgroundKey(const std::wstring& path) const {
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    if (normalized.empty()) {
+        return {};
+    }
+
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](wchar_t ch) { return static_cast<wchar_t>(towlower(ch)); });
+    return normalized;
+}
+
+void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
+    ClearFolderBackgrounds();
+
+    if (!m_gdiplusInitialized) {
+        return;
+    }
+
+    if (!options.enableFolderBackgrounds) {
+        InvalidateFolderBackgroundTargets();
+        return;
+    }
+
+    m_folderBackgroundsEnabled = true;
+
+    if (!options.universalFolderBackgroundImage.cachedImagePath.empty()) {
+        auto bitmap = LoadBackgroundBitmap(options.universalFolderBackgroundImage.cachedImagePath);
+        if (bitmap) {
+            m_universalBackgroundBitmap = std::move(bitmap);
+        } else {
+            LogMessage(LogLevel::Warning, L"Failed to load universal folder background from %ls",
+                       options.universalFolderBackgroundImage.cachedImagePath.c_str());
+        }
+    }
+
+    for (const auto& entry : options.folderBackgroundEntries) {
+        if (entry.folderPath.empty() || entry.image.cachedImagePath.empty()) {
+            continue;
+        }
+
+        std::wstring key = NormalizeBackgroundKey(entry.folderPath);
+        if (key.empty()) {
+            continue;
+        }
+
+        if (m_folderBackgroundBitmaps.find(key) != m_folderBackgroundBitmaps.end()) {
+            continue;
+        }
+
+        auto bitmap = LoadBackgroundBitmap(entry.image.cachedImagePath);
+        if (!bitmap) {
+            LogMessage(LogLevel::Warning, L"Failed to load background for %ls from %ls", entry.folderPath.c_str(),
+                       entry.image.cachedImagePath.c_str());
+            continue;
+        }
+
+        m_folderBackgroundBitmaps.emplace(std::move(key), std::move(bitmap));
+    }
+
+    InvalidateFolderBackgroundTargets();
+}
+
+const Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
+    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+        return nullptr;
+    }
+
+    if (!m_currentFolderKey.empty()) {
+        auto it = m_folderBackgroundBitmaps.find(m_currentFolderKey);
+        if (it != m_folderBackgroundBitmaps.end() && it->second) {
+            return it->second.get();
+        }
+    }
+
+    if (m_universalBackgroundBitmap) {
+        return m_universalBackgroundBitmap.get();
+    }
+
+    return nullptr;
+}
+
+bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
+    if (!hwnd || !dc || !m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+        return false;
+    }
+
+    const Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
+    if (!background) {
+        return false;
+    }
+
+    const UINT width = background->GetWidth();
+    const UINT height = background->GetHeight();
+    if (width == 0 || height == 0) {
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        return false;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const Gdiplus::Rect destRect(client.left, client.top, client.right - client.left, client.bottom - client.top);
+    const Gdiplus::Status status = graphics.DrawImage(background, destRect, 0.0f, 0.0f,
+                                                     static_cast<Gdiplus::REAL>(width),
+                                                     static_cast<Gdiplus::REAL>(height), Gdiplus::UnitPixel);
+    return status == Gdiplus::Ok;
+}
+
+void CExplorerBHO::UpdateCurrentFolderBackground() {
+    std::wstring newKey;
+
+    if (m_folderBackgroundsEnabled && m_shellBrowser) {
+        UniquePidl current = GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
+        if (current) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(SHGetNameFromIDList(current.get(), SIGDN_FILESYSPATH, &path)) && path && path[0] != L'\0') {
+                newKey = NormalizeBackgroundKey(path);
+            }
+            if (path) {
+                CoTaskMemFree(path);
+            }
+        }
+    }
+
+    if (newKey == m_currentFolderKey) {
+        return;
+    }
+
+    m_currentFolderKey = std::move(newKey);
+    InvalidateFolderBackgroundTargets();
+}
+
+void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
+    if (m_listView && IsWindow(m_listView)) {
+        InvalidateRect(m_listView, nullptr, TRUE);
+    }
+    if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
+        InvalidateRect(m_shellViewWindow, nullptr, TRUE);
+    }
+    if (m_frameWindow && IsWindow(m_frameWindow)) {
+        InvalidateRect(m_frameWindow, nullptr, TRUE);
+    }
+}
+
 bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                              LRESULT* result) {
     if (!result) {
         return false;
     }
+
+    const bool isListView = (hwnd == m_listView);
+    const bool isDirectUi = MatchesClass(hwnd, L"DirectUIHWND");
+    const bool handlesBackground = isListView || isDirectUi;
 
     const UINT optionsChangedMessage = GetOptionsChangedMessage();
     if (optionsChangedMessage != 0 && msg == optionsChangedMessage) {
@@ -1211,11 +1379,47 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled && IsWindow(m_breadcrumbToolbar)) {
             InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
         }
+        UpdateCurrentFolderBackground();
+        InvalidateFolderBackgroundTargets();
         *result = 0;
         return true;
     }
 
     switch (msg) {
+        case WM_ERASEBKGND: {
+            if (handlesBackground) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                if (dc && DrawFolderBackground(hwnd, dc)) {
+                    *result = 1;
+                    return true;
+                }
+            }
+            break;
+        }
+        case WM_PAINT: {
+            if (handlesBackground) {
+                if (wParam) {
+                    DrawFolderBackground(hwnd, reinterpret_cast<HDC>(wParam));
+                } else {
+                    RECT update{};
+                    if (GetUpdateRect(hwnd, &update, FALSE)) {
+                        HDC dc = GetDCEx(hwnd, nullptr, DCX_CACHE | DCX_CLIPCHILDREN | DCX_CLIPSIBLINGS | DCX_WINDOW);
+                        if (dc) {
+                            DrawFolderBackground(hwnd, dc);
+                            ReleaseDC(hwnd, dc);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        case WM_THEMECHANGED:
+        case WM_SIZE: {
+            if (handlesBackground) {
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
+            break;
+        }
         case WM_INITMENUPOPUP: {
             if (HIWORD(lParam) == 0) {
                 HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
@@ -1901,6 +2105,9 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
     m_progressGradientStartColor = options.progressBarGradientStartColor;
     m_progressGradientEndColor = options.progressBarGradientEndColor;
+
+    ReloadFolderBackgrounds(options);
+    UpdateCurrentFolderBackground();
 
     UpdateProgressSubclass();
 

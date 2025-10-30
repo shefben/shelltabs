@@ -135,6 +135,48 @@ std::wstring ColorToString(COLORREF color) {
     return buffer;
 }
 
+TabGroupOutlineStyle ParseOutlineStyle(const std::wstring& token, TabGroupOutlineStyle fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+
+    if (_wcsicmp(token.c_str(), L"solid") == 0) {
+        return TabGroupOutlineStyle::kSolid;
+    }
+    if (_wcsicmp(token.c_str(), L"dashed") == 0) {
+        return TabGroupOutlineStyle::kDashed;
+    }
+    if (_wcsicmp(token.c_str(), L"dotted") == 0) {
+        return TabGroupOutlineStyle::kDotted;
+    }
+
+    const int value = _wtoi(token.c_str());
+    switch (value) {
+        case 0:
+            return TabGroupOutlineStyle::kSolid;
+        case 1:
+            return TabGroupOutlineStyle::kDashed;
+        case 2:
+            return TabGroupOutlineStyle::kDotted;
+        default:
+            break;
+    }
+
+    return fallback;
+}
+
+std::wstring OutlineStyleToString(TabGroupOutlineStyle style) {
+    switch (style) {
+        case TabGroupOutlineStyle::kDashed:
+            return L"dashed";
+        case TabGroupOutlineStyle::kDotted:
+            return L"dotted";
+        case TabGroupOutlineStyle::kSolid:
+        default:
+            return L"solid";
+    }
+}
+
 std::wstring ResolveStorageDirectory() {
     PWSTR knownFolder = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
@@ -395,6 +437,10 @@ bool SessionStore::Load(SessionData& data) const {
                     group.outlineColor = ParseColor(tokens[index], group.outlineColor);
                     ++index;
                 }
+                if (version >= 4 && tokens.size() > index) {
+                    group.outlineStyle = ParseOutlineStyle(tokens[index], group.outlineStyle);
+                    ++index;
+                }
                 if (tokens.size() > index) {
                     group.savedGroupId = tokens[index];
                     ++index;
@@ -445,7 +491,8 @@ bool SessionStore::Save(const SessionData& data) const {
         content += kGroupToken;
         content += L"|" + group.name + L"|" + (group.collapsed ? L"1" : L"0") + L"|" +
                    (group.headerVisible ? L"1" : L"0") + L"|" + (group.hasOutline ? L"1" : L"0") + L"|" +
-                   ColorToString(group.outlineColor) + L"|" + group.savedGroupId + L"\n";
+                   ColorToString(group.outlineColor) + L"|" + OutlineStyleToString(group.outlineStyle) + L"|" +
+                   group.savedGroupId + L"\n";
         for (const auto& tab : group.tabs) {
             content += kTabToken;
             content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path + L"\n";
