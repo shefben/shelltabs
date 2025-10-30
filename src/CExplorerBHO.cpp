@@ -284,6 +284,7 @@ Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
 }
 
 constexpr wchar_t kOpenInNewTabLabel[] = L"Open in new tab";
+constexpr int kProgressGradientSampleWidth = 256;
 
 struct BreadcrumbHookEntry {
     HHOOK hook = nullptr;
@@ -313,6 +314,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1) {
 
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
+    DestroyProgressGradientResources();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
         m_bufferedPaintInitialized = false;
@@ -1943,6 +1945,10 @@ bool CExplorerBHO::InstallProgressSubclass(HWND progressWindow) {
     if (SetWindowSubclass(progressWindow, &CExplorerBHO::ProgressSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
         m_progressWindow = progressWindow;
         m_progressSubclassInstalled = true;
+        if (!EnsureProgressGradientResources()) {
+            LogMessage(LogLevel::Warning,
+                       L"Progress gradient resources unavailable; falling back to on-demand rendering");
+        }
         LogMessage(LogLevel::Info, L"Installed progress gradient subclass on hwnd=%p", progressWindow);
         return true;
     }
@@ -1980,6 +1986,83 @@ void CExplorerBHO::RemoveProgressSubclass() {
     }
     m_progressWindow = nullptr;
     m_progressSubclassInstalled = false;
+    DestroyProgressGradientResources();
+}
+
+bool CExplorerBHO::EnsureProgressGradientResources() {
+    if (!m_useCustomProgressGradientColors) {
+        return false;
+    }
+
+    if (m_progressGradientBitmap && m_progressGradientBitmapStartColor == m_progressGradientStartColor &&
+        m_progressGradientBitmapEndColor == m_progressGradientEndColor && m_progressGradientBits) {
+        return true;
+    }
+
+    DestroyProgressGradientResources();
+
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = kProgressGradientSampleWidth;
+    info.bmiHeader.biHeight = -1;  // top-down
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) {
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+        return false;
+    }
+
+    auto* pixels = static_cast<DWORD*>(bits);
+    const BYTE startRed = GetRValue(m_progressGradientStartColor);
+    const BYTE startGreen = GetGValue(m_progressGradientStartColor);
+    const BYTE startBlue = GetBValue(m_progressGradientStartColor);
+    const BYTE endRed = GetRValue(m_progressGradientEndColor);
+    const BYTE endGreen = GetGValue(m_progressGradientEndColor);
+    const BYTE endBlue = GetBValue(m_progressGradientEndColor);
+
+    for (int x = 0; x < kProgressGradientSampleWidth; ++x) {
+        const double t = (kProgressGradientSampleWidth > 1)
+                             ? static_cast<double>(x) / static_cast<double>(kProgressGradientSampleWidth - 1)
+                             : 0.0;
+        const BYTE red = static_cast<BYTE>(std::clamp<int>(
+            static_cast<int>(std::lround(static_cast<double>(startRed) +
+                                         (static_cast<double>(endRed) - static_cast<double>(startRed)) * t)),
+            0, 255));
+        const BYTE green = static_cast<BYTE>(std::clamp<int>(
+            static_cast<int>(std::lround(static_cast<double>(startGreen) +
+                                         (static_cast<double>(endGreen) - static_cast<double>(startGreen)) * t)),
+            0, 255));
+        const BYTE blue = static_cast<BYTE>(std::clamp<int>(
+            static_cast<int>(std::lround(static_cast<double>(startBlue) +
+                                         (static_cast<double>(endBlue) - static_cast<double>(startBlue)) * t)),
+            0, 255));
+        pixels[x] = (static_cast<DWORD>(blue)) | (static_cast<DWORD>(green) << 8) | (static_cast<DWORD>(red) << 16) |
+                    0xFF000000;
+    }
+
+    m_progressGradientBitmap = bitmap;
+    m_progressGradientBits = bits;
+    m_progressGradientInfo = info;
+    m_progressGradientBitmapStartColor = m_progressGradientStartColor;
+    m_progressGradientBitmapEndColor = m_progressGradientEndColor;
+    return true;
+}
+
+void CExplorerBHO::DestroyProgressGradientResources() {
+    if (m_progressGradientBitmap) {
+        DeleteObject(m_progressGradientBitmap);
+        m_progressGradientBitmap = nullptr;
+    }
+    m_progressGradientBits = nullptr;
+    m_progressGradientInfo = BITMAPINFO{};
+    m_progressGradientBitmapStartColor = 0;
+    m_progressGradientBitmapEndColor = 0;
 }
 
 bool CExplorerBHO::InstallAddressEditSubclass(HWND editWindow) {
@@ -2812,24 +2895,51 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
         if (progressWidth > 0) {
             RECT fillRect = inner;
             fillRect.right = std::min(fillRect.left + progressWidth, inner.right);
+            const LONG fillWidth = fillRect.right - fillRect.left;
+            const LONG fillHeight = fillRect.bottom - fillRect.top;
+            if (fillWidth > 0 && fillHeight > 0) {
+                bool rendered = false;
+                if (EnsureProgressGradientResources() && m_progressGradientBits &&
+                    m_progressGradientInfo.bmiHeader.biWidth > 0) {
+                    const int previousMode = SetStretchBltMode(dc, HALFTONE);
+                    POINT origin{};
+                    if (previousMode != 0) {
+                        SetBrushOrgEx(dc, 0, 0, &origin);
+                    }
+                    const int srcWidth = m_progressGradientInfo.bmiHeader.biWidth;
+                    const int srcHeight = (m_progressGradientInfo.bmiHeader.biHeight < 0)
+                                              ? -m_progressGradientInfo.bmiHeader.biHeight
+                                              : m_progressGradientInfo.bmiHeader.biHeight;
+                    const int result = StretchDIBits(dc, fillRect.left, fillRect.top, fillWidth, fillHeight, 0, 0,
+                                                     srcWidth, srcHeight, m_progressGradientBits,
+                                                     &m_progressGradientInfo, DIB_RGB_COLORS, SRCCOPY);
+                    if (previousMode != 0) {
+                        SetBrushOrgEx(dc, origin.x, origin.y, nullptr);
+                        SetStretchBltMode(dc, previousMode);
+                    }
+                    rendered = (result != GDI_ERROR);
+                }
 
-            TRIVERTEX vertex[2] = {};
-            vertex[0].x = fillRect.left;
-            vertex[0].y = fillRect.top;
-            vertex[0].Red = static_cast<COLOR16>(GetRValue(m_progressGradientStartColor) << 8);
-            vertex[0].Green = static_cast<COLOR16>(GetGValue(m_progressGradientStartColor) << 8);
-            vertex[0].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientStartColor) << 8);
-            vertex[0].Alpha = 0xFFFF;
+                if (!rendered) {
+                    TRIVERTEX vertex[2] = {};
+                    vertex[0].x = fillRect.left;
+                    vertex[0].y = fillRect.top;
+                    vertex[0].Red = static_cast<COLOR16>(GetRValue(m_progressGradientStartColor) << 8);
+                    vertex[0].Green = static_cast<COLOR16>(GetGValue(m_progressGradientStartColor) << 8);
+                    vertex[0].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientStartColor) << 8);
+                    vertex[0].Alpha = 0xFFFF;
 
-            vertex[1].x = fillRect.right;
-            vertex[1].y = fillRect.bottom;
-            vertex[1].Red = static_cast<COLOR16>(GetRValue(m_progressGradientEndColor) << 8);
-            vertex[1].Green = static_cast<COLOR16>(GetGValue(m_progressGradientEndColor) << 8);
-            vertex[1].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientEndColor) << 8);
-            vertex[1].Alpha = 0xFFFF;
+                    vertex[1].x = fillRect.right;
+                    vertex[1].y = fillRect.bottom;
+                    vertex[1].Red = static_cast<COLOR16>(GetRValue(m_progressGradientEndColor) << 8);
+                    vertex[1].Green = static_cast<COLOR16>(GetGValue(m_progressGradientEndColor) << 8);
+                    vertex[1].Blue = static_cast<COLOR16>(GetBValue(m_progressGradientEndColor) << 8);
+                    vertex[1].Alpha = 0xFFFF;
 
-            GRADIENT_RECT gradientRect{0, 1};
-            GradientFill(dc, vertex, 2, &gradientRect, 1, GRADIENT_FILL_RECT_H);
+                    GRADIENT_RECT gradientRect{0, 1};
+                    GradientFill(dc, vertex, 2, &gradientRect, 1, GRADIENT_FILL_RECT_H);
+                }
+            }
         }
     }
 
