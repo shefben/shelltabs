@@ -112,6 +112,8 @@ enum ControlIds : int {
     IDC_EDITOR_REMOVE_PATH = 5205,
     IDC_EDITOR_COLOR_PREVIEW = 5206,
     IDC_EDITOR_COLOR_BUTTON = 5207,
+    IDC_EDITOR_STYLE_LABEL = 5208,
+    IDC_EDITOR_STYLE_COMBO = 5209,
 };
 
 void AlignDialogBuffer(std::vector<BYTE>& buffer) {
@@ -607,7 +609,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU;
     dlg->dwExtendedStyle = 0;
-    dlg->cdit = 9;
+    dlg->cdit = 14;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kEditorWidth;
@@ -702,11 +704,43 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* styleLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    styleLabel->style = WS_CHILD | WS_VISIBLE;
+    styleLabel->dwExtendedStyle = 0;
+    styleLabel->x = 10;
+    styleLabel->y = 62;
+    styleLabel->cx = 60;
+    styleLabel->cy = 10;
+    styleLabel->id = static_cast<WORD>(IDC_EDITOR_STYLE_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Style:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* styleCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    styleCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+    styleCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    styleCombo->x = 55;
+    styleCombo->y = 74;
+    styleCombo->cx = 127;
+    styleCombo->cy = 110;
+    styleCombo->id = static_cast<WORD>(IDC_EDITOR_STYLE_COMBO);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0085);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* pathsLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     pathsLabel->style = WS_CHILD | WS_VISIBLE;
     pathsLabel->dwExtendedStyle = 0;
     pathsLabel->x = 10;
-    pathsLabel->y = 64;
+    pathsLabel->y = 96;
     pathsLabel->cx = 60;
     pathsLabel->cy = 10;
     pathsLabel->id = 0;
@@ -723,7 +757,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
                       LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL;
     pathList->dwExtendedStyle = WS_EX_CLIENTEDGE;
     pathList->x = 10;
-    pathList->y = 76;
+    pathList->y = 108;
     pathList->cx = 220;
     pathList->cy = 96;
     pathList->id = static_cast<WORD>(IDC_EDITOR_PATH_LIST);
@@ -739,7 +773,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     addButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     addButton->dwExtendedStyle = 0;
     addButton->x = 240;
-    addButton->y = 76;
+    addButton->y = 108;
     addButton->cx = 80;
     addButton->cy = 14;
     addButton->id = static_cast<WORD>(IDC_EDITOR_ADD_PATH);
@@ -755,7 +789,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     editButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     editButton->dwExtendedStyle = 0;
     editButton->x = 240;
-    editButton->y = 96;
+    editButton->y = 128;
     editButton->cx = 80;
     editButton->cy = 14;
     editButton->id = static_cast<WORD>(IDC_EDITOR_EDIT_PATH);
@@ -771,7 +805,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     removeButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     removeButton->dwExtendedStyle = 0;
     removeButton->x = 240;
-    removeButton->y = 116;
+    removeButton->y = 148;
     removeButton->cx = 80;
     removeButton->cy = 14;
     removeButton->id = static_cast<WORD>(IDC_EDITOR_REMOVE_PATH);
@@ -1525,6 +1559,43 @@ struct GroupEditorContext {
     const std::vector<SavedGroup>* existingGroups = nullptr;
 };
 
+struct OutlineStyleOption {
+    TabGroupOutlineStyle style;
+    const wchar_t* label;
+};
+
+constexpr OutlineStyleOption kOutlineStyleOptions[] = {
+    {TabGroupOutlineStyle::kSolid, L"Solid"},
+    {TabGroupOutlineStyle::kDashed, L"Dashed"},
+    {TabGroupOutlineStyle::kDotted, L"Dotted"},
+};
+
+int OutlineStyleIndexForStyle(TabGroupOutlineStyle style) {
+    for (size_t i = 0; i < ARRAYSIZE(kOutlineStyleOptions); ++i) {
+        if (kOutlineStyleOptions[i].style == style) {
+            return static_cast<int>(i);
+        }
+    }
+    return 0;
+}
+
+TabGroupOutlineStyle OutlineStyleFromIndex(LRESULT index) {
+    if (index < 0 || index >= static_cast<LRESULT>(ARRAYSIZE(kOutlineStyleOptions))) {
+        return TabGroupOutlineStyle::kSolid;
+    }
+    return kOutlineStyleOptions[static_cast<size_t>(index)].style;
+}
+
+void PopulateOutlineStyleCombo(HWND combo) {
+    if (!combo) {
+        return;
+    }
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    for (const auto& option : kOutlineStyleOptions) {
+        SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(option.label));
+    }
+}
+
 void UpdateListBoxHorizontalExtent(HWND hwndList) {
     if (!hwndList) {
         return;
@@ -1798,6 +1869,9 @@ bool AreSavedGroupsEqual(const std::vector<SavedGroup>& left, const std::vector<
         if (lhs.color != rhs.color) {
             return false;
         }
+        if (lhs.outlineStyle != rhs.outlineStyle) {
+            return false;
+        }
         if (lhs.tabPaths.size() != rhs.tabPaths.size()) {
             return false;
         }
@@ -1856,6 +1930,12 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                 }
                 if (!context->colorBrush) {
                     context->colorBrush = CreateSolidBrush(context->working.color);
+                }
+                HWND styleCombo = GetDlgItem(hwnd, IDC_EDITOR_STYLE_COMBO);
+                PopulateOutlineStyleCombo(styleCombo);
+                if (styleCombo) {
+                    const int index = OutlineStyleIndexForStyle(context->working.outlineStyle);
+                    SendMessageW(styleCombo, CB_SETCURSEL, index, 0);
                 }
                 RefreshPathList(hwnd, *context);
             }
@@ -1931,6 +2011,16 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                     }
                     return TRUE;
                 }
+                case IDC_EDITOR_STYLE_COMBO: {
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        HWND combo = reinterpret_cast<HWND>(lParam);
+                        if (combo) {
+                            const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+                            context->working.outlineStyle = OutlineStyleFromIndex(selection);
+                        }
+                    }
+                    return TRUE;
+                }
                 case IDOK: {
                     wchar_t nameBuffer[256];
                     GetDlgItemTextW(hwnd, IDC_EDITOR_NAME, nameBuffer, ARRAYSIZE(nameBuffer));
@@ -1945,6 +2035,11 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                         return TRUE;
                     }
                     context->working.name = std::move(name);
+                    HWND combo = GetDlgItem(hwnd, IDC_EDITOR_STYLE_COMBO);
+                    if (combo) {
+                        const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+                        context->working.outlineStyle = OutlineStyleFromIndex(selection);
+                    }
                     if (context->working.tabPaths.empty()) {
                         context->working.tabPaths.emplace_back(L"C:\\");
                     }

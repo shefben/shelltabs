@@ -365,6 +365,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.hiddenTabs = hidden;
             header.hasCustomOutline = group.hasCustomOutline;
             header.outlineColor = group.outlineColor;
+            header.outlineStyle = group.outlineStyle;
             header.savedGroupId = group.savedGroupId;
             header.isSavedGroup = !group.savedGroupId.empty();
             header.headerVisible = group.headerVisible;
@@ -391,6 +392,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.path = tab.path;
             item.hasCustomOutline = group.hasCustomOutline;
             item.outlineColor = group.outlineColor;
+            item.outlineStyle = group.outlineStyle;
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();
             item.headerVisible = group.headerVisible;

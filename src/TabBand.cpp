@@ -1289,6 +1289,7 @@ bool TabBand::RestoreSession() {
         group.headerVisible = groupData.headerVisible;
         group.hasCustomOutline = groupData.hasOutline;
         group.outlineColor = groupData.outlineColor;
+        group.outlineStyle = groupData.outlineStyle;
         group.savedGroupId = groupData.savedGroupId;
         for (const auto& tabData : groupData.tabs) {
             UniquePidl pidl = ParseDisplayName(tabData.path);
@@ -1353,6 +1354,7 @@ void TabBand::SaveSession() {
         storedGroup.headerVisible = group->headerVisible;
         storedGroup.hasOutline = group->hasCustomOutline;
         storedGroup.outlineColor = group->outlineColor;
+        storedGroup.outlineStyle = group->outlineStyle;
         storedGroup.savedGroupId = group->savedGroupId;
 
         for (const auto& tab : group->tabs) {
@@ -1761,6 +1763,7 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
     SavedGroup saved;
     saved.name = name;
     saved.color = color;
+    saved.outlineStyle = TabGroupOutlineStyle::kSolid;
     store.Upsert(saved);
 
     const int groupIndex = m_tabs.CreateGroupAfter(afterGroup, name, true);
@@ -1768,6 +1771,7 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
         group->savedGroupId = name;
         group->hasCustomOutline = true;
         group->outlineColor = color;
+        group->outlineStyle = TabGroupOutlineStyle::kSolid;
         group->headerVisible = true;
         group->collapsed = false;
     }
@@ -1791,6 +1795,7 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     group->savedGroupId = saved->name;
     group->hasCustomOutline = true;
     group->outlineColor = saved->color;
+    group->outlineStyle = saved->outlineStyle;
     group->headerVisible = true;
     group->collapsed = false;
 
@@ -1915,6 +1920,7 @@ void TabBand::SyncSavedGroup(int groupIndex) const {
         saved.name = group->savedGroupId;
         saved.color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
         saved.tabPaths = std::move(paths);
+        saved.outlineStyle = group->outlineStyle;
         GroupStore::Instance().Upsert(std::move(saved));
     }
 }
