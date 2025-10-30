@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <cwchar>
 
 #include "Logging.h"
 #include "TabBand.h"
@@ -48,7 +49,12 @@ bool TabsEqual(const std::vector<TaskbarTabController::CachedTab>& a,
 
 }  // namespace
 
-TaskbarTabController::TaskbarTabController(TabBand* owner) : m_owner(owner) {}
+TaskbarTabController::TaskbarTabController(TabBand* owner) : m_owner(owner) {
+    m_thumbButtonIcon = LoadIconW(nullptr, IDI_INFORMATION);
+    if (!m_thumbButtonIcon) {
+        m_thumbButtonIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
+}
 
 TaskbarTabController::~TaskbarTabController() { Reset(); }
 
@@ -102,6 +108,8 @@ void TaskbarTabController::SyncFrameSummary(const std::vector<TabViewItem>& item
         m_cachedTabs.clear();
         m_frameTooltip.clear();
         m_activeLocation = {};
+        m_thumbButtonFrame = nullptr;
+        m_thumbButtonAdded = false;
     }
 
     std::vector<CachedTab> tabs;
@@ -157,6 +165,8 @@ void TaskbarTabController::SyncFrameSummary(const std::vector<TabViewItem>& item
     if (tooltipChanged) {
         RefreshFrameTooltip(frame, tooltip);
     }
+
+    EnsureThumbnailButton(frame);
 }
 
 void TaskbarTabController::Reset() {
@@ -165,6 +175,8 @@ void TaskbarTabController::Reset() {
     m_cachedTabs.clear();
     m_activeLocation = {};
     m_frameTooltip.clear();
+    m_thumbButtonFrame = nullptr;
+    m_thumbButtonAdded = false;
 }
 
 void TaskbarTabController::RefreshFrameTooltip(HWND frame, const std::wstring& tooltip) {
@@ -181,6 +193,61 @@ void TaskbarTabController::RefreshFrameTooltip(HWND frame, const std::wstring& t
     }
 
     m_frameTooltip = tooltip;
+}
+
+void TaskbarTabController::HandleThumbnailButton(const POINT& anchor) {
+    if (!m_owner) {
+        return;
+    }
+
+    POINT resolved = anchor;
+    if (resolved.x == 0 && resolved.y == 0) {
+        GetCursorPos(&resolved);
+    }
+
+    m_owner->ShowTaskbarPopup(resolved);
+}
+
+void TaskbarTabController::EnsureThumbnailButton(HWND frame) {
+    if (!m_taskbar || !frame) {
+        return;
+    }
+
+    THUMBBUTTON button{};
+    button.iId = kThumbnailToolbarCommandId;
+    button.dwMask = THB_FLAGS | THB_TOOLTIP;
+    button.dwFlags = THBF_ENABLED;
+    if (m_thumbButtonIcon) {
+        button.dwMask |= THB_ICON;
+        button.hIcon = m_thumbButtonIcon;
+    }
+    constexpr wchar_t kTooltip[] = L"Switch tabs";
+    wcsncpy_s(button.szTip, ARRAYSIZE(button.szTip), kTooltip, _TRUNCATE);
+
+    HRESULT hr = S_OK;
+    if (!m_thumbButtonAdded || m_thumbButtonFrame != frame) {
+        hr = m_taskbar->ThumbBarAddButtons(frame, 1, &button);
+        if (FAILED(hr)) {
+            if (hr == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
+                hr = m_taskbar->ThumbBarUpdateButtons(frame, 1, &button);
+            }
+        }
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning,
+                       L"TaskbarTabController ThumbBarAddButtons failed (hr=0x%08X)",
+                       static_cast<unsigned int>(hr));
+            return;
+        }
+        m_thumbButtonAdded = true;
+        m_thumbButtonFrame = frame;
+        return;
+    }
+
+    hr = m_taskbar->ThumbBarUpdateButtons(frame, 1, &button);
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"TaskbarTabController ThumbBarUpdateButtons failed (hr=0x%08X)",
+                   static_cast<unsigned int>(hr));
+    }
 }
 
 }  // namespace shelltabs

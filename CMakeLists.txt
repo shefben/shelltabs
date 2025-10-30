@@ -37,6 +37,7 @@ add_library(ShellTabs SHARED
     src/ShellTabsMessages.cpp
     src/TaskbarProxyWindow.cpp
     src/TaskbarTabController.cpp
+    src/TaskbarTabPopup.cpp
     src/Utilities.cpp
     src/Logging.cpp
     src/resource.rc

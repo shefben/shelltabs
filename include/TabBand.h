@@ -22,6 +22,7 @@ namespace shelltabs {
 
 class TabBandWindow;
 class TaskbarTabController;
+class TaskbarTabPopup;
 
 class TabBand : public IDeskBand2,
                 public IObjectWithSite,
@@ -108,6 +109,7 @@ public:
     void OnOpenFolderInNewTab(const std::wstring& path);
     void CloseFrameWindowAsync();
     void EnsureTabPreview(TabLocation location);
+    void OnTaskbarThumbnailButtonInvoked(const POINT& anchor);
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
     int GetGroupCount() const noexcept;
@@ -140,6 +142,7 @@ private:
 
     std::unique_ptr<TabBandWindow> m_window;
     std::unique_ptr<TaskbarTabController> m_taskbarController;
+    std::unique_ptr<TaskbarTabPopup> m_taskbarPopup;
     TabManager m_tabs;
     std::unique_ptr<SessionStore> m_sessionStore;
     bool m_restoringSession = false;
@@ -183,6 +186,7 @@ private:
     std::wstring ResolveWindowToken();
     void ReleaseWindowToken();
     void CaptureActiveTabPreview();
+    void ShowTaskbarPopup(const POINT& anchor);
 };
 
 }  // namespace shelltabs

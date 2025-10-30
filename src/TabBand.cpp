@@ -33,6 +33,7 @@
 #include "PreviewCache.h"
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
+#include "TaskbarTabPopup.h"
 #include "TaskbarTabController.h"
 #include "Utilities.h"
 #include "FtpPidl.h"
@@ -1041,6 +1042,14 @@ void TabBand::EnsureTabPreview(TabLocation location) {
     CaptureActiveTabPreview();
 }
 
+void TabBand::OnTaskbarThumbnailButtonInvoked(const POINT& anchor) {
+    if (m_taskbarController) {
+        m_taskbarController->HandleThumbnailButton(anchor);
+    } else {
+        ShowTaskbarPopup(anchor);
+    }
+}
+
 HWND TabBand::GetFrameWindow() const {
     HWND candidate = nullptr;
     if (m_window) {
@@ -1147,6 +1156,24 @@ void TabBand::CaptureActiveTabPreview() {
     PreviewCache::Instance().StorePreviewFromWindow(tab->pidl.get(), viewWindow, kPreviewImageSize);
 }
 
+void TabBand::ShowTaskbarPopup(const POINT& anchor) {
+    EnsureWindow();
+    if (!m_window) {
+        return;
+    }
+
+    if (!m_taskbarPopup) {
+        m_taskbarPopup = std::make_unique<TaskbarTabPopup>(this);
+    }
+
+    HWND frame = GetFrameWindow();
+    POINT resolved = anchor;
+    if (resolved.x == 0 && resolved.y == 0) {
+        GetCursorPos(&resolved);
+    }
+    m_taskbarPopup->Show(resolved, frame, m_window.get());
+}
+
 void TabBand::EnsureWindow() {
     if (m_window) {
         return;
@@ -1217,6 +1244,11 @@ void TabBand::DisconnectSite() {
         m_window->SetSite(nullptr);
         m_window->Destroy();
         m_window.reset();
+    }
+
+    if (m_taskbarPopup) {
+        m_taskbarPopup->Destroy();
+        m_taskbarPopup.reset();
     }
 
     if (m_taskbarController) {
