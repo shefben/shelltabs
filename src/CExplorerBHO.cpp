@@ -106,6 +106,72 @@ std::wstring NormalizeMenuText(const std::wstring& value) {
     return normalized.substr(first, last - first + 1);
 }
 
+using GetDpiForWindowFunction = UINT(WINAPI*)(HWND);
+using SetThreadDpiAwarenessContextFunction = DPI_AWARENESS_CONTEXT(WINAPI*)(DPI_AWARENESS_CONTEXT);
+
+GetDpiForWindowFunction ResolveGetDpiForWindow() {
+    static const GetDpiForWindowFunction function =
+        reinterpret_cast<GetDpiForWindowFunction>(GetProcAddress(GetModuleHandleW(L"user32"), "GetDpiForWindow"));
+    return function;
+}
+
+SetThreadDpiAwarenessContextFunction ResolveSetThreadDpiAwarenessContext() {
+    static const SetThreadDpiAwarenessContextFunction function =
+        reinterpret_cast<SetThreadDpiAwarenessContextFunction>(
+            GetProcAddress(GetModuleHandleW(L"user32"), "SetThreadDpiAwarenessContext"));
+    return function;
+}
+
+UINT GetWindowDpi(HWND hwnd) {
+    if (auto* function = ResolveGetDpiForWindow()) {
+        const UINT dpi = function(hwnd);
+        if (dpi != 0) {
+            return dpi;
+        }
+    }
+
+    HDC localDc = hwnd ? GetDC(hwnd) : GetDC(nullptr);
+    if (!localDc) {
+        return 96u;
+    }
+
+    const int dpi = GetDeviceCaps(localDc, LOGPIXELSX);
+    if (hwnd) {
+        ReleaseDC(hwnd, localDc);
+    } else {
+        ReleaseDC(nullptr, localDc);
+    }
+
+    return dpi > 0 ? static_cast<UINT>(dpi) : 96u;
+}
+
+class ScopedThreadDpiAwarenessContext {
+public:
+    ScopedThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT desiredContext, bool enabled)
+        : m_function(ResolveSetThreadDpiAwarenessContext()) {
+        if (!enabled || !m_function || !desiredContext) {
+            return;
+        }
+
+        m_previousContext = m_function(desiredContext);
+        m_applied = (m_previousContext != nullptr);
+    }
+
+    ScopedThreadDpiAwarenessContext(const ScopedThreadDpiAwarenessContext&) = delete;
+    ScopedThreadDpiAwarenessContext& operator=(const ScopedThreadDpiAwarenessContext&) = delete;
+
+    ~ScopedThreadDpiAwarenessContext() {
+        if (m_applied && m_function) {
+            m_function(m_previousContext);
+        }
+    }
+
+private:
+    SetThreadDpiAwarenessContextFunction m_function{};
+    DPI_AWARENESS_CONTEXT m_previousContext{};
+    bool m_applied{false};
+};
+
 COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
     if (!dc || rect.left >= rect.right || rect.top >= rect.bottom) {
         return GetSysColor(COLOR_WINDOW);
@@ -3162,6 +3228,18 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
         return true;
     }
 
+    const UINT windowDpi = GetWindowDpi(hwnd);
+    const UINT initialDcDpiX = static_cast<UINT>(std::max(0, GetDeviceCaps(dc, LOGPIXELSX)));
+    const UINT initialDcDpiY = static_cast<UINT>(std::max(0, GetDeviceCaps(dc, LOGPIXELSY)));
+    const bool dpiMismatch = (windowDpi != 0) &&
+                             (initialDcDpiX != windowDpi || initialDcDpiY != windowDpi);
+
+#ifdef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    const ScopedThreadDpiAwarenessContext dpiScope(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, dpiMismatch);
+#else
+    const ScopedThreadDpiAwarenessContext dpiScope(nullptr, false);
+#endif
+
     const BOOL caretHidden = HideCaret(hwnd);
 
     COLORREF backgroundColor = GetBkColor(dc);
@@ -3196,6 +3274,38 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
     if (formatRect.right <= formatRect.left) {
         formatRect = client;
     }
+
+    const UINT effectiveDcDpiX = static_cast<UINT>(std::max(0, GetDeviceCaps(dc, LOGPIXELSX)));
+    const UINT effectiveDcDpiY = static_cast<UINT>(std::max(0, GetDeviceCaps(dc, LOGPIXELSY)));
+    const double scaleX = (windowDpi != 0) ? static_cast<double>(effectiveDcDpiX) /
+                                                static_cast<double>(windowDpi)
+                                          : 1.0;
+    const double scaleY = (windowDpi != 0) ? static_cast<double>(effectiveDcDpiY) /
+                                                static_cast<double>(windowDpi)
+                                          : 1.0;
+
+    auto scaleCoordinateX = [&](int value) -> double {
+        return static_cast<double>(value) * scaleX;
+    };
+    auto scaleCoordinateY = [&](int value) -> double {
+        return static_cast<double>(value) * scaleY;
+    };
+
+    auto scaleRectToDevice = [&](const RECT& rect) -> RECT {
+        const double left = scaleCoordinateX(rect.left);
+        const double right = scaleCoordinateX(rect.right);
+        const double top = scaleCoordinateY(rect.top);
+        const double bottom = scaleCoordinateY(rect.bottom);
+
+        RECT result{};
+        result.left = static_cast<LONG>(std::lround(std::min(left, right)));
+        result.right = static_cast<LONG>(std::lround(std::max(left, right)));
+        result.top = static_cast<LONG>(std::lround(std::min(top, bottom)));
+        result.bottom = static_cast<LONG>(std::lround(std::max(top, bottom)));
+        return result;
+    };
+
+    RECT scaledFormatRect = scaleRectToDevice(formatRect);
 
     HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
     if (!font) {
@@ -3250,85 +3360,99 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
         return static_cast<BYTE>(std::clamp(boosted, 0, 255));
     };
 
-    auto brightenColor = [&](COLORREF color) -> Gdiplus::Color {
-        return Gdiplus::Color(255, applyBrightness(GetRValue(color)), applyBrightness(GetGValue(color)),
-                              applyBrightness(GetBValue(color)));
+    auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
+        const double value = static_cast<double>(start) +
+                             (static_cast<double>(end) - static_cast<double>(start)) * position;
+        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
     };
 
-    bool gradientDrawn = false;
-    if (!text.empty() && formatRect.right > formatRect.left && formatRect.bottom > formatRect.top) {
-        Gdiplus::Graphics graphics(dc);
-        if (graphics.GetLastStatus() == Gdiplus::Ok) {
-            graphics.SetPageUnit(Gdiplus::UnitPixel);
-            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
-            graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
-            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+    struct CharacterMetrics {
+        int index;
+        double x;
+        double y;
+        double width;
+    };
 
-            Gdiplus::Font gradientFont(dc, font);
-            if (gradientFont.GetLastStatus() == Gdiplus::Ok) {
-                const Gdiplus::RectF layoutRect(
-                    static_cast<Gdiplus::REAL>(formatRect.left), static_cast<Gdiplus::REAL>(formatRect.top),
-                    static_cast<Gdiplus::REAL>(std::max<LONG>(1, formatRect.right - formatRect.left)),
-                    static_cast<Gdiplus::REAL>(std::max<LONG>(1, formatRect.bottom - formatRect.top)));
+    std::vector<CharacterMetrics> characters;
+    characters.reserve(text.size());
 
-                Gdiplus::REAL gradientStartX = static_cast<Gdiplus::REAL>(formatRect.left);
-                Gdiplus::REAL gradientEndX = static_cast<Gdiplus::REAL>(formatRect.right);
-                if (gradientEndX <= gradientStartX) {
-                    gradientEndX = gradientStartX + 1.0f;
-                }
+    double gradientLeft = static_cast<double>(scaledFormatRect.right);
+    double gradientRight = static_cast<double>(scaledFormatRect.left);
 
-                Gdiplus::LinearGradientBrush brush(Gdiplus::PointF(gradientStartX, 0.0f),
-                                                   Gdiplus::PointF(gradientEndX, 0.0f), brightenColor(gradientStart),
-                                                   brightenColor(gradientEnd));
-                if (brush.GetLastStatus() == Gdiplus::Ok) {
-                    brush.SetWrapMode(Gdiplus::WrapModeClamp);
+    for (int i = 0; i < static_cast<int>(text.size()); ++i) {
+        LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, i, 0);
+        if (pos == -1) {
+            continue;
+        }
 
-                    Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericDefault());
-                    format.SetFormatFlags(format.GetFormatFlags() | Gdiplus::StringFormatFlagsNoWrap);
-                    format.SetTrimming(Gdiplus::StringTrimmingNone);
+        const int rawCharX = static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(pos)));
+        const int rawCharY = static_cast<SHORT>(HIWORD(static_cast<DWORD_PTR>(pos)));
+        const double charX = scaleCoordinateX(rawCharX);
+        const double charY = scaleCoordinateY(rawCharY);
 
-                    graphics.SetClip(layoutRect);
-                    if (graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &gradientFont, layoutRect, &format,
-                                            &brush) == Gdiplus::Ok) {
-                        gradientDrawn = true;
-                    }
-                    graphics.ResetClip();
-                }
+        LRESULT nextPos = SendMessageW(hwnd, EM_POSFROMCHAR, i + 1, 0);
+        double nextX = charX;
+        if (nextPos != -1) {
+            const int rawNextX = static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
+            nextX = scaleCoordinateX(rawNextX);
+        }
+        if (nextPos == -1 || nextX <= charX) {
+            SIZE extent{};
+            if (GetTextExtentPoint32W(dc, &text[i], 1, &extent) && extent.cx > 0) {
+                nextX = charX + static_cast<double>(extent.cx);
+            } else {
+                nextX = charX + 1.0;
             }
         }
+
+        const double charWidth = std::max(1.0, nextX - charX);
+        characters.push_back(CharacterMetrics{i, charX, charY, charWidth});
+
+        gradientLeft = std::min(gradientLeft, charX);
+        gradientRight = std::max(gradientRight, charX + charWidth);
     }
 
-    if (!gradientDrawn) {
-        auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
-            const double value = static_cast<double>(start) +
-                                 (static_cast<double>(end) - static_cast<double>(start)) * position;
-            return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
-        };
+    if (!characters.empty()) {
+        gradientLeft = std::min(gradientLeft, characters.front().x - characters.front().width * 0.5);
+        gradientRight = std::max(gradientRight, characters.back().x + characters.back().width * 0.5);
+    }
 
-        const double gradientWidth = static_cast<double>(std::max<LONG>(1, formatRect.right - formatRect.left));
+    const double scaledLeftBound = static_cast<double>(scaledFormatRect.left);
+    const double scaledRightBound = static_cast<double>(scaledFormatRect.right);
 
-        for (int i = 0; i < static_cast<int>(text.size()); ++i) {
-            LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, i, 0);
-            if (pos == -1) {
-                continue;
-            }
-            const int charX = static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(pos)));
-            const int charY = static_cast<SHORT>(HIWORD(static_cast<DWORD_PTR>(pos)));
+    gradientLeft = std::clamp(gradientLeft, scaledLeftBound, scaledRightBound);
+    gradientRight = std::clamp(gradientRight, scaledLeftBound, scaledRightBound);
 
-            LRESULT nextPos = SendMessageW(hwnd, EM_POSFROMCHAR, i + 1, 0);
-            int nextX = (nextPos == -1) ? charX : static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
-            if (nextPos == -1 || nextX <= charX) {
-                SIZE extent{};
-                if (GetTextExtentPoint32W(dc, &text[i], 1, &extent)) {
-                    nextX = charX + extent.cx;
-                } else {
-                    nextX = charX + 1;
-                }
-            }
+    if (gradientRight <= gradientLeft) {
+        gradientLeft = scaledLeftBound;
+        gradientRight = std::max(scaledLeftBound + 1.0, scaledRightBound);
+    }
 
-            const int charWidth = std::max(1, nextX - charX);
-            double centerX = static_cast<double>(charX) + static_cast<double>(charWidth) / 2.0;
-            double position = (centerX - static_cast<double>(formatRect.left)) / gradientWidth;
+    const double gradientWidth = std::max(1.0, gradientRight - gradientLeft);
+
+    DWORD selectionStart = 0;
+    DWORD selectionEnd = 0;
+    if (SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selectionStart),
+                     reinterpret_cast<LPARAM>(&selectionEnd)) == 0) {
+        selectionStart = selectionEnd = 0;
+    }
+    if (selectionEnd < selectionStart) {
+        std::swap(selectionStart, selectionEnd);
+    }
+    const bool hasSelection = (selectionEnd > selectionStart);
+    const COLORREF highlightTextColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
+
+    RECT clipRect = scaledFormatRect;
+
+    for (const CharacterMetrics& character : characters) {
+        bool isSelected = hasSelection && character.index >= static_cast<int>(selectionStart) &&
+                          character.index < static_cast<int>(selectionEnd);
+
+        if (isSelected) {
+            SetTextColor(dc, highlightTextColor);
+        } else {
+            const double centerX = character.x + character.width / 2.0;
+            double position = (centerX - gradientLeft) / gradientWidth;
             position = std::clamp(position, 0.0, 1.0);
 
             const BYTE red = applyBrightness(
@@ -3339,8 +3463,12 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
                 interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
 
             SetTextColor(dc, RGB(red, green, blue));
-            ExtTextOutW(dc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
         }
+
+        const int drawX = static_cast<int>(std::lround(character.x));
+        const int drawY = static_cast<int>(std::lround(character.y));
+
+        ExtTextOutW(dc, drawX, drawY, ETO_CLIPPED, &clipRect, text.data() + character.index, 1, nullptr);
     }
 
     SetBkMode(dc, previousBkMode);
