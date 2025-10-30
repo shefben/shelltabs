@@ -1014,6 +1014,110 @@ void TabBand::OnOpenFolderInNewTab(const std::wstring& path) {
     }
 }
 
+void TabBand::OnSaveSelectionAsIsland(const std::vector<std::wstring>& paths) {
+    if (paths.empty()) {
+        return;
+    }
+
+    std::vector<std::wstring> uniquePaths;
+    uniquePaths.reserve(paths.size());
+    for (const auto& candidate : paths) {
+        if (candidate.empty()) {
+            continue;
+        }
+        const DWORD attributes = GetFileAttributesW(candidate.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            continue;
+        }
+        if (std::find(uniquePaths.begin(), uniquePaths.end(), candidate) != uniquePaths.end()) {
+            continue;
+        }
+        uniquePaths.push_back(candidate);
+    }
+
+    if (uniquePaths.empty()) {
+        return;
+    }
+
+    HWND owner = m_window ? m_window->GetHwnd() : nullptr;
+    if (owner) {
+        owner = GetAncestor(owner, GA_ROOT);
+    }
+
+    std::wstring name = L"Island";
+    COLORREF color = RGB(0, 120, 215);
+    if (!PromptForTextInput(owner, L"Save Selection as Island", L"Island name:", &name, &color)) {
+        return;
+    }
+
+    std::wstring trimmed = TrimWhitespace(name);
+    if (trimmed.empty()) {
+        trimmed = L"Island";
+    }
+
+    auto& store = GroupStore::Instance();
+    store.Load();
+    if (store.Find(trimmed)) {
+        MessageBoxW(owner, L"A saved group with that name already exists.", L"ShellTabs",
+                    MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    SavedGroup saved;
+    saved.name = trimmed;
+    saved.color = color;
+    saved.tabPaths = uniquePaths;
+    store.Upsert(saved);
+
+    int afterGroup = m_tabs.SelectedLocation().groupIndex;
+    if (afterGroup < 0) {
+        afterGroup = m_tabs.GroupCount() - 1;
+    }
+
+    const int groupIndex = m_tabs.CreateGroupAfter(afterGroup, trimmed, true);
+    auto* group = m_tabs.GetGroup(groupIndex);
+    if (group) {
+        group->savedGroupId = trimmed;
+        group->hasCustomOutline = true;
+        group->outlineColor = color;
+        group->headerVisible = true;
+        group->collapsed = false;
+    }
+
+    bool selectFirst = true;
+    bool addedAny = false;
+    for (const auto& path : uniquePaths) {
+        UniquePidl pidl = ParseDisplayName(path);
+        if (!pidl) {
+            continue;
+        }
+        std::wstring tabName = GetDisplayName(pidl.get());
+        if (tabName.empty()) {
+            tabName = path;
+        }
+        TabLocation location = m_tabs.Add(std::move(pidl), tabName, tabName, selectFirst, groupIndex);
+        if (selectFirst) {
+            selectFirst = false;
+        }
+        if (location.IsValid()) {
+            addedAny = true;
+        }
+    }
+
+    UpdateTabsUI();
+    SyncSavedGroup(groupIndex);
+
+    if (addedAny) {
+        TabLocation selection = m_tabs.SelectedLocation();
+        if (!selection.IsValid() || selection.groupIndex != groupIndex) {
+            selection = {groupIndex, 0};
+        }
+        if (selection.IsValid()) {
+            NavigateToTab(selection);
+        }
+    }
+}
+
 void TabBand::CloseFrameWindowAsync() {
     HWND frame = GetFrameWindow();
     if (!frame) {

@@ -284,6 +284,8 @@ Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
 }
 
 constexpr wchar_t kOpenInNewTabLabel[] = L"Open in new tab";
+constexpr wchar_t kOpenSelectionInNewTabsLabel[] = L"Open selection in new tabs";
+constexpr wchar_t kSaveSelectionAsIslandLabel[] = L"Save selection as island";
 
 struct BreadcrumbHookEntry {
     HHOOK hook = nullptr;
@@ -1433,7 +1435,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case WM_COMMAND: {
             const UINT commandId = LOWORD(wParam);
-            if (commandId == kOpenInNewTabCommandId) {
+            if (commandId == kOpenInNewTabCommandId || commandId == kOpenSelectionInNewTabsCommandId ||
+                commandId == kSaveSelectionAsIslandCommandId) {
                 HandleExplorerCommand(commandId);
                 *result = 0;
                 return true;
@@ -1443,8 +1446,17 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_MENUCOMMAND: {
             HMENU menu = reinterpret_cast<HMENU>(lParam);
             const UINT position = static_cast<UINT>(wParam);
-            if (menu && GetMenuItemID(menu, position) == kOpenInNewTabCommandId) {
-                HandleExplorerCommand(kOpenInNewTabCommandId);
+            if (menu) {
+                const UINT id = GetMenuItemID(menu, position);
+                if (id == kOpenInNewTabCommandId || id == kOpenSelectionInNewTabsCommandId ||
+                    id == kSaveSelectionAsIslandCommandId) {
+                    HandleExplorerCommand(id);
+                    *result = 0;
+                    return true;
+                }
+            }
+            break;
+        }
                 *result = 0;
                 return true;
             }
@@ -1492,10 +1504,14 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
         return;
     }
 
+    const bool multiSelection = paths.size() > 1;
+
     UINT position = 0;
     const bool anchorFound = FindOpenInNewWindowMenuItem(menu, &position, nullptr);
 
-    if (GetMenuState(menu, kOpenInNewTabCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
+    if (GetMenuState(menu, kOpenInNewTabCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1) ||
+        GetMenuState(menu, kOpenSelectionInNewTabsCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1) ||
+        GetMenuState(menu, kSaveSelectionAsIslandCommandId, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
         LogMessage(LogLevel::Info, L"Context menu already contains Open In New Tab entry");
         return;
     }
@@ -1522,11 +1538,37 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
         return;
     }
 
-    m_pendingOpenInNewTabPaths = std::move(paths);
+    UINT nextPosition = insertPosition + 1;
+    if (multiSelection) {
+        MENUITEMINFOW multiItem = item;
+        multiItem.wID = kOpenSelectionInNewTabsCommandId;
+        multiItem.dwTypeData = const_cast<wchar_t*>(kOpenSelectionInNewTabsLabel);
+        if (InsertMenuItemW(menu, nextPosition, TRUE, &multiItem)) {
+            const UINT loggedPosition = nextPosition + 1;
+            ++nextPosition;
+            LogMessage(LogLevel::Info, L"Inserted multi-select Open In New Tabs entry at position %u", loggedPosition);
+        } else {
+            LogLastError(L"InsertMenuItem(Open Selection In New Tabs)", GetLastError());
+        }
+
+        MENUITEMINFOW saveItem = item;
+        saveItem.wID = kSaveSelectionAsIslandCommandId;
+        saveItem.dwTypeData = const_cast<wchar_t*>(kSaveSelectionAsIslandLabel);
+        if (InsertMenuItemW(menu, nextPosition, TRUE, &saveItem)) {
+            const UINT loggedPosition = nextPosition + 1;
+            ++nextPosition;
+            LogMessage(LogLevel::Info, L"Inserted Save Selection As Island entry at position %u", loggedPosition);
+        } else {
+            LogLastError(L"InsertMenuItem(Save Selection As Island)", GetLastError());
+        }
+    }
+
+    m_contextMenuSelectionPaths = std::move(paths);
+    m_pendingMultiSelection = multiSelection;
     m_contextMenuInserted = true;
     m_trackedContextMenu = menu;
     LogMessage(LogLevel::Info, L"Open In New Tab inserted at position %u for %zu paths", insertPosition + 1,
-               m_pendingOpenInNewTabPaths.size());
+               m_contextMenuSelectionPaths.size());
 }
 
 void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint) {
@@ -1597,21 +1639,34 @@ void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPo
 }
 
 void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
-    if (commandId != kOpenInNewTabCommandId) {
+    if (commandId != kOpenInNewTabCommandId && commandId != kOpenSelectionInNewTabsCommandId &&
+        commandId != kSaveSelectionAsIslandCommandId) {
         return;
     }
 
-    std::vector<std::wstring> paths = m_pendingOpenInNewTabPaths;
+    std::vector<std::wstring> paths = m_contextMenuSelectionPaths;
     if (paths.empty()) {
         if (!CollectSelectedFolderPaths(paths)) {
-            LogMessage(LogLevel::Warning, L"Open In New Tab command aborted: unable to resolve folder selection");
+            LogMessage(LogLevel::Warning,
+                       L"Context menu command 0x%04X aborted: unable to resolve folder selection", commandId);
             ClearPendingOpenInNewTabState();
             return;
         }
     }
 
-    LogMessage(LogLevel::Info, L"Open In New Tab command executing for %zu paths", paths.size());
-    DispatchOpenInNewTab(paths);
+    if (commandId == kSaveSelectionAsIslandCommandId) {
+        if (paths.size() < 2 && !m_pendingMultiSelection) {
+            LogMessage(LogLevel::Info, L"Save Selection As Island command skipped: insufficient selection size");
+            ClearPendingOpenInNewTabState();
+            return;
+        }
+        LogMessage(LogLevel::Info, L"Save Selection As Island command executing for %zu paths", paths.size());
+        DispatchSaveSelectionAsIsland(paths);
+    } else {
+        LogMessage(LogLevel::Info, L"Open In New Tab command executing for %zu paths", paths.size());
+        DispatchOpenInNewTab(paths);
+    }
+
     ClearPendingOpenInNewTabState();
 }
 
@@ -1903,11 +1958,69 @@ void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) 
     }
 }
 
+void CExplorerBHO::DispatchSaveSelectionAsIsland(const std::vector<std::wstring>& paths) const {
+    if (paths.empty()) {
+        LogMessage(LogLevel::Info, L"DispatchSaveSelectionAsIsland skipped: no paths provided");
+        return;
+    }
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        LogMessage(LogLevel::Warning, L"DispatchSaveSelectionAsIsland failed: explorer frame not found");
+        return;
+    }
+
+    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+    if (!bandWindow || !IsWindow(bandWindow)) {
+        LogMessage(LogLevel::Warning,
+                   L"DispatchSaveSelectionAsIsland failed: ShellTabs band window missing (frame=%p)", frame);
+        return;
+    }
+
+    size_t totalChars = 1;  // ensure double-null termination
+    size_t validCount = 0;
+    for (const auto& path : paths) {
+        if (path.empty()) {
+            continue;
+        }
+        totalChars += path.size() + 1;
+        ++validCount;
+    }
+
+    if (validCount == 0) {
+        LogMessage(LogLevel::Warning, L"DispatchSaveSelectionAsIsland skipped: no valid folder paths");
+        return;
+    }
+
+    std::vector<wchar_t> buffer(totalChars, L'\0');
+    wchar_t* write = buffer.data();
+    for (const auto& path : paths) {
+        if (path.empty()) {
+            continue;
+        }
+        const size_t length = path.size();
+        std::copy_n(path.c_str(), length, write);
+        write += length;
+        *write++ = L'\0';
+    }
+    *write = L'\0';
+
+    COPYDATASTRUCT copy{};
+    copy.dwData = SHELLTABS_COPYDATA_SAVE_ISLAND;
+    copy.cbData = static_cast<DWORD>(buffer.size() * sizeof(wchar_t));
+    copy.lpData = buffer.data();
+
+    SendMessageW(bandWindow, WM_COPYDATA, reinterpret_cast<WPARAM>(frame),
+                 reinterpret_cast<LPARAM>(&copy));
+    LogMessage(LogLevel::Info, L"Dispatched Save Selection As Island request for %zu paths", validCount);
+}
+
 void CExplorerBHO::ClearPendingOpenInNewTabState() {
-    m_pendingOpenInNewTabPaths.clear();
+    m_contextMenuSelectionPaths.clear();
+    m_pendingMultiSelection = false;
     m_trackedContextMenu = nullptr;
     m_contextMenuInserted = false;
-    LogMessage(LogLevel::Info, L"Cleared Open In New Tab pending state");
+    LogMessage(LogLevel::Info, L"Cleared Explorer context menu selection state");
 }
 
 bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {

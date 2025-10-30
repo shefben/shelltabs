@@ -3839,30 +3839,65 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_COPYDATA: {
                 auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
-                if (!data || data->dwData != SHELLTABS_COPYDATA_OPEN_FOLDER || data->cbData == 0 ||
-                    !data->lpData) {
+                if (!data || data->cbData == 0 || !data->lpData) {
                     return fallback();
                 }
 
-                if (!self->m_owner) {
+                if (data->dwData == SHELLTABS_COPYDATA_OPEN_FOLDER) {
+                    if (!self->m_owner) {
+                        return TRUE;
+                    }
+
+                    const wchar_t* buffer = static_cast<const wchar_t*>(data->lpData);
+                    const size_t charCount = data->cbData / sizeof(wchar_t);
+                    if (charCount == 0) {
+                        return TRUE;
+                    }
+
+                    std::wstring path(buffer, buffer + charCount);
+                    if (!path.empty() && path.back() == L'\0') {
+                        path.pop_back();
+                    }
+
+                    if (!path.empty()) {
+                        self->m_owner->OnOpenFolderInNewTab(path);
+                    }
                     return TRUE;
                 }
 
-                const wchar_t* buffer = static_cast<const wchar_t*>(data->lpData);
-                const size_t charCount = data->cbData / sizeof(wchar_t);
-                if (charCount == 0) {
+                if (data->dwData == SHELLTABS_COPYDATA_SAVE_ISLAND) {
+                    if (!self->m_owner) {
+                        return TRUE;
+                    }
+
+                    const wchar_t* buffer = static_cast<const wchar_t*>(data->lpData);
+                    const size_t charCount = data->cbData / sizeof(wchar_t);
+                    if (charCount == 0) {
+                        return TRUE;
+                    }
+
+                    std::vector<std::wstring> paths;
+                    paths.reserve(4);
+                    const wchar_t* current = buffer;
+                    const wchar_t* end = buffer + charCount;
+                    while (current < end && *current != L'\0') {
+                        const size_t remaining = static_cast<size_t>(end - current);
+                        size_t length = wcsnlen_s(current, remaining);
+                        if (length == 0) {
+                            ++current;
+                            continue;
+                        }
+                        paths.emplace_back(current, length);
+                        current += length + 1;
+                    }
+
+                    if (!paths.empty()) {
+                        self->m_owner->OnSaveSelectionAsIsland(paths);
+                    }
                     return TRUE;
                 }
 
-                std::wstring path(buffer, buffer + charCount);
-                if (!path.empty() && path.back() == L'\0') {
-                    path.pop_back();
-                }
-
-                if (!path.empty()) {
-                    self->m_owner->OnOpenFolderInNewTab(path);
-                }
-                return TRUE;
+                return fallback();
             }
             case WM_PAINT: {
                 PAINTSTRUCT ps;

@@ -20,7 +20,7 @@
 
 #include "Logging.h"
 #include "Module.h"
-#include "TabBandWindow.h"
+#include "ShellTabsMessages.h"
 #include "Utilities.h"
 
 namespace shelltabs {

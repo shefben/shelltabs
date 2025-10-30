@@ -11,6 +11,9 @@ struct OpenFolderMessagePayload {
     size_t length = 0;
 };
 
+constexpr ULONG_PTR SHELLTABS_COPYDATA_OPEN_FOLDER = 'STNT';
+constexpr ULONG_PTR SHELLTABS_COPYDATA_SAVE_ISLAND = 'STSI';
+
 UINT GetOptionsChangedMessage();
 
 }  // namespace shelltabs
