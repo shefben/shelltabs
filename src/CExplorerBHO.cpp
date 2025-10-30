@@ -2220,6 +2220,10 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
     m_breadcrumbGradientTransparency = std::clamp(options.breadcrumbGradientTransparency, 0, 100);
     m_breadcrumbFontBrightness = std::clamp(options.breadcrumbFontBrightness, 0, 100);
+    m_breadcrumbHighlightAlphaMultiplier =
+        std::clamp(options.breadcrumbHighlightAlphaMultiplier, 0, 200);
+    m_breadcrumbDropdownAlphaMultiplier =
+        std::clamp(options.breadcrumbDropdownAlphaMultiplier, 0, 200);
     m_useCustomBreadcrumbGradientColors = options.useCustomBreadcrumbGradientColors;
     m_breadcrumbGradientStartColor = options.breadcrumbGradientStartColor;
     m_breadcrumbGradientEndColor = options.breadcrumbGradientEndColor;
@@ -2368,6 +2372,20 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
 
+    const int highlightAlphaMultiplier = std::clamp(m_breadcrumbHighlightAlphaMultiplier, 0, 200);
+    const int dropdownAlphaMultiplier = std::clamp(m_breadcrumbDropdownAlphaMultiplier, 0, 200);
+    auto scaleAlpha = [](BYTE alpha, int multiplier) -> BYTE {
+        if (multiplier <= 0) {
+            return 0;
+        }
+        if (multiplier == 100) {
+            return alpha;
+        }
+        const int scaled = static_cast<int>(alpha) * multiplier;
+        const int result = (scaled + 50) / 100;
+        return static_cast<BYTE>(std::clamp(result, 0, 255));
+    };
+
     auto drawDropdownArrow = [&](const RECT& buttonRect, bool hot, bool pressed, BYTE textAlphaValue,
                                  const Gdiplus::Color& brightFontEndColor, const Gdiplus::Color& arrowTextStart,
                                  const Gdiplus::Color& arrowTextEnd, bool fontGradientEnabled,
@@ -2387,7 +2405,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                          static_cast<Gdiplus::REAL>(buttonRect.top + 2),
                                          highlightWidth,
                                          highlightHeight);
-            const BYTE highlightAlpha = static_cast<BYTE>(pressed ? 160 : 130);
+            const BYTE highlightAlpha = scaleAlpha(static_cast<BYTE>(pressed ? 160 : 130),
+                                                   highlightAlphaMultiplier);
             const Gdiplus::Color highlightBase(highlightAlpha, brightFontEndColor.GetR(),
                                                brightFontEndColor.GetG(), brightFontEndColor.GetB());
             Gdiplus::Color highlightColor =
@@ -2413,7 +2432,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         }
         const int arrowBoost = pressed ? 60 : (hot ? 35 : 15);
         const int boostedAlpha = static_cast<int>(arrowAlphaBase) + arrowBoost;
-        const BYTE arrowAlpha = static_cast<BYTE>(boostedAlpha > 255 ? 255 : boostedAlpha);
+        const BYTE arrowAlpha = scaleAlpha(static_cast<BYTE>(boostedAlpha > 255 ? 255 : boostedAlpha),
+                                           dropdownAlphaMultiplier);
         const Gdiplus::Color arrowStartColor(arrowAlpha, arrowTextStart.GetR(), arrowTextStart.GetG(),
                                              arrowTextStart.GetB());
         const Gdiplus::Color arrowEndColor(arrowAlpha, arrowTextEnd.GetR(), arrowTextEnd.GetG(),
