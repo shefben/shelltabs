@@ -2708,7 +2708,8 @@ void TabBandWindow::PositionPreviewWindow(const VisualItem& item, const POINT& s
     HMONITOR monitor = MonitorFromPoint(screenPt, MONITOR_DEFAULTTONEAREST);
     MONITORINFO info{sizeof(info)};
     if (GetMonitorInfoW(monitor, &info)) {
-        x = std::clamp(x, info.rcWork.left + 4, info.rcWork.right - width - 4);
+        x = std::clamp<int>(x, static_cast<int>(info.rcWork.left) + 4,
+                            static_cast<int>(info.rcWork.right) - width - 4);
         if (y + height > info.rcWork.bottom) {
             y = rect.top - height - 8;
         }
@@ -2824,7 +2825,7 @@ void TabBandWindow::UnregisterShellNotifications() {
 }
 
 void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
-    auto* notification = reinterpret_cast<LPCSHNOTIFYSTRUCT>(lParam);
+    const auto* notification = reinterpret_cast<const SHNOTIFYSTRUCT*>(lParam);
     if (!notification) {
         return;
     }

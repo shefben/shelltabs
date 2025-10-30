@@ -82,7 +82,7 @@ struct ShellTabsOptions;
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
                 void ClearFolderBackgrounds();
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
-                const Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
+                Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
                 bool DrawFolderBackground(HWND hwnd, HDC dc) const;
                 void UpdateCurrentFolderBackground();
                 void InvalidateFolderBackgroundTargets() const;

@@ -1273,7 +1273,7 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     InvalidateFolderBackgroundTargets();
 }
 
-const Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
+Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
     if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
         return nullptr;
     }
@@ -1297,7 +1297,7 @@ bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
         return false;
     }
 
-    const Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
+    Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
     if (!background) {
         return false;
     }
