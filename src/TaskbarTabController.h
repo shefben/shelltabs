@@ -11,12 +11,11 @@
 #include <wrl/client.h>
 
 #include "TabManager.h"
+#include "TaskbarProxyWindow.h"
 
 namespace shelltabs {
 
 class TabBand;
-class TaskbarProxyWindow;
-
 class TaskbarTabController {
 public:
     explicit TaskbarTabController(TabBand* owner);
