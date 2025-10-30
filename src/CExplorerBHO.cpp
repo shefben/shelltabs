@@ -1308,6 +1308,11 @@ bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
         return false;
     }
 
+    if (width > static_cast<UINT>(std::numeric_limits<INT>::max()) ||
+        height > static_cast<UINT>(std::numeric_limits<INT>::max())) {
+        return false;
+    }
+
     RECT client{};
     if (!GetClientRect(hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
         return false;
@@ -1323,9 +1328,9 @@ bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
     graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
 
     const Gdiplus::Rect destRect(client.left, client.top, client.right - client.left, client.bottom - client.top);
-    const Gdiplus::Status status = graphics.DrawImage(background, destRect, 0.0f, 0.0f,
-                                                     static_cast<Gdiplus::REAL>(width),
-                                                     static_cast<Gdiplus::REAL>(height), Gdiplus::UnitPixel);
+    const Gdiplus::Status status =
+        graphics.DrawImage(background, destRect, 0, 0, static_cast<INT>(width),
+                           static_cast<INT>(height), Gdiplus::UnitPixel);
     return status == Gdiplus::Ok;
 }
 

@@ -2825,7 +2825,12 @@ void TabBandWindow::UnregisterShellNotifications() {
 }
 
 void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
-    const auto* notification = reinterpret_cast<const SHNOTIFYSTRUCT*>(lParam);
+    struct ShellChangeNotification {
+        PCIDLIST_ABSOLUTE from;
+        PCIDLIST_ABSOLUTE to;
+    };
+
+    const auto* notification = reinterpret_cast<const ShellChangeNotification*>(lParam);
     if (!notification) {
         return;
     }
@@ -2859,12 +2864,12 @@ void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
         case SHCNE_RENAMEITEM:
         case SHCNE_RENAMEFOLDER:
         case SHCNE_UPDATEITEM:
-            touch(notification->pidlFrom);
-            touch(notification->pidlTo);
+            touch(notification->from);
+            touch(notification->to);
             break;
         case SHCNE_UPDATEDIR:
-            clear(notification->pidlFrom);
-            clear(notification->pidlTo);
+            clear(notification->from);
+            clear(notification->to);
             break;
         default:
             break;
