@@ -4,16 +4,12 @@
 
 #include "ColorSerialization.h"
 
-#include <ShlObj.h>
-#include <Shlwapi.h>
-
 #include <algorithm>
 
 #include "Utilities.h"
 
 namespace shelltabs {
 namespace {
-constexpr wchar_t kStorageDirectory[] = L"ShellTabs";
 constexpr wchar_t kStorageFile[] = L"groups.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kGroupToken[] = L"group";
@@ -64,31 +60,11 @@ bool GroupStore::Load() {
     m_storagePath = path;
     m_groups.clear();
 
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        m_loaded = true;
-        return true;
-    }
-
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.HighPart != 0) {
-        CloseHandle(file);
-        m_loaded = true;
+    std::wstring content;
+    if (!ReadUtf8File(path, &content)) {
         return false;
     }
 
-    std::string buffer;
-    buffer.resize(static_cast<size_t>(size.QuadPart));
-    DWORD bytesRead = 0;
-    if (!buffer.empty() && !ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr)) {
-        CloseHandle(file);
-        m_loaded = true;
-        return false;
-    }
-    CloseHandle(file);
-    buffer.resize(bytesRead);
-
-    const std::wstring content = Utf8ToWide(buffer);
     if (content.empty()) {
         m_loaded = true;
         return true;
@@ -194,17 +170,7 @@ bool GroupStore::Save() const {
         }
     }
 
-    const std::string utf8 = WideToUtf8(content);
-
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    DWORD bytesWritten = 0;
-    const BOOL result = WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr);
-    CloseHandle(file);
-    return result != FALSE;
+    return WriteUtf8File(path, content);
 }
 
 bool GroupStore::Upsert(SavedGroup group) {
@@ -269,19 +235,10 @@ bool GroupStore::Remove(const std::wstring& name) {
 }
 
 std::wstring GroupStore::ResolveStoragePath() const {
-    PWSTR knownFolder = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
+    std::wstring base = GetShellTabsDataDirectory();
+    if (base.empty()) {
         return {};
     }
-
-    std::wstring base(knownFolder);
-    CoTaskMemFree(knownFolder);
-
-    if (!base.empty() && base.back() != L'\\') {
-        base.push_back(L'\\');
-    }
-    base += kStorageDirectory;
-    CreateDirectoryW(base.c_str(), nullptr);
 
     if (!base.empty() && base.back() != L'\\') {
         base.push_back(L'\\');

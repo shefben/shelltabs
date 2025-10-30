@@ -141,40 +141,25 @@ std::wstring OptionsStore::ResolveStoragePath() const {
 }
 
 bool OptionsStore::Load() {
-    m_loaded = true;
     m_options = {};
 
     m_storagePath = ResolveStoragePath();
     if (m_storagePath.empty()) {
+        m_loaded = false;
+        return false;
+    }
+
+    std::wstring content;
+    bool fileExists = false;
+    if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
+        m_loaded = false;
         return false;
     }
 
     const std::wstring storageDirectory = GetShellTabsDataDirectory();
 
-    HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return true;
-    }
-
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.HighPart != 0) {
-        CloseHandle(file);
-        return false;
-    }
-
-    std::string buffer(static_cast<size_t>(size.QuadPart), '\0');
-    DWORD bytesRead = 0;
-    if (!buffer.empty() &&
-        !ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr)) {
-        CloseHandle(file);
-        return false;
-    }
-    CloseHandle(file);
-    buffer.resize(bytesRead);
-
-    const std::wstring content = Utf8ToWide(buffer);
-    if (content.empty()) {
+    if (!fileExists || content.empty()) {
+        m_loaded = true;
         return true;
     }
 
@@ -398,6 +383,7 @@ bool OptionsStore::Load() {
         }
     }
 
+    m_loaded = true;
     return true;
 }
 
@@ -411,7 +397,18 @@ bool OptionsStore::Save() const {
         return false;
     }
 
-    const std::wstring storageDirectory = ResolveDirectory();
+    const std::wstring storageDirectory = GetShellTabsDataDirectory();
+    if (storageDirectory.empty()) {
+        return false;
+    }
+
+    const size_t separator = m_storagePath.find_last_of(L"\\/");
+    if (separator != std::wstring::npos) {
+        std::wstring directory = m_storagePath.substr(0, separator);
+        if (!directory.empty()) {
+            CreateDirectoryW(directory.c_str(), nullptr);
+        }
+    }
 
     std::wstring content = L"version|1\n";
     content += kReopenToken;
@@ -529,18 +526,7 @@ bool OptionsStore::Save() const {
     content += DockModeToString(m_options.tabDockMode);
     content += L"\n";
 
-    const std::string utf8 = WideToUtf8(content);
-
-    HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                               nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    DWORD bytesWritten = 0;
-    const BOOL result = WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr);
-    CloseHandle(file);
-    return result != FALSE;
+    return WriteUtf8File(m_storagePath, content);
 }
 
 bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {

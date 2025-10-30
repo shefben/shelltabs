@@ -136,53 +136,31 @@ bool SessionStore::Load(SessionData& data) const {
         return false;
     }
 
-    HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const DWORD error = GetLastError();
-        if (error == ERROR_FILE_NOT_FOUND) {
-            const size_t separator = m_storagePath.find_last_of(L"\\/");
-            if (separator != std::wstring::npos) {
-                std::wstring directory = m_storagePath.substr(0, separator);
-                if (!directory.empty()) {
-                    CreateDirectoryW(directory.c_str(), nullptr);
-                }
-            }
+    std::wstring content;
+    bool fileExists = false;
+    if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
+        return false;
+    }
 
-            HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
-                                         FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (created != INVALID_HANDLE_VALUE) {
-                CloseHandle(created);
+    if (!fileExists) {
+        const size_t separator = m_storagePath.find_last_of(L"\\/");
+        if (separator != std::wstring::npos) {
+            std::wstring directory = m_storagePath.substr(0, separator);
+            if (!directory.empty()) {
+                CreateDirectoryW(directory.c_str(), nullptr);
             }
-            return true;
         }
-        return false;
-    }
 
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.HighPart != 0) {
-        CloseHandle(file);
-        return false;
-    }
-
-    if (size.QuadPart == 0) {
-        CloseHandle(file);
+        HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (created != INVALID_HANDLE_VALUE) {
+            CloseHandle(created);
+        }
         return true;
     }
 
-    std::string buffer;
-    buffer.resize(static_cast<size_t>(size.QuadPart));
-    DWORD bytesRead = 0;
-    if (!buffer.empty() && !ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr)) {
-        CloseHandle(file);
-        return false;
-    }
-    CloseHandle(file);
-    buffer.resize(bytesRead);
-
-    const std::wstring content = Utf8ToWide(buffer);
     if (content.empty()) {
-        return false;
+        return true;
     }
 
     bool versionSeen = false;
@@ -330,17 +308,7 @@ bool SessionStore::Save(const SessionData& data) const {
         }
     }
 
-    const std::string utf8 = WideToUtf8(content);
-
-    HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    DWORD bytesWritten = 0;
-    const BOOL result = WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr);
-    CloseHandle(file);
-    return result != FALSE;
+    return WriteUtf8File(m_storagePath, content);
 }
 
 }  // namespace shelltabs
