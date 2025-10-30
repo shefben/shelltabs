@@ -4388,6 +4388,18 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_SHOW_TASKBAR_POPUP: {
+                POINT anchor{};
+                if (wParam) {
+                    anchor = *reinterpret_cast<const POINT*>(wParam);
+                } else {
+                    GetCursorPos(&anchor);
+                }
+                if (self->m_owner) {
+                    self->m_owner->OnTaskbarThumbnailButtonInvoked(anchor);
+                }
+                return 0;
+            }
             case WM_SHELLTABS_OPEN_FOLDER: {
                 const auto* payload = reinterpret_cast<const OpenFolderMessagePayload*>(wParam);
                 if (self->m_owner && payload && payload->path && payload->length > 0) {
