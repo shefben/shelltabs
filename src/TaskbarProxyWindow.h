@@ -1,22 +1,20 @@
 #pragma once
 
-#include <windows.h>
+#include <string>
+#include <vector>
 
 #include "TabManager.h"
 
 namespace shelltabs {
 
-class TaskbarTabController;
-
-struct TaskbarProxyConfig {
-    TaskbarTabController* controller = nullptr;
+struct FrameTabEntry {
     TabLocation location;
-    HWND owner = nullptr;
+    std::wstring name;
+    std::wstring tooltip;
+    bool selected = false;
 };
 
-HWND CreateTaskbarProxyWindow(const TaskbarProxyConfig& config);
-void DestroyTaskbarProxyWindow(HWND hwnd);
-void UpdateTaskbarProxyLocation(HWND hwnd, const TabLocation& location);
+std::wstring BuildFrameTooltip(const std::vector<FrameTabEntry>& entries);
 
 }  // namespace shelltabs
 

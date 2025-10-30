@@ -1306,7 +1306,7 @@ void TabBand::UpdateTabsUI() {
         m_window->SetTabs(items);
     }
     if (m_taskbarController) {
-        m_taskbarController->SyncTabs(items, m_tabs.SelectedLocation(), GetFrameWindow());
+        m_taskbarController->SyncFrameSummary(items, m_tabs.SelectedLocation(), GetFrameWindow());
     }
     SaveSession();
 }
