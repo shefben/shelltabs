@@ -5,6 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "OptionsStore.h"
+#include "TabManager.h"
+
 namespace shelltabs {
 
 struct SessionTab {
@@ -22,6 +25,7 @@ struct SessionGroup {
     bool hasOutline = false;
     COLORREF outlineColor = RGB(0, 120, 215);
     std::wstring savedGroupId;
+    TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
 };
 
 struct SessionData {
@@ -29,6 +33,7 @@ struct SessionData {
     int selectedGroup = -1;
     int selectedTab = -1;
     int groupSequence = 1;
+    TabBandDockMode dockMode = TabBandDockMode::kAutomatic;
 };
 
 class SessionStore {

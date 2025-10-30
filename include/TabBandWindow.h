@@ -24,6 +24,7 @@
 #include <wrl/client.h>
 #include <shobjidl.h>
 
+#include "OptionsStore.h"
 #include "TabManager.h"
 
 
@@ -48,6 +49,10 @@ public:
     bool HasFocus() const;
     void FocusTab();
     void RefreshTheme();
+
+    void SetPreferredDockMode(TabBandDockMode mode);
+    TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }
+    static uint32_t GetAvailableDockMask();
 
     struct HitInfo {
         bool hit = false;
@@ -94,6 +99,7 @@ private:
         COLORREF color = RGB(0, 0, 0);
         bool initialized = false;
         bool visible = false;
+        TabGroupOutlineStyle style = TabGroupOutlineStyle::kSolid;
     };
 
     struct ExplorerContext {
@@ -177,9 +183,19 @@ private:
     HitInfo m_dropHoverHit;
     bool m_dropHoverHasFileData = false;
     bool m_dropHoverTimerActive = false;
+    COLORREF m_progressStartColor = RGB(0, 120, 215);
+    COLORREF m_progressEndColor = RGB(0, 153, 255);
+    HWND m_previewWindow = nullptr;
+    HBITMAP m_previewBitmap = nullptr;
+    SIZE m_previewBitmapSize{};
+    size_t m_previewItemIndex = std::numeric_limits<size_t>::max();
+    bool m_previewVisible = false;
+    UINT m_shellNotifyMessage = 0;
+    ULONG m_shellNotifyId = 0;
+    bool m_progressTimerActive = false;
         int m_lastRowCount = 1;  // tracks wrapped rows for height calc
-	// track if we've installed the subclass
-	bool m_rebarSubclassed = false;
+        // track if we've installed the subclass
+        bool m_rebarSubclassed = false;
 	struct EmptyIslandPlus {
 		int   groupIndex = -1;
 		RECT  rect{};   // click target for "+"
@@ -191,6 +207,9 @@ private:
         Microsoft::WRL::ComPtr<IUnknown> m_siteUnknown;
         Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
         std::shared_ptr<ExplorerWindowHook> m_windowHook;
+
+        TabBandDockMode m_preferredDockMode = TabBandDockMode::kAutomatic;
+        TabBandDockMode m_currentDockMode = TabBandDockMode::kAutomatic;
 
         // Utilities
         // Helpers
@@ -209,13 +228,28 @@ private:
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
+    void DrawTabProgress(HDC dc, const VisualItem& item, int left, int right, const RECT& tabRect,
+                         COLORREF background) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
     void ClearVisualItems();
     void ClearExplorerContext();
     HICON LoadItemIcon(const TabViewItem& item) const;
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
-    void EnsureMouseTracking();
+    void EnsureMouseTracking(const POINT& pt);
+    void UpdateHoverPreview(const POINT& pt);
+    void HandleMouseHover(const POINT& pt);
+    void ShowPreviewForItem(size_t index, const POINT& screenPt);
+    void HidePreviewWindow(bool destroy);
+    void PositionPreviewWindow(const VisualItem& item, const POINT& screenPt);
+    HWND EnsurePreviewWindow();
+    void RefreshProgressState();
+    void UpdateProgressAnimationState();
+    bool AnyProgressActive() const;
+    void HandleProgressTimer();
+    void RegisterShellNotifications();
+    void UnregisterShellNotifications();
+    void OnShellNotify(WPARAM wParam, LPARAM lParam);
     void UpdateCloseButtonHover(const POINT& pt);
     void ClearCloseButtonHover();
 
@@ -293,6 +327,7 @@ private:
     friend class BandDropTarget;
 
     static constexpr UINT_PTR kDropHoverTimerId = 0x5348;  // 'SH'
+    static constexpr UINT_PTR kProgressTimerId = 0x5349;   // 'SI'
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };

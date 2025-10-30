@@ -18,4 +18,9 @@ UINT GetOptionsChangedMessage() {
     return message;
 }
 
+UINT GetProgressUpdateMessage() {
+    static const UINT message = RegisterWindowMessageW(L"ShellTabs.ProgressUpdated");
+    return message;
+}
+
 }  // namespace shelltabs

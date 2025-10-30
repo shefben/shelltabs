@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <optional>
 #include <string>
 #include <utility>
@@ -14,11 +15,36 @@ enum class TabViewItemType {
     kTab,
 };
 
+enum class TabGroupOutlineStyle {
+    kSolid,
+    kDashed,
+    kDotted,
+};
+
 struct TabLocation {
     int groupIndex = -1;
     int tabIndex = -1;
 
     bool IsValid() const noexcept { return groupIndex >= 0 && tabIndex >= 0; }
+};
+
+struct TabProgressState {
+    bool active = false;
+    bool indeterminate = false;
+    double fraction = 0.0;
+    ULONGLONG lastUpdateTick = 0;
+};
+
+struct TabProgressView {
+    bool visible = false;
+    bool indeterminate = false;
+    double fraction = 0.0;
+
+    bool operator==(const TabProgressView& other) const noexcept {
+        return visible == other.visible && indeterminate == other.indeterminate &&
+               std::abs(fraction - other.fraction) < 1e-4;
+    }
+    bool operator!=(const TabProgressView& other) const noexcept { return !(*this == other); }
 };
 
 struct TabInfo {
@@ -27,6 +53,7 @@ struct TabInfo {
     std::wstring tooltip;
     bool hidden = false;
     std::wstring path;
+    TabProgressState progress;
 };
 
 struct TabGroup {
@@ -37,6 +64,7 @@ struct TabGroup {
     std::wstring savedGroupId;
     bool hasCustomOutline = false;
     COLORREF outlineColor = RGB(0, 120, 215);
+    TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
 };
 
 struct TabViewItem {
@@ -53,9 +81,11 @@ struct TabViewItem {
     std::wstring path;
     bool hasCustomOutline = false;
     COLORREF outlineColor = 0;
+    TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
     std::wstring savedGroupId;
     bool isSavedGroup = false;
     bool headerVisible = true;
+    TabProgressView progress;
 };
 
 class TabManager {
@@ -87,6 +117,13 @@ public:
 
     std::vector<TabViewItem> BuildView() const;
 
+    void RegisterProgressListener(HWND hwnd);
+    void UnregisterProgressListener(HWND hwnd);
+    void TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<double> fraction = std::nullopt);
+    void ClearFolderOperation(PCIDLIST_ABSOLUTE folder);
+    bool ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
+    bool HasActiveProgress() const;
+
     void ToggleGroupCollapsed(int groupIndex);
     void SetGroupCollapsed(int groupIndex, bool collapsed);
     void HideTab(TabLocation location);
@@ -107,11 +144,16 @@ public:
 private:
     void EnsureDefaultGroup();
     void EnsureVisibleSelection();
+    void NotifyProgressListeners();
+    TabLocation FindByPath(const std::wstring& path) const;
+    bool ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now);
+    bool ClearProgress(TabInfo* tab);
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
     int m_selectedTab = -1;
     int m_groupSequence = 1;
+    std::vector<HWND> m_progressListeners;
 };
 
 }  // namespace shelltabs

@@ -90,6 +90,48 @@ std::wstring ColorToString(COLORREF color) {
     return buffer;
 }
 
+TabGroupOutlineStyle ParseOutlineStyle(const std::wstring& token, TabGroupOutlineStyle fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+
+    if (_wcsicmp(token.c_str(), L"solid") == 0) {
+        return TabGroupOutlineStyle::kSolid;
+    }
+    if (_wcsicmp(token.c_str(), L"dashed") == 0) {
+        return TabGroupOutlineStyle::kDashed;
+    }
+    if (_wcsicmp(token.c_str(), L"dotted") == 0) {
+        return TabGroupOutlineStyle::kDotted;
+    }
+
+    const int value = _wtoi(token.c_str());
+    switch (value) {
+        case 0:
+            return TabGroupOutlineStyle::kSolid;
+        case 1:
+            return TabGroupOutlineStyle::kDashed;
+        case 2:
+            return TabGroupOutlineStyle::kDotted;
+        default:
+            break;
+    }
+
+    return fallback;
+}
+
+std::wstring OutlineStyleToString(TabGroupOutlineStyle style) {
+    switch (style) {
+        case TabGroupOutlineStyle::kDashed:
+            return L"dashed";
+        case TabGroupOutlineStyle::kDotted:
+            return L"dotted";
+        case TabGroupOutlineStyle::kSolid:
+        default:
+            return L"solid";
+    }
+}
+
 }  // namespace
 
 GroupStore& GroupStore::Instance() {
@@ -209,6 +251,9 @@ bool GroupStore::Load() {
             SavedGroup group;
             group.name = tokens[1];
             group.color = ParseColor(tokens[2], RGB(0, 120, 215));
+            if (version >= 2 && tokens.size() >= 4) {
+                group.outlineStyle = ParseOutlineStyle(tokens[3], TabGroupOutlineStyle::kSolid);
+            }
             m_groups.emplace_back(std::move(group));
             currentGroup = &m_groups.back();
             continue;
@@ -250,10 +295,11 @@ bool GroupStore::Save() const {
 
     std::wstring content;
     content += kVersionToken;
-    content += L"|1\n";
+    content += L"|2\n";
     for (const auto& group : m_groups) {
         content += kGroupToken;
-        content += L"|" + group.name + L"|" + ColorToString(group.color) + L"\n";
+        content += L"|" + group.name + L"|" + ColorToString(group.color) + L"|" +
+                   OutlineStyleToString(group.outlineStyle) + L"\n";
         for (const auto& pathEntry : group.tabPaths) {
             content += kTabToken;
             content += L"|" + pathEntry + L"\n";
@@ -283,6 +329,7 @@ bool GroupStore::Upsert(SavedGroup group) {
             existing.name = group.name;
             existing.color = group.color;
             existing.tabPaths = std::move(group.tabPaths);
+            existing.outlineStyle = group.outlineStyle;
             return Save();
         }
     }

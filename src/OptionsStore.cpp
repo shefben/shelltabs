@@ -35,6 +35,7 @@ constexpr wchar_t kExplorerListViewAccentToken[] = L"explorer_list_view_accent";
 constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enabled";
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
+constexpr wchar_t kTabDockingToken[] = L"tab_docking";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -107,6 +108,42 @@ std::wstring ResolveDirectory() {
 
 bool ParseBool(const std::wstring& token) {
     return token == L"1" || token == L"true" || token == L"TRUE" || token == L"yes" || token == L"on";
+}
+
+TabBandDockMode ParseDockMode(const std::wstring& token) {
+    if (token.empty()) {
+        return TabBandDockMode::kAutomatic;
+    }
+
+    if (_wcsicmp(token.c_str(), L"top") == 0) {
+        return TabBandDockMode::kTop;
+    }
+    if (_wcsicmp(token.c_str(), L"bottom") == 0) {
+        return TabBandDockMode::kBottom;
+    }
+    if (_wcsicmp(token.c_str(), L"left") == 0) {
+        return TabBandDockMode::kLeft;
+    }
+    if (_wcsicmp(token.c_str(), L"right") == 0) {
+        return TabBandDockMode::kRight;
+    }
+
+    return TabBandDockMode::kAutomatic;
+}
+
+std::wstring DockModeToString(TabBandDockMode mode) {
+    switch (mode) {
+        case TabBandDockMode::kTop:
+            return L"top";
+        case TabBandDockMode::kBottom:
+            return L"bottom";
+        case TabBandDockMode::kLeft:
+            return L"left";
+        case TabBandDockMode::kRight:
+            return L"right";
+        default:
+            return L"auto";
+    }
 }
 
 int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fallback) {
@@ -450,6 +487,13 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kTabDockingToken) {
+            if (tokens.size() >= 2) {
+                m_options.tabDockMode = ParseDockMode(tokens[1]);
+            }
+            continue;
+        }
     }
 
     return true;
@@ -575,6 +619,11 @@ bool OptionsStore::Save() const {
         content += L"\n";
     }
 
+    content += kTabDockingToken;
+    content += L"|";
+    content += DockModeToString(m_options.tabDockMode);
+    content += L"\n";
+
     const std::string utf8 = WideToUtf8(content);
 
     HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
@@ -619,7 +668,8 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useExplorerListViewAccentColors == right.useExplorerListViewAccentColors &&
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
-           left.folderBackgroundEntries == right.folderBackgroundEntries;
+           left.folderBackgroundEntries == right.folderBackgroundEntries &&
+           left.tabDockMode == right.tabDockMode;
 }
 
 }  // namespace shelltabs

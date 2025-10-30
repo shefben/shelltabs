@@ -12,6 +12,7 @@ struct OpenFolderMessagePayload {
 };
 
 UINT GetOptionsChangedMessage();
+UINT GetProgressUpdateMessage();
 
 }  // namespace shelltabs
 

@@ -34,6 +34,7 @@
 #include "Module.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
+#include "TabBandWindow.h"
 #include "Utilities.h"
 
 namespace shelltabs {
@@ -82,13 +83,16 @@ enum ControlIds : int {
     IDC_MAIN_TAB_UNSELECTED_PREVIEW = 5030,
     IDC_MAIN_TAB_UNSELECTED_BUTTON = 5031,
     IDC_MAIN_LISTVIEW_ACCENTS = 5032,
-    IDC_MAIN_PROGRESS_CUSTOM = 5033,
-    IDC_MAIN_PROGRESS_START_LABEL = 5034,
-    IDC_MAIN_PROGRESS_START_PREVIEW = 5035,
-    IDC_MAIN_PROGRESS_START_BUTTON = 5036,
-    IDC_MAIN_PROGRESS_END_LABEL = 5037,
-    IDC_MAIN_PROGRESS_END_PREVIEW = 5038,
-    IDC_MAIN_PROGRESS_END_BUTTON = 5039,
+    IDC_MAIN_PROGRESS_CUSTOM = 5032,
+    IDC_MAIN_PROGRESS_START_LABEL = 5033,
+    IDC_MAIN_PROGRESS_START_PREVIEW = 5034,
+    IDC_MAIN_PROGRESS_START_BUTTON = 5035,
+    IDC_MAIN_PROGRESS_END_LABEL = 5036,
+    IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
+    IDC_MAIN_PROGRESS_END_BUTTON = 5038,
+    IDC_MAIN_DOCK_LABEL = 5039,
+    IDC_MAIN_DOCK_COMBO = 5040,
+
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
     IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
@@ -113,6 +117,8 @@ enum ControlIds : int {
     IDC_EDITOR_REMOVE_PATH = 5205,
     IDC_EDITOR_COLOR_PREVIEW = 5206,
     IDC_EDITOR_COLOR_BUTTON = 5207,
+    IDC_EDITOR_STYLE_LABEL = 5208,
+    IDC_EDITOR_STYLE_COMBO = 5209,
 };
 
 void AlignDialogBuffer(std::vector<BYTE>& buffer) {
@@ -184,12 +190,22 @@ void ForceExplorerUIRefresh(HWND parentWindow) {
     RedrawWindow(parentWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE);
 }
 
+void ApplyCustomizationPreview(HWND pageWindow, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+
+    OptionsStore::Instance().Set(data->workingOptions);
+    data->previewOptionsBroadcasted = true;
+    ForceExplorerUIRefresh(GetParent(pageWindow));
+}
+
 std::vector<BYTE> BuildMainPageTemplate() {
     std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 3;
+    dlg->cdit = 5;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -246,6 +262,38 @@ std::vector<BYTE> BuildMainPageTemplate() {
     exampleStatic->id = static_cast<WORD>(IDC_MAIN_EXAMPLE);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* dockLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    dockLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    dockLabel->dwExtendedStyle = 0;
+    dockLabel->x = 10;
+    dockLabel->y = 122;
+    dockLabel->cx = kMainDialogWidth - 20;
+    dockLabel->cy = 12;
+    dockLabel->id = static_cast<WORD>(IDC_MAIN_DOCK_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Tab bar docking location:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* dockCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    dockCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+    dockCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    dockCombo->x = 10;
+    dockCombo->y = 136;
+    dockCombo->cx = kMainDialogWidth - 20;
+    dockCombo->cy = 70;
+    dockCombo->id = static_cast<WORD>(IDC_MAIN_DOCK_COMBO);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0085);
     AppendString(data, L"");
     AppendWord(data, 0);
 
@@ -609,7 +657,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU;
     dlg->dwExtendedStyle = 0;
-    dlg->cdit = 9;
+    dlg->cdit = 14;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kEditorWidth;
@@ -704,11 +752,43 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* styleLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    styleLabel->style = WS_CHILD | WS_VISIBLE;
+    styleLabel->dwExtendedStyle = 0;
+    styleLabel->x = 10;
+    styleLabel->y = 62;
+    styleLabel->cx = 60;
+    styleLabel->cy = 10;
+    styleLabel->id = static_cast<WORD>(IDC_EDITOR_STYLE_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Style:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* styleCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    styleCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+    styleCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    styleCombo->x = 55;
+    styleCombo->y = 74;
+    styleCombo->cx = 127;
+    styleCombo->cy = 110;
+    styleCombo->id = static_cast<WORD>(IDC_EDITOR_STYLE_COMBO);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0085);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* pathsLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     pathsLabel->style = WS_CHILD | WS_VISIBLE;
     pathsLabel->dwExtendedStyle = 0;
     pathsLabel->x = 10;
-    pathsLabel->y = 64;
+    pathsLabel->y = 96;
     pathsLabel->cx = 60;
     pathsLabel->cy = 10;
     pathsLabel->id = 0;
@@ -725,7 +805,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
                       LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL;
     pathList->dwExtendedStyle = WS_EX_CLIENTEDGE;
     pathList->x = 10;
-    pathList->y = 76;
+    pathList->y = 108;
     pathList->cx = 220;
     pathList->cy = 96;
     pathList->id = static_cast<WORD>(IDC_EDITOR_PATH_LIST);
@@ -741,7 +821,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     addButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     addButton->dwExtendedStyle = 0;
     addButton->x = 240;
-    addButton->y = 76;
+    addButton->y = 108;
     addButton->cx = 80;
     addButton->cy = 14;
     addButton->id = static_cast<WORD>(IDC_EDITOR_ADD_PATH);
@@ -757,7 +837,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     editButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     editButton->dwExtendedStyle = 0;
     editButton->x = 240;
-    editButton->y = 96;
+    editButton->y = 128;
     editButton->cx = 80;
     editButton->cy = 14;
     editButton->id = static_cast<WORD>(IDC_EDITOR_EDIT_PATH);
@@ -773,7 +853,7 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     removeButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     removeButton->dwExtendedStyle = 0;
     removeButton->x = 240;
-    removeButton->y = 116;
+    removeButton->y = 148;
     removeButton->cx = 80;
     removeButton->cy = 14;
     removeButton->id = static_cast<WORD>(IDC_EDITOR_REMOVE_PATH);
@@ -828,6 +908,7 @@ struct OptionsDialogData {
     ShellTabsOptions workingOptions;
     bool applyInvoked = false;
     bool groupsChanged = false;
+    bool previewOptionsBroadcasted = false;
     int initialTab = 0;
     std::vector<SavedGroup> originalGroups;
     std::vector<SavedGroup> workingGroups;
@@ -1421,6 +1502,43 @@ struct GroupEditorContext {
     const std::vector<SavedGroup>* existingGroups = nullptr;
 };
 
+struct OutlineStyleOption {
+    TabGroupOutlineStyle style;
+    const wchar_t* label;
+};
+
+constexpr OutlineStyleOption kOutlineStyleOptions[] = {
+    {TabGroupOutlineStyle::kSolid, L"Solid"},
+    {TabGroupOutlineStyle::kDashed, L"Dashed"},
+    {TabGroupOutlineStyle::kDotted, L"Dotted"},
+};
+
+int OutlineStyleIndexForStyle(TabGroupOutlineStyle style) {
+    for (size_t i = 0; i < ARRAYSIZE(kOutlineStyleOptions); ++i) {
+        if (kOutlineStyleOptions[i].style == style) {
+            return static_cast<int>(i);
+        }
+    }
+    return 0;
+}
+
+TabGroupOutlineStyle OutlineStyleFromIndex(LRESULT index) {
+    if (index < 0 || index >= static_cast<LRESULT>(ARRAYSIZE(kOutlineStyleOptions))) {
+        return TabGroupOutlineStyle::kSolid;
+    }
+    return kOutlineStyleOptions[static_cast<size_t>(index)].style;
+}
+
+void PopulateOutlineStyleCombo(HWND combo) {
+    if (!combo) {
+        return;
+    }
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    for (const auto& option : kOutlineStyleOptions) {
+        SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(option.label));
+    }
+}
+
 void UpdateListBoxHorizontalExtent(HWND hwndList) {
     if (!hwndList) {
         return;
@@ -1694,6 +1812,9 @@ bool AreSavedGroupsEqual(const std::vector<SavedGroup>& left, const std::vector<
         if (lhs.color != rhs.color) {
             return false;
         }
+        if (lhs.outlineStyle != rhs.outlineStyle) {
+            return false;
+        }
         if (lhs.tabPaths.size() != rhs.tabPaths.size()) {
             return false;
         }
@@ -1752,6 +1873,12 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                 }
                 if (!context->colorBrush) {
                     context->colorBrush = CreateSolidBrush(context->working.color);
+                }
+                HWND styleCombo = GetDlgItem(hwnd, IDC_EDITOR_STYLE_COMBO);
+                PopulateOutlineStyleCombo(styleCombo);
+                if (styleCombo) {
+                    const int index = OutlineStyleIndexForStyle(context->working.outlineStyle);
+                    SendMessageW(styleCombo, CB_SETCURSEL, index, 0);
                 }
                 RefreshPathList(hwnd, *context);
             }
@@ -1827,6 +1954,16 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                     }
                     return TRUE;
                 }
+                case IDC_EDITOR_STYLE_COMBO: {
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        HWND combo = reinterpret_cast<HWND>(lParam);
+                        if (combo) {
+                            const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+                            context->working.outlineStyle = OutlineStyleFromIndex(selection);
+                        }
+                    }
+                    return TRUE;
+                }
                 case IDOK: {
                     wchar_t nameBuffer[256];
                     GetDlgItemTextW(hwnd, IDC_EDITOR_NAME, nameBuffer, ARRAYSIZE(nameBuffer));
@@ -1841,6 +1978,11 @@ INT_PTR CALLBACK GroupEditorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                         return TRUE;
                     }
                     context->working.name = std::move(name);
+                    HWND combo = GetDlgItem(hwnd, IDC_EDITOR_STYLE_COMBO);
+                    if (combo) {
+                        const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+                        context->working.outlineStyle = OutlineStyleFromIndex(selection);
+                    }
                     if (context->working.tabPaths.empty()) {
                         context->working.tabPaths.emplace_back(L"C:\\");
                     }
@@ -2004,6 +2146,46 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                     L"Example: if a group opens to C:\\test and you browse to C\\test\\child, "
                     L"enabling this option reopens the child folder next time.";
                 SetDlgItemTextW(hwnd, IDC_MAIN_EXAMPLE, example);
+
+                HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
+                if (combo) {
+                    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+                    const uint32_t mask = TabBandWindow::GetAvailableDockMask();
+                    struct DockEntry {
+                        TabBandDockMode mode;
+                        const wchar_t* label;
+                        uint32_t requiredMask;
+                    } entries[] = {
+                        {TabBandDockMode::kAutomatic, L"Let Explorer decide", 0},
+                        {TabBandDockMode::kTop, L"Top toolbar", 1u << static_cast<uint32_t>(TabBandDockMode::kTop)},
+                        {TabBandDockMode::kBottom, L"Bottom toolbar", 1u << static_cast<uint32_t>(TabBandDockMode::kBottom)},
+                        {TabBandDockMode::kLeft, L"Left vertical band", 1u << static_cast<uint32_t>(TabBandDockMode::kLeft)},
+                        {TabBandDockMode::kRight, L"Right vertical band", 1u << static_cast<uint32_t>(TabBandDockMode::kRight)},
+                    };
+
+                    int selectionIndex = -1;
+                    for (const auto& entry : entries) {
+                        if (entry.mode != TabBandDockMode::kAutomatic && entry.requiredMask != 0 &&
+                            (mask & entry.requiredMask) == 0) {
+                            continue;
+                        }
+
+                        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
+                                                                         reinterpret_cast<LPARAM>(entry.label)));
+                        if (index >= 0) {
+                            SendMessageW(combo, CB_SETITEMDATA, index,
+                                         static_cast<LPARAM>(entry.mode));
+                            if (data->workingOptions.tabDockMode == entry.mode && selectionIndex < 0) {
+                                selectionIndex = index;
+                            }
+                        }
+                    }
+
+                    if (selectionIndex < 0) {
+                        selectionIndex = 0;
+                    }
+                    SendMessageW(combo, CB_SETCURSEL, selectionIndex, 0);
+                }
             }
             return TRUE;
         }
@@ -2022,6 +2204,11 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
+                case IDC_MAIN_DOCK_COMBO:
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
                 default:
                     break;
             }
@@ -2035,6 +2222,17 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
                     data->workingOptions.persistGroupPaths =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
+                    HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
+                    if (combo) {
+                        const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+                        if (selection >= 0) {
+                            const LRESULT value = SendMessageW(combo, CB_GETITEMDATA, selection, 0);
+                            if (value != CB_ERR) {
+                                data->workingOptions.tabDockMode =
+                                    static_cast<TabBandDockMode>(value);
+                            }
+                        }
+                    }
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
@@ -2326,6 +2524,25 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     (controlId == IDC_MAIN_BREADCRUMB_FONT_SLIDER) ? InvertPercentageValue(sliderValue)
                                                                    : sliderValue;
                 UpdatePercentageLabel(hwnd, labelId, displayValue);
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                bool previewNeeded = false;
+                if (data) {
+                    if (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER) {
+                        if (data->workingOptions.breadcrumbGradientTransparency != sliderValue) {
+                            data->workingOptions.breadcrumbGradientTransparency = sliderValue;
+                            previewNeeded = true;
+                        }
+                    } else {
+                        const int brightnessValue = InvertPercentageValue(sliderValue);
+                        if (data->workingOptions.breadcrumbFontBrightness != brightnessValue) {
+                            data->workingOptions.breadcrumbFontBrightness = brightnessValue;
+                            previewNeeded = true;
+                        }
+                    }
+                }
+                if (previewNeeded) {
+                    ApplyCustomizationPreview(hwnd, data);
+                }
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
             }
             return TRUE;
@@ -2607,6 +2824,10 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
         result.saved = false;
         result.groupsChanged = false;
         result.optionsChanged = false;
+        if (data.previewOptionsBroadcasted) {
+            store.Set(data.originalOptions);
+            ForceExplorerUIRefresh(parent);
+        }
         for (const auto& path : data.createdCachedImagePaths) {
             if (!path.empty()) {
                 DeleteFileW(path.c_str());

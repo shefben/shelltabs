@@ -67,6 +67,20 @@ UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source) {
     return UniquePidl(ILCloneFull(source));
 }
 
+UniquePidl CloneParent(PCIDLIST_ABSOLUTE source) {
+    if (!source) {
+        return nullptr;
+    }
+    UniquePidl clone = ClonePidl(source);
+    if (!clone) {
+        return nullptr;
+    }
+    if (!ILRemoveLastID(reinterpret_cast<PIDLIST_RELATIVE>(clone.get()))) {
+        return nullptr;
+    }
+    return clone;
+}
+
 bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right) {
     if (left == nullptr && right == nullptr) {
         return true;

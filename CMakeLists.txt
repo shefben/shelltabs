@@ -20,6 +20,7 @@ add_library(ShellTabs SHARED
     src/TabBand.cpp
     src/TabBandWindow.cpp
     src/TabManager.cpp
+    src/PreviewCache.cpp
     src/OpenFolderCommand.cpp
     src/BrowserEvents.cpp
     src/BackgroundCache.cpp

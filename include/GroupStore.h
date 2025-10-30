@@ -5,12 +5,15 @@
 #include <string>
 #include <vector>
 
+#include "TabManager.h"
+
 namespace shelltabs {
 
 struct SavedGroup {
     std::wstring name;
     COLORREF color = RGB(0, 120, 215);
     std::vector<std::wstring> tabPaths;
+    TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
 };
 
 class GroupStore {

@@ -122,6 +122,7 @@ public:
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(int initialTab = 0);
     void OnDeferredNavigate();
+    void OnDockingModeChanged(TabBandDockMode mode);
 
 private:
     std::atomic<long> m_refCount;
@@ -149,6 +150,8 @@ private:
     int m_allowExternalNewWindows = 0;
     TabLocation m_pendingNavigation;
     bool m_deferredNavigationPosted = false;
+    TabBandDockMode m_dockMode = TabBandDockMode::kAutomatic;
+    TabBandDockMode m_requestedDockMode = TabBandDockMode::kAutomatic;
 
     void EnsureWindow();
     void EnsureOptionsLoaded() const;

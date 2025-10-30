@@ -1117,6 +1117,20 @@ void TabBand::EnsureWindow() {
     auto window = std::make_unique<TabBandWindow>(this);
     if (window->Create(parent)) {
         m_window = std::move(window);
+        EnsureOptionsLoaded();
+        TabBandDockMode preferred = m_requestedDockMode;
+        if (preferred == TabBandDockMode::kAutomatic) {
+            preferred = m_options.tabDockMode;
+        }
+        if (preferred == TabBandDockMode::kAutomatic) {
+            preferred = TabBandDockMode::kTop;
+        }
+        if (m_requestedDockMode == TabBandDockMode::kAutomatic) {
+            m_requestedDockMode = preferred;
+        }
+        if (m_window) {
+            m_window->SetPreferredDockMode(preferred);
+        }
         LogMessage(LogLevel::Info, L"TabBand::EnsureWindow created window hwnd=%p",
                    m_window ? m_window->GetHwnd() : nullptr);
     } else {
@@ -1173,6 +1187,9 @@ void TabBand::InitializeTabs() {
     GroupStore::Instance().Load();
     EnsureSessionStore();
     EnsureOptionsLoaded();
+    if (m_requestedDockMode == TabBandDockMode::kAutomatic) {
+        m_requestedDockMode = m_options.tabDockMode;
+    }
     m_lastSessionUnclean = SessionStore::WasPreviousSessionUnclean();
     SessionStore::MarkSessionActive();
     m_sessionMarkerActive = true;
@@ -1280,6 +1297,16 @@ bool TabBand::RestoreSession() {
     LogMessage(LogLevel::Info, L"TabBand::RestoreSession loaded %llu groups",
                static_cast<unsigned long long>(data.groups.size()));
 
+    m_dockMode = data.dockMode;
+    if (m_dockMode == TabBandDockMode::kAutomatic) {
+        EnsureOptionsLoaded();
+        m_dockMode = m_options.tabDockMode;
+    }
+    m_requestedDockMode = m_dockMode;
+    if (m_window && m_requestedDockMode != TabBandDockMode::kAutomatic) {
+        m_window->SetPreferredDockMode(m_requestedDockMode);
+    }
+
     std::vector<TabGroup> groups;
     groups.reserve(data.groups.size());
     for (const auto& groupData : data.groups) {
@@ -1289,6 +1316,7 @@ bool TabBand::RestoreSession() {
         group.headerVisible = groupData.headerVisible;
         group.hasCustomOutline = groupData.hasOutline;
         group.outlineColor = groupData.outlineColor;
+        group.outlineStyle = groupData.outlineStyle;
         group.savedGroupId = groupData.savedGroupId;
         for (const auto& tabData : groupData.tabs) {
             UniquePidl pidl = ParseDisplayName(tabData.path);
@@ -1334,11 +1362,17 @@ void TabBand::SaveSession() {
         return;
     }
 
+    EnsureOptionsLoaded();
+
     SessionData data;
     const TabLocation selected = m_tabs.SelectedLocation();
     data.selectedGroup = selected.groupIndex;
     data.selectedTab = selected.tabIndex;
     data.groupSequence = m_tabs.NextGroupSequence();
+    data.dockMode = m_dockMode != TabBandDockMode::kAutomatic ? m_dockMode : m_requestedDockMode;
+    if (data.dockMode == TabBandDockMode::kAutomatic) {
+        data.dockMode = m_options.tabDockMode;
+    }
 
     const int groupCount = m_tabs.GroupCount();
     for (int i = 0; i < groupCount; ++i) {
@@ -1353,6 +1387,7 @@ void TabBand::SaveSession() {
         storedGroup.headerVisible = group->headerVisible;
         storedGroup.hasOutline = group->hasCustomOutline;
         storedGroup.outlineColor = group->outlineColor;
+        storedGroup.outlineStyle = group->outlineStyle;
         storedGroup.savedGroupId = group->savedGroupId;
 
         for (const auto& tab : group->tabs) {
@@ -1383,6 +1418,20 @@ void TabBand::SaveSession() {
 }
 
 void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
+    if (previousOptions.tabDockMode != m_options.tabDockMode) {
+        if (m_requestedDockMode == previousOptions.tabDockMode ||
+            m_requestedDockMode == TabBandDockMode::kAutomatic) {
+            m_requestedDockMode = m_options.tabDockMode;
+            TabBandDockMode preferred = m_requestedDockMode;
+            if (preferred == TabBandDockMode::kAutomatic) {
+                preferred = TabBandDockMode::kTop;
+            }
+            if (m_window) {
+                m_window->SetPreferredDockMode(preferred);
+            }
+        }
+    }
+
     if (!previousOptions.persistGroupPaths && m_options.persistGroupPaths) {
         SyncAllSavedGroups();
     }
@@ -1761,6 +1810,7 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
     SavedGroup saved;
     saved.name = name;
     saved.color = color;
+    saved.outlineStyle = TabGroupOutlineStyle::kSolid;
     store.Upsert(saved);
 
     const int groupIndex = m_tabs.CreateGroupAfter(afterGroup, name, true);
@@ -1768,6 +1818,7 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
         group->savedGroupId = name;
         group->hasCustomOutline = true;
         group->outlineColor = color;
+        group->outlineStyle = TabGroupOutlineStyle::kSolid;
         group->headerVisible = true;
         group->collapsed = false;
     }
@@ -1791,6 +1842,7 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     group->savedGroupId = saved->name;
     group->hasCustomOutline = true;
     group->outlineColor = saved->color;
+    group->outlineStyle = saved->outlineStyle;
     group->headerVisible = true;
     group->collapsed = false;
 
@@ -1877,6 +1929,18 @@ void TabBand::OnDeferredNavigate() {
     }
 }
 
+void TabBand::OnDockingModeChanged(TabBandDockMode mode) {
+    if (mode == TabBandDockMode::kAutomatic) {
+        return;
+    }
+    if (mode == m_dockMode) {
+        return;
+    }
+    m_dockMode = mode;
+    m_requestedDockMode = mode;
+    SaveSession();
+}
+
 void TabBand::QueueNavigateTo(TabLocation location) {
     if (!location.IsValid() || !m_window) {
         return;
@@ -1915,6 +1979,7 @@ void TabBand::SyncSavedGroup(int groupIndex) const {
         saved.name = group->savedGroupId;
         saved.color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
         saved.tabPaths = std::move(paths);
+        saved.outlineStyle = group->outlineStyle;
         GroupStore::Instance().Upsert(std::move(saved));
     }
 }
