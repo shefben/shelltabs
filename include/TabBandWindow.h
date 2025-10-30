@@ -48,7 +48,6 @@ public:
     void Show(bool show);
     void SetTabs(const std::vector<TabViewItem>& items);
     const std::vector<TabViewItem>& GetTabData() const noexcept { return m_tabData; }
-    HICON GetTaskbarIcon(const TabViewItem& item, bool smallIcon) const;
     bool HasFocus() const;
     void FocusTab();
     void RefreshTheme();
