@@ -22,6 +22,13 @@
 #include <utility>
 #include <vector>
 #include <cstring>
+#include <shobjidl.h>
+#include <shlobj.h>
+#include <KnownFolders.h>
+#include <shlwapi.h>
+#include <commdlg.h>
+#include <wrl/client.h>
+#include <objbase.h>
 
 #include "GroupStore.h"
 #include "Module.h"
@@ -39,6 +46,8 @@ constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
 constexpr int kEditorHeight = 220;
+constexpr SIZE kUniversalPreviewSize = {96, 72};
+constexpr SIZE kFolderPreviewSize = {64, 64};
 
 enum ControlIds : int {
     IDC_MAIN_REOPEN = 5001,
@@ -79,6 +88,17 @@ enum ControlIds : int {
     IDC_MAIN_PROGRESS_END_LABEL = 5036,
     IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
     IDC_MAIN_PROGRESS_END_BUTTON = 5038,
+
+    IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
+    IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
+    IDC_CUSTOM_BACKGROUND_PREVIEW = 5303,
+    IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME = 5304,
+    IDC_CUSTOM_BACKGROUND_LIST = 5305,
+    IDC_CUSTOM_BACKGROUND_ADD = 5306,
+    IDC_CUSTOM_BACKGROUND_EDIT = 5307,
+    IDC_CUSTOM_BACKGROUND_REMOVE = 5308,
+    IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW = 5309,
+    IDC_CUSTOM_BACKGROUND_FOLDER_NAME = 5310,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -234,9 +254,10 @@ std::vector<BYTE> BuildMainPageTemplate() {
 std::vector<BYTE> BuildCustomizationPageTemplate() {
     std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
-    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->style =
+        DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VSCROLL;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 36;
+    dlg->cdit = 50;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -337,6 +358,24 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
         AppendWord(data, 0);
     };
 
+    auto addSizedButton = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0080);
+        AppendString(data, text);
+        AppendWord(data, 0);
+    };
+
     auto addSlider = [&](int controlId, int x, int y) {
         AlignDialogBuffer(data);
         size_t innerOffset = data.size();
@@ -406,6 +445,72 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 384, L"Use custom unselected tab color");
     addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 402);
     addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 401, L"Choose");
+
+    auto addSizedPreview = [&](int controlId, int x, int y, int cx, int cy) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN | SS_BITMAP | SS_CENTERIMAGE;
+        item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0082);
+        AppendString(data, L"");
+        AppendWord(data, 0);
+    };
+
+    auto addListView = [&](int controlId, int x, int y, int cx, int cy) {
+        AlignDialogBuffer(data);
+        size_t innerOffset = data.size();
+        data.resize(innerOffset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + innerOffset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LVS_REPORT | LVS_SINGLESEL |
+                      LVS_SHOWSELALWAYS;
+        item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendString(data, WC_LISTVIEWW);
+        AppendWord(data, 0);
+        AppendWord(data, 0);
+    };
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* backgroundsGroup = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    backgroundsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
+    backgroundsGroup->dwExtendedStyle = 0;
+    backgroundsGroup->x = 6;
+    backgroundsGroup->y = 430;
+    backgroundsGroup->cx = kMainDialogWidth - 12;
+    backgroundsGroup->cy = 310;
+    backgroundsGroup->id = 0;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Folder Backgrounds");
+    AppendWord(data, 0);
+
+    addCheckbox(IDC_CUSTOM_BACKGROUND_ENABLE, 16, 446, L"Enable custom folder backgrounds");
+    addStatic(0, 24, 466, kMainDialogWidth - 32, 10, L"Universal background image:");
+    addSizedPreview(IDC_CUSTOM_BACKGROUND_PREVIEW, 24, 482, kUniversalPreviewSize.cx, kUniversalPreviewSize.cy);
+    addSizedButton(IDC_CUSTOM_BACKGROUND_BROWSE, 130, 482, 90, 16, L"Browse...");
+    addStatic(IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, 130, 558, kMainDialogWidth - 146, 12, L"", SS_LEFT);
+    addStatic(0, 24, 566, kMainDialogWidth - 32, 10, L"Folder overrides:");
+    addListView(IDC_CUSTOM_BACKGROUND_LIST, 24, 580, 140, 96);
+    addStatic(0, 176, 580, 64, 10, L"Preview:");
+    addSizedPreview(IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, 176, 594, kFolderPreviewSize.cx, kFolderPreviewSize.cy);
+    addStatic(IDC_CUSTOM_BACKGROUND_FOLDER_NAME, 176, 662, kMainDialogWidth - 200, 12, L"", SS_LEFT);
+    addSizedButton(IDC_CUSTOM_BACKGROUND_ADD, 24, 684, 60, 16, L"Add");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_EDIT, 92, 684, 60, 16, L"Edit");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_REMOVE, 160, 684, 60, 16, L"Remove");
 
     AlignDialogBuffer(data);
     return data;
@@ -711,6 +816,11 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     return data;
 }
 
+struct ChildPlacement {
+    HWND hwnd = nullptr;
+    RECT rect{};
+};
+
 struct OptionsDialogData {
     ShellTabsOptions originalOptions;
     ShellTabsOptions workingOptions;
@@ -727,7 +837,685 @@ struct OptionsDialogData {
     HBRUSH progressEndBrush = nullptr;
     HBRUSH tabSelectedBrush = nullptr;
     HBRUSH tabUnselectedBrush = nullptr;
+    HBITMAP universalBackgroundPreview = nullptr;
+    HBITMAP folderBackgroundPreview = nullptr;
+    std::wstring lastFolderBrowsePath;
+    std::wstring lastImageBrowseDirectory;
+    std::vector<std::wstring> createdCachedImagePaths;
+    std::vector<std::wstring> pendingCachedImageRemovals;
+    std::vector<ChildPlacement> customizationChildPlacements;
+    int customizationScrollPos = 0;
+    int customizationContentHeight = 0;
+    int customizationScrollMax = 0;
 };
+
+bool EqualsInsensitive(const std::wstring& left, const std::wstring& right) {
+    return _wcsicmp(left.c_str(), right.c_str()) == 0;
+}
+
+std::wstring EnsureOptionsStorageDirectory() {
+    PWSTR knownFolder = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
+        return {};
+    }
+
+    std::wstring directory(knownFolder);
+    CoTaskMemFree(knownFolder);
+    if (directory.empty()) {
+        return {};
+    }
+    if (directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    directory += L"ShellTabs";
+    CreateDirectoryW(directory.c_str(), nullptr);
+    return directory;
+}
+
+std::wstring EnsureImageCacheDirectory() {
+    std::wstring baseDirectory = EnsureOptionsStorageDirectory();
+    if (baseDirectory.empty()) {
+        return {};
+    }
+    if (baseDirectory.back() != L'\\') {
+        baseDirectory.push_back(L'\\');
+    }
+    baseDirectory += L"Images";
+    CreateDirectoryW(baseDirectory.c_str(), nullptr);
+    return baseDirectory;
+}
+
+bool PathHasPrefixInsensitive(const std::wstring& path, const std::wstring& directory) {
+    if (path.empty() || directory.empty()) {
+        return false;
+    }
+    if (path.size() < directory.size()) {
+        return false;
+    }
+    if (_wcsnicmp(path.c_str(), directory.c_str(), directory.size()) != 0) {
+        return false;
+    }
+    if (path.size() == directory.size()) {
+        return true;
+    }
+    const wchar_t separator = path[directory.size()];
+    return separator == L'\\';
+}
+
+std::wstring ExtractDirectoryFromPath(const std::wstring& path) {
+    if (path.empty()) {
+        return {};
+    }
+    size_t separator = path.find_last_of(L"\\/");
+    if (separator == std::wstring::npos) {
+        return {};
+    }
+    return path.substr(0, separator);
+}
+
+bool CopyImageToCache(const std::wstring& sourcePath, const std::wstring& displayName, CachedImageMetadata* metadata,
+                      std::wstring* createdPath) {
+    if (!metadata) {
+        return false;
+    }
+    if (createdPath) {
+        createdPath->clear();
+    }
+
+    std::wstring normalizedSource = NormalizeFileSystemPath(sourcePath);
+    if (normalizedSource.empty()) {
+        return false;
+    }
+
+    std::wstring cacheDirectory = EnsureImageCacheDirectory();
+    if (cacheDirectory.empty()) {
+        return false;
+    }
+
+    std::wstring targetPath = normalizedSource;
+    if (!PathHasPrefixInsensitive(normalizedSource, cacheDirectory)) {
+        GUID guid{};
+        if (FAILED(CoCreateGuid(&guid))) {
+            return false;
+        }
+        wchar_t guidBuffer[64];
+        if (StringFromGUID2(guid, guidBuffer, ARRAYSIZE(guidBuffer)) <= 0) {
+            return false;
+        }
+        std::wstring fileName(guidBuffer);
+        fileName.erase(std::remove(fileName.begin(), fileName.end(), L'{'), fileName.end());
+        fileName.erase(std::remove(fileName.begin(), fileName.end(), L'}'), fileName.end());
+        fileName.erase(std::remove(fileName.begin(), fileName.end(), L'-'), fileName.end());
+        const wchar_t* extension = PathFindExtensionW(normalizedSource.c_str());
+        std::wstring ext = (extension && *extension) ? extension : L".img";
+        if (cacheDirectory.back() != L'\\') {
+            cacheDirectory.push_back(L'\\');
+        }
+        targetPath = cacheDirectory + fileName + ext;
+        if (!CopyFileW(normalizedSource.c_str(), targetPath.c_str(), FALSE)) {
+            return false;
+        }
+        if (createdPath) {
+            *createdPath = targetPath;
+        }
+    }
+
+    std::wstring normalizedTarget = NormalizeFileSystemPath(targetPath);
+    if (!normalizedTarget.empty()) {
+        targetPath = normalizedTarget;
+    }
+
+    metadata->cachedImagePath = targetPath;
+    if (!displayName.empty()) {
+        metadata->displayName = displayName;
+    } else {
+        const wchar_t* fileName = PathFindFileNameW(normalizedSource.c_str());
+        metadata->displayName = fileName ? fileName : normalizedSource;
+    }
+    return true;
+}
+
+bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* displayName, const std::wstring& initialDirectory) {
+    if (!path) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IFileDialog> dialog;
+    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))) && dialog) {
+        DWORD options = 0;
+        if (SUCCEEDED(dialog->GetOptions(&options))) {
+            dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+        }
+        COMDLG_FILTERSPEC filters[] = {
+            {L"Image Files", L"*.png;*.jpg;*.jpeg;*.jfif;*.bmp;*.dib;*.gif"},
+            {L"All Files", L"*.*"},
+        };
+        dialog->SetFileTypes(static_cast<UINT>(ARRAYSIZE(filters)), filters);
+        dialog->SetFileTypeIndex(1);
+
+        std::wstring initial = !initialDirectory.empty() ? initialDirectory : ExtractDirectoryFromPath(*path);
+        if (!initial.empty()) {
+            Microsoft::WRL::ComPtr<IShellItem> folder;
+            if (SUCCEEDED(SHCreateItemFromParsingName(initial.c_str(), nullptr, IID_PPV_ARGS(&folder))) && folder) {
+                dialog->SetFolder(folder.Get());
+            }
+        }
+
+        if (SUCCEEDED(dialog->Show(parent))) {
+            Microsoft::WRL::ComPtr<IShellItem> result;
+            if (SUCCEEDED(dialog->GetResult(&result)) && result) {
+                std::wstring filePath;
+                if (TryGetFileSystemPath(result.Get(), &filePath)) {
+                    *path = NormalizeFileSystemPath(filePath);
+                    if (displayName) {
+                        PWSTR buffer = nullptr;
+                        if (SUCCEEDED(result->GetDisplayName(SIGDN_NORMALDISPLAY, &buffer)) && buffer) {
+                            *displayName = buffer;
+                            CoTaskMemFree(buffer);
+                        } else {
+                            const wchar_t* nameOnly = PathFindFileNameW(path->c_str());
+                            *displayName = nameOnly ? nameOnly : *path;
+                        }
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    wchar_t buffer[MAX_PATH] = {};
+    if (!path->empty() && path->size() < ARRAYSIZE(buffer)) {
+        wcsncpy_s(buffer, *path, _TRUNCATE);
+    }
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = parent;
+    ofn.lpstrFilter =
+        L"Image Files (*.png;*.jpg;*.jpeg;*.jfif;*.bmp;*.dib;*.gif)\0*.png;*.jpg;*.jpeg;*.jfif;*.bmp;*.dib;*.gif\0"
+        L"All Files\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFile = buffer;
+    ofn.nMaxFile = ARRAYSIZE(buffer);
+    std::wstring initial = !initialDirectory.empty() ? initialDirectory : ExtractDirectoryFromPath(*path);
+    ofn.lpstrInitialDir = initial.empty() ? nullptr : initial.c_str();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (GetOpenFileNameW(&ofn)) {
+        *path = NormalizeFileSystemPath(buffer);
+        if (displayName) {
+            const wchar_t* nameOnly = PathFindFileNameW(buffer);
+            *displayName = nameOnly ? nameOnly : *path;
+        }
+        return true;
+    }
+    return false;
+}
+
+void TrackCreatedCachedImage(OptionsDialogData* data, const std::wstring& path) {
+    if (!data || path.empty()) {
+        return;
+    }
+    auto it = std::find_if(data->createdCachedImagePaths.begin(), data->createdCachedImagePaths.end(),
+                           [&](const std::wstring& existing) { return EqualsInsensitive(existing, path); });
+    if (it == data->createdCachedImagePaths.end()) {
+        data->createdCachedImagePaths.push_back(path);
+    }
+}
+
+bool IsCachedImageInUse(const OptionsDialogData* data, const std::wstring& path) {
+    if (!data || path.empty()) {
+        return false;
+    }
+    if (EqualsInsensitive(data->workingOptions.universalFolderBackgroundImage.cachedImagePath, path)) {
+        return true;
+    }
+    for (const auto& entry : data->workingOptions.folderBackgroundEntries) {
+        if (EqualsInsensitive(entry.image.cachedImagePath, path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ScheduleCachedImageRemoval(OptionsDialogData* data, const std::wstring& path) {
+    if (!data || path.empty()) {
+        return;
+    }
+    if (IsCachedImageInUse(data, path)) {
+        return;
+    }
+    auto createdIt = std::find_if(data->createdCachedImagePaths.begin(), data->createdCachedImagePaths.end(),
+                                  [&](const std::wstring& created) { return EqualsInsensitive(created, path); });
+    if (createdIt != data->createdCachedImagePaths.end()) {
+        DeleteFileW(createdIt->c_str());
+        data->createdCachedImagePaths.erase(createdIt);
+        return;
+    }
+    auto pendingIt = std::find_if(data->pendingCachedImageRemovals.begin(), data->pendingCachedImageRemovals.end(),
+                                  [&](const std::wstring& pending) { return EqualsInsensitive(pending, path); });
+    if (pendingIt == data->pendingCachedImageRemovals.end()) {
+        data->pendingCachedImageRemovals.push_back(path);
+    }
+}
+
+void InitializeFolderBackgroundList(HWND list) {
+    if (!list) {
+        return;
+    }
+    ListView_SetExtendedListViewStyleEx(list, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER,
+                                        LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    LVCOLUMNW column{};
+    column.mask = LVCF_TEXT | LVCF_WIDTH;
+    column.pszText = const_cast<wchar_t*>(L"Folder");
+    column.cx = 140;
+    ListView_InsertColumn(list, 0, &column);
+    column.pszText = const_cast<wchar_t*>(L"Image");
+    column.cx = 100;
+    ListView_InsertColumn(list, 1, &column);
+}
+
+void RefreshFolderBackgroundListView(HWND list, const OptionsDialogData* data) {
+    if (!list) {
+        return;
+    }
+    ListView_DeleteAllItems(list);
+    if (!data) {
+        return;
+    }
+    for (size_t i = 0; i < data->workingOptions.folderBackgroundEntries.size(); ++i) {
+        const auto& entry = data->workingOptions.folderBackgroundEntries[i];
+        LVITEMW item{};
+        item.mask = LVIF_TEXT | LVIF_PARAM;
+        item.iItem = static_cast<int>(i);
+        item.pszText = const_cast<wchar_t*>(entry.folderPath.c_str());
+        item.lParam = static_cast<LPARAM>(i);
+        const int index = ListView_InsertItemW(list, &item);
+        if (index >= 0) {
+            ListView_SetItemText(list, index, 1, const_cast<wchar_t*>(entry.image.displayName.c_str()));
+        }
+    }
+}
+
+int GetSelectedFolderBackgroundIndex(HWND list) {
+    if (!list) {
+        return -1;
+    }
+    return ListView_GetNextItem(list, -1, LVNI_SELECTED);
+}
+
+void UpdateFolderBackgroundControlsEnabled(HWND hwnd, bool enabled) {
+    const int controls[] = {IDC_CUSTOM_BACKGROUND_BROWSE,        IDC_CUSTOM_BACKGROUND_PREVIEW,
+                            IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, IDC_CUSTOM_BACKGROUND_LIST,
+                            IDC_CUSTOM_BACKGROUND_ADD,           IDC_CUSTOM_BACKGROUND_EDIT,
+                            IDC_CUSTOM_BACKGROUND_REMOVE,        IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW,
+                            IDC_CUSTOM_BACKGROUND_FOLDER_NAME};
+    for (int id : controls) {
+        if (HWND control = GetDlgItem(hwnd, id)) {
+            EnableWindow(control, enabled);
+        }
+    }
+}
+
+void UpdateFolderBackgroundButtons(HWND hwnd) {
+    const bool enabled = IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
+    HWND list = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+    const int selection = GetSelectedFolderBackgroundIndex(list);
+    const bool hasSelection = enabled && selection >= 0;
+    if (HWND addButton = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_ADD)) {
+        EnableWindow(addButton, enabled);
+    }
+    if (HWND editButton = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_EDIT)) {
+        EnableWindow(editButton, hasSelection);
+    }
+    if (HWND removeButton = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_REMOVE)) {
+        EnableWindow(removeButton, hasSelection);
+    }
+}
+
+HBITMAP LoadPreviewBitmap(const std::wstring& path, const SIZE& size) {
+    if (path.empty()) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IShellItem> item;
+    if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&item))) || !item) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IShellItemImageFactory> factory;
+    if (FAILED(item.As(&factory)) || !factory) {
+        return nullptr;
+    }
+    SIZE desired = size;
+    HBITMAP bitmap = nullptr;
+    HRESULT hr = factory->GetImage(desired, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK | SIIGBF_THUMBNAILONLY, &bitmap);
+    if (FAILED(hr)) {
+        hr = factory->GetImage(desired, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, &bitmap);
+    }
+    if (FAILED(hr)) {
+        hr = factory->GetImage(desired, SIIGBF_ICONONLY, &bitmap);
+    }
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+    return bitmap;
+}
+
+void SetPreviewBitmap(HWND hwnd, int controlId, HBITMAP* stored, HBITMAP bitmap) {
+    if (!stored) {
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+        return;
+    }
+    HBITMAP previousStored = *stored;
+    HBITMAP oldControl = reinterpret_cast<HBITMAP>(
+        SendDlgItemMessageW(hwnd, controlId, STM_SETIMAGE, IMAGE_BITMAP, reinterpret_cast<LPARAM>(bitmap)));
+    if (oldControl && oldControl != bitmap && oldControl != previousStored) {
+        DeleteObject(oldControl);
+    }
+    if (previousStored && previousStored != bitmap) {
+        DeleteObject(previousStored);
+    }
+    *stored = bitmap;
+}
+
+void UpdateUniversalBackgroundPreview(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    HBITMAP bitmap = LoadPreviewBitmap(data->workingOptions.universalFolderBackgroundImage.cachedImagePath,
+                                       kUniversalPreviewSize);
+    SetPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_PREVIEW, &data->universalBackgroundPreview, bitmap);
+    const std::wstring& name = data->workingOptions.universalFolderBackgroundImage.displayName;
+    SetDlgItemTextW(hwnd, IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, name.empty() ? L"(None)" : name.c_str());
+}
+
+void UpdateSelectedFolderBackgroundPreview(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    HWND list = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+    const int selection = GetSelectedFolderBackgroundIndex(list);
+    HBITMAP bitmap = nullptr;
+    std::wstring name;
+    if (selection >= 0 && static_cast<size_t>(selection) < data->workingOptions.folderBackgroundEntries.size()) {
+        const auto& entry = data->workingOptions.folderBackgroundEntries[static_cast<size_t>(selection)];
+        name = entry.image.displayName;
+        bitmap = LoadPreviewBitmap(entry.image.cachedImagePath, kFolderPreviewSize);
+    }
+    SetPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, &data->folderBackgroundPreview, bitmap);
+    SetDlgItemTextW(hwnd, IDC_CUSTOM_BACKGROUND_FOLDER_NAME, name.c_str());
+}
+
+struct PlacementCaptureContext {
+    HWND parent = nullptr;
+    OptionsDialogData* data = nullptr;
+};
+
+BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
+    auto* context = reinterpret_cast<PlacementCaptureContext*>(param);
+    if (!context || !context->data) {
+        return TRUE;
+    }
+    if (!IsWindow(child)) {
+        return TRUE;
+    }
+    RECT windowRect{};
+    if (!GetWindowRect(child, &windowRect)) {
+        return TRUE;
+    }
+    POINT topLeft{windowRect.left, windowRect.top};
+    POINT bottomRight{windowRect.right, windowRect.bottom};
+    ScreenToClient(context->parent, &topLeft);
+    ScreenToClient(context->parent, &bottomRight);
+    ChildPlacement placement;
+    placement.hwnd = child;
+    placement.rect.left = topLeft.x;
+    placement.rect.top = topLeft.y;
+    placement.rect.right = bottomRight.x;
+    placement.rect.bottom = bottomRight.y;
+    context->data->customizationChildPlacements.push_back(placement);
+    context->data->customizationContentHeight =
+        std::max(context->data->customizationContentHeight, placement.rect.bottom);
+    return TRUE;
+}
+
+void CaptureCustomizationChildPlacements(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    data->customizationChildPlacements.clear();
+    data->customizationContentHeight = 0;
+    PlacementCaptureContext context{hwnd, data};
+    EnumChildWindows(hwnd, &CaptureChildPlacementProc, reinterpret_cast<LPARAM>(&context));
+}
+
+void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    for (const auto& placement : data->customizationChildPlacements) {
+        if (!IsWindow(placement.hwnd)) {
+            continue;
+        }
+        const int width = placement.rect.right - placement.rect.left;
+        const int height = placement.rect.bottom - placement.rect.top;
+        SetWindowPos(placement.hwnd, nullptr, placement.rect.left,
+                     placement.rect.top - data->customizationScrollPos, width, height,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+void UpdateCustomizationScrollInfo(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) {
+        return;
+    }
+    const int clientHeight = client.bottom - client.top;
+    const int contentHeight = std::max(data->customizationContentHeight, clientHeight);
+    data->customizationScrollMax = std::max(0, contentHeight - clientHeight);
+    if (data->customizationScrollPos > data->customizationScrollMax) {
+        data->customizationScrollPos = data->customizationScrollMax;
+    }
+    SCROLLINFO info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    info.nMin = 0;
+    info.nMax = contentHeight;
+    info.nPage = std::max(0, clientHeight);
+    info.nPos = data->customizationScrollPos;
+    SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
+    RepositionCustomizationChildren(hwnd, data);
+}
+
+void HandleUniversalBackgroundBrowse(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    std::wstring imagePath = data->lastImageBrowseDirectory;
+    if (imagePath.empty()) {
+        imagePath = data->workingOptions.universalFolderBackgroundImage.cachedImagePath;
+    }
+    std::wstring displayName;
+    const std::wstring initialDirectory = !data->lastImageBrowseDirectory.empty()
+                                              ? data->lastImageBrowseDirectory
+                                              : ExtractDirectoryFromPath(imagePath);
+    if (!BrowseForImage(hwnd, &imagePath, &displayName, initialDirectory)) {
+        return;
+    }
+    CachedImageMetadata metadata = data->workingOptions.universalFolderBackgroundImage;
+    std::wstring createdPath;
+    const std::wstring previousPath = metadata.cachedImagePath;
+    if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath)) {
+        MessageBoxW(hwnd, L"Unable to copy the selected image.", L"ShellTabs", MB_OK | MB_ICONERROR);
+        return;
+    }
+    data->workingOptions.universalFolderBackgroundImage = metadata;
+    if (!createdPath.empty()) {
+        TrackCreatedCachedImage(data, createdPath);
+    }
+    if (!previousPath.empty() && !EqualsInsensitive(previousPath, metadata.cachedImagePath)) {
+        ScheduleCachedImageRemoval(data, previousPath);
+    }
+    data->lastImageBrowseDirectory = ExtractDirectoryFromPath(imagePath);
+    UpdateUniversalBackgroundPreview(hwnd, data);
+    SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+}
+
+void HandleAddFolderBackgroundEntry(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    std::wstring folder = data->lastFolderBrowsePath;
+    if (!BrowseForFolder(hwnd, &folder)) {
+        return;
+    }
+    folder = NormalizeFileSystemPath(folder);
+    if (folder.empty()) {
+        return;
+    }
+    for (const auto& entry : data->workingOptions.folderBackgroundEntries) {
+        if (EqualsInsensitive(entry.folderPath, folder)) {
+            MessageBoxW(hwnd, L"A background for that folder already exists.", L"ShellTabs",
+                        MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
+
+    std::wstring imagePath = data->lastImageBrowseDirectory;
+    std::wstring displayName;
+    if (!BrowseForImage(hwnd, &imagePath, &displayName, data->lastImageBrowseDirectory)) {
+        return;
+    }
+
+    CachedImageMetadata metadata;
+    std::wstring createdPath;
+    if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath)) {
+        MessageBoxW(hwnd, L"Unable to copy the selected image.", L"ShellTabs", MB_OK | MB_ICONERROR);
+        return;
+    }
+    if (!createdPath.empty()) {
+        TrackCreatedCachedImage(data, createdPath);
+    }
+
+    FolderBackgroundEntry entry;
+    entry.folderPath = folder;
+    entry.image = std::move(metadata);
+    data->workingOptions.folderBackgroundEntries.emplace_back(std::move(entry));
+    data->lastFolderBrowsePath = folder;
+    data->lastImageBrowseDirectory = ExtractDirectoryFromPath(imagePath);
+
+    HWND list = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+    RefreshFolderBackgroundListView(list, data);
+    const int newIndex = static_cast<int>(data->workingOptions.folderBackgroundEntries.size() - 1);
+    ListView_SetItemState(list, newIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    UpdateSelectedFolderBackgroundPreview(hwnd, data);
+    UpdateFolderBackgroundButtons(hwnd);
+    SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+}
+
+void HandleEditFolderBackgroundEntry(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    HWND list = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+    int selection = GetSelectedFolderBackgroundIndex(list);
+    if (selection < 0 || static_cast<size_t>(selection) >= data->workingOptions.folderBackgroundEntries.size()) {
+        return;
+    }
+
+    FolderBackgroundEntry& entry = data->workingOptions.folderBackgroundEntries[static_cast<size_t>(selection)];
+    std::wstring folder = entry.folderPath;
+    if (!BrowseForFolder(hwnd, &folder)) {
+        return;
+    }
+    folder = NormalizeFileSystemPath(folder);
+    if (folder.empty()) {
+        return;
+    }
+    for (size_t i = 0; i < data->workingOptions.folderBackgroundEntries.size(); ++i) {
+        if (i == static_cast<size_t>(selection)) {
+            continue;
+        }
+        if (EqualsInsensitive(data->workingOptions.folderBackgroundEntries[i].folderPath, folder)) {
+            MessageBoxW(hwnd, L"A background for that folder already exists.", L"ShellTabs",
+                        MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
+
+    bool changed = false;
+    const std::wstring initialDirectory = !data->lastImageBrowseDirectory.empty()
+                                              ? data->lastImageBrowseDirectory
+                                              : ExtractDirectoryFromPath(entry.image.cachedImagePath);
+    std::wstring imagePath = entry.image.cachedImagePath;
+    std::wstring displayName = entry.image.displayName;
+    if (BrowseForImage(hwnd, &imagePath, &displayName, initialDirectory)) {
+        CachedImageMetadata metadata = entry.image;
+        std::wstring createdPath;
+        const std::wstring previousPath = metadata.cachedImagePath;
+        if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath)) {
+            MessageBoxW(hwnd, L"Unable to copy the selected image.", L"ShellTabs", MB_OK | MB_ICONERROR);
+            return;
+        }
+        entry.image = std::move(metadata);
+        if (!createdPath.empty()) {
+            TrackCreatedCachedImage(data, createdPath);
+        }
+        if (!previousPath.empty() && !EqualsInsensitive(previousPath, entry.image.cachedImagePath)) {
+            ScheduleCachedImageRemoval(data, previousPath);
+        }
+        data->lastImageBrowseDirectory = ExtractDirectoryFromPath(imagePath);
+        changed = true;
+    }
+
+    if (!EqualsInsensitive(entry.folderPath, folder)) {
+        entry.folderPath = folder;
+        data->lastFolderBrowsePath = folder;
+        changed = true;
+    }
+
+    if (!changed) {
+        return;
+    }
+
+    RefreshFolderBackgroundListView(list, data);
+    ListView_SetItemState(list, selection, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    UpdateSelectedFolderBackgroundPreview(hwnd, data);
+    UpdateFolderBackgroundButtons(hwnd);
+    SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+}
+
+void HandleRemoveFolderBackgroundEntry(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    HWND list = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+    int selection = GetSelectedFolderBackgroundIndex(list);
+    if (selection < 0 || static_cast<size_t>(selection) >= data->workingOptions.folderBackgroundEntries.size()) {
+        return;
+    }
+
+    FolderBackgroundEntry removed = data->workingOptions.folderBackgroundEntries[static_cast<size_t>(selection)];
+    data->workingOptions.folderBackgroundEntries.erase(
+        data->workingOptions.folderBackgroundEntries.begin() + static_cast<ptrdiff_t>(selection));
+    ScheduleCachedImageRemoval(data, removed.image.cachedImagePath);
+
+    RefreshFolderBackgroundListView(list, data);
+    const int newCount = ListView_GetItemCount(list);
+    if (newCount > 0) {
+        int newSelection = selection;
+        if (newSelection >= newCount) {
+            newSelection = newCount - 1;
+        }
+        ListView_SetItemState(list, newSelection, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+    UpdateSelectedFolderBackgroundPreview(hwnd, data);
+    UpdateFolderBackgroundButtons(hwnd);
+    SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+}
 
 struct GroupEditorContext {
     SavedGroup working;
@@ -1417,6 +2205,27 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                 data->workingOptions.customTabUnselectedColor);
                 UpdateTabColorControlsEnabled(hwnd, data->workingOptions.useCustomTabSelectedColor,
                                               data->workingOptions.useCustomTabUnselectedColor);
+                CheckDlgButton(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE,
+                               data->workingOptions.enableFolderBackgrounds ? BST_CHECKED : BST_UNCHECKED);
+                HWND backgroundList = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+                InitializeFolderBackgroundList(backgroundList);
+                RefreshFolderBackgroundListView(backgroundList, data);
+                if (backgroundList && !data->workingOptions.folderBackgroundEntries.empty()) {
+                    ListView_SetItemState(backgroundList, 0, LVIS_SELECTED | LVIS_FOCUSED,
+                                          LVIS_SELECTED | LVIS_FOCUSED);
+                }
+                UpdateUniversalBackgroundPreview(hwnd, data);
+                UpdateSelectedFolderBackgroundPreview(hwnd, data);
+                UpdateFolderBackgroundControlsEnabled(hwnd, data->workingOptions.enableFolderBackgrounds);
+                UpdateFolderBackgroundButtons(hwnd);
+                data->lastFolderBrowsePath =
+                    data->workingOptions.folderBackgroundEntries.empty()
+                        ? std::wstring{}
+                        : data->workingOptions.folderBackgroundEntries.front().folderPath;
+                data->lastImageBrowseDirectory = ExtractDirectoryFromPath(
+                    data->workingOptions.universalFolderBackgroundImage.cachedImagePath);
+                CaptureCustomizationChildPlacements(hwnd, data);
+                UpdateCustomizationScrollInfo(hwnd, data);
             }
             return TRUE;
         }
@@ -1481,6 +2290,51 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                         if (HandleColorButtonClick(hwnd, data, LOWORD(wParam))) {
                             SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        }
+                    }
+                    return TRUE;
+                case IDC_CUSTOM_BACKGROUND_ENABLE:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            const bool enabled =
+                                IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
+                            UpdateFolderBackgroundControlsEnabled(hwnd, enabled);
+                            UpdateFolderBackgroundButtons(hwnd);
+                        }
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                case IDC_CUSTOM_BACKGROUND_BROWSE:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        HandleUniversalBackgroundBrowse(hwnd, data);
+                    }
+                    return TRUE;
+                case IDC_CUSTOM_BACKGROUND_ADD:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data &&
+                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                            HandleAddFolderBackgroundEntry(hwnd, data);
+                        }
+                    }
+                    return TRUE;
+                case IDC_CUSTOM_BACKGROUND_EDIT:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data &&
+                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                            HandleEditFolderBackgroundEntry(hwnd, data);
+                        }
+                    }
+                    return TRUE;
+                case IDC_CUSTOM_BACKGROUND_REMOVE:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data &&
+                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                            HandleRemoveFolderBackgroundEntry(hwnd, data);
                         }
                     }
                     return TRUE;
@@ -1577,8 +2431,83 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             return TRUE;
         }
+        case WM_SIZE: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            UpdateCustomizationScrollInfo(hwnd, data);
+            return TRUE;
+        }
+        case WM_VSCROLL: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                return TRUE;
+            }
+            int newPos = data->customizationScrollPos;
+            switch (LOWORD(wParam)) {
+                case SB_LINEUP:
+                    newPos -= 16;
+                    break;
+                case SB_LINEDOWN:
+                    newPos += 16;
+                    break;
+                case SB_PAGEUP:
+                    newPos -= 80;
+                    break;
+                case SB_PAGEDOWN:
+                    newPos += 80;
+                    break;
+                case SB_TOP:
+                    newPos = 0;
+                    break;
+                case SB_BOTTOM:
+                    newPos = data->customizationScrollMax;
+                    break;
+                case SB_THUMBTRACK:
+                case SB_THUMBPOSITION: {
+                    SCROLLINFO info{sizeof(info)};
+                    info.fMask = SIF_TRACKPOS;
+                    if (GetScrollInfo(hwnd, SB_VERT, &info)) {
+                        newPos = info.nTrackPos;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+            newPos = std::clamp(newPos, 0, data->customizationScrollMax);
+            if (newPos != data->customizationScrollPos) {
+                data->customizationScrollPos = newPos;
+                SetScrollPos(hwnd, SB_VERT, newPos, TRUE);
+                RepositionCustomizationChildren(hwnd, data);
+            }
+            return TRUE;
+        }
         case WM_NOTIFY: {
-            if (((LPNMHDR)lParam)->code == PSN_APPLY) {
+            auto* header = reinterpret_cast<LPNMHDR>(lParam);
+            if (!header) {
+                break;
+            }
+            if (header->idFrom == IDC_CUSTOM_BACKGROUND_LIST) {
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                switch (header->code) {
+                    case LVN_ITEMCHANGED: {
+                        auto* changed = reinterpret_cast<NMLISTVIEW*>(lParam);
+                        if (changed && (changed->uChanged & LVIF_STATE) != 0) {
+                            UpdateFolderBackgroundButtons(hwnd);
+                            UpdateSelectedFolderBackgroundPreview(hwnd, data);
+                        }
+                        return TRUE;
+                    }
+                    case NM_DBLCLK:
+                        if (data &&
+                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                            HandleEditFolderBackgroundEntry(hwnd, data);
+                        }
+                        return TRUE;
+                    default:
+                        break;
+                }
+            }
+            if (header->code == PSN_APPLY) {
                 auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                 if (data) {
                     data->workingOptions.enableBreadcrumbGradient =
@@ -1601,6 +2530,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
                     data->workingOptions.useCustomTabUnselectedColor =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+                    data->workingOptions.enableFolderBackgrounds =
+                        IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
@@ -1670,7 +2601,7 @@ int CALLBACK OptionsSheetCallback(HWND hwnd, UINT message, LPARAM) {
 }  // namespace
 
 OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
-    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES};
+    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&icc);
 
     OptionsDialogResult result;
@@ -1766,10 +2697,20 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
                 groupStoreToUpdate.Upsert(group);
             }
         }
+        for (const auto& path : data.pendingCachedImageRemovals) {
+            if (!path.empty()) {
+                DeleteFileW(path.c_str());
+            }
+        }
     } else {
         result.saved = false;
         result.groupsChanged = false;
         result.optionsChanged = false;
+        for (const auto& path : data.createdCachedImagePaths) {
+            if (!path.empty()) {
+                DeleteFileW(path.c_str());
+            }
+        }
     }
 
     if (data.breadcrumbBgStartBrush) {
@@ -1803,6 +2744,14 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     if (data.tabUnselectedBrush) {
         DeleteObject(data.tabUnselectedBrush);
         data.tabUnselectedBrush = nullptr;
+    }
+    if (data.universalBackgroundPreview) {
+        DeleteObject(data.universalBackgroundPreview);
+        data.universalBackgroundPreview = nullptr;
+    }
+    if (data.folderBackgroundPreview) {
+        DeleteObject(data.folderBackgroundPreview);
+        data.folderBackgroundPreview = nullptr;
     }
     return result;
 }
