@@ -90,7 +90,8 @@ bool PreviewOverlay::Show(HWND owner, HBITMAP bitmap, const SIZE& size, const PO
     blend.SourceConstantAlpha = 255;
     blend.AlphaFormat = AC_SRC_ALPHA;
 
-    UpdateLayeredWindow(window, screenDC, &dest, &size, memDC, &src, 0, &blend, ULW_ALPHA);
+    SIZE bitmapSize = size;
+    UpdateLayeredWindow(window, screenDC, &dest, &bitmapSize, memDC, &src, 0, &blend, ULW_ALPHA);
 
     SelectObject(memDC, oldBitmap);
     DeleteDC(memDC);
