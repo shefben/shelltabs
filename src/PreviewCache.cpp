@@ -58,6 +58,44 @@ bool RenderWindowToDc(HWND window, HDC dc, int width, int height) {
         return false;
     }
 
+    auto attemptPrintWindow = [&](HWND target, const POINT& offset) {
+        if (!target) {
+            return false;
+        }
+
+        const int state = SaveDC(dc);
+        BOOL printed = FALSE;
+        if (state != 0) {
+            SetViewportOrgEx(dc, -offset.x, -offset.y, nullptr);
+            printed = PrintWindow(target, dc, PW_RENDERFULLCONTENT);
+            RestoreDC(dc, state);
+        } else {
+            POINT oldOrigin{};
+            SetViewportOrgEx(dc, -offset.x, -offset.y, &oldOrigin);
+            printed = PrintWindow(target, dc, PW_RENDERFULLCONTENT);
+            SetViewportOrgEx(dc, oldOrigin.x, oldOrigin.y, nullptr);
+        }
+
+        return printed != FALSE;
+    };
+
+    POINT origin{0, 0};
+    if (attemptPrintWindow(window, origin)) {
+        return true;
+    }
+
+    const HWND root = GetAncestor(window, GA_ROOT);
+    if (root && root != window) {
+        RECT childRect{};
+        RECT rootRect{};
+        if (GetWindowRect(window, &childRect) && GetWindowRect(root, &rootRect)) {
+            POINT offset{childRect.left - rootRect.left, childRect.top - rootRect.top};
+            if (attemptPrintWindow(root, offset)) {
+                return true;
+            }
+        }
+    }
+
     DWORD_PTR result = 0;
     if (SendMessageTimeoutW(window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc),
                             PRF_CLIENT | PRF_CHILDREN | PRF_OWNED, SMTO_NORMAL, 200,
