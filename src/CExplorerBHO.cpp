@@ -2098,6 +2098,18 @@ void CExplorerBHO::RemoveAddressEditSubclass() {
     m_addressEditSubclassInstalled = false;
 }
 
+void CExplorerBHO::RequestAddressEditRedraw(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors) {
+        return;
+    }
+
+    RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+}
+
 void CExplorerBHO::UpdateAddressEditSubclass() {
     if (!m_breadcrumbFontGradientEnabled || !m_useCustomBreadcrumbFontColors || !m_gdiplusInitialized) {
         RemoveAddressEditSubclass();
@@ -2999,6 +3011,9 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
     }
 
     HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    if (!font) {
+        font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    }
     HFONT oldFont = nullptr;
     if (font) {
         oldFont = static_cast<HFONT>(SelectObject(dc, font));
@@ -3016,44 +3031,97 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
         return static_cast<BYTE>(std::clamp(boosted, 0, 255));
     };
 
-    auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
-        const double value = static_cast<double>(start) +
-                             (static_cast<double>(end) - static_cast<double>(start)) * position;
-        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
+    auto brightenColor = [&](COLORREF color) -> Gdiplus::Color {
+        return Gdiplus::Color(255, applyBrightness(GetRValue(color)), applyBrightness(GetGValue(color)),
+                              applyBrightness(GetBValue(color)));
     };
 
-    const double gradientWidth = static_cast<double>(std::max<LONG>(1, formatRect.right - formatRect.left));
+    bool gradientDrawn = false;
+    if (!text.empty() && formatRect.right > formatRect.left && formatRect.bottom > formatRect.top) {
+        Gdiplus::Graphics graphics(dc);
+        if (graphics.GetLastStatus() == Gdiplus::Ok) {
+            graphics.SetPageUnit(Gdiplus::UnitPixel);
+            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+            graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
 
-    for (int i = 0; i < static_cast<int>(text.size()); ++i) {
-        LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, i, 0);
-        if (pos == -1) {
-            continue;
-        }
-        const int charX = static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(pos)));
-        const int charY = static_cast<SHORT>(HIWORD(static_cast<DWORD_PTR>(pos)));
+            Gdiplus::Font gradientFont(dc, font);
+            if (gradientFont.GetLastStatus() == Gdiplus::Ok) {
+                const Gdiplus::RectF layoutRect(
+                    static_cast<Gdiplus::REAL>(formatRect.left), static_cast<Gdiplus::REAL>(formatRect.top),
+                    static_cast<Gdiplus::REAL>(std::max<LONG>(1, formatRect.right - formatRect.left)),
+                    static_cast<Gdiplus::REAL>(std::max<LONG>(1, formatRect.bottom - formatRect.top)));
 
-        LRESULT nextPos = SendMessageW(hwnd, EM_POSFROMCHAR, i + 1, 0);
-        int nextX = (nextPos == -1) ? charX : static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
-        if (nextPos == -1 || nextX <= charX) {
-            SIZE extent{};
-            if (GetTextExtentPoint32W(dc, &text[i], 1, &extent)) {
-                nextX = charX + extent.cx;
-            } else {
-                nextX = charX + 1;
+                Gdiplus::REAL gradientStartX = static_cast<Gdiplus::REAL>(formatRect.left);
+                Gdiplus::REAL gradientEndX = static_cast<Gdiplus::REAL>(formatRect.right);
+                if (gradientEndX <= gradientStartX) {
+                    gradientEndX = gradientStartX + 1.0f;
+                }
+
+                Gdiplus::LinearGradientBrush brush(Gdiplus::PointF(gradientStartX, 0.0f),
+                                                   Gdiplus::PointF(gradientEndX, 0.0f), brightenColor(gradientStart),
+                                                   brightenColor(gradientEnd));
+                if (brush.GetLastStatus() == Gdiplus::Ok) {
+                    brush.SetWrapMode(Gdiplus::WrapModeClamp);
+
+                    Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericDefault());
+                    format.SetFormatFlags(format.GetFormatFlags() | Gdiplus::StringFormatFlagsNoWrap);
+                    format.SetTrimming(Gdiplus::StringTrimmingNone);
+
+                    graphics.SetClip(layoutRect);
+                    if (graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &gradientFont, layoutRect, &format,
+                                            &brush) == Gdiplus::Ok) {
+                        gradientDrawn = true;
+                    }
+                    graphics.ResetClip();
+                }
             }
         }
+    }
 
-        const int charWidth = std::max(1, nextX - charX);
-        double centerX = static_cast<double>(charX) + static_cast<double>(charWidth) / 2.0;
-        double position = (centerX - static_cast<double>(formatRect.left)) / gradientWidth;
-        position = std::clamp(position, 0.0, 1.0);
+    if (!gradientDrawn) {
+        auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
+            const double value = static_cast<double>(start) +
+                                 (static_cast<double>(end) - static_cast<double>(start)) * position;
+            return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
+        };
 
-        const BYTE red = applyBrightness(interpolateChannel(GetRValue(gradientStart), GetRValue(gradientEnd), position));
-        const BYTE green = applyBrightness(interpolateChannel(GetGValue(gradientStart), GetGValue(gradientEnd), position));
-        const BYTE blue = applyBrightness(interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
+        const double gradientWidth = static_cast<double>(std::max<LONG>(1, formatRect.right - formatRect.left));
 
-        SetTextColor(dc, RGB(red, green, blue));
-        ExtTextOutW(dc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
+        for (int i = 0; i < static_cast<int>(text.size()); ++i) {
+            LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, i, 0);
+            if (pos == -1) {
+                continue;
+            }
+            const int charX = static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(pos)));
+            const int charY = static_cast<SHORT>(HIWORD(static_cast<DWORD_PTR>(pos)));
+
+            LRESULT nextPos = SendMessageW(hwnd, EM_POSFROMCHAR, i + 1, 0);
+            int nextX = (nextPos == -1) ? charX : static_cast<SHORT>(LOWORD(static_cast<DWORD_PTR>(nextPos)));
+            if (nextPos == -1 || nextX <= charX) {
+                SIZE extent{};
+                if (GetTextExtentPoint32W(dc, &text[i], 1, &extent)) {
+                    nextX = charX + extent.cx;
+                } else {
+                    nextX = charX + 1;
+                }
+            }
+
+            const int charWidth = std::max(1, nextX - charX);
+            double centerX = static_cast<double>(charX) + static_cast<double>(charWidth) / 2.0;
+            double position = (centerX - static_cast<double>(formatRect.left)) / gradientWidth;
+            position = std::clamp(position, 0.0, 1.0);
+
+            const BYTE red = applyBrightness(
+                interpolateChannel(GetRValue(gradientStart), GetRValue(gradientEnd), position));
+            const BYTE green = applyBrightness(
+                interpolateChannel(GetGValue(gradientStart), GetGValue(gradientEnd), position));
+            const BYTE blue = applyBrightness(
+                interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
+
+            SetTextColor(dc, RGB(red, green, blue));
+            ExtTextOutW(dc, charX, charY, ETO_CLIPPED, &formatRect, &text[i], 1, nullptr);
+        }
     }
 
     SetBkMode(dc, previousBkMode);
@@ -3259,9 +3327,24 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
         case WM_SETTINGCHANGE:
         case WM_SETFONT:
         case WM_SETFOCUS:
-        case WM_KILLFOCUS: {
+        case WM_KILLFOCUS:
+        case WM_CHAR:
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEMOVE: {
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-            InvalidateRect(hwnd, nullptr, TRUE);
+            if (msg == WM_MOUSEMOVE && (wParam & (MK_LBUTTON | MK_MBUTTON | MK_RBUTTON)) == 0) {
+                return result;
+            }
+            self->RequestAddressEditRedraw(hwnd);
             return result;
         }
         case WM_NCDESTROY:
