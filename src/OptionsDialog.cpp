@@ -14,6 +14,7 @@
 #include <prsht.h>
 
 #include <algorithm>
+#include <array>
 #include <cwchar>
 #include <malloc.h>
 #include <memory>
@@ -2310,91 +2311,383 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
     return FALSE;
 }
 
+class CustomizationsPageController {
+public:
+    static void Initialize(HWND hwnd, OptionsDialogData* data) {
+        if (!data) {
+            return;
+        }
+        CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB,
+                       data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT,
+                       data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
+        ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
+                                  data->workingOptions.breadcrumbGradientTransparency);
+        ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
+                                  InvertPercentageValue(data->workingOptions.breadcrumbFontBrightness));
+        ConfigureMultiplierSlider(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER,
+                                  data->workingOptions.breadcrumbHighlightAlphaMultiplier);
+        ConfigureMultiplierSlider(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER,
+                                  data->workingOptions.breadcrumbDropdownAlphaMultiplier);
+        UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
+                              data->workingOptions.breadcrumbGradientTransparency);
+        UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
+                              data->workingOptions.breadcrumbFontBrightness);
+        UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE,
+                              data->workingOptions.breadcrumbHighlightAlphaMultiplier);
+        UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE,
+                              data->workingOptions.breadcrumbDropdownAlphaMultiplier);
+        CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM,
+                       data->workingOptions.useCustomBreadcrumbGradientColors ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM,
+                       data->workingOptions.useCustomBreadcrumbFontColors ? BST_CHECKED : BST_UNCHECKED);
+        UpdateGradientStates(hwnd);
+        SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, &data->breadcrumbBgStartBrush,
+                        data->workingOptions.breadcrumbGradientStartColor);
+        SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, &data->breadcrumbBgEndBrush,
+                        data->workingOptions.breadcrumbGradientEndColor);
+        SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, &data->breadcrumbFontStartBrush,
+                        data->workingOptions.breadcrumbFontGradientStartColor);
+        SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, &data->breadcrumbFontEndBrush,
+                        data->workingOptions.breadcrumbFontGradientEndColor);
+        CheckDlgButton(hwnd, IDC_MAIN_PROGRESS_CUSTOM,
+                       data->workingOptions.useCustomProgressBarGradientColors ? BST_CHECKED : BST_UNCHECKED);
+        SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_START_PREVIEW, &data->progressStartBrush,
+                        data->workingOptions.progressBarGradientStartColor);
+        SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_END_PREVIEW, &data->progressEndBrush,
+                        data->workingOptions.progressBarGradientEndColor);
+        UpdateProgressColorControlsEnabled(hwnd, data->workingOptions.useCustomProgressBarGradientColors);
+        CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
+                       data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
+                       data->workingOptions.useCustomTabUnselectedColor ? BST_CHECKED : BST_UNCHECKED);
+        SetPreviewColor(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW, &data->tabSelectedBrush,
+                        data->workingOptions.customTabSelectedColor);
+        SetPreviewColor(hwnd, IDC_MAIN_TAB_UNSELECTED_PREVIEW, &data->tabUnselectedBrush,
+                        data->workingOptions.customTabUnselectedColor);
+        UpdateTabColorStates(hwnd);
+        CheckDlgButton(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE,
+                       data->workingOptions.enableFolderBackgrounds ? BST_CHECKED : BST_UNCHECKED);
+        HWND backgroundList = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
+        InitializeFolderBackgroundList(backgroundList);
+        RefreshFolderBackgroundListView(backgroundList, data);
+        if (backgroundList && !data->workingOptions.folderBackgroundEntries.empty()) {
+            ListView_SetItemState(backgroundList, 0, LVIS_SELECTED | LVIS_FOCUSED,
+                                  LVIS_SELECTED | LVIS_FOCUSED);
+        }
+        UpdateUniversalBackgroundPreview(hwnd, data);
+        UpdateSelectedFolderBackgroundPreview(hwnd, data);
+        UpdateFolderBackgroundControlsEnabled(hwnd, data->workingOptions.enableFolderBackgrounds);
+        UpdateFolderBackgroundButtons(hwnd);
+        data->lastFolderBrowsePath =
+            data->workingOptions.folderBackgroundEntries.empty()
+                ? std::wstring{}
+                : data->workingOptions.folderBackgroundEntries.front().folderPath;
+        data->lastImageBrowseDirectory =
+            ExtractDirectoryFromPath(data->workingOptions.universalFolderBackgroundImage.cachedImagePath);
+        CaptureCustomizationChildPlacements(hwnd, data);
+        UpdateCustomizationScrollInfo(hwnd, data);
+    }
+
+    static bool HandleCommand(HWND hwnd, WPARAM wParam, LPARAM) {
+        const WORD controlId = LOWORD(wParam);
+        const WORD notification = HIWORD(wParam);
+        if (notification != BN_CLICKED) {
+            return false;
+        }
+
+        auto* data = GetDialogData(hwnd);
+
+        if (std::find(kGradientToggleIds.begin(), kGradientToggleIds.end(), controlId) !=
+            kGradientToggleIds.end()) {
+            UpdateGradientStates(hwnd);
+            NotifyParentOfChange(hwnd);
+            return true;
+        }
+
+        if (std::find(kTabToggleIds.begin(), kTabToggleIds.end(), controlId) != kTabToggleIds.end()) {
+            UpdateTabColorStates(hwnd);
+            NotifyParentOfChange(hwnd);
+            return true;
+        }
+
+        if (std::find(kColorButtonIds.begin(), kColorButtonIds.end(), controlId) != kColorButtonIds.end()) {
+            if (HandleColorSelection(hwnd, controlId, data)) {
+                NotifyParentOfChange(hwnd);
+            }
+            return true;
+        }
+
+        if (controlId == IDC_CUSTOM_BACKGROUND_ENABLE) {
+            const bool enabled = IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
+            UpdateFolderBackgroundControlsEnabled(hwnd, enabled);
+            UpdateFolderBackgroundButtons(hwnd);
+            NotifyParentOfChange(hwnd);
+            return true;
+        }
+
+        return HandleFolderBackgroundCommand(hwnd, controlId, data);
+    }
+
+    static void HandleHScroll(HWND hwnd, WPARAM, LPARAM lParam) {
+        HWND slider = reinterpret_cast<HWND>(lParam);
+        if (!slider) {
+            return;
+        }
+
+        auto* data = GetDialogData(hwnd);
+        bool previewNeeded = false;
+        if (HandleSliderChange(hwnd, slider, data, &previewNeeded)) {
+            if (previewNeeded) {
+                ApplyCustomizationPreview(hwnd, data);
+            }
+            NotifyParentOfChange(hwnd);
+        }
+    }
+
+    static bool HandleNotify(HWND hwnd, WPARAM, LPARAM lParam) {
+        auto* header = reinterpret_cast<LPNMHDR>(lParam);
+        if (!header) {
+            return false;
+        }
+
+        if (header->idFrom == IDC_CUSTOM_BACKGROUND_LIST) {
+            return HandleListViewNotify(hwnd, header, GetDialogData(hwnd));
+        }
+
+        if (header->code == PSN_APPLY) {
+            return Apply(hwnd, GetDialogData(hwnd));
+        }
+
+        return false;
+    }
+
+private:
+    using SliderClampFn = int (*)(int);
+    using SliderTransformFn = int (*)(int);
+    using LabelUpdateFn = void (*)(HWND, int, int);
+    using SliderApplyFn = bool (*)(OptionsDialogData*, int);
+
+    struct SliderBinding {
+        WORD sliderId;
+        WORD labelId;
+        SliderClampFn clamp;
+        SliderTransformFn transform;
+        LabelUpdateFn updateLabel;
+        SliderApplyFn apply;
+    };
+
+    static OptionsDialogData* GetDialogData(HWND hwnd) {
+        return reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+    }
+
+    static void NotifyParentOfChange(HWND hwnd) {
+        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+    }
+
+    static void UpdateGradientStates(HWND hwnd) {
+        const bool backgroundEnabled = IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
+        const bool fontEnabled = IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
+        UpdateGradientControlsEnabled(hwnd, backgroundEnabled, fontEnabled);
+
+        const bool bgCustom = IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
+        const bool fontCustom = IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
+        UpdateGradientColorControlsEnabled(hwnd, backgroundEnabled && bgCustom, fontEnabled && fontCustom);
+
+        const bool progressCustom = IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
+        UpdateProgressColorControlsEnabled(hwnd, progressCustom);
+    }
+
+    static void UpdateTabColorStates(HWND hwnd) {
+        const bool tabSelectedCustom = IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
+        const bool tabUnselectedCustom = IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+        UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
+    }
+
+    static bool HandleColorSelection(HWND hwnd, WORD controlId, OptionsDialogData* data) {
+        return HandleColorButtonClick(hwnd, data, controlId);
+    }
+
+    static bool HandleFolderBackgroundCommand(HWND hwnd, WORD controlId, OptionsDialogData* data) {
+        switch (controlId) {
+            case IDC_CUSTOM_BACKGROUND_BROWSE:
+                HandleUniversalBackgroundBrowse(hwnd, data);
+                return true;
+            case IDC_CUSTOM_BACKGROUND_ADD:
+                if (data && IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                    HandleAddFolderBackgroundEntry(hwnd, data);
+                }
+                return true;
+            case IDC_CUSTOM_BACKGROUND_EDIT:
+                if (data && IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                    HandleEditFolderBackgroundEntry(hwnd, data);
+                }
+                return true;
+            case IDC_CUSTOM_BACKGROUND_REMOVE:
+                if (data && IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                    HandleRemoveFolderBackgroundEntry(hwnd, data);
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static bool HandleSliderChange(HWND hwnd, HWND slider, OptionsDialogData* data, bool* previewNeeded) {
+        if (!slider || !previewNeeded) {
+            return false;
+        }
+        const int controlId = GetDlgCtrlID(slider);
+        const auto it =
+            std::find_if(kSliderBindings.begin(), kSliderBindings.end(), [controlId](const SliderBinding& binding) {
+                return binding.sliderId == controlId;
+            });
+        if (it == kSliderBindings.end()) {
+            return false;
+        }
+
+        int position = static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+        if (it->clamp) {
+            position = it->clamp(position);
+        }
+        const int value = it->transform ? it->transform(position) : position;
+        it->updateLabel(hwnd, it->labelId, value);
+        const bool changed = it->apply(data, value);
+        *previewNeeded = changed;
+        return true;
+    }
+
+    static bool HandleListViewNotify(HWND hwnd, LPNMHDR header, OptionsDialogData* data) {
+        switch (header->code) {
+            case LVN_ITEMCHANGED: {
+                auto* changed = reinterpret_cast<NMLISTVIEW*>(header);
+                if (changed && (changed->uChanged & LVIF_STATE) != 0) {
+                    UpdateFolderBackgroundButtons(hwnd);
+                    UpdateSelectedFolderBackgroundPreview(hwnd, data);
+                }
+                return true;
+            }
+            case NM_DBLCLK:
+                if (data && IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                    HandleEditFolderBackgroundEntry(hwnd, data);
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static bool Apply(HWND hwnd, OptionsDialogData* data) {
+        if (data) {
+            data->workingOptions.enableBreadcrumbGradient =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
+            data->workingOptions.enableBreadcrumbFontGradient =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
+            data->workingOptions.breadcrumbGradientTransparency =
+                ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
+                    hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER, TBM_GETPOS, 0, 0)));
+            const int brightnessSliderValue = ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
+                hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
+            data->workingOptions.breadcrumbFontBrightness = InvertPercentageValue(brightnessSliderValue);
+            data->workingOptions.breadcrumbHighlightAlphaMultiplier =
+                ClampMultiplierValue(static_cast<int>(SendDlgItemMessageW(
+                    hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER, TBM_GETPOS, 0, 0)));
+            data->workingOptions.breadcrumbDropdownAlphaMultiplier =
+                ClampMultiplierValue(static_cast<int>(SendDlgItemMessageW(
+                    hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER, TBM_GETPOS, 0, 0)));
+            data->workingOptions.useCustomBreadcrumbGradientColors =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
+            data->workingOptions.useCustomBreadcrumbFontColors =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
+            data->workingOptions.useCustomProgressBarGradientColors =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
+            data->workingOptions.useCustomTabSelectedColor =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
+            data->workingOptions.useCustomTabUnselectedColor =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+            data->workingOptions.enableFolderBackgrounds =
+                IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
+            data->applyInvoked = true;
+        }
+        SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+        return true;
+    }
+
+    static bool ApplyBreadcrumbTransparency(OptionsDialogData* data, int value) {
+        if (!data) {
+            return false;
+        }
+        if (data->workingOptions.breadcrumbGradientTransparency == value) {
+            return false;
+        }
+        data->workingOptions.breadcrumbGradientTransparency = value;
+        return true;
+    }
+
+    static bool ApplyBreadcrumbFontBrightness(OptionsDialogData* data, int value) {
+        if (!data) {
+            return false;
+        }
+        if (data->workingOptions.breadcrumbFontBrightness == value) {
+            return false;
+        }
+        data->workingOptions.breadcrumbFontBrightness = value;
+        return true;
+    }
+
+    static bool ApplyBreadcrumbHighlightMultiplier(OptionsDialogData* data, int value) {
+        if (!data) {
+            return false;
+        }
+        if (data->workingOptions.breadcrumbHighlightAlphaMultiplier == value) {
+            return false;
+        }
+        data->workingOptions.breadcrumbHighlightAlphaMultiplier = value;
+        return true;
+    }
+
+    static bool ApplyBreadcrumbDropdownMultiplier(OptionsDialogData* data, int value) {
+        if (!data) {
+            return false;
+        }
+        if (data->workingOptions.breadcrumbDropdownAlphaMultiplier == value) {
+            return false;
+        }
+        data->workingOptions.breadcrumbDropdownAlphaMultiplier = value;
+        return true;
+    }
+
+    static inline constexpr std::array<WORD, 5> kGradientToggleIds = {
+        IDC_MAIN_BREADCRUMB,        IDC_MAIN_BREADCRUMB_FONT,        IDC_MAIN_BREADCRUMB_BG_CUSTOM,
+        IDC_MAIN_BREADCRUMB_FONT_CUSTOM, IDC_MAIN_PROGRESS_CUSTOM};
+
+    static inline constexpr std::array<WORD, 2> kTabToggleIds = {
+        IDC_MAIN_TAB_SELECTED_CHECK, IDC_MAIN_TAB_UNSELECTED_CHECK};
+
+    static inline constexpr std::array<WORD, 8> kColorButtonIds = {
+        IDC_MAIN_BREADCRUMB_BG_START_BUTTON,  IDC_MAIN_BREADCRUMB_BG_END_BUTTON,
+        IDC_MAIN_BREADCRUMB_FONT_START_BUTTON, IDC_MAIN_BREADCRUMB_FONT_END_BUTTON,
+        IDC_MAIN_PROGRESS_START_BUTTON,        IDC_MAIN_PROGRESS_END_BUTTON,
+        IDC_MAIN_TAB_SELECTED_BUTTON,          IDC_MAIN_TAB_UNSELECTED_BUTTON};
+
+    static inline constexpr std::array<SliderBinding, 4> kSliderBindings = {{
+        {IDC_MAIN_BREADCRUMB_BG_SLIDER, IDC_MAIN_BREADCRUMB_BG_VALUE, &ClampPercentageValue, nullptr,
+         &UpdatePercentageLabel, &ApplyBreadcrumbTransparency},
+        {IDC_MAIN_BREADCRUMB_FONT_SLIDER, IDC_MAIN_BREADCRUMB_FONT_VALUE, &ClampPercentageValue,
+         &InvertPercentageValue, &UpdatePercentageLabel, &ApplyBreadcrumbFontBrightness},
+        {IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE, &ClampMultiplierValue,
+         nullptr, &UpdateMultiplierLabel, &ApplyBreadcrumbHighlightMultiplier},
+        {IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE, &ClampMultiplierValue,
+         nullptr, &UpdateMultiplierLabel, &ApplyBreadcrumbDropdownMultiplier},
+    }};
+};
+
 INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_INITDIALOG: {
             auto* data = reinterpret_cast<OptionsDialogData*>(reinterpret_cast<PROPSHEETPAGEW*>(lParam)->lParam);
             SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(data));
-            if (data) {
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB,
-                               data->workingOptions.enableBreadcrumbGradient ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT,
-                               data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
-                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER,
-                                          data->workingOptions.breadcrumbGradientTransparency);
-                ConfigurePercentageSlider(hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER,
-                                          InvertPercentageValue(data->workingOptions.breadcrumbFontBrightness));
-                ConfigureMultiplierSlider(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER,
-                                           data->workingOptions.breadcrumbHighlightAlphaMultiplier);
-                ConfigureMultiplierSlider(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER,
-                                           data->workingOptions.breadcrumbDropdownAlphaMultiplier);
-                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE,
-                                     data->workingOptions.breadcrumbGradientTransparency);
-                UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE,
-                                     data->workingOptions.breadcrumbFontBrightness);
-                UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE,
-                                      data->workingOptions.breadcrumbHighlightAlphaMultiplier);
-                UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE,
-                                      data->workingOptions.breadcrumbDropdownAlphaMultiplier);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM,
-                               data->workingOptions.useCustomBreadcrumbGradientColors ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM,
-                               data->workingOptions.useCustomBreadcrumbFontColors ? BST_CHECKED : BST_UNCHECKED);
-                UpdateGradientControlsEnabled(hwnd, data->workingOptions.enableBreadcrumbGradient,
-                                              data->workingOptions.enableBreadcrumbFontGradient);
-                UpdateGradientColorControlsEnabled(
-                    hwnd,
-                    data->workingOptions.enableBreadcrumbGradient &&
-                        data->workingOptions.useCustomBreadcrumbGradientColors,
-                    data->workingOptions.enableBreadcrumbFontGradient &&
-                        data->workingOptions.useCustomBreadcrumbFontColors);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_START_PREVIEW, &data->breadcrumbBgStartBrush,
-                                data->workingOptions.breadcrumbGradientStartColor);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_BG_END_PREVIEW, &data->breadcrumbBgEndBrush,
-                                data->workingOptions.breadcrumbGradientEndColor);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_START_PREVIEW, &data->breadcrumbFontStartBrush,
-                                data->workingOptions.breadcrumbFontGradientStartColor);
-                SetPreviewColor(hwnd, IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW, &data->breadcrumbFontEndBrush,
-                                data->workingOptions.breadcrumbFontGradientEndColor);
-                CheckDlgButton(hwnd, IDC_MAIN_PROGRESS_CUSTOM,
-                               data->workingOptions.useCustomProgressBarGradientColors ? BST_CHECKED : BST_UNCHECKED);
-                SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_START_PREVIEW, &data->progressStartBrush,
-                                data->workingOptions.progressBarGradientStartColor);
-                SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_END_PREVIEW, &data->progressEndBrush,
-                                data->workingOptions.progressBarGradientEndColor);
-                UpdateProgressColorControlsEnabled(hwnd, data->workingOptions.useCustomProgressBarGradientColors);
-                CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
-                               data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
-                               data->workingOptions.useCustomTabUnselectedColor ? BST_CHECKED : BST_UNCHECKED);
-                SetPreviewColor(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW, &data->tabSelectedBrush,
-                                data->workingOptions.customTabSelectedColor);
-                SetPreviewColor(hwnd, IDC_MAIN_TAB_UNSELECTED_PREVIEW, &data->tabUnselectedBrush,
-                                data->workingOptions.customTabUnselectedColor);
-                UpdateTabColorControlsEnabled(hwnd, data->workingOptions.useCustomTabSelectedColor,
-                                              data->workingOptions.useCustomTabUnselectedColor);
-                CheckDlgButton(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE,
-                               data->workingOptions.enableFolderBackgrounds ? BST_CHECKED : BST_UNCHECKED);
-                HWND backgroundList = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
-                InitializeFolderBackgroundList(backgroundList);
-                RefreshFolderBackgroundListView(backgroundList, data);
-                if (backgroundList && !data->workingOptions.folderBackgroundEntries.empty()) {
-                    ListView_SetItemState(backgroundList, 0, LVIS_SELECTED | LVIS_FOCUSED,
-                                          LVIS_SELECTED | LVIS_FOCUSED);
-                }
-                UpdateUniversalBackgroundPreview(hwnd, data);
-                UpdateSelectedFolderBackgroundPreview(hwnd, data);
-                UpdateFolderBackgroundControlsEnabled(hwnd, data->workingOptions.enableFolderBackgrounds);
-                UpdateFolderBackgroundButtons(hwnd);
-                data->lastFolderBrowsePath =
-                    data->workingOptions.folderBackgroundEntries.empty()
-                        ? std::wstring{}
-                        : data->workingOptions.folderBackgroundEntries.front().folderPath;
-                data->lastImageBrowseDirectory = ExtractDirectoryFromPath(
-                    data->workingOptions.universalFolderBackgroundImage.cachedImagePath);
-                CaptureCustomizationChildPlacements(hwnd, data);
-                UpdateCustomizationScrollInfo(hwnd, data);
-            }
+            CustomizationsPageController::Initialize(hwnd, data);
             return TRUE;
         }
         case WM_CTLCOLORDLG: {
@@ -2405,107 +2698,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
         }
         case WM_COMMAND: {
-            switch (LOWORD(wParam)) {
-                case IDC_MAIN_BREADCRUMB:
-                case IDC_MAIN_BREADCRUMB_FONT:
-                case IDC_MAIN_BREADCRUMB_BG_CUSTOM:
-                case IDC_MAIN_BREADCRUMB_FONT_CUSTOM:
-                case IDC_MAIN_PROGRESS_CUSTOM:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data) {
-                            const bool backgroundEnabled =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
-                            const bool fontEnabled =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
-                            UpdateGradientControlsEnabled(hwnd, backgroundEnabled, fontEnabled);
-                            const bool bgCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
-                            const bool fontCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
-                            UpdateGradientColorControlsEnabled(hwnd, backgroundEnabled && bgCustom,
-                                                               fontEnabled && fontCustom);
-                            const bool progressCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
-                            UpdateProgressColorControlsEnabled(hwnd, progressCustom);
-                        }
-                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
-                    }
-                    return TRUE;
-                case IDC_MAIN_TAB_SELECTED_CHECK:
-                case IDC_MAIN_TAB_UNSELECTED_CHECK:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data) {
-                            const bool tabSelectedCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
-                            const bool tabUnselectedCustom =
-                                IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
-                            UpdateTabColorControlsEnabled(hwnd, tabSelectedCustom, tabUnselectedCustom);
-                        }
-                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
-                    }
-                    return TRUE;
-                case IDC_MAIN_BREADCRUMB_BG_START_BUTTON:
-                case IDC_MAIN_BREADCRUMB_BG_END_BUTTON:
-                case IDC_MAIN_BREADCRUMB_FONT_START_BUTTON:
-                case IDC_MAIN_BREADCRUMB_FONT_END_BUTTON:
-                case IDC_MAIN_PROGRESS_START_BUTTON:
-                case IDC_MAIN_PROGRESS_END_BUTTON:
-                case IDC_MAIN_TAB_SELECTED_BUTTON:
-                case IDC_MAIN_TAB_UNSELECTED_BUTTON:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (HandleColorButtonClick(hwnd, data, LOWORD(wParam))) {
-                            SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
-                        }
-                    }
-                    return TRUE;
-                case IDC_CUSTOM_BACKGROUND_ENABLE:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data) {
-                            const bool enabled =
-                                IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
-                            UpdateFolderBackgroundControlsEnabled(hwnd, enabled);
-                            UpdateFolderBackgroundButtons(hwnd);
-                        }
-                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
-                    }
-                    return TRUE;
-                case IDC_CUSTOM_BACKGROUND_BROWSE:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        HandleUniversalBackgroundBrowse(hwnd, data);
-                    }
-                    return TRUE;
-                case IDC_CUSTOM_BACKGROUND_ADD:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data &&
-                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
-                            HandleAddFolderBackgroundEntry(hwnd, data);
-                        }
-                    }
-                    return TRUE;
-                case IDC_CUSTOM_BACKGROUND_EDIT:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data &&
-                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
-                            HandleEditFolderBackgroundEntry(hwnd, data);
-                        }
-                    }
-                    return TRUE;
-                case IDC_CUSTOM_BACKGROUND_REMOVE:
-                    if (HIWORD(wParam) == BN_CLICKED) {
-                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                        if (data &&
-                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
-                            HandleRemoveFolderBackgroundEntry(hwnd, data);
-                        }
-                    }
-                    return TRUE;
+            if (CustomizationsPageController::HandleCommand(hwnd, wParam, lParam)) {
+                return TRUE;
             }
             break;
         }
@@ -2579,65 +2773,9 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
             break;
         }
-        case WM_HSCROLL: {
-            HWND slider = reinterpret_cast<HWND>(lParam);
-            if (!slider) {
-                return TRUE;
-            }
-            const int controlId = GetDlgCtrlID(slider);
-            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-            bool previewNeeded = false;
-            switch (controlId) {
-                case IDC_MAIN_BREADCRUMB_BG_SLIDER: {
-                    const int sliderValue = ClampPercentageValue(
-                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                    UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_BG_VALUE, sliderValue);
-                    if (data && data->workingOptions.breadcrumbGradientTransparency != sliderValue) {
-                        data->workingOptions.breadcrumbGradientTransparency = sliderValue;
-                        previewNeeded = true;
-                    }
-                    break;
-                }
-                case IDC_MAIN_BREADCRUMB_FONT_SLIDER: {
-                    const int sliderValue = ClampPercentageValue(
-                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                    const int brightnessValue = InvertPercentageValue(sliderValue);
-                    UpdatePercentageLabel(hwnd, IDC_MAIN_BREADCRUMB_FONT_VALUE, brightnessValue);
-                    if (data && data->workingOptions.breadcrumbFontBrightness != brightnessValue) {
-                        data->workingOptions.breadcrumbFontBrightness = brightnessValue;
-                        previewNeeded = true;
-                    }
-                    break;
-                }
-                case IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER: {
-                    const int sliderValue = ClampMultiplierValue(
-                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                    UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_VALUE, sliderValue);
-                    if (data && data->workingOptions.breadcrumbHighlightAlphaMultiplier != sliderValue) {
-                        data->workingOptions.breadcrumbHighlightAlphaMultiplier = sliderValue;
-                        previewNeeded = true;
-                    }
-                    break;
-                }
-                case IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER: {
-                    const int sliderValue = ClampMultiplierValue(
-                        static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0)));
-                    UpdateMultiplierLabel(hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_VALUE, sliderValue);
-                    if (data && data->workingOptions.breadcrumbDropdownAlphaMultiplier != sliderValue) {
-                        data->workingOptions.breadcrumbDropdownAlphaMultiplier = sliderValue;
-                        previewNeeded = true;
-                    }
-                    break;
-                }
-                default:
-                    return TRUE;
-            }
-            if (previewNeeded) {
-                ApplyCustomizationPreview(hwnd, data);
-            }
-            SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+        case WM_HSCROLL:
+            CustomizationsPageController::HandleHScroll(hwnd, wParam, lParam);
             return TRUE;
-        }
         case WM_SIZE: {
             auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
             UpdateCustomizationScrollInfo(hwnd, data);
@@ -2688,70 +2826,11 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             return TRUE;
         }
-        case WM_NOTIFY: {
-            auto* header = reinterpret_cast<LPNMHDR>(lParam);
-            if (!header) {
-                break;
-            }
-            if (header->idFrom == IDC_CUSTOM_BACKGROUND_LIST) {
-                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                switch (header->code) {
-                    case LVN_ITEMCHANGED: {
-                        auto* changed = reinterpret_cast<NMLISTVIEW*>(lParam);
-                        if (changed && (changed->uChanged & LVIF_STATE) != 0) {
-                            UpdateFolderBackgroundButtons(hwnd);
-                            UpdateSelectedFolderBackgroundPreview(hwnd, data);
-                        }
-                        return TRUE;
-                    }
-                    case NM_DBLCLK:
-                        if (data &&
-                            IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
-                            HandleEditFolderBackgroundEntry(hwnd, data);
-                        }
-                        return TRUE;
-                    default:
-                        break;
-                }
-            }
-            if (header->code == PSN_APPLY) {
-                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
-                if (data) {
-                    data->workingOptions.enableBreadcrumbGradient =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB) == BST_CHECKED;
-                    data->workingOptions.enableBreadcrumbFontGradient =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT) == BST_CHECKED;
-                    data->workingOptions.breadcrumbGradientTransparency =
-                        ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
-                            hwnd, IDC_MAIN_BREADCRUMB_BG_SLIDER, TBM_GETPOS, 0, 0)));
-                    const int brightnessSliderValue = ClampPercentageValue(static_cast<int>(SendDlgItemMessageW(
-                        hwnd, IDC_MAIN_BREADCRUMB_FONT_SLIDER, TBM_GETPOS, 0, 0)));
-                    data->workingOptions.breadcrumbFontBrightness = InvertPercentageValue(brightnessSliderValue);
-                    data->workingOptions.breadcrumbHighlightAlphaMultiplier =
-                        ClampMultiplierValue(static_cast<int>(SendDlgItemMessageW(
-                            hwnd, IDC_MAIN_BREADCRUMB_HIGHLIGHT_SLIDER, TBM_GETPOS, 0, 0)));
-                    data->workingOptions.breadcrumbDropdownAlphaMultiplier =
-                        ClampMultiplierValue(static_cast<int>(SendDlgItemMessageW(
-                            hwnd, IDC_MAIN_BREADCRUMB_DROPDOWN_SLIDER, TBM_GETPOS, 0, 0)));
-                    data->workingOptions.useCustomBreadcrumbGradientColors =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_BG_CUSTOM) == BST_CHECKED;
-                    data->workingOptions.useCustomBreadcrumbFontColors =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
-                    data->workingOptions.useCustomProgressBarGradientColors =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
-                    data->workingOptions.useCustomTabSelectedColor =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
-                    data->workingOptions.useCustomTabUnselectedColor =
-                        IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
-                    data->workingOptions.enableFolderBackgrounds =
-                        IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
-                    data->applyInvoked = true;
-                }
-                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+        case WM_NOTIFY:
+            if (CustomizationsPageController::HandleNotify(hwnd, wParam, lParam)) {
                 return TRUE;
             }
             break;
-        }
     }
     return FALSE;
 }
