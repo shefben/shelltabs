@@ -1,5 +1,7 @@
 #include "OptionsStore.h"
 
+#include "Utilities.h"
+
 #include <ShlObj.h>
 #include <KnownFolders.h>
 #include <Shlwapi.h>
@@ -9,6 +11,7 @@
 #include <cwchar>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace shelltabs {
@@ -28,6 +31,9 @@ constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradi
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
+constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enabled";
+constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
+constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring Trim(const std::wstring& value) {
@@ -141,6 +147,37 @@ std::wstring ColorToHexString(COLORREF color) {
     return stream.str();
 }
 
+bool HasDirectoryPrefix(const std::wstring& path, const std::wstring& directory) {
+    if (path.size() < directory.size()) {
+        return false;
+    }
+    if (_wcsnicmp(path.c_str(), directory.c_str(), directory.size()) != 0) {
+        return false;
+    }
+    if (path.size() == directory.size()) {
+        return true;
+    }
+    const wchar_t separator = path[directory.size()];
+    return separator == L'\\';
+}
+
+std::wstring NormalizeCachePath(const std::wstring& path, const std::wstring& directory) {
+    if (path.empty() || directory.empty()) {
+        return {};
+    }
+
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    if (normalized.empty()) {
+        return {};
+    }
+
+    if (!HasDirectoryPrefix(normalized, directory)) {
+        return {};
+    }
+
+    return normalized;
+}
+
 }  // namespace
 
 OptionsStore& OptionsStore::Instance() {
@@ -180,6 +217,8 @@ bool OptionsStore::Load() {
     if (m_storagePath.empty()) {
         return false;
     }
+
+    const std::wstring storageDirectory = ResolveDirectory();
 
     HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -366,6 +405,43 @@ bool OptionsStore::Load() {
             }
             continue;
         }
+
+        if (tokens[0] == kFolderBackgroundsEnabledToken) {
+            if (tokens.size() >= 2) {
+                m_options.enableFolderBackgrounds = ParseBool(tokens[1]);
+            }
+            continue;
+        }
+
+        if (tokens[0] == kFolderBackgroundUniversalToken) {
+            if (tokens.size() >= 2) {
+                const std::wstring cachePath = NormalizeCachePath(tokens[1], storageDirectory);
+                if (!cachePath.empty()) {
+                    m_options.universalFolderBackgroundImage.cachedImagePath = cachePath;
+                    if (tokens.size() >= 3) {
+                        m_options.universalFolderBackgroundImage.displayName = tokens[2];
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (tokens[0] == kFolderBackgroundEntryToken) {
+            if (tokens.size() >= 3) {
+                FolderBackgroundEntry entry;
+                entry.folderPath = NormalizeFileSystemPath(tokens[1]);
+                if (!entry.folderPath.empty()) {
+                    entry.image.cachedImagePath = NormalizeCachePath(tokens[2], storageDirectory);
+                    if (!entry.image.cachedImagePath.empty()) {
+                        if (tokens.size() >= 4) {
+                            entry.image.displayName = tokens[3];
+                        }
+                        m_options.folderBackgroundEntries.emplace_back(std::move(entry));
+                    }
+                }
+            }
+            continue;
+        }
     }
 
     return true;
@@ -380,6 +456,8 @@ bool OptionsStore::Save() const {
     if (m_storagePath.empty()) {
         return false;
     }
+
+    const std::wstring storageDirectory = ResolveDirectory();
 
     std::wstring content = L"version|1\n";
     content += kReopenToken;
@@ -443,6 +521,47 @@ bool OptionsStore::Save() const {
     content += ColorToHexString(m_options.customTabUnselectedColor);
     content += L"\n";
 
+    content += kFolderBackgroundsEnabledToken;
+    content += L"|";
+    content += m_options.enableFolderBackgrounds ? L"1" : L"0";
+    content += L"\n";
+
+    const auto appendCachedImageLine = [&](const wchar_t* token, const std::wstring& path,
+                                           const std::wstring& displayName) {
+        const std::wstring normalizedPath = NormalizeCachePath(path, storageDirectory);
+        if (normalizedPath.empty()) {
+            return;
+        }
+
+        content += token;
+        content += L"|";
+        content += normalizedPath;
+        content += L"|";
+        content += displayName;
+        content += L"\n";
+    };
+
+    appendCachedImageLine(kFolderBackgroundUniversalToken, m_options.universalFolderBackgroundImage.cachedImagePath,
+                          m_options.universalFolderBackgroundImage.displayName);
+
+    for (const auto& entry : m_options.folderBackgroundEntries) {
+        const std::wstring normalizedFolder = NormalizeFileSystemPath(entry.folderPath);
+        const std::wstring normalizedCache =
+            NormalizeCachePath(entry.image.cachedImagePath, storageDirectory);
+        if (normalizedFolder.empty() || normalizedCache.empty()) {
+            continue;
+        }
+
+        content += kFolderBackgroundEntryToken;
+        content += L"|";
+        content += normalizedFolder;
+        content += L"|";
+        content += normalizedCache;
+        content += L"|";
+        content += entry.image.displayName;
+        content += L"\n";
+    }
+
     const std::string utf8 = WideToUtf8(content);
 
     HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
@@ -455,6 +574,14 @@ bool OptionsStore::Save() const {
     const BOOL result = WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr);
     CloseHandle(file);
     return result != FALSE;
+}
+
+bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {
+    return left.cachedImagePath == right.cachedImagePath && left.displayName == right.displayName;
+}
+
+bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
+    return left.folderPath == right.folderPath && left.image == right.image;
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
@@ -475,7 +602,10 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
-           left.customTabUnselectedColor == right.customTabUnselectedColor;
+           left.customTabUnselectedColor == right.customTabUnselectedColor &&
+           left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
+           left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
+           left.folderBackgroundEntries == right.folderBackgroundEntries;
 }
 
 }  // namespace shelltabs

@@ -3,8 +3,19 @@
 #include <windows.h>
 
 #include <string>
+#include <vector>
 
 namespace shelltabs {
+
+struct CachedImageMetadata {
+    std::wstring cachedImagePath;
+    std::wstring displayName;
+};
+
+struct FolderBackgroundEntry {
+    std::wstring folderPath;
+    CachedImageMetadata image;
+};
 
 struct ShellTabsOptions {
     bool reopenOnCrash = false;
@@ -26,6 +37,9 @@ struct ShellTabsOptions {
     COLORREF customTabSelectedColor = RGB(0, 120, 215);
     bool useCustomTabUnselectedColor = false;
     COLORREF customTabUnselectedColor = RGB(200, 200, 200);
+    bool enableFolderBackgrounds = false;
+    CachedImageMetadata universalFolderBackgroundImage;
+    std::vector<FolderBackgroundEntry> folderBackgroundEntries;
 };
 
 class OptionsStore {
@@ -51,6 +65,16 @@ private:
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept;
 inline bool operator!=(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept;
+inline bool operator!=(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept;
+inline bool operator!=(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
     return !(left == right);
 }
 
