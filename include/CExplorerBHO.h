@@ -73,6 +73,7 @@ struct ShellTabsOptions;
                 void RemoveProgressSubclass();
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
+                void RequestAddressEditRedraw(HWND hwnd) const;
                 bool EnsureProgressGradientResources();
                 void DestroyProgressGradientResources();
                 void UpdateExplorerViewSubclass();
