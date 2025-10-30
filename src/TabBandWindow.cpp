@@ -136,7 +136,6 @@ constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG = WM_APP + 60;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
 const wchar_t kOverlayWindowClassName[] = L"ShellTabsDragOverlay";
-const wchar_t kPreviewWindowClassName[] = L"ShellTabsPreviewWindow";
 constexpr UINT kPreviewHoverTime = 400;
 constexpr ULONGLONG kProgressStaleTimeoutMs = 3000;
 
@@ -2572,7 +2571,7 @@ void TabBandWindow::EnsureMouseTracking(const POINT& pt) {
 }
 
 void TabBandWindow::UpdateHoverPreview(const POINT& pt) {
-    if (!m_previewVisible || !m_hwnd) {
+    if (!m_previewVisible || !m_hwnd || !m_previewOverlay.IsVisible()) {
         return;
     }
     if (!PtInRect(&m_clientRect, pt) || m_previewItemIndex >= m_items.size()) {
@@ -2626,106 +2625,28 @@ void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
         return;
     }
 
-    HWND window = EnsurePreviewWindow();
-    if (!window) {
+    if (!m_previewOverlay.Show(m_hwnd, preview->bitmap, preview->size, screenPt)) {
+        HidePreviewWindow(false);
         return;
     }
-
-    HDC screenDC = GetDC(nullptr);
-    if (!screenDC) {
-        return;
-    }
-    HDC memDC = CreateCompatibleDC(screenDC);
-    if (!memDC) {
-        ReleaseDC(nullptr, screenDC);
-        return;
-    }
-    HGDIOBJ oldBitmap = SelectObject(memDC, preview->bitmap);
-    POINT dest = screenPt;
-    dest.x += 16;
-    dest.y += 16;
-    SIZE size = preview->size;
-    POINT src{0, 0};
-    BLENDFUNCTION blend{};
-    blend.BlendOp = AC_SRC_OVER;
-    blend.SourceConstantAlpha = 255;
-    blend.AlphaFormat = AC_SRC_ALPHA;
-    UpdateLayeredWindow(window, screenDC, &dest, &size, memDC, &src, 0, &blend, ULW_ALPHA);
-
-    SelectObject(memDC, oldBitmap);
-    DeleteDC(memDC);
-    ReleaseDC(nullptr, screenDC);
-
-    m_previewBitmap = preview->bitmap;
-    m_previewBitmapSize = preview->size;
     m_previewItemIndex = index;
     m_previewVisible = true;
-    ShowWindow(window, SW_SHOWNOACTIVATE);
     PositionPreviewWindow(visual, screenPt);
 }
 
 void TabBandWindow::HidePreviewWindow(bool destroy) {
-    if (m_previewWindow && IsWindow(m_previewWindow)) {
-        ShowWindow(m_previewWindow, SW_HIDE);
-        if (destroy) {
-            DestroyWindow(m_previewWindow);
-            m_previewWindow = nullptr;
-        }
-    }
+    m_previewOverlay.Hide(destroy);
     m_previewVisible = false;
     m_previewItemIndex = std::numeric_limits<size_t>::max();
-    m_previewBitmap = nullptr;
-}
-
-HWND TabBandWindow::EnsurePreviewWindow() {
-    if (m_previewWindow && IsWindow(m_previewWindow)) {
-        return m_previewWindow;
-    }
-    if (!m_hwnd) {
-        return nullptr;
-    }
-    static bool registered = false;
-    if (!registered) {
-        WNDCLASSW wc{};
-        wc.lpfnWndProc = DefWindowProcW;
-        wc.hInstance = GetModuleHandleInstance();
-        wc.lpszClassName = kPreviewWindowClassName;
-        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        if (!RegisterClassW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-            return nullptr;
-        }
-        registered = true;
-    }
-    m_previewWindow = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOACTIVATE,
-        kPreviewWindowClassName, L"", WS_POPUP, 0, 0, 0, 0, m_hwnd, nullptr, GetModuleHandleInstance(), nullptr);
-    return m_previewWindow;
 }
 
 void TabBandWindow::PositionPreviewWindow(const VisualItem& item, const POINT& screenPt) {
-    if (!m_previewWindow || !IsWindow(m_previewWindow)) {
+    if (!m_previewOverlay.IsVisible()) {
         return;
     }
     RECT rect = item.bounds;
     MapWindowPoints(m_hwnd, nullptr, reinterpret_cast<POINT*>(&rect), 2);
-    int width = m_previewBitmapSize.cx;
-    int height = m_previewBitmapSize.cy;
-    int x = rect.left + ((rect.right - rect.left) - width) / 2;
-    int y = rect.bottom + 8;
-    HMONITOR monitor = MonitorFromPoint(screenPt, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO info{sizeof(info)};
-    if (GetMonitorInfoW(monitor, &info)) {
-        x = std::clamp<int>(x, static_cast<int>(info.rcWork.left) + 4,
-                            static_cast<int>(info.rcWork.right) - width - 4);
-        if (y + height > info.rcWork.bottom) {
-            y = rect.top - height - 8;
-        }
-        if (y < info.rcWork.top + 4) {
-            y = info.rcWork.top + 4;
-        }
-    }
-    SetWindowPos(m_previewWindow, HWND_TOPMOST, x, y, width, height,
-                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+    m_previewOverlay.PositionRelativeToRect(rect, screenPt);
 }
 
 void TabBandWindow::RefreshProgressState() {
