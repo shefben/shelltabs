@@ -2996,7 +2996,7 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
     std::wstring text;
     const int length = GetWindowTextLengthW(hwnd);
     if (length > 0) {
-        text.resize(length);
+        text.resize(static_cast<size_t>(length) + 1);
         int copied = GetWindowTextW(hwnd, text.data(), length + 1);
         if (copied < 0) {
             copied = 0;
