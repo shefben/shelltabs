@@ -40,8 +40,6 @@
 namespace shelltabs {
 namespace {
 
-struct OptionsDialogData;
-
 constexpr int kMainCheckboxWidth = 210;
 constexpr int kMainDialogWidth = 260;
 constexpr int kMainDialogHeight = 430;
@@ -119,6 +117,40 @@ enum ControlIds : int {
     IDC_EDITOR_COLOR_BUTTON = 5207,
     IDC_EDITOR_STYLE_LABEL = 5208,
     IDC_EDITOR_STYLE_COMBO = 5209,
+};
+
+struct ChildPlacement {
+    HWND hwnd = nullptr;
+    RECT rect{};
+};
+
+struct OptionsDialogData {
+    ShellTabsOptions originalOptions;
+    ShellTabsOptions workingOptions;
+    bool applyInvoked = false;
+    bool groupsChanged = false;
+    bool previewOptionsBroadcasted = false;
+    int initialTab = 0;
+    std::vector<SavedGroup> originalGroups;
+    std::vector<SavedGroup> workingGroups;
+    HBRUSH breadcrumbBgStartBrush = nullptr;
+    HBRUSH breadcrumbBgEndBrush = nullptr;
+    HBRUSH breadcrumbFontStartBrush = nullptr;
+    HBRUSH breadcrumbFontEndBrush = nullptr;
+    HBRUSH progressStartBrush = nullptr;
+    HBRUSH progressEndBrush = nullptr;
+    HBRUSH tabSelectedBrush = nullptr;
+    HBRUSH tabUnselectedBrush = nullptr;
+    HBITMAP universalBackgroundPreview = nullptr;
+    HBITMAP folderBackgroundPreview = nullptr;
+    std::wstring lastFolderBrowsePath;
+    std::wstring lastImageBrowseDirectory;
+    std::vector<std::wstring> createdCachedImagePaths;
+    std::vector<std::wstring> pendingCachedImageRemovals;
+    std::vector<ChildPlacement> customizationChildPlacements;
+    int customizationScrollPos = 0;
+    int customizationContentHeight = 0;
+    int customizationScrollMax = 0;
 };
 
 void AlignDialogBuffer(std::vector<BYTE>& buffer) {
@@ -896,40 +928,6 @@ std::vector<BYTE> BuildGroupEditorTemplate() {
     AlignDialogBuffer(data);
     return data;
 }
-
-struct ChildPlacement {
-    HWND hwnd = nullptr;
-    RECT rect{};
-};
-
-struct OptionsDialogData {
-    ShellTabsOptions originalOptions;
-    ShellTabsOptions workingOptions;
-    bool applyInvoked = false;
-    bool groupsChanged = false;
-    bool previewOptionsBroadcasted = false;
-    int initialTab = 0;
-    std::vector<SavedGroup> originalGroups;
-    std::vector<SavedGroup> workingGroups;
-    HBRUSH breadcrumbBgStartBrush = nullptr;
-    HBRUSH breadcrumbBgEndBrush = nullptr;
-    HBRUSH breadcrumbFontStartBrush = nullptr;
-    HBRUSH breadcrumbFontEndBrush = nullptr;
-    HBRUSH progressStartBrush = nullptr;
-    HBRUSH progressEndBrush = nullptr;
-    HBRUSH tabSelectedBrush = nullptr;
-    HBRUSH tabUnselectedBrush = nullptr;
-    HBITMAP universalBackgroundPreview = nullptr;
-    HBITMAP folderBackgroundPreview = nullptr;
-    std::wstring lastFolderBrowsePath;
-    std::wstring lastImageBrowseDirectory;
-    std::vector<std::wstring> createdCachedImagePaths;
-    std::vector<std::wstring> pendingCachedImageRemovals;
-    std::vector<ChildPlacement> customizationChildPlacements;
-    int customizationScrollPos = 0;
-    int customizationContentHeight = 0;
-    int customizationScrollMax = 0;
-};
 
 bool EqualsInsensitive(const std::wstring& left, const std::wstring& right) {
     return _wcsicmp(left.c_str(), right.c_str()) == 0;
