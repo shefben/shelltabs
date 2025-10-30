@@ -40,6 +40,8 @@
 namespace shelltabs {
 namespace {
 
+struct OptionsDialogData;
+
 constexpr int kMainCheckboxWidth = 210;
 constexpr int kMainDialogWidth = 260;
 constexpr int kMainDialogHeight = 430;
@@ -1000,7 +1002,7 @@ bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* displayName, 
 
     wchar_t buffer[MAX_PATH] = {};
     if (!path->empty() && path->size() < ARRAYSIZE(buffer)) {
-        wcsncpy_s(buffer, *path, _TRUNCATE);
+        wcsncpy_s(buffer, ARRAYSIZE(buffer), path->c_str(), _TRUNCATE);
     }
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
@@ -1103,7 +1105,7 @@ void RefreshFolderBackgroundListView(HWND list, const OptionsDialogData* data) {
         item.iItem = static_cast<int>(i);
         item.pszText = const_cast<wchar_t*>(entry.folderPath.c_str());
         item.lParam = static_cast<LPARAM>(i);
-        const int index = ListView_InsertItemW(list, &item);
+        const int index = ListView_InsertItem(list, &item);
         if (index >= 0) {
             ListView_SetItemText(list, index, 1, const_cast<wchar_t*>(entry.image.displayName.c_str()));
         }
@@ -1249,7 +1251,7 @@ BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     placement.rect.bottom = bottomRight.y;
     context->data->customizationChildPlacements.push_back(placement);
     context->data->customizationContentHeight =
-        std::max(context->data->customizationContentHeight, placement.rect.bottom);
+        std::max(context->data->customizationContentHeight, static_cast<int>(placement.rect.bottom));
     return TRUE;
 }
 
