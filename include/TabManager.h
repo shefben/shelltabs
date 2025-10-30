@@ -14,6 +14,12 @@ enum class TabViewItemType {
     kTab,
 };
 
+enum class TabGroupOutlineStyle {
+    kSolid,
+    kDashed,
+    kDotted,
+};
+
 struct TabLocation {
     int groupIndex = -1;
     int tabIndex = -1;
@@ -37,6 +43,7 @@ struct TabGroup {
     std::wstring savedGroupId;
     bool hasCustomOutline = false;
     COLORREF outlineColor = RGB(0, 120, 215);
+    TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
 };
 
 struct TabViewItem {
@@ -53,6 +60,7 @@ struct TabViewItem {
     std::wstring path;
     bool hasCustomOutline = false;
     COLORREF outlineColor = 0;
+    TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
     std::wstring savedGroupId;
     bool isSavedGroup = false;
     bool headerVisible = true;

@@ -94,6 +94,7 @@ private:
         COLORREF color = RGB(0, 0, 0);
         bool initialized = false;
         bool visible = false;
+        TabGroupOutlineStyle style = TabGroupOutlineStyle::kSolid;
     };
 
     struct ExplorerContext {
