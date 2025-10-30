@@ -4,7 +4,6 @@
 
 #include "ColorSerialization.h"
 
-#include <ShlObj.h>
 #include <Shlwapi.h>
 
 #include <algorithm>
@@ -17,7 +16,6 @@
 
 namespace shelltabs {
 namespace {
-constexpr wchar_t kStorageDirectory[] = L"ShellTabs";
 constexpr wchar_t kStorageFile[] = L"session.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kGroupToken[] = L"group";
@@ -28,26 +26,8 @@ constexpr wchar_t kDockToken[] = L"dock";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
 
-std::wstring ResolveStorageDirectory() {
-    PWSTR knownFolder = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
-        return {};
-    }
-
-    std::wstring base(knownFolder);
-    CoTaskMemFree(knownFolder);
-
-    if (!base.empty() && base.back() != L'\\') {
-        base.push_back(L'\\');
-    }
-    base += kStorageDirectory;
-    CreateDirectoryW(base.c_str(), nullptr);
-
-    return base;
-}
-
 std::wstring ResolveStoragePath() {
-    std::wstring base = ResolveStorageDirectory();
+    std::wstring base = GetShellTabsDataDirectory();
     if (base.empty()) {
         return {};
     }
@@ -71,7 +51,7 @@ SessionStore::SessionStore(std::wstring storagePath) : m_storagePath(std::move(s
 }
 
 std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
-    std::wstring directory = ResolveStorageDirectory();
+    std::wstring directory = GetShellTabsDataDirectory();
     if (directory.empty()) {
         return {};
     }
@@ -102,7 +82,7 @@ bool SessionStore::WasPreviousSessionUnclean() {
     if (g_activeSessionCount.load(std::memory_order_acquire) > 0) {
         return false;
     }
-    std::wstring directory = ResolveStorageDirectory();
+    std::wstring directory = GetShellTabsDataDirectory();
     if (directory.empty()) {
         return false;
     }
@@ -114,7 +94,7 @@ bool SessionStore::WasPreviousSessionUnclean() {
 }
 
 void SessionStore::MarkSessionActive() {
-    std::wstring directory = ResolveStorageDirectory();
+    std::wstring directory = GetShellTabsDataDirectory();
     if (directory.empty()) {
         return;
     }
@@ -134,7 +114,7 @@ void SessionStore::MarkSessionActive() {
 }
 
 void SessionStore::ClearSessionMarker() {
-    std::wstring directory = ResolveStorageDirectory();
+    std::wstring directory = GetShellTabsDataDirectory();
     if (directory.empty()) {
         g_activeSessionCount.store(0, std::memory_order_release);
         return;

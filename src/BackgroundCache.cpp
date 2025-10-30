@@ -3,8 +3,6 @@
 #include "Logging.h"
 #include "Utilities.h"
 
-#include <KnownFolders.h>
-#include <ShlObj.h>
 #include <Shlwapi.h>
 #include <objbase.h>
 
@@ -12,27 +10,6 @@
 
 namespace shelltabs {
 namespace {
-
-std::wstring EnsureShellTabsDataDirectory() {
-    PWSTR knownFolder = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) ||
-        !knownFolder) {
-        return {};
-    }
-
-    std::wstring directory(knownFolder);
-    CoTaskMemFree(knownFolder);
-    if (directory.empty()) {
-        return {};
-    }
-
-    if (directory.back() != L'\\') {
-        directory.push_back(L'\\');
-    }
-    directory += L"ShellTabs";
-    CreateDirectoryW(directory.c_str(), nullptr);
-    return directory;
-}
 
 std::wstring NormalizeAndEnsureTrailingSlash(const std::wstring& path) {
     if (path.empty()) {
@@ -53,7 +30,7 @@ std::wstring NormalizeAndEnsureTrailingSlash(const std::wstring& path) {
 }  // namespace
 
 std::wstring EnsureBackgroundCacheDirectory() {
-    std::wstring directory = EnsureShellTabsDataDirectory();
+    std::wstring directory = GetShellTabsDataDirectory();
     if (directory.empty()) {
         return {};
     }

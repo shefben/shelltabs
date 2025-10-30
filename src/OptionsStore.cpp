@@ -3,8 +3,6 @@
 #include "StringUtils.h"
 #include "Utilities.h"
 
-#include <ShlObj.h>
-#include <KnownFolders.h>
 #include <Shlwapi.h>
 
 #include <algorithm>
@@ -17,7 +15,6 @@
 
 namespace shelltabs {
 namespace {
-constexpr wchar_t kStorageDirectory[] = L"ShellTabs";
 constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
@@ -41,23 +38,6 @@ constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_univer
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
 constexpr wchar_t kCommentChar = L'#';
-
-std::wstring ResolveDirectory() {
-    PWSTR knownFolder = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
-        return {};
-    }
-
-    std::wstring base(knownFolder);
-    CoTaskMemFree(knownFolder);
-
-    if (!base.empty() && base.back() != L'\\') {
-        base.push_back(L'\\');
-    }
-    base += kStorageDirectory;
-    CreateDirectoryW(base.c_str(), nullptr);
-    return base;
-}
 
 int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fallback) {
     if (token.empty()) {
@@ -148,7 +128,7 @@ std::wstring OptionsStore::ResolveStoragePath() const {
         return m_storagePath;
     }
 
-    std::wstring directory = ResolveDirectory();
+    std::wstring directory = GetShellTabsDataDirectory();
     if (directory.empty()) {
         return {};
     }
@@ -169,7 +149,7 @@ bool OptionsStore::Load() {
         return false;
     }
 
-    const std::wstring storageDirectory = ResolveDirectory();
+    const std::wstring storageDirectory = GetShellTabsDataDirectory();
 
     HANDLE file = CreateFileW(m_storagePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                FILE_ATTRIBUTE_NORMAL, nullptr);
