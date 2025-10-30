@@ -59,46 +59,6 @@ std::wstring ResolveDirectory() {
     return base;
 }
 
-bool ParseBool(const std::wstring& token) {
-    return token == L"1" || token == L"true" || token == L"TRUE" || token == L"yes" || token == L"on";
-}
-
-TabBandDockMode ParseDockMode(const std::wstring& token) {
-    if (token.empty()) {
-        return TabBandDockMode::kAutomatic;
-    }
-
-    if (_wcsicmp(token.c_str(), L"top") == 0) {
-        return TabBandDockMode::kTop;
-    }
-    if (_wcsicmp(token.c_str(), L"bottom") == 0) {
-        return TabBandDockMode::kBottom;
-    }
-    if (_wcsicmp(token.c_str(), L"left") == 0) {
-        return TabBandDockMode::kLeft;
-    }
-    if (_wcsicmp(token.c_str(), L"right") == 0) {
-        return TabBandDockMode::kRight;
-    }
-
-    return TabBandDockMode::kAutomatic;
-}
-
-std::wstring DockModeToString(TabBandDockMode mode) {
-    switch (mode) {
-        case TabBandDockMode::kTop:
-            return L"top";
-        case TabBandDockMode::kBottom:
-            return L"bottom";
-        case TabBandDockMode::kLeft:
-            return L"left";
-        case TabBandDockMode::kRight:
-            return L"right";
-        default:
-            return L"auto";
-    }
-}
-
 int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fallback) {
     if (token.empty()) {
         return fallback;
