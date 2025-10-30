@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <memory>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -96,9 +97,11 @@ struct ShellTabsOptions;
 		bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
 		bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
 		bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
-		bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
-		bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
-		void DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const;
+                bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
+                std::wstring ResolveTreeViewItemKey(HTREEITEM item) const;
+                COLORREF EnsureTreeViewItemColor(HTREEITEM item);
+                bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
+                void DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const;
 		void ClearPendingOpenInNewTabState();
 		void EnsureBreadcrumbHook();
 		void RemoveBreadcrumbHook();
@@ -187,6 +190,8 @@ struct ShellTabsOptions;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
+                std::unordered_map<std::wstring, COLORREF> m_treeViewHighlightColors;
+                std::mt19937 m_randomEngine;
                 bool m_folderBackgroundsEnabled = false;
                 std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
                 std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
