@@ -837,7 +837,7 @@ void TabBandWindow::RebuildLayout() {
 
                 visual.badgeWidth = 0;
 
-		visual.icon = LoadItemIcon(item);
+                visual.icon = LoadItemIcon(item, SHGFI_SMALLICON);
 		if (visual.icon) {
 			visual.iconWidth = baseIconWidth;
 			visual.iconHeight = baseIconHeight;
@@ -2515,13 +2515,18 @@ void TabBandWindow::ClearExplorerContext() {
     m_explorerContext = {};
 }
 
-HICON TabBandWindow::LoadItemIcon(const TabViewItem& item) const {
+HICON TabBandWindow::GetTaskbarIcon(const TabViewItem& item, bool smallIcon) const {
+    const UINT sizeFlag = smallIcon ? SHGFI_SMALLICON : SHGFI_LARGEICON;
+    return LoadItemIcon(item, sizeFlag);
+}
+
+HICON TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT iconFlags) const {
     if (item.type != TabViewItemType::kTab) {
         return nullptr;
     }
 
     SHFILEINFOW info{};
-    UINT flags = SHGFI_ICON | SHGFI_SMALLICON | SHGFI_ADDOVERLAYS;
+    const UINT flags = SHGFI_ICON | SHGFI_ADDOVERLAYS | iconFlags;
     if (item.pidl) {
         if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(item.pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
             return info.hIcon;

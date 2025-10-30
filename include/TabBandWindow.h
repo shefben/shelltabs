@@ -46,6 +46,7 @@ public:
 	STDMETHOD(GetSite)(REFIID riid, void** ppvSite);
     void Show(bool show);
     void SetTabs(const std::vector<TabViewItem>& items);
+    HICON GetTaskbarIcon(const TabViewItem& item, bool smallIcon) const;
     bool HasFocus() const;
     void FocusTab();
     void RefreshTheme();
@@ -234,7 +235,7 @@ private:
     void DrawDragVisual(HDC dc) const;
     void ClearVisualItems();
     void ClearExplorerContext();
-    HICON LoadItemIcon(const TabViewItem& item) const;
+    HICON LoadItemIcon(const TabViewItem& item, UINT iconFlags) const;
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void EnsureMouseTracking(const POINT& pt);
     void UpdateHoverPreview(const POINT& pt);
