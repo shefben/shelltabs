@@ -164,102 +164,83 @@ bool OptionsStore::Load() {
     }
 
     int version = 1;
-    size_t lineStart = 0;
-    while (lineStart < content.size()) {
-        size_t lineEnd = content.find(L'\n', lineStart);
-        std::wstring line = content.substr(lineStart,
-                                           lineEnd == std::wstring::npos ? std::wstring::npos : lineEnd - lineStart);
-        if (lineEnd == std::wstring::npos) {
-            lineStart = content.size();
-        } else {
-            lineStart = lineEnd + 1;
-        }
-
-        line = Trim(line);
-        if (line.empty() || line.front() == kCommentChar) {
-            continue;
-        }
-
-        auto tokens = Split(line, L'|');
+    ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring>& tokens) {
         if (tokens.empty()) {
-            continue;
+            return true;
         }
 
-        for (auto& token : tokens) {
-            token = Trim(token);
-        }
-
-        if (tokens[0] == kVersionToken) {
+        const std::wstring& header = tokens[0];
+        if (header == kVersionToken) {
             if (tokens.size() >= 2) {
                 version = _wtoi(tokens[1].c_str());
                 if (version < 1) {
                     version = 1;
                 }
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kReopenToken) {
+        if (header == kReopenToken) {
             if (tokens.size() >= 2) {
                 m_options.reopenOnCrash = ParseBool(tokens[1]);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kPersistToken) {
+        if (header == kPersistToken) {
             if (tokens.size() >= 2) {
                 m_options.persistGroupPaths = ParseBool(tokens[1]);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbGradientToken) {
+        if (header == kBreadcrumbGradientToken) {
             if (tokens.size() >= 2) {
                 m_options.enableBreadcrumbGradient = ParseBool(tokens[1]);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbFontGradientToken) {
+        if (header == kBreadcrumbFontGradientToken) {
             if (tokens.size() >= 2) {
                 m_options.enableBreadcrumbFontGradient = ParseBool(tokens[1]);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbGradientTransparencyToken) {
+        if (header == kBreadcrumbGradientTransparencyToken) {
             if (tokens.size() >= 2) {
                 m_options.breadcrumbGradientTransparency =
                     ParseIntInRange(tokens[1], 0, 100, m_options.breadcrumbGradientTransparency);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbFontBrightnessToken) {
+        if (header == kBreadcrumbFontBrightnessToken) {
             if (tokens.size() >= 2) {
                 m_options.breadcrumbFontBrightness =
                     ParseIntInRange(tokens[1], 0, 100, m_options.breadcrumbFontBrightness);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbHighlightAlphaMultiplierToken) {
+        if (header == kBreadcrumbHighlightAlphaMultiplierToken) {
             if (tokens.size() >= 2) {
                 m_options.breadcrumbHighlightAlphaMultiplier =
                     ParseIntInRange(tokens[1], 0, 200, m_options.breadcrumbHighlightAlphaMultiplier);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbDropdownAlphaMultiplierToken) {
+        if (header == kBreadcrumbDropdownAlphaMultiplierToken) {
             if (tokens.size() >= 2) {
                 m_options.breadcrumbDropdownAlphaMultiplier =
                     ParseIntInRange(tokens[1], 0, 200, m_options.breadcrumbDropdownAlphaMultiplier);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbFontTransparencyToken) {
+        if (header == kBreadcrumbFontTransparencyToken) {
             if (tokens.size() >= 2) {
                 const int defaultBrightness = m_options.breadcrumbFontBrightness;
                 const int legacyTransparency =
@@ -268,10 +249,10 @@ bool OptionsStore::Load() {
                 m_options.breadcrumbFontBrightness =
                     std::clamp(legacyOpacity * defaultBrightness / 100, 0, 100);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbGradientColorsToken) {
+        if (header == kBreadcrumbGradientColorsToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomBreadcrumbGradientColors = ParseBool(tokens[1]);
             }
@@ -283,10 +264,10 @@ bool OptionsStore::Load() {
                 m_options.breadcrumbGradientEndColor =
                     ParseColorValue(tokens[3], m_options.breadcrumbGradientEndColor);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kBreadcrumbFontGradientColorsToken) {
+        if (header == kBreadcrumbFontGradientColorsToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomBreadcrumbFontColors = ParseBool(tokens[1]);
             }
@@ -298,10 +279,10 @@ bool OptionsStore::Load() {
                 m_options.breadcrumbFontGradientEndColor =
                     ParseColorValue(tokens[3], m_options.breadcrumbFontGradientEndColor);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kProgressGradientColorsToken) {
+        if (header == kProgressGradientColorsToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomProgressBarGradientColors = ParseBool(tokens[1]);
             }
@@ -313,10 +294,10 @@ bool OptionsStore::Load() {
                 m_options.progressBarGradientEndColor =
                     ParseColorValue(tokens[3], m_options.progressBarGradientEndColor);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kTabSelectedColorToken) {
+        if (header == kTabSelectedColorToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomTabSelectedColor = ParseBool(tokens[1]);
             }
@@ -324,10 +305,10 @@ bool OptionsStore::Load() {
                 m_options.customTabSelectedColor =
                     ParseColorValue(tokens[2], m_options.customTabSelectedColor);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kTabUnselectedColorToken) {
+        if (header == kTabUnselectedColorToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomTabUnselectedColor = ParseBool(tokens[1]);
             }
@@ -335,17 +316,17 @@ bool OptionsStore::Load() {
                 m_options.customTabUnselectedColor =
                     ParseColorValue(tokens[2], m_options.customTabUnselectedColor);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kFolderBackgroundsEnabledToken) {
+        if (header == kFolderBackgroundsEnabledToken) {
             if (tokens.size() >= 2) {
                 m_options.enableFolderBackgrounds = ParseBool(tokens[1]);
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kFolderBackgroundUniversalToken) {
+        if (header == kFolderBackgroundUniversalToken) {
             if (tokens.size() >= 2) {
                 const std::wstring cachePath = NormalizeCachePath(tokens[1], storageDirectory);
                 if (!cachePath.empty()) {
@@ -355,10 +336,10 @@ bool OptionsStore::Load() {
                     }
                 }
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kFolderBackgroundEntryToken) {
+        if (header == kFolderBackgroundEntryToken) {
             if (tokens.size() >= 3) {
                 FolderBackgroundEntry entry;
                 entry.folderPath = NormalizeFileSystemPath(tokens[1]);
@@ -372,16 +353,18 @@ bool OptionsStore::Load() {
                     }
                 }
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kTabDockingToken) {
+        if (header == kTabDockingToken) {
             if (tokens.size() >= 2) {
                 m_options.tabDockMode = ParseDockMode(tokens[1]);
             }
-            continue;
+            return true;
         }
-    }
+
+        return true;
+    });
 
     m_loaded = true;
     return true;

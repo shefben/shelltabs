@@ -167,28 +167,9 @@ bool SessionStore::Load(SessionData& data) const {
     int version = 1;
     SessionGroup* currentGroup = nullptr;
 
-    size_t lineStart = 0;
-    while (lineStart < content.size()) {
-        size_t lineEnd = content.find(L'\n', lineStart);
-        std::wstring line = content.substr(lineStart, lineEnd == std::wstring::npos ? std::wstring::npos : lineEnd - lineStart);
-        if (lineEnd == std::wstring::npos) {
-            lineStart = content.size();
-        } else {
-            lineStart = lineEnd + 1;
-        }
-
-        line = Trim(line);
-        if (line.empty() || line.front() == kCommentChar) {
-            continue;
-        }
-
-        auto tokens = Split(line, L'|');
+    const bool parsed = ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring>& tokens) {
         if (tokens.empty()) {
-            continue;
-        }
-
-        for (auto& token : tokens) {
-            token = Trim(token);
+            return true;
         }
 
         const std::wstring& header = tokens.front();
@@ -201,22 +182,34 @@ bool SessionStore::Load(SessionData& data) const {
                 return false;
             }
             versionSeen = true;
-        } else if (header == kSelectedToken) {
+            return true;
+        }
+
+        if (header == kSelectedToken) {
             if (tokens.size() >= 3) {
                 data.selectedGroup = _wtoi(tokens[1].c_str());
                 data.selectedTab = _wtoi(tokens[2].c_str());
             }
-        } else if (header == kSequenceToken) {
+            return true;
+        }
+
+        if (header == kSequenceToken) {
             if (tokens.size() >= 2) {
                 data.groupSequence = std::max(1, _wtoi(tokens[1].c_str()));
             }
-        } else if (header == kDockToken) {
+            return true;
+        }
+
+        if (header == kDockToken) {
             if (tokens.size() >= 2) {
                 data.dockMode = ParseDockMode(tokens[1]);
             }
-        } else if (header == kGroupToken) {
+            return true;
+        }
+
+        if (header == kGroupToken) {
             if (tokens.size() < 3) {
-                continue;
+                return true;
             }
             SessionGroup group;
             group.name = tokens[1];
@@ -257,9 +250,12 @@ bool SessionStore::Load(SessionData& data) const {
             }
             data.groups.emplace_back(std::move(group));
             currentGroup = &data.groups.back();
-        } else if (header == kTabToken) {
+            return true;
+        }
+
+        if (header == kTabToken) {
             if (!currentGroup || tokens.size() < 5) {
-                continue;
+                return true;
             }
             SessionTab tab;
             tab.name = tokens[1];
@@ -267,7 +263,14 @@ bool SessionStore::Load(SessionData& data) const {
             tab.hidden = ParseBool(tokens[3]);
             tab.path = tokens[4];
             currentGroup->tabs.emplace_back(std::move(tab));
+            return true;
         }
+
+        return true;
+    });
+
+    if (!parsed) {
+        return false;
     }
 
     return versionSeen && !data.groups.empty();
