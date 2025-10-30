@@ -22,6 +22,7 @@ add_library(ShellTabs SHARED
     src/TabManager.cpp
     src/OpenFolderCommand.cpp
     src/BrowserEvents.cpp
+    src/BackgroundCache.cpp
     src/FtpClient.cpp
     src/FtpShellFolder.cpp
     src/FtpPidl.cpp
