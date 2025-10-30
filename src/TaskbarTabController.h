@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 #include "TabManager.h"
+#include "TaskbarProxyWindow.h"
 
 namespace shelltabs {
 
