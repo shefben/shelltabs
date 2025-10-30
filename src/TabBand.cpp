@@ -1533,6 +1533,11 @@ void TabBand::NavigateToTab(TabLocation location) {
         return;
     }
 
+    const auto current = m_tabs.SelectedLocation();
+    if (current.groupIndex != location.groupIndex || current.tabIndex != location.tabIndex) {
+        CaptureActiveTabPreview();
+    }
+
     m_tabs.SetGroupCollapsed(location.groupIndex, false);
     m_tabs.SetSelectedLocation(location);
     SaveSession();

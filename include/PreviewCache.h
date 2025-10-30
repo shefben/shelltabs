@@ -27,7 +27,7 @@ struct PreviewImage {
 
 inline constexpr SIZE kPreviewImageSize{192, 128};
 
-// Provides cached thumbnails for PIDLs using IShellItemImageFactory.
+// Provides cached previews for PIDLs captured from Explorer folder views.
 class PreviewCache {
 public:
     static PreviewCache& Instance();
