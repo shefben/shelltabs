@@ -10,6 +10,9 @@
 
 #include <windows.h>
 
+#include <objidl.h>
+#include <propidl.h>
+
 #include <memory>
 #include <string>
 
