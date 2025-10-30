@@ -188,6 +188,16 @@ void ForceExplorerUIRefresh(HWND parentWindow) {
     RedrawWindow(parentWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_ERASE);
 }
 
+void ApplyCustomizationPreview(HWND pageWindow, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+
+    OptionsStore::Instance().Set(data->workingOptions);
+    data->previewOptionsBroadcasted = true;
+    ForceExplorerUIRefresh(GetParent(pageWindow));
+}
+
 std::vector<BYTE> BuildMainPageTemplate() {
     std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
@@ -895,6 +905,7 @@ struct OptionsDialogData {
     ShellTabsOptions workingOptions;
     bool applyInvoked = false;
     bool groupsChanged = false;
+    bool previewOptionsBroadcasted = false;
     int initialTab = 0;
     std::vector<SavedGroup> originalGroups;
     std::vector<SavedGroup> workingGroups;
@@ -2507,6 +2518,25 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     (controlId == IDC_MAIN_BREADCRUMB_FONT_SLIDER) ? InvertPercentageValue(sliderValue)
                                                                    : sliderValue;
                 UpdatePercentageLabel(hwnd, labelId, displayValue);
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                bool previewNeeded = false;
+                if (data) {
+                    if (controlId == IDC_MAIN_BREADCRUMB_BG_SLIDER) {
+                        if (data->workingOptions.breadcrumbGradientTransparency != sliderValue) {
+                            data->workingOptions.breadcrumbGradientTransparency = sliderValue;
+                            previewNeeded = true;
+                        }
+                    } else {
+                        const int brightnessValue = InvertPercentageValue(sliderValue);
+                        if (data->workingOptions.breadcrumbFontBrightness != brightnessValue) {
+                            data->workingOptions.breadcrumbFontBrightness = brightnessValue;
+                            previewNeeded = true;
+                        }
+                    }
+                }
+                if (previewNeeded) {
+                    ApplyCustomizationPreview(hwnd, data);
+                }
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
             }
             return TRUE;
@@ -2786,6 +2816,10 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
         result.saved = false;
         result.groupsChanged = false;
         result.optionsChanged = false;
+        if (data.previewOptionsBroadcasted) {
+            store.Set(data.originalOptions);
+            ForceExplorerUIRefresh(parent);
+        }
         for (const auto& path : data.createdCachedImagePaths) {
             if (!path.empty()) {
                 DeleteFileW(path.c_str());
