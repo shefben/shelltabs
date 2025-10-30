@@ -10,6 +10,7 @@
 #include <uxtheme.h>
 #include <OleIdl.h>
 #include <gdiplus.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <array>
@@ -32,6 +33,7 @@
 #include "Module.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
+#include "TabManager.h"
 #include "Utilities.h"
 
 #ifndef TBSTATE_HOT
@@ -313,6 +315,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1) {
 
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
+    ClearListViewAccentCache();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
         m_bufferedPaintInitialized = false;
@@ -1201,6 +1204,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     m_shellViewWindow = nullptr;
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
+    ClearListViewAccentCache();
 }
 
 void CExplorerBHO::ClearFolderBackgrounds() {
@@ -1327,6 +1331,168 @@ bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
     return status == Gdiplus::Ok;
 }
 
+void CExplorerBHO::ClearListViewAccentCache() {
+    for (auto& entry : m_listViewAccentCache) {
+        if (entry.second.selectionBrush) {
+            DeleteObject(entry.second.selectionBrush);
+            entry.second.selectionBrush = nullptr;
+        }
+        if (entry.second.focusRectPen) {
+            DeleteObject(entry.second.focusRectPen);
+            entry.second.focusRectPen = nullptr;
+        }
+    }
+    m_listViewAccentCache.clear();
+}
+
+CExplorerBHO::ListViewAccentEntry* CExplorerBHO::GetOrCreateListViewAccentEntry(HWND listView,
+                                                                                COLORREF accentColor) {
+    if (!listView || !IsWindow(listView)) {
+        return nullptr;
+    }
+    auto& entry = m_listViewAccentCache[listView];
+    if (entry.accentColor != accentColor || !entry.selectionBrush || !entry.focusRectPen) {
+        if (entry.selectionBrush) {
+            DeleteObject(entry.selectionBrush);
+            entry.selectionBrush = nullptr;
+        }
+        if (entry.focusRectPen) {
+            DeleteObject(entry.focusRectPen);
+            entry.focusRectPen = nullptr;
+        }
+        entry.selectionBrush = CreateSolidBrush(accentColor);
+        entry.focusRectPen = CreatePen(PS_SOLID, 1, accentColor);
+        if (!entry.selectionBrush || !entry.focusRectPen) {
+            const DWORD error = GetLastError();
+            if (entry.selectionBrush) {
+                DeleteObject(entry.selectionBrush);
+                entry.selectionBrush = nullptr;
+            }
+            if (entry.focusRectPen) {
+                DeleteObject(entry.focusRectPen);
+                entry.focusRectPen = nullptr;
+            }
+            entry.accentColor = CLR_INVALID;
+            LogLastError(L"Allocate list view accent resources", error);
+            return nullptr;
+        }
+        entry.accentColor = accentColor;
+    }
+    return &entry;
+}
+
+void CExplorerBHO::ReleaseListViewAccentResources(HWND listView) {
+    auto it = m_listViewAccentCache.find(listView);
+    if (it == m_listViewAccentCache.end()) {
+        return;
+    }
+    if (it->second.selectionBrush) {
+        DeleteObject(it->second.selectionBrush);
+        it->second.selectionBrush = nullptr;
+    }
+    if (it->second.focusRectPen) {
+        DeleteObject(it->second.focusRectPen);
+        it->second.focusRectPen = nullptr;
+    }
+    m_listViewAccentCache.erase(it);
+}
+
+COLORREF CExplorerBHO::ResolveActiveTabGroupAccentColor() const {
+    COLORREF accent = GetSysColor(COLOR_HOTLIGHT);
+    DWORD colorization = 0;
+    BOOL opaque = FALSE;
+    if (SUCCEEDED(DwmGetColorizationColor(&colorization, &opaque))) {
+        accent = RGB((colorization >> 16) & 0xFF, (colorization >> 8) & 0xFF, colorization & 0xFF);
+    }
+    if (m_useCustomTabSelectedColor) {
+        accent = m_customTabSelectedColor;
+    }
+
+    const TabManager& manager = TabManager::Get();
+    const TabLocation location = manager.SelectedLocation();
+    const TabGroup* group = manager.GetGroup(location.groupIndex);
+    if (group && group->hasCustomOutline) {
+        accent = group->outlineColor;
+    }
+
+    return accent;
+}
+
+bool CExplorerBHO::HandleListViewCustomDraw(tagNMLVCUSTOMDRAW* customDraw, LRESULT* result) {
+    if (!customDraw || !result || !m_useListViewAccentColors || !m_listView) {
+        return false;
+    }
+
+    auto* draw = reinterpret_cast<NMLVCUSTOMDRAW*>(customDraw);
+    if (!draw || draw->nmcd.hdr.hwndFrom != m_listView) {
+        return false;
+    }
+
+    switch (draw->nmcd.dwDrawStage) {
+        case CDDS_PREPAINT:
+            *result = CDRF_NOTIFYITEMDRAW;
+            return true;
+        case CDDS_ITEMPREPAINT: {
+            if ((draw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+                *result = CDRF_DODEFAULT;
+                return true;
+            }
+            const COLORREF accent = ResolveActiveTabGroupAccentColor();
+            if (accent == CLR_INVALID) {
+                *result = CDRF_DODEFAULT;
+                return true;
+            }
+
+            ListViewAccentEntry* entry = GetOrCreateListViewAccentEntry(m_listView, accent);
+            if (entry && entry->selectionBrush && draw->nmcd.hdc) {
+                FillRect(draw->nmcd.hdc, &draw->nmcd.rc, entry->selectionBrush);
+            }
+
+            draw->clrText = GetSysColor(COLOR_HIGHLIGHTTEXT);
+            draw->clrTextBk = accent;
+            *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+            return true;
+        }
+        case CDDS_ITEMPREPAINT | CDDS_SUBITEM: {
+            if ((draw->nmcd.uItemState & CDIS_SELECTED) != 0) {
+                const COLORREF accent = ResolveActiveTabGroupAccentColor();
+                draw->clrText = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                draw->clrTextBk = accent;
+            }
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+        case CDDS_ITEMPOSTPAINT: {
+            if ((draw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+                *result = CDRF_DODEFAULT;
+                return true;
+            }
+
+            const COLORREF accent = ResolveActiveTabGroupAccentColor();
+            ListViewAccentEntry* entry = GetOrCreateListViewAccentEntry(m_listView, accent);
+            if (entry && entry->focusRectPen && draw->nmcd.hdc) {
+                RECT rect = draw->nmcd.rc;
+                HPEN oldPen = static_cast<HPEN>(SelectObject(draw->nmcd.hdc, entry->focusRectPen));
+                HGDIOBJ oldBrush = SelectObject(draw->nmcd.hdc, GetStockObject(NULL_BRUSH));
+                Rectangle(draw->nmcd.hdc, rect.left, rect.top, rect.right, rect.bottom);
+                if (oldBrush) {
+                    SelectObject(draw->nmcd.hdc, oldBrush);
+                }
+                if (oldPen) {
+                    SelectObject(draw->nmcd.hdc, oldPen);
+                }
+            }
+
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+        default:
+            break;
+    }
+
+    return false;
+}
+
 void CExplorerBHO::UpdateCurrentFolderBackground() {
     std::wstring newKey;
 
@@ -1417,6 +1583,18 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_SIZE: {
             if (handlesBackground) {
                 InvalidateRect(hwnd, nullptr, TRUE);
+            }
+            if (msg == WM_THEMECHANGED && isListView) {
+                ReleaseListViewAccentResources(hwnd);
+            }
+            break;
+        }
+        case WM_NOTIFY: {
+            auto* header = reinterpret_cast<LPNMHDR>(lParam);
+            if (header && header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
+                if (HandleListViewCustomDraw(reinterpret_cast<tagNMLVCUSTOMDRAW*>(lParam), result)) {
+                    return true;
+                }
             }
             break;
         }
@@ -2105,6 +2283,23 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
     m_progressGradientStartColor = options.progressBarGradientStartColor;
     m_progressGradientEndColor = options.progressBarGradientEndColor;
+    const bool previousCustomSelected = m_useCustomTabSelectedColor;
+    const COLORREF previousCustomColor = m_customTabSelectedColor;
+    const bool previousListViewAccent = m_useListViewAccentColors;
+    m_useCustomTabSelectedColor = options.useCustomTabSelectedColor;
+    m_customTabSelectedColor = options.customTabSelectedColor;
+    m_useListViewAccentColors = options.useExplorerListViewAccentColors;
+
+    const bool customAccentChanged =
+        (previousCustomSelected != m_useCustomTabSelectedColor) ||
+        (previousCustomColor != m_customTabSelectedColor);
+    const bool accentToggle = (previousListViewAccent != m_useListViewAccentColors);
+    if (customAccentChanged || accentToggle) {
+        ClearListViewAccentCache();
+        if (m_listView && IsWindow(m_listView)) {
+            InvalidateRect(m_listView, nullptr, TRUE);
+        }
+    }
 
     ReloadFolderBackgrounds(options);
     UpdateCurrentFolderBackground();
@@ -3173,6 +3368,7 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 
     if (msg == WM_NCDESTROY) {
         if (hwnd == self->m_listView) {
+            self->ReleaseListViewAccentResources(hwnd);
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
         } else if (hwnd == self->m_treeView) {

@@ -31,6 +31,7 @@ constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradi
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
+constexpr wchar_t kExplorerListViewAccentToken[] = L"explorer_list_view_accent";
 constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enabled";
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
@@ -406,6 +407,13 @@ bool OptionsStore::Load() {
             continue;
         }
 
+        if (tokens[0] == kExplorerListViewAccentToken) {
+            if (tokens.size() >= 2) {
+                m_options.useExplorerListViewAccentColors = ParseBool(tokens[1]);
+            }
+            continue;
+        }
+
         if (tokens[0] == kFolderBackgroundsEnabledToken) {
             if (tokens.size() >= 2) {
                 m_options.enableFolderBackgrounds = ParseBool(tokens[1]);
@@ -521,6 +529,11 @@ bool OptionsStore::Save() const {
     content += ColorToHexString(m_options.customTabUnselectedColor);
     content += L"\n";
 
+    content += kExplorerListViewAccentToken;
+    content += L"|";
+    content += m_options.useExplorerListViewAccentColors ? L"1" : L"0";
+    content += L"\n";
+
     content += kFolderBackgroundsEnabledToken;
     content += L"|";
     content += m_options.enableFolderBackgrounds ? L"1" : L"0";
@@ -603,6 +616,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
            left.customTabUnselectedColor == right.customTabUnselectedColor &&
+           left.useExplorerListViewAccentColors == right.useExplorerListViewAccentColors &&
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries;

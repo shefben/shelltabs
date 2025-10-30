@@ -81,13 +81,14 @@ enum ControlIds : int {
     IDC_MAIN_TAB_UNSELECTED_CHECK = 5029,
     IDC_MAIN_TAB_UNSELECTED_PREVIEW = 5030,
     IDC_MAIN_TAB_UNSELECTED_BUTTON = 5031,
-    IDC_MAIN_PROGRESS_CUSTOM = 5032,
-    IDC_MAIN_PROGRESS_START_LABEL = 5033,
-    IDC_MAIN_PROGRESS_START_PREVIEW = 5034,
-    IDC_MAIN_PROGRESS_START_BUTTON = 5035,
-    IDC_MAIN_PROGRESS_END_LABEL = 5036,
-    IDC_MAIN_PROGRESS_END_PREVIEW = 5037,
-    IDC_MAIN_PROGRESS_END_BUTTON = 5038,
+    IDC_MAIN_LISTVIEW_ACCENTS = 5032,
+    IDC_MAIN_PROGRESS_CUSTOM = 5033,
+    IDC_MAIN_PROGRESS_START_LABEL = 5034,
+    IDC_MAIN_PROGRESS_START_PREVIEW = 5035,
+    IDC_MAIN_PROGRESS_START_BUTTON = 5036,
+    IDC_MAIN_PROGRESS_END_LABEL = 5037,
+    IDC_MAIN_PROGRESS_END_PREVIEW = 5038,
+    IDC_MAIN_PROGRESS_END_BUTTON = 5039,
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
     IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
@@ -432,7 +433,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     tabsGroup->x = 6;
     tabsGroup->y = 332;
     tabsGroup->cx = kMainDialogWidth - 12;
-    tabsGroup->cy = 88;
+    tabsGroup->cy = 96;
     tabsGroup->id = 0;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
@@ -443,8 +444,9 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 366);
     addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 365, L"Choose");
     addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 384, L"Use custom unselected tab color");
-    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 402);
-    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 401, L"Choose");
+    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 392);
+    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 391, L"Choose");
+    addCheckbox(IDC_MAIN_LISTVIEW_ACCENTS, 16, 412, L"Use tab group accent in Explorer list view");
 
     auto addSizedPreview = [&](int controlId, int x, int y, int cx, int cy) {
         AlignDialogBuffer(data);
@@ -2093,6 +2095,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                                data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
                                data->workingOptions.useCustomTabUnselectedColor ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwnd, IDC_MAIN_LISTVIEW_ACCENTS,
+                               data->workingOptions.useExplorerListViewAccentColors ? BST_CHECKED : BST_UNCHECKED);
                 SetPreviewColor(hwnd, IDC_MAIN_TAB_SELECTED_PREVIEW, &data->tabSelectedBrush,
                                 data->workingOptions.customTabSelectedColor);
                 SetPreviewColor(hwnd, IDC_MAIN_TAB_UNSELECTED_PREVIEW, &data->tabUnselectedBrush,
@@ -2160,6 +2164,7 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                     return TRUE;
                 case IDC_MAIN_TAB_SELECTED_CHECK:
                 case IDC_MAIN_TAB_UNSELECTED_CHECK:
+                case IDC_MAIN_LISTVIEW_ACCENTS:
                     if (HIWORD(wParam) == BN_CLICKED) {
                         auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                         if (data) {
@@ -2424,6 +2429,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
                     data->workingOptions.useCustomTabUnselectedColor =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK) == BST_CHECKED;
+                    data->workingOptions.useExplorerListViewAccentColors =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_LISTVIEW_ACCENTS) == BST_CHECKED;
                     data->workingOptions.enableFolderBackgrounds =
                         IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED;
                     data->applyInvoked = true;

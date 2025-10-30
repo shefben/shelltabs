@@ -37,6 +37,7 @@ struct ShellTabsOptions {
     COLORREF customTabSelectedColor = RGB(0, 120, 215);
     bool useCustomTabUnselectedColor = false;
     COLORREF customTabUnselectedColor = RGB(200, 200, 200);
+    bool useExplorerListViewAccentColors = true;
     bool enableFolderBackgrounds = false;
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;

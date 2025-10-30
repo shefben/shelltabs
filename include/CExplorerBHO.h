@@ -30,11 +30,12 @@ class Bitmap;
 namespace shelltabs {
 
 struct ShellTabsOptions;
+struct tagNMLVCUSTOMDRAW;
 
         class CExplorerBHO : public IObjectWithSite, public IDispatch {
-	public:
-		CExplorerBHO();
-		~CExplorerBHO();
+        public:
+                CExplorerBHO();
+                ~CExplorerBHO();
 		// IUnknown
 		IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
 		IFACEMETHODIMP_(ULONG) AddRef() override;
@@ -72,11 +73,21 @@ struct ShellTabsOptions;
 		void UpdateProgressSubclass();
 		void RemoveProgressSubclass();
 		void UpdateAddressEditSubclass();
-		void RemoveAddressEditSubclass();
+                void RemoveAddressEditSubclass();
                 void UpdateExplorerViewSubclass();
                 void RemoveExplorerViewSubclass();
                 bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
                 bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+                bool HandleListViewCustomDraw(tagNMLVCUSTOMDRAW* customDraw, LRESULT* result);
+                COLORREF ResolveActiveTabGroupAccentColor() const;
+                struct ListViewAccentEntry {
+                        COLORREF accentColor = CLR_INVALID;
+                        HBRUSH selectionBrush = nullptr;
+                        HPEN focusRectPen = nullptr;
+                };
+                ListViewAccentEntry* GetOrCreateListViewAccentEntry(HWND listView, COLORREF accentColor);
+                void ReleaseListViewAccentResources(HWND listView);
+                void ClearListViewAccentCache();
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
                 void ClearFolderBackgrounds();
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
@@ -147,14 +158,16 @@ struct ShellTabsOptions;
 		bool m_useCustomBreadcrumbFontColors = false;
 		COLORREF m_breadcrumbFontGradientStartColor = RGB(255, 255, 255);
 		COLORREF m_breadcrumbFontGradientEndColor = RGB(255, 255, 255);
-		bool m_useCustomProgressGradientColors = false;
-		COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
-		COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
-		HWND m_progressWindow = nullptr;
-		bool m_progressSubclassInstalled = false;
-		HWND m_addressEditWindow = nullptr;
-		bool m_addressEditSubclassInstalled = false;
-		bool m_breadcrumbHookRegistered = false;
+                bool m_useCustomProgressGradientColors = false;
+                COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
+                COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
+                bool m_useCustomTabSelectedColor = false;
+                COLORREF m_customTabSelectedColor = RGB(0, 120, 215);
+                HWND m_progressWindow = nullptr;
+                bool m_progressSubclassInstalled = false;
+                HWND m_addressEditWindow = nullptr;
+                bool m_addressEditSubclassInstalled = false;
+                bool m_breadcrumbHookRegistered = false;
 		enum class BreadcrumbLogState {
 			Unknown,
 			Disabled,
@@ -171,10 +184,12 @@ struct ShellTabsOptions;
 		bool m_shellViewWindowSubclassInstalled = false;
 		HWND m_frameWindow = nullptr;
 		bool m_frameSubclassInstalled = false;
-		HWND m_listView = nullptr;
+                HWND m_listView = nullptr;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
+                bool m_useListViewAccentColors = true;
+                std::unordered_map<HWND, ListViewAccentEntry> m_listViewAccentCache;
                 bool m_folderBackgroundsEnabled = false;
                 std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
                 std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
