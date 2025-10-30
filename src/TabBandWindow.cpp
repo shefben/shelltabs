@@ -33,6 +33,7 @@
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
 #include "TabBand.h"
+#include "PreviewCache.h"
 #include "Utilities.h"
 
 #pragma comment(lib, "Shlwapi.lib")
@@ -85,6 +86,10 @@ constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG = WM_APP + 60;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
 const wchar_t kOverlayWindowClassName[] = L"ShellTabsDragOverlay";
+const wchar_t kPreviewWindowClassName[] = L"ShellTabsPreviewWindow";
+constexpr UINT kPreviewHoverTime = 400;
+constexpr SIZE kPreviewImageSize{192, 128};
+constexpr ULONGLONG kProgressStaleTimeoutMs = 3000;
 
 // How many rows of tabs max
 static constexpr int kMaxTabRows = 5;
@@ -422,6 +427,9 @@ HWND TabBandWindow::Create(HWND parent) {
                 m_dropTarget.Reset();
             }
         }
+        RegisterShellNotifications();
+        TabManager::Get().RegisterProgressListener(m_hwnd);
+        UpdateProgressAnimationState();
     }
 
     return m_hwnd;
@@ -433,6 +441,15 @@ void TabBandWindow::Destroy() {
     ClearVisualItems();
     CloseThemeHandles();
     ClearDropHoverState();
+    HidePreviewWindow(true);
+    if (m_hwnd) {
+        TabManager::Get().UnregisterProgressListener(m_hwnd);
+    }
+    UnregisterShellNotifications();
+    if (m_hwnd && m_progressTimerActive) {
+        KillTimer(m_hwnd, kProgressTimerId);
+        m_progressTimerActive = false;
+    }
     if (m_hwnd && m_dropTarget) {
         RevokeDragDrop(m_hwnd);
     }
@@ -472,6 +489,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     ClearExplorerContext();
     RebuildLayout();
     AdjustBandHeightToRow();
+    UpdateProgressAnimationState();
     if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
@@ -552,6 +570,7 @@ void TabBandWindow::Layout(int width, int height) {
 
 void TabBandWindow::ClearVisualItems() {
     HideDragOverlay(true);
+    HidePreviewWindow(false);
 
     for (auto& item : m_items) {
         if (item.icon) {
@@ -1568,6 +1587,13 @@ void TabBandWindow::ApplyOptionColorOverrides() {
         return ComputeLuminance(background) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
     };
 
+    m_progressStartColor = m_accentColor;
+    m_progressEndColor = BlendColors(m_accentColor, RGB(255, 255, 255), m_darkMode ? 0.1 : 0.3);
+    if (options.useCustomProgressBarGradientColors) {
+        m_progressStartColor = options.progressBarGradientStartColor;
+        m_progressEndColor = options.progressBarGradientEndColor;
+    }
+
     if (options.useCustomTabUnselectedColor) {
         m_themePalette.tabBase = options.customTabUnselectedColor;
         const COLORREF textColor = pickTextColor(m_themePalette.tabBase);
@@ -1994,9 +2020,18 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         textLeft += iconWidth + kIconGap;
     }
 
+    const bool hasProgress = item.data.progress.visible;
+    if (hasProgress) {
+        DrawTabProgress(dc, item, textLeft, textRight, tabRect, computedBackground);
+    }
+
     RECT textRect = rect;
     textRect.left = textLeft;
     textRect.top += 3;
+    textRect.bottom = hasProgress ? tabRect.bottom - 6 : tabRect.bottom - 3;
+    if (textRect.bottom <= textRect.top) {
+        textRect.bottom = textRect.top + 1;
+    }
 
     SetTextColor(dc, textColor);
 
@@ -2068,6 +2103,93 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     }
 }
 
+
+void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, int left, int right,
+                                    const RECT& tabRect, COLORREF background) const {
+    if (!dc || left >= right) {
+        return;
+    }
+
+    RECT outer{left, std::max(tabRect.top + 4, tabRect.bottom - 6), right, tabRect.bottom - 2};
+    if (outer.bottom <= outer.top || outer.right <= outer.left) {
+        return;
+    }
+
+    const COLORREF trackColor = m_darkMode ? BlendColors(background, RGB(255, 255, 255), 0.2)
+                                           : BlendColors(background, RGB(0, 0, 0), 0.15);
+    if (HBRUSH trackBrush = CreateSolidBrush(trackColor)) {
+        FillRect(dc, &outer, trackBrush);
+        DeleteObject(trackBrush);
+    }
+
+    RECT inner = outer;
+    InflateRect(&inner, -1, -1);
+    if (inner.bottom <= inner.top || inner.right <= inner.left) {
+        return;
+    }
+
+    if (item.data.progress.indeterminate) {
+        const int width = inner.right - inner.left;
+        if (width <= 0) {
+            return;
+        }
+        const int segment = std::max(width / 4, 12);
+        const ULONGLONG tick = GetTickCount64();
+        const int cycle = width + segment;
+        int offset = static_cast<int>((tick / 30) % cycle) - segment;
+        RECT segmentRect{inner.left + offset, inner.top, inner.left + offset + segment, inner.bottom};
+        if (segmentRect.left < inner.left) {
+            segmentRect.left = inner.left;
+        }
+        if (segmentRect.right > inner.right) {
+            segmentRect.right = inner.right;
+        }
+        if (segmentRect.right > segmentRect.left) {
+            if (HBRUSH brush = CreateSolidBrush(m_progressEndColor)) {
+                FillRect(dc, &segmentRect, brush);
+                DeleteObject(brush);
+            }
+        }
+    } else {
+        const int width = inner.right - inner.left;
+        if (width <= 0) {
+            return;
+        }
+        int fill = static_cast<int>(std::round(item.data.progress.fraction * width));
+        fill = std::clamp(fill, 0, width);
+        if (fill > 0) {
+            RECT fillRect = inner;
+            fillRect.right = fillRect.left + fill;
+            TRIVERTEX vertex[2];
+            vertex[0].x = fillRect.left;
+            vertex[0].y = fillRect.top;
+            vertex[0].Red = static_cast<COLOR16>(GetRValue(m_progressStartColor) << 8);
+            vertex[0].Green = static_cast<COLOR16>(GetGValue(m_progressStartColor) << 8);
+            vertex[0].Blue = static_cast<COLOR16>(GetBValue(m_progressStartColor) << 8);
+            vertex[0].Alpha = 0xFFFF;
+            vertex[1].x = fillRect.right;
+            vertex[1].y = fillRect.bottom;
+            vertex[1].Red = static_cast<COLOR16>(GetRValue(m_progressEndColor) << 8);
+            vertex[1].Green = static_cast<COLOR16>(GetGValue(m_progressEndColor) << 8);
+            vertex[1].Blue = static_cast<COLOR16>(GetBValue(m_progressEndColor) << 8);
+            vertex[1].Alpha = 0xFFFF;
+            GRADIENT_RECT gradient{0, 1};
+            GradientFill(dc, vertex, 2, &gradient, 1, GRADIENT_FILL_RECT_H);
+        }
+    }
+
+    const COLORREF borderColor = BlendColors(trackColor, RGB(0, 0, 0), m_darkMode ? 0.5 : 0.35);
+    if (HPEN pen = CreatePen(PS_SOLID, 1, borderColor)) {
+        HGDIOBJ oldPen = SelectObject(dc, pen);
+        MoveToEx(dc, outer.left, outer.top, nullptr);
+        LineTo(dc, outer.right, outer.top);
+        LineTo(dc, outer.right, outer.bottom);
+        LineTo(dc, outer.left, outer.bottom);
+        LineTo(dc, outer.left, outer.top);
+        SelectObject(dc, oldPen);
+        DeleteObject(pen);
+    }
+}
 
 void TabBandWindow::DrawDropIndicator(HDC dc) const {
     const DropTarget* indicator = nullptr;
@@ -2318,16 +2440,321 @@ bool TabBandWindow::HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARA
     return false;
 }
 
-void TabBandWindow::EnsureMouseTracking() {
-    if (m_mouseTracking || !m_hwnd) {
+void TabBandWindow::EnsureMouseTracking(const POINT& pt) {
+    if (!m_hwnd) {
         return;
     }
     TRACKMOUSEEVENT tme{};
     tme.cbSize = sizeof(tme);
-    tme.dwFlags = TME_LEAVE;
+    tme.dwFlags = TME_LEAVE | TME_HOVER;
     tme.hwndTrack = m_hwnd;
+    tme.dwHoverTime = kPreviewHoverTime;
     if (TrackMouseEvent(&tme)) {
         m_mouseTracking = true;
+    }
+    UpdateHoverPreview(pt);
+}
+
+void TabBandWindow::UpdateHoverPreview(const POINT& pt) {
+    if (!m_previewVisible || !m_hwnd) {
+        return;
+    }
+    if (!PtInRect(&m_clientRect, pt) || m_previewItemIndex >= m_items.size()) {
+        HidePreviewWindow(false);
+        return;
+    }
+    HitInfo hit = HitTest(pt);
+    if (!hit.hit || hit.itemIndex != m_previewItemIndex) {
+        HidePreviewWindow(false);
+        return;
+    }
+    POINT screen = pt;
+    ClientToScreen(m_hwnd, &screen);
+    PositionPreviewWindow(m_items[m_previewItemIndex], screen);
+}
+
+void TabBandWindow::HandleMouseHover(const POINT& pt) {
+    if (!m_hwnd) {
+        return;
+    }
+    if (!PtInRect(&m_clientRect, pt)) {
+        HidePreviewWindow(false);
+        return;
+    }
+    HitInfo hit = HitTest(pt);
+    if (!hit.hit || hit.type != TabViewItemType::kTab || hit.itemIndex >= m_items.size()) {
+        HidePreviewWindow(false);
+        return;
+    }
+    POINT screen = pt;
+    ClientToScreen(m_hwnd, &screen);
+    ShowPreviewForItem(hit.itemIndex, screen);
+}
+
+void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
+    if (index >= m_items.size()) {
+        HidePreviewWindow(false);
+        return;
+    }
+    const auto& visual = m_items[index];
+    if (!visual.data.pidl) {
+        HidePreviewWindow(false);
+        return;
+    }
+    auto preview = PreviewCache::Instance().GetPreview(visual.data.pidl, kPreviewImageSize);
+    if (!preview.has_value() || !preview->bitmap) {
+        HidePreviewWindow(false);
+        return;
+    }
+
+    HWND window = EnsurePreviewWindow();
+    if (!window) {
+        return;
+    }
+
+    HDC screenDC = GetDC(nullptr);
+    if (!screenDC) {
+        return;
+    }
+    HDC memDC = CreateCompatibleDC(screenDC);
+    if (!memDC) {
+        ReleaseDC(nullptr, screenDC);
+        return;
+    }
+    HGDIOBJ oldBitmap = SelectObject(memDC, preview->bitmap);
+    POINT dest = screenPt;
+    dest.x += 16;
+    dest.y += 16;
+    SIZE size = preview->size;
+    POINT src{0, 0};
+    BLENDFUNCTION blend{};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA;
+    UpdateLayeredWindow(window, screenDC, &dest, &size, memDC, &src, 0, &blend, ULW_ALPHA);
+
+    SelectObject(memDC, oldBitmap);
+    DeleteDC(memDC);
+    ReleaseDC(nullptr, screenDC);
+
+    m_previewBitmap = preview->bitmap;
+    m_previewBitmapSize = preview->size;
+    m_previewItemIndex = index;
+    m_previewVisible = true;
+    ShowWindow(window, SW_SHOWNOACTIVATE);
+    PositionPreviewWindow(visual, screenPt);
+}
+
+void TabBandWindow::HidePreviewWindow(bool destroy) {
+    if (m_previewWindow && IsWindow(m_previewWindow)) {
+        ShowWindow(m_previewWindow, SW_HIDE);
+        if (destroy) {
+            DestroyWindow(m_previewWindow);
+            m_previewWindow = nullptr;
+        }
+    }
+    m_previewVisible = false;
+    m_previewItemIndex = std::numeric_limits<size_t>::max();
+    m_previewBitmap = nullptr;
+}
+
+HWND TabBandWindow::EnsurePreviewWindow() {
+    if (m_previewWindow && IsWindow(m_previewWindow)) {
+        return m_previewWindow;
+    }
+    if (!m_hwnd) {
+        return nullptr;
+    }
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleInstance();
+        wc.lpszClassName = kPreviewWindowClassName;
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        if (!RegisterClassW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return nullptr;
+        }
+        registered = true;
+    }
+    m_previewWindow = CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+        kPreviewWindowClassName, L"", WS_POPUP, 0, 0, 0, 0, m_hwnd, nullptr, GetModuleHandleInstance(), nullptr);
+    return m_previewWindow;
+}
+
+void TabBandWindow::PositionPreviewWindow(const VisualItem& item, const POINT& screenPt) {
+    if (!m_previewWindow || !IsWindow(m_previewWindow)) {
+        return;
+    }
+    RECT rect = item.bounds;
+    MapWindowPoints(m_hwnd, nullptr, reinterpret_cast<POINT*>(&rect), 2);
+    int width = m_previewBitmapSize.cx;
+    int height = m_previewBitmapSize.cy;
+    int x = rect.left + ((rect.right - rect.left) - width) / 2;
+    int y = rect.bottom + 8;
+    HMONITOR monitor = MonitorFromPoint(screenPt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{sizeof(info)};
+    if (GetMonitorInfoW(monitor, &info)) {
+        x = std::clamp(x, info.rcWork.left + 4, info.rcWork.right - width - 4);
+        if (y + height > info.rcWork.bottom) {
+            y = rect.top - height - 8;
+        }
+        if (y < info.rcWork.top + 4) {
+            y = info.rcWork.top + 4;
+        }
+    }
+    SetWindowPos(m_previewWindow, HWND_TOPMOST, x, y, width, height,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+}
+
+void TabBandWindow::RefreshProgressState() {
+    auto snapshot = TabManager::Get().BuildView();
+    bool layoutMismatch = snapshot.size() != m_tabData.size();
+    if (!layoutMismatch) {
+        for (size_t i = 0; i < snapshot.size(); ++i) {
+            if (m_tabData[i].type != snapshot[i].type ||
+                m_tabData[i].location.groupIndex != snapshot[i].location.groupIndex ||
+                m_tabData[i].location.tabIndex != snapshot[i].location.tabIndex) {
+                layoutMismatch = true;
+                break;
+            }
+        }
+    }
+    if (layoutMismatch) {
+        SetTabs(snapshot);
+        return;
+    }
+
+    bool changed = false;
+    for (size_t i = 0; i < snapshot.size(); ++i) {
+        if (m_tabData[i].progress != snapshot[i].progress) {
+            m_tabData[i].progress = snapshot[i].progress;
+            if (i < m_items.size()) {
+                m_items[i].data.progress = snapshot[i].progress;
+            }
+            changed = true;
+        }
+    }
+    UpdateProgressAnimationState();
+    if (changed && m_hwnd) {
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+}
+
+void TabBandWindow::UpdateProgressAnimationState() {
+    if (!m_hwnd) {
+        return;
+    }
+    const bool active = AnyProgressActive();
+    if (active) {
+        if (!m_progressTimerActive) {
+            if (SetTimer(m_hwnd, kProgressTimerId, 120, nullptr)) {
+                m_progressTimerActive = true;
+            }
+        }
+    } else if (m_progressTimerActive) {
+        KillTimer(m_hwnd, kProgressTimerId);
+        m_progressTimerActive = false;
+    }
+}
+
+bool TabBandWindow::AnyProgressActive() const {
+    for (const auto& item : m_tabData) {
+        if (item.progress.visible) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void TabBandWindow::HandleProgressTimer() {
+    if (!m_hwnd) {
+        return;
+    }
+    const ULONGLONG now = GetTickCount64();
+    if (TabManager::Get().ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
+        RefreshProgressState();
+        return;
+    }
+    if (!AnyProgressActive()) {
+        UpdateProgressAnimationState();
+        return;
+    }
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void TabBandWindow::RegisterShellNotifications() {
+    if (!m_hwnd || m_shellNotifyId != 0) {
+        return;
+    }
+    m_shellNotifyMessage = RegisterWindowMessageW(L"ShellTabs.ShellChange");
+    if (m_shellNotifyMessage == 0) {
+        return;
+    }
+    SHChangeNotifyEntry entry{};
+    entry.pidl = nullptr;
+    entry.fRecursive = TRUE;
+    m_shellNotifyId = SHChangeNotifyRegister(
+        m_hwnd, SHCNRF_ShellLevel | SHCNRF_InterruptLevel | SHCNRF_NewDelivery, SHCNE_ALLEVENTS,
+        m_shellNotifyMessage, 1, &entry);
+    if (m_shellNotifyId == 0) {
+        m_shellNotifyMessage = 0;
+    }
+}
+
+void TabBandWindow::UnregisterShellNotifications() {
+    if (m_shellNotifyId != 0) {
+        SHChangeNotifyDeregister(m_shellNotifyId);
+        m_shellNotifyId = 0;
+    }
+    m_shellNotifyMessage = 0;
+}
+
+void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
+    auto* notification = reinterpret_cast<LPCSHNOTIFYSTRUCT>(lParam);
+    if (!notification) {
+        return;
+    }
+    const LONG eventId = static_cast<LONG>(wParam) & 0xFFFF;
+    auto touch = [](PCIDLIST_ABSOLUTE pidl) {
+        if (!pidl) {
+            return;
+        }
+        if (auto parent = CloneParent(pidl)) {
+            TabManager::Get().TouchFolderOperation(parent.get());
+        } else {
+            TabManager::Get().TouchFolderOperation(pidl);
+        }
+    };
+    auto clear = [](PCIDLIST_ABSOLUTE pidl) {
+        if (!pidl) {
+            return;
+        }
+        if (auto parent = CloneParent(pidl)) {
+            TabManager::Get().ClearFolderOperation(parent.get());
+        } else {
+            TabManager::Get().ClearFolderOperation(pidl);
+        }
+    };
+
+    switch (eventId) {
+        case SHCNE_CREATE:
+        case SHCNE_DELETE:
+        case SHCNE_MKDIR:
+        case SHCNE_RMDIR:
+        case SHCNE_RENAMEITEM:
+        case SHCNE_RENAMEFOLDER:
+        case SHCNE_UPDATEITEM:
+            touch(notification->pidlFrom);
+            touch(notification->pidlTo);
+            break;
+        case SHCNE_UPDATEDIR:
+            clear(notification->pidlFrom);
+            clear(notification->pidlTo);
+            break;
+        default:
+            break;
     }
 }
 
@@ -3678,6 +4105,15 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
         }
+        const UINT progressMessage = GetProgressUpdateMessage();
+        if (progressMessage != 0 && message == progressMessage) {
+            self->RefreshProgressState();
+            return 0;
+        }
+        if (self->m_shellNotifyMessage != 0 && message == self->m_shellNotifyMessage) {
+            self->OnShellNotify(wParam, lParam);
+            return 0;
+        }
         switch (message) {
             case WM_CREATE: {
                 self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+",
@@ -3749,12 +4185,17 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_MOUSEMOVE: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                self->EnsureMouseTracking();
+                self->EnsureMouseTracking(pt);
                 self->UpdateCloseButtonHover(pt);
                 if (self->HandleMouseMove(pt)) {
                     return 0;
                 }
                 return fallback();
+            }
+            case WM_MOUSEHOVER: {
+                POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                self->HandleMouseHover(pt);
+                return 0;
             }
             case WM_NCHITTEST: {
                 POINT screen{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -3767,6 +4208,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_MOUSELEAVE: {
                 self->m_mouseTracking = false;
+                self->HidePreviewWindow(false);
                 self->ClearCloseButtonHover();
                 return 0;
             }
@@ -3790,6 +4232,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_TIMER: {
                 if (wParam == TabBandWindow::kDropHoverTimerId) {
                     self->OnDropHoverTimer();
+                    return 0;
+                }
+                if (wParam == TabBandWindow::kProgressTimerId) {
+                    self->HandleProgressTimer();
                     return 0;
                 }
                 return fallback();
@@ -3884,6 +4330,13 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->ClearVisualItems();
                 self->CloseThemeHandles();
                 self->ClearDropHoverState();
+                self->HidePreviewWindow(true);
+                self->UnregisterShellNotifications();
+                TabManager::Get().UnregisterProgressListener(hwnd);
+                if (self->m_progressTimerActive) {
+                    KillTimer(hwnd, TabBandWindow::kProgressTimerId);
+                    self->m_progressTimerActive = false;
+                }
                 if (self->m_dropTarget) {
                     RevokeDragDrop(hwnd);
                     self->m_dropTarget.Reset();

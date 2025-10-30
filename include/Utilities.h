@@ -42,6 +42,7 @@ struct FtpUrlParts {
 };
 
 UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source);
+UniquePidl CloneParent(PCIDLIST_ABSOLUTE source);
 bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
 std::wstring GetDisplayName(PCIDLIST_ABSOLUTE pidl);
 std::wstring GetParsingName(PCIDLIST_ABSOLUTE pidl);

@@ -1,14 +1,30 @@
 #include "TabManager.h"
 
+#include "ShellTabsMessages.h"
+
 #include <algorithm>
 #include <numeric>
 #include <optional>
+#include <cmath>
+#include <cwchar>
 
 
 namespace shelltabs {
 
 namespace {
 constexpr wchar_t kDefaultGroupNamePrefix[] = L"Island ";
+}  // namespace
+
+namespace {
+inline double ClampProgress(double value) {
+    if (value < 0.0) {
+        return 0.0;
+    }
+    if (value > 1.0) {
+        return 1.0;
+    }
+    return value;
+}
 }  // namespace
 
 TabManager::TabManager() { EnsureDefaultGroup(); }
@@ -394,12 +410,189 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();
             item.headerVisible = group.headerVisible;
+            if (tab.progress.active) {
+                item.progress.visible = true;
+                item.progress.indeterminate = tab.progress.indeterminate;
+                item.progress.fraction = tab.progress.indeterminate ? 0.0 : ClampProgress(tab.progress.fraction);
+            }
 
             items.emplace_back(std::move(item));
         }
     }
 
     return items;
+}
+
+void TabManager::RegisterProgressListener(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+    if (std::find(m_progressListeners.begin(), m_progressListeners.end(), hwnd) != m_progressListeners.end()) {
+        return;
+    }
+    m_progressListeners.push_back(hwnd);
+}
+
+void TabManager::UnregisterProgressListener(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+    auto it = std::remove(m_progressListeners.begin(), m_progressListeners.end(), hwnd);
+    if (it != m_progressListeners.end()) {
+        m_progressListeners.erase(it, m_progressListeners.end());
+    }
+}
+
+void TabManager::NotifyProgressListeners() {
+    if (m_progressListeners.empty()) {
+        return;
+    }
+    const UINT message = GetProgressUpdateMessage();
+    if (message == 0) {
+        return;
+    }
+    auto it = m_progressListeners.begin();
+    while (it != m_progressListeners.end()) {
+        HWND hwnd = *it;
+        if (!hwnd || !IsWindow(hwnd)) {
+            it = m_progressListeners.erase(it);
+            continue;
+        }
+        PostMessageW(hwnd, message, 0, 0);
+        ++it;
+    }
+}
+
+TabLocation TabManager::FindByPath(const std::wstring& path) const {
+    if (path.empty()) {
+        return {};
+    }
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const auto& tab = group.tabs[t];
+            if (tab.hidden) {
+                continue;
+            }
+            std::wstring candidate = tab.path;
+            if (candidate.empty() && tab.pidl) {
+                candidate = GetParsingName(tab.pidl.get());
+            }
+            if (!candidate.empty() && _wcsicmp(candidate.c_str(), path.c_str()) == 0) {
+                return {static_cast<int>(g), static_cast<int>(t)};
+            }
+        }
+    }
+    return {};
+}
+
+bool TabManager::ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now) {
+    if (!tab) {
+        return false;
+    }
+
+    TabProgressState& state = tab->progress;
+    bool changed = false;
+    if (fraction.has_value()) {
+        const double value = ClampProgress(*fraction);
+        if (!state.active || state.indeterminate || std::abs(state.fraction - value) > 1e-4) {
+            state.active = value < 1.0;
+            state.indeterminate = false;
+            state.fraction = value;
+            changed = true;
+        }
+        if (value >= 1.0) {
+            state = {};
+            changed = true;
+        }
+    } else {
+        if (!state.active || !state.indeterminate) {
+            state.active = true;
+            state.indeterminate = true;
+            state.fraction = 0.0;
+            changed = true;
+        }
+    }
+    state.lastUpdateTick = now;
+    return changed;
+}
+
+bool TabManager::ClearProgress(TabInfo* tab) {
+    if (!tab) {
+        return false;
+    }
+    if (!tab->progress.active) {
+        return false;
+    }
+    tab->progress = {};
+    return true;
+}
+
+void TabManager::TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<double> fraction) {
+    ULONGLONG now = GetTickCount64();
+    TabLocation location = Find(folder);
+    if (!location.IsValid() && folder) {
+        std::wstring path = GetParsingName(folder);
+        location = FindByPath(path);
+    }
+    if (!location.IsValid()) {
+        return;
+    }
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return;
+    }
+    if (ApplyProgress(tab, fraction, now)) {
+        NotifyProgressListeners();
+    }
+}
+
+void TabManager::ClearFolderOperation(PCIDLIST_ABSOLUTE folder) {
+    TabLocation location = Find(folder);
+    if (!location.IsValid() && folder) {
+        std::wstring path = GetParsingName(folder);
+        location = FindByPath(path);
+    }
+    if (!location.IsValid()) {
+        return;
+    }
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return;
+    }
+    if (ClearProgress(tab)) {
+        NotifyProgressListeners();
+    }
+}
+
+bool TabManager::ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs) {
+    bool changed = false;
+    for (auto& group : m_groups) {
+        for (auto& tab : group.tabs) {
+            if (!tab.progress.active) {
+                continue;
+            }
+            if (now >= tab.progress.lastUpdateTick && (now - tab.progress.lastUpdateTick) > timeoutMs) {
+                tab.progress = {};
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        NotifyProgressListeners();
+    }
+    return changed;
+}
+
+bool TabManager::HasActiveProgress() const {
+    for (const auto& group : m_groups) {
+        for (const auto& tab : group.tabs) {
+            if (tab.progress.active) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 void TabManager::ToggleGroupCollapsed(int groupIndex) {
