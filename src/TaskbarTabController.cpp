@@ -12,13 +12,6 @@
 
 namespace shelltabs {
 
-struct TaskbarTabController::CachedTab {
-    TabLocation location;
-    std::wstring name;
-    std::wstring tooltip;
-    bool selected = false;
-};
-
 namespace {
 
 struct ProxyLocationEquals {

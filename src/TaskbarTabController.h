@@ -31,7 +31,12 @@ public:
     void HandleThumbnailButton(const POINT& anchor);
 
 private:
-    struct CachedTab;
+    struct CachedTab {
+        TabLocation location;
+        std::wstring name;
+        std::wstring tooltip;
+        bool selected = false;
+    };
 
     TabBand* m_owner = nullptr;
     Microsoft::WRL::ComPtr<ITaskbarList3> m_taskbar;
