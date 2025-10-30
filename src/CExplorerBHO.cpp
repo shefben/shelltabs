@@ -43,6 +43,12 @@
 #define SFVIDM_CLIENT_OPENWINDOW 0x705B
 #endif
 
+// Add flag for transparent list view backgrounds if it's missing from the SDK
+#ifndef LVS_EX_TRANSPARENTBKGND
+#define LVS_EX_TRANSPARENTBKGND 0x00400000
+#endif
+
+
 namespace {
 
 #ifndef ListView_GetItemW
@@ -1148,12 +1154,20 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
         return;
     }
 
-    HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
-    if (!listView) {
-        LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass setup aborted: list view not found for view window %p", viewWindow);
-        return;
-    }
+	HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
+	// Windows 10/11 may use different class names for the folder view; try them if SysListView32 is missing.
+	if (!listView) {
+		listView = FindDescendantWindow(viewWindow, L"UIItemsView");
+		if (!listView) {
+			listView = FindDescendantWindow(viewWindow, L"ItemsViewWnd");
+		}
+	}
+	if (!listView) {
+		LogMessage(LogLevel::Warning,
+		           L"Explorer view subclass setup aborted: list view not found for view window %p",
+                   viewWindow);
+		return;
+	}
 
     HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
     if (!treeView) {
@@ -1183,6 +1197,13 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
             m_shellViewWindowSubclassInstalled = true;
             installed = true;
             LogMessage(LogLevel::Info, L"Installed shell view window subclass (view=%p)", viewWindow);
+			// Make the list view background transparent so our background image can be drawn by the parent.
+			ListView_SetBkColor(listView, CLR_NONE);
+			ListView_SetTextBkColor(listView, CLR_NONE);
+			DWORD exStyle = ListView_GetExtendedListViewStyle(listView);
+			exStyle |= LVS_EX_DOUBLEBUFFER;
+			exStyle |= LVS_EX_TRANSPARENTBKGND;
+			ListView_SetExtendedListViewStyle(listView, exStyle);
         } else {
             LogLastError(L"SetWindowSubclass(shell view window)", GetLastError());
             m_shellViewWindowSubclassInstalled = false;
@@ -1346,12 +1367,10 @@ Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
         return nullptr;
     }
 
-    if (!m_currentFolderKey.empty()) {
-        auto it = m_folderBackgroundBitmaps.find(m_currentFolderKey);
-        if (it != m_folderBackgroundBitmaps.end() && it->second) {
-            return it->second.get();
-        }
-    }
+	auto it = m_folderBackgroundBitmaps.find(m_currentFolderKey);
+	if (it != m_folderBackgroundBitmaps.end() && it->second) {
+		return it->second.get();
+	}
 
     if (m_universalBackgroundBitmap) {
         return m_universalBackgroundBitmap.get();
@@ -1471,6 +1490,18 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             break;
         }
+	    case WM_PRINTCLIENT: {
+			// When LVS_EX_TRANSPARENTBKGND is set, the list view prints its client area via this message.
+			// Draw the background first, then allow the default procedure to render items.
+		    if (handlesBackground) {
+		        HDC dc = reinterpret_cast<HDC>(wParam);
+		        if (dc) {
+			        DrawFolderBackground(hwnd, dc);		
+		        }
+			    // Do not set *result here so the default processing continues.
+	        }
+		    break;
+		}
         case WM_PAINT: {
             if (handlesBackground) {
                 if (wParam) {
