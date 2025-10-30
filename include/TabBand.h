@@ -106,6 +106,7 @@ public:
     void OnFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     void OnOpenFolderInNewTab(const std::wstring& path);
     void CloseFrameWindowAsync();
+    void EnsureTabPreview(TabLocation location);
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
     int GetGroupCount() const noexcept;
@@ -177,6 +178,7 @@ private:
     HWND GetFrameWindow() const;
     std::wstring ResolveWindowToken();
     void ReleaseWindowToken();
+    void CaptureActiveTabPreview();
 };
 
 }  // namespace shelltabs

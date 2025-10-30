@@ -30,6 +30,7 @@
 #include "OptionsStore.h"
 #include "Logging.h"
 #include "Module.h"
+#include "PreviewCache.h"
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
@@ -486,6 +487,7 @@ void TabBand::OnNewThisPCInGroupRequested(int groupIndex) {
 void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
+    CaptureActiveTabPreview();
     m_internalNavigation = false;
 }
 
@@ -1022,6 +1024,19 @@ void TabBand::CloseFrameWindowAsync() {
     PostMessageW(frame, WM_CLOSE, 0, 0);
 }
 
+void TabBand::EnsureTabPreview(TabLocation location) {
+    if (!location.IsValid()) {
+        return;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    if (selected.groupIndex != location.groupIndex || selected.tabIndex != location.tabIndex) {
+        return;
+    }
+
+    CaptureActiveTabPreview();
+}
+
 HWND TabBand::GetFrameWindow() const {
     HWND candidate = nullptr;
     if (m_window) {
@@ -1098,6 +1113,34 @@ void TabBand::ReleaseWindowToken() {
     std::scoped_lock lock(state.mutex);
     state.tokens.erase(frame);
     m_windowToken.clear();
+}
+
+void TabBand::CaptureActiveTabPreview() {
+    if (!m_shellBrowser) {
+        return;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const auto* tab = m_tabs.Get(selected);
+    if (!tab || !tab->pidl) {
+        return;
+    }
+
+    IShellView* rawView = nullptr;
+    const HRESULT viewResult = m_shellBrowser->QueryActiveShellView(&rawView);
+    if (FAILED(viewResult) || !rawView) {
+        return;
+    }
+
+    ComPtr<IShellView> shellView;
+    shellView.Attach(rawView);
+
+    HWND viewWindow = nullptr;
+    if (FAILED(shellView->GetWindow(&viewWindow)) || !viewWindow) {
+        return;
+    }
+
+    PreviewCache::Instance().StorePreviewFromWindow(tab->pidl.get(), viewWindow, kPreviewImageSize);
 }
 
 void TabBand::EnsureWindow() {

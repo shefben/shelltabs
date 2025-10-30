@@ -138,7 +138,6 @@ constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
 const wchar_t kOverlayWindowClassName[] = L"ShellTabsDragOverlay";
 const wchar_t kPreviewWindowClassName[] = L"ShellTabsPreviewWindow";
 constexpr UINT kPreviewHoverTime = 400;
-constexpr SIZE kPreviewImageSize{192, 128};
 constexpr ULONGLONG kProgressStaleTimeoutMs = 3000;
 
 // How many rows of tabs max
@@ -2612,6 +2611,9 @@ void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
     if (!visual.data.pidl) {
         HidePreviewWindow(false);
         return;
+    }
+    if (m_owner && visual.data.location.IsValid()) {
+        m_owner->EnsureTabPreview(visual.data.location);
     }
     auto preview = PreviewCache::Instance().GetPreview(visual.data.pidl, kPreviewImageSize);
     if (!preview.has_value() || !preview->bitmap) {

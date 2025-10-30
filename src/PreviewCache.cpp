@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -47,6 +48,68 @@ SIZE GetBitmapSize(HBITMAP bitmap) {
         size.cy = info.bmHeight;
     }
     return size;
+}
+
+SIZE ComputeScaledSize(int srcWidth, int srcHeight, const SIZE& desiredSize) {
+    SIZE result{srcWidth, srcHeight};
+    if (srcWidth <= 0 || srcHeight <= 0) {
+        return result;
+    }
+    if (desiredSize.cx <= 0 || desiredSize.cy <= 0) {
+        return result;
+    }
+
+    const double srcAspect = static_cast<double>(srcWidth) / static_cast<double>(srcHeight);
+    const double destAspect = static_cast<double>(desiredSize.cx) / static_cast<double>(desiredSize.cy);
+    if (!std::isfinite(srcAspect) || !std::isfinite(destAspect) || srcAspect <= 0.0) {
+        return desiredSize;
+    }
+
+    if (srcAspect > destAspect) {
+        result.cx = desiredSize.cx;
+        result.cy = std::max(1, static_cast<int>(std::round(desiredSize.cx / srcAspect)));
+    } else {
+        result.cy = desiredSize.cy;
+        result.cx = std::max(1, static_cast<int>(std::round(desiredSize.cy * srcAspect)));
+    }
+    return result;
+}
+
+void EnsureOpaqueAlpha(void* bits, int width, int height) {
+    if (!bits || width <= 0 || height <= 0) {
+        return;
+    }
+
+    const int stride = width * 4;
+    auto* row = static_cast<std::uint8_t*>(bits);
+    for (int y = 0; y < height; ++y) {
+        std::uint8_t* pixel = row + y * stride;
+        for (int x = 0; x < width; ++x) {
+            pixel[3] = 0xFF;
+            pixel += 4;
+        }
+    }
+}
+
+bool RenderWindowToDc(HWND window, HDC dc, int width, int height) {
+    if (!window || !dc || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    DWORD_PTR result = 0;
+    if (SendMessageTimeoutW(window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc),
+                            PRF_CLIENT | PRF_CHILDREN | PRF_OWNED, SMTO_NORMAL, 200,
+                            reinterpret_cast<PDWORD_PTR>(&result))) {
+        return true;
+    }
+
+    HDC windowDc = GetDC(window);
+    if (!windowDc) {
+        return false;
+    }
+    const BOOL copied = BitBlt(dc, 0, 0, width, height, windowDc, 0, 0, SRCCOPY);
+    ReleaseDC(window, windowDc);
+    return copied != FALSE;
 }
 
 }  // namespace
@@ -111,6 +174,145 @@ std::optional<PreviewImage> PreviewCache::GetPreview(PCIDLIST_ABSOLUTE pidl, con
     }
 
     return PreviewImage{bitmap, size};
+}
+
+void PreviewCache::StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, const SIZE& desiredSize) {
+    if (!pidl || !window || !IsWindow(window)) {
+        return;
+    }
+
+    const std::wstring key = BuildCacheKey(pidl);
+    if (key.empty()) {
+        return;
+    }
+
+    RECT client{};
+    if (!GetClientRect(window, &client)) {
+        return;
+    }
+
+    const int srcWidth = client.right - client.left;
+    const int srcHeight = client.bottom - client.top;
+    if (srcWidth <= 0 || srcHeight <= 0) {
+        return;
+    }
+
+    const SIZE targetSize = ComputeScaledSize(srcWidth, srcHeight, desiredSize);
+
+    HDC screenDc = GetDC(nullptr);
+    if (!screenDc) {
+        return;
+    }
+
+    HDC srcDc = nullptr;
+    HBITMAP srcBitmap = nullptr;
+    void* srcBits = nullptr;
+    HDC destDc = nullptr;
+    HBITMAP destBitmap = nullptr;
+    void* destBits = nullptr;
+    HBITMAP finalBitmap = nullptr;
+    SIZE finalSize{0, 0};
+    HGDIOBJ oldSrc = nullptr;
+    HGDIOBJ oldDest = nullptr;
+    bool success = false;
+
+    do {
+        BITMAPINFO srcInfo{};
+        srcInfo.bmiHeader.biSize = sizeof(srcInfo.bmiHeader);
+        srcInfo.bmiHeader.biWidth = srcWidth;
+        srcInfo.bmiHeader.biHeight = -srcHeight;
+        srcInfo.bmiHeader.biPlanes = 1;
+        srcInfo.bmiHeader.biBitCount = 32;
+        srcInfo.bmiHeader.biCompression = BI_RGB;
+
+        srcBitmap = CreateDIBSection(screenDc, &srcInfo, DIB_RGB_COLORS, &srcBits, nullptr, 0);
+        if (!srcBitmap || !srcBits) {
+            break;
+        }
+
+        srcDc = CreateCompatibleDC(screenDc);
+        if (!srcDc) {
+            break;
+        }
+
+        oldSrc = SelectObject(srcDc, srcBitmap);
+        if (!RenderWindowToDc(window, srcDc, srcWidth, srcHeight)) {
+            break;
+        }
+
+        EnsureOpaqueAlpha(srcBits, srcWidth, srcHeight);
+
+        if (targetSize.cx != srcWidth || targetSize.cy != srcHeight) {
+            BITMAPINFO destInfo = srcInfo;
+            destInfo.bmiHeader.biWidth = targetSize.cx;
+            destInfo.bmiHeader.biHeight = -targetSize.cy;
+
+            destBitmap = CreateDIBSection(screenDc, &destInfo, DIB_RGB_COLORS, &destBits, nullptr, 0);
+            if (!destBitmap || !destBits) {
+                break;
+            }
+
+            destDc = CreateCompatibleDC(screenDc);
+            if (!destDc) {
+                break;
+            }
+
+            oldDest = SelectObject(destDc, destBitmap);
+            SetStretchBltMode(destDc, HALFTONE);
+            SetBrushOrgEx(destDc, 0, 0, nullptr);
+            if (!StretchBlt(destDc, 0, 0, targetSize.cx, targetSize.cy, srcDc, 0, 0, srcWidth, srcHeight, SRCCOPY)) {
+                break;
+            }
+
+            EnsureOpaqueAlpha(destBits, targetSize.cx, targetSize.cy);
+            success = true;
+            finalBitmap = destBitmap;
+            destBitmap = nullptr;
+            finalSize = targetSize;
+        } else {
+            success = true;
+            finalBitmap = srcBitmap;
+            srcBitmap = nullptr;
+            finalSize = {srcWidth, srcHeight};
+        }
+    } while (false);
+
+    if (oldDest && destDc) {
+        SelectObject(destDc, oldDest);
+    }
+    if (destDc) {
+        DeleteDC(destDc);
+    }
+    if (destBitmap) {
+        DeleteObject(destBitmap);
+    }
+    if (oldSrc && srcDc) {
+        SelectObject(srcDc, oldSrc);
+    }
+    if (srcDc) {
+        DeleteDC(srcDc);
+    }
+    if (srcBitmap) {
+        DeleteObject(srcBitmap);
+    }
+    ReleaseDC(nullptr, screenDc);
+
+    if (!success || !finalBitmap) {
+        if (finalBitmap) {
+            DeleteObject(finalBitmap);
+        }
+        return;
+    }
+
+    std::scoped_lock lock(m_mutex);
+    Entry& entry = m_entries[key];
+    if (entry.bitmap) {
+        DeleteObject(entry.bitmap);
+    }
+    entry.bitmap = finalBitmap;
+    entry.size = finalSize;
+    entry.lastAccess = GetTickCount64();
+    TrimCacheLocked();
 }
 
 void PreviewCache::Clear() {
