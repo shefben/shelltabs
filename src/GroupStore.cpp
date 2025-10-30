@@ -70,47 +70,29 @@ bool GroupStore::Load() {
         return true;
     }
 
-    size_t lineStart = 0;
     SavedGroup* currentGroup = nullptr;
     int version = 1;
 
-    while (lineStart < content.size()) {
-        size_t lineEnd = content.find(L'\n', lineStart);
-        std::wstring line = content.substr(lineStart, lineEnd == std::wstring::npos ? std::wstring::npos : lineEnd - lineStart);
-        if (lineEnd == std::wstring::npos) {
-            lineStart = content.size();
-        } else {
-            lineStart = lineEnd + 1;
-        }
-
-        line = Trim(line);
-        if (line.empty() || line.front() == kCommentChar) {
-            continue;
-        }
-
-        auto tokens = Split(line, L'|');
+    ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring>& tokens) {
         if (tokens.empty()) {
-            continue;
+            return true;
         }
 
-        for (auto& token : tokens) {
-            token = Trim(token);
-        }
-
-        if (tokens[0] == kVersionToken) {
+        const std::wstring& header = tokens[0];
+        if (header == kVersionToken) {
             if (tokens.size() >= 2) {
                 version = _wtoi(tokens[1].c_str());
                 if (version < 1) {
                     version = 1;
                 }
             }
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kGroupToken) {
+        if (header == kGroupToken) {
             if (tokens.size() < 3) {
                 currentGroup = nullptr;
-                continue;
+                return true;
             }
             SavedGroup group;
             group.name = tokens[1];
@@ -120,16 +102,18 @@ bool GroupStore::Load() {
             }
             m_groups.emplace_back(std::move(group));
             currentGroup = &m_groups.back();
-            continue;
+            return true;
         }
 
-        if (tokens[0] == kTabToken) {
+        if (header == kTabToken) {
             if (!currentGroup || tokens.size() < 2) {
-                continue;
+                return true;
             }
             currentGroup->tabPaths.emplace_back(tokens[1]);
         }
-    }
+
+        return true;
+    });
 
     m_loaded = true;
     return true;
