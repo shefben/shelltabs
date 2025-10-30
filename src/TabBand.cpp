@@ -101,18 +101,67 @@ std::wstring TrimWhitespace(const std::wstring& value) {
     return value.substr(first, last - first + 1);
 }
 
-bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
+bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl, bool* attempted) {
+    if (attempted) {
+        *attempted = false;
+    }
     if (!pidl) {
         return false;
     }
     shelltabs::FtpUrlParts parts;
     std::vector<std::wstring> segments;
     bool isDirectory = true;
-    if (!shelltabs::ftp::TryParseFtpPidl(pidl, &parts, &segments, &isDirectory)) {
-        return false;
+    const bool parsed = shelltabs::ftp::TryParseFtpPidl(pidl, &parts, &segments, &isDirectory);
+    if (!parsed) {
+        return true;
+    }
+    if (attempted) {
+        *attempted = true;
     }
     ComPtr<IShellFolder> folder;
     return SUCCEEDED(SHBindToObject(nullptr, pidl, nullptr, IID_PPV_ARGS(&folder)));
+}
+
+bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
+    return EnsureFtpNamespaceBinding(pidl, nullptr);
+}
+
+ConnectionStatus DetermineInitialConnectionStatus(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return ConnectionStatus::kNotApplicable;
+    }
+    shelltabs::FtpUrlParts parts;
+    std::vector<std::wstring> segments;
+    bool isDirectory = true;
+    if (!shelltabs::ftp::TryParseFtpPidl(pidl, &parts, &segments, &isDirectory)) {
+        return ConnectionStatus::kNotApplicable;
+    }
+    return ConnectionStatus::kUnknown;
+}
+
+ConnectionStatus DeterminePostBindingStatus(PCIDLIST_ABSOLUTE pidl, bool attempted, bool success) {
+    if (!pidl) {
+        return ConnectionStatus::kNotApplicable;
+    }
+    shelltabs::FtpUrlParts parts;
+    std::vector<std::wstring> segments;
+    bool isDirectory = true;
+    if (!shelltabs::ftp::TryParseFtpPidl(pidl, &parts, &segments, &isDirectory)) {
+        return ConnectionStatus::kNotApplicable;
+    }
+    if (!attempted) {
+        return ConnectionStatus::kUnknown;
+    }
+    return success ? ConnectionStatus::kSuccess : ConnectionStatus::kFailed;
+}
+
+void ApplyInitialConnectionStatus(TabManager& manager, TabLocation location) {
+    if (!location.IsValid()) {
+        return;
+    }
+    if (auto* tab = manager.Get(location)) {
+        tab->connectionStatus = DetermineInitialConnectionStatus(tab->pidl.get());
+    }
 }
 }
 
@@ -475,12 +524,13 @@ void TabBand::OnNewThisPCInGroupRequested(int groupIndex) {
 
 	if (groupIndex < 0) groupIndex = 0;
 
-	TabLocation loc = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
-	UpdateTabsUI();
-	SyncAllSavedGroups();
-	if (loc.IsValid()) {
-		NavigateToTab(loc);
-	}
+        TabLocation loc = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
+        ApplyInitialConnectionStatus(m_tabs, loc);
+        UpdateTabsUI();
+        SyncAllSavedGroups();
+        if (loc.IsValid()) {
+                NavigateToTab(loc);
+        }
 }
 
 void TabBand::OnBrowserNavigate() {
@@ -519,6 +569,7 @@ bool TabBand::OnCtrlBeforeNavigate(const std::wstring& url) {
     const TabLocation current = m_tabs.SelectedLocation();
     const int groupIndex = current.groupIndex >= 0 ? current.groupIndex : -1;
     TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
+    ApplyInitialConnectionStatus(m_tabs, location);
     UpdateTabsUI();
     SyncAllSavedGroups();
     if (location.IsValid()) {
@@ -560,6 +611,7 @@ void TabBand::OnNewTabRequested() {
 
     const int targetGroup = current.groupIndex >= 0 ? current.groupIndex : 0;
     TabLocation location = m_tabs.Add(std::move(pidl), name, name, true, targetGroup);
+    ApplyInitialConnectionStatus(m_tabs, location);
     UpdateTabsUI();
     SyncAllSavedGroups();
     if (location.IsValid()) {
@@ -667,6 +719,7 @@ void TabBand::OnCloneTabRequested(TabLocation location) {
     std::wstring tooltip = tab->tooltip.empty() ? name : tab->tooltip;
 
     TabLocation newLocation = m_tabs.Add(std::move(clone), name, tooltip, true, location.groupIndex);
+    ApplyInitialConnectionStatus(m_tabs, newLocation);
     UpdateTabsUI();
     SyncAllSavedGroups();
     if (newLocation.IsValid()) {
@@ -1005,6 +1058,7 @@ void TabBand::OnOpenFolderInNewTab(const std::wstring& path) {
     const TabLocation selected = m_tabs.SelectedLocation();
     const int targetGroup = selected.groupIndex >= 0 ? selected.groupIndex : 0;
     TabLocation location = m_tabs.Add(std::move(pidl), name, name, true, targetGroup);
+    ApplyInitialConnectionStatus(m_tabs, location);
 
     UpdateTabsUI();
     SyncAllSavedGroups();
@@ -1209,6 +1263,7 @@ void TabBand::InitializeTabs() {
                     name = L"Tab";
                 }
                 TabLocation location = m_tabs.Add(std::move(pidl), name, name, true);
+                ApplyInitialConnectionStatus(m_tabs, location);
                 if (location.IsValid()) {
                     if (!pendingSeed || pendingSeed->type == WindowSeedType::StandaloneTab) {
                         m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
@@ -1307,6 +1362,7 @@ bool TabBand::RestoreSession() {
             tab.tooltip = tabData.tooltip.empty() ? tab.name : tabData.tooltip;
             tab.hidden = tabData.hidden;
             tab.path = tabData.path;
+            tab.connectionStatus = DetermineInitialConnectionStatus(tab.pidl.get());
             group.tabs.emplace_back(std::move(tab));
         }
         if (!group.tabs.empty() || !group.savedGroupId.empty()) {
@@ -1434,7 +1490,18 @@ void TabBand::NavigateToTab(TabLocation location) {
     m_tabs.SetSelectedLocation(location);
     SaveSession();
     m_internalNavigation = true;
-    EnsureFtpNamespaceBinding(tab->pidl.get());
+
+    const ConnectionStatus previousStatus = tab->connectionStatus;
+    bool bindingAttempted = false;
+    const bool bindingSuccess = EnsureFtpNamespaceBinding(tab->pidl.get(), &bindingAttempted);
+    const ConnectionStatus newStatus =
+        DeterminePostBindingStatus(tab->pidl.get(), bindingAttempted, bindingSuccess);
+    if (newStatus != previousStatus) {
+        tab->connectionStatus = newStatus;
+        if (m_window) {
+            m_window->SetTabs(m_tabs.BuildView());
+        }
+    }
     const HRESULT hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER);
     if (FAILED(hr)) {
         m_internalNavigation = false;
@@ -1461,6 +1528,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->tooltip = name;
             tab->hidden = false;
             tab->path = !parsingName.empty() ? parsingName : GetParsingName(tab->pidl.get());
+            tab->connectionStatus = DetermineInitialConnectionStatus(tab->pidl.get());
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
             SyncSavedGroup(selected.groupIndex);
             return;
@@ -1491,6 +1559,8 @@ void TabBand::EnsureTabForCurrentFolder() {
     if (!location.IsValid()) {
         return;
     }
+
+    ApplyInitialConnectionStatus(m_tabs, location);
 
     if (shouldHideIndicator) {
         m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
@@ -1657,6 +1727,7 @@ bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
 
         const bool selectCurrent = !haveNavigateTarget;
         TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, selectCurrent, -1);
+        ApplyInitialConnectionStatus(m_tabs, location);
         if (location.IsValid()) {
             opened = true;
             if (selectCurrent && !haveNavigateTarget) {
@@ -1806,6 +1877,7 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
             tabName = path;
         }
         TabLocation location = m_tabs.Add(std::move(pidl), tabName, tabName, selectFirst, groupIndex);
+        ApplyInitialConnectionStatus(m_tabs, location);
         if (selectFirst) {
             selectFirst = false;
         }

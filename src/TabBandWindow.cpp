@@ -65,6 +65,8 @@ constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
 constexpr int kIconGap = 6;
+constexpr int kConnectionBadgeSize = 10;
+constexpr int kConnectionBadgeGap = 6;
 constexpr int kIslandIndicatorWidth = 5;
 constexpr int kIslandOutlineThickness = 1;
 constexpr int kCloseButtonSize = 14;
@@ -245,6 +247,39 @@ COLORREF AdjustForDarkTone(COLORREF color, double baseFactor, bool darkMode) {
         factor = std::clamp(factor + (luminance - 0.3) * 1.1, factor, 0.8);
     }
     return BlendColors(color, RGB(0, 0, 0), factor);
+}
+
+bool ShouldShowConnectionBadge(const TabViewItem& item) {
+    return item.type == TabViewItemType::kTab && item.connectionStatus != ConnectionStatus::kNotApplicable;
+}
+
+COLORREF ResolveConnectionBadgeFill(ConnectionStatus status, bool darkMode) {
+    COLORREF fill = RGB(128, 128, 128);
+    switch (status) {
+        case ConnectionStatus::kSuccess:
+            fill = RGB(76, 175, 80);
+            break;
+        case ConnectionStatus::kUnknown:
+            fill = RGB(255, 193, 7);
+            break;
+        case ConnectionStatus::kFailed:
+            fill = RGB(229, 72, 77);
+            break;
+        case ConnectionStatus::kNotApplicable:
+        default:
+            break;
+    }
+    if (darkMode) {
+        return BlendColors(fill, RGB(255, 255, 255), 0.25);
+    }
+    return fill;
+}
+
+COLORREF ResolveConnectionBadgeBorder(COLORREF fill, bool darkMode) {
+    if (darkMode) {
+        return BlendColors(fill, RGB(0, 0, 0), 0.65);
+    }
+    return BlendColors(fill, RGB(0, 0, 0), 0.35);
 }
 
 COLORREF ResolveIndicatorColor(const TabViewItem* header, const TabViewItem& tab) {
@@ -750,15 +785,15 @@ void TabBandWindow::RebuildLayout() {
 				static_cast<int>(item.name.size()), &textSize);
 		}
 
-		int width = textSize.cx + kPaddingX * 2;
-		width = std::max(width, kItemMinWidth);
+                int width = textSize.cx + kPaddingX * 2;
+                width = std::max(width, kItemMinWidth);
 
                 visual.badgeWidth = 0;
 
-		visual.icon = LoadItemIcon(item);
-		if (visual.icon) {
-			visual.iconWidth = baseIconWidth;
-			visual.iconHeight = baseIconHeight;
+                visual.icon = LoadItemIcon(item);
+                if (visual.icon) {
+                        visual.iconWidth = baseIconWidth;
+                        visual.iconHeight = baseIconHeight;
 			ICONINFO iconInfo{};
 			if (GetIconInfo(visual.icon, &iconInfo)) {
 				BITMAP bitmap{};
@@ -775,12 +810,18 @@ void TabBandWindow::RebuildLayout() {
 				if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
 				if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
 			}
-			if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
-			if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
-			width += visual.iconWidth + kIconGap;
-		}
+                        if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
+                        if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
+                        width += visual.iconWidth + kIconGap;
+                }
 
-		width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
+                const bool showBadge = ShouldShowConnectionBadge(item);
+                if (showBadge && !visual.icon) {
+                        visual.badgeWidth = kConnectionBadgeSize + kConnectionBadgeGap;
+                        width += visual.badgeWidth;
+                }
+
+                width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
 
                 bool wrapped = false;
                 if (x + width > maxX) {
@@ -1985,14 +2026,60 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     int textRight = trailingBoundary;
 
     int textLeft = rect.left + islandIndicator + kPaddingX;
-    if (item.icon) {
-        const int availableHeight = rect.bottom - rect.top;
-        const int iconHeight = std::min(item.iconHeight, availableHeight - 4);
-        const int iconWidth = item.iconWidth;
-        const int iconY = rect.top + (availableHeight - iconHeight) / 2;
-        DrawIconEx(dc, textLeft, iconY, item.icon, iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
-        textLeft += iconWidth + kIconGap;
+    const int availableHeight = rect.bottom - rect.top;
+    const bool showBadge = ShouldShowConnectionBadge(item.data);
+    int iconLeft = textLeft;
+    int iconWidth = item.iconWidth;
+    int iconHeight = (availableHeight > 4) ? std::min(item.iconHeight, availableHeight - 4) : item.iconHeight;
+    if (iconHeight <= 0) {
+        const int fallbackLimit = (availableHeight > 0) ? availableHeight : iconWidth;
+        iconHeight = std::max(0, std::min(iconWidth, fallbackLimit));
     }
+    int iconTop = rect.top + (availableHeight - std::max(iconHeight, 0)) / 2;
+    bool iconDrawn = false;
+    if (item.icon && iconWidth > 0 && iconHeight > 0) {
+        DrawIconEx(dc, iconLeft, iconTop, item.icon, iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
+        iconDrawn = true;
+        textLeft = iconLeft + iconWidth + kIconGap;
+    }
+
+    if (showBadge) {
+        COLORREF badgeFill = ResolveConnectionBadgeFill(item.data.connectionStatus, m_darkMode);
+        COLORREF badgeBorder = ResolveConnectionBadgeBorder(badgeFill, m_darkMode);
+        int badgeLeft = rect.left + islandIndicator + kPaddingX;
+        int badgeTop = rect.top + (availableHeight - kConnectionBadgeSize) / 2;
+        if (iconDrawn) {
+            badgeLeft = iconLeft + iconWidth - kConnectionBadgeSize / 2;
+            badgeTop = iconTop + iconHeight - kConnectionBadgeSize / 2;
+            const int maxLeft = std::max(rect.left, rect.right - kConnectionBadgeSize);
+            const int maxTop = std::max(rect.top, rect.bottom - kConnectionBadgeSize);
+            badgeLeft = std::clamp(badgeLeft, rect.left, maxLeft);
+            badgeTop = std::clamp(badgeTop, rect.top, maxTop);
+        } else {
+            textLeft = badgeLeft + kConnectionBadgeSize + kConnectionBadgeGap;
+        }
+
+        HPEN badgePen = CreatePen(PS_SOLID, 1, badgeBorder);
+        HBRUSH badgeBrush = CreateSolidBrush(badgeFill);
+        if (badgePen && badgeBrush) {
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, badgePen));
+            HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, badgeBrush));
+            Ellipse(dc, badgeLeft, badgeTop, badgeLeft + kConnectionBadgeSize, badgeTop + kConnectionBadgeSize);
+            SelectObject(dc, oldBrush);
+            SelectObject(dc, oldPen);
+        }
+        if (badgeBrush) {
+            DeleteObject(badgeBrush);
+        }
+        if (badgePen) {
+            DeleteObject(badgePen);
+        }
+        if (iconDrawn) {
+            textLeft = std::max(textLeft, iconLeft + iconWidth + kIconGap);
+        }
+    }
+
+    textLeft = std::max(textLeft, rect.left + islandIndicator + kPaddingX);
 
     RECT textRect = rect;
     textRect.left = textLeft;

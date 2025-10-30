@@ -14,6 +14,13 @@ enum class TabViewItemType {
     kTab,
 };
 
+enum class ConnectionStatus {
+    kNotApplicable,
+    kUnknown,
+    kSuccess,
+    kFailed,
+};
+
 struct TabLocation {
     int groupIndex = -1;
     int tabIndex = -1;
@@ -27,6 +34,7 @@ struct TabInfo {
     std::wstring tooltip;
     bool hidden = false;
     std::wstring path;
+    ConnectionStatus connectionStatus = ConnectionStatus::kNotApplicable;
 };
 
 struct TabGroup {
@@ -56,6 +64,7 @@ struct TabViewItem {
     std::wstring savedGroupId;
     bool isSavedGroup = false;
     bool headerVisible = true;
+    ConnectionStatus connectionStatus = ConnectionStatus::kNotApplicable;
 };
 
 class TabManager {

@@ -9,6 +9,21 @@ namespace shelltabs {
 
 namespace {
 constexpr wchar_t kDefaultGroupNamePrefix[] = L"Island ";
+
+std::wstring BuildConnectionTooltip(ConnectionStatus status) {
+    switch (status) {
+        case ConnectionStatus::kSuccess:
+            return L"Connection status: FTP namespace bound successfully.";
+        case ConnectionStatus::kUnknown:
+            return L"Connection status: Waiting for FTP namespace binding.";
+        case ConnectionStatus::kFailed:
+            return L"Connection status: Failed to bind to the FTP namespace.\n"
+                   L"Recommended action: Check your network connection or credentials, then try reloading the tab.";
+        case ConnectionStatus::kNotApplicable:
+        default:
+            return {};
+    }
+}
 }  // namespace
 
 TabManager::TabManager() { EnsureDefaultGroup(); }
@@ -385,7 +400,17 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.type = TabViewItemType::kTab;
             item.location = {static_cast<int>(g), static_cast<int>(t)};
             item.name = tab.name;
-            item.tooltip = tab.tooltip.empty() ? tab.name : tab.tooltip;
+            std::wstring tooltip = tab.tooltip.empty() ? tab.name : tab.tooltip;
+            if (tab.connectionStatus != ConnectionStatus::kNotApplicable) {
+                std::wstring connectionTooltip = BuildConnectionTooltip(tab.connectionStatus);
+                if (!connectionTooltip.empty()) {
+                    if (!tooltip.empty()) {
+                        tooltip += L"\n";
+                    }
+                    tooltip += connectionTooltip;
+                }
+            }
+            item.tooltip = std::move(tooltip);
             item.pidl = tab.pidl.get();
             item.selected = (m_selectedGroup == static_cast<int>(g) && m_selectedTab == static_cast<int>(t));
             item.path = tab.path;
@@ -394,6 +419,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();
             item.headerVisible = group.headerVisible;
+            item.connectionStatus = tab.connectionStatus;
 
             items.emplace_back(std::move(item));
         }
