@@ -38,6 +38,9 @@ private:
         bool selected = false;
     };
 
+    static bool LocationsEqual(const TabLocation& a, const TabLocation& b) noexcept;
+    static bool TabsEqual(const std::vector<CachedTab>& a, const std::vector<CachedTab>& b);
+
     TabBand* m_owner = nullptr;
     Microsoft::WRL::ComPtr<ITaskbarList3> m_taskbar;
     HWND m_frame = nullptr;

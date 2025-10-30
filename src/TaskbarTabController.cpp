@@ -20,12 +20,14 @@ struct ProxyLocationEquals {
     }
 };
 
-bool LocationsEqual(const TabLocation& a, const TabLocation& b) {
+}  // namespace
+
+bool TaskbarTabController::LocationsEqual(const TabLocation& a, const TabLocation& b) noexcept {
     return ProxyLocationEquals{}(a, b);
 }
 
-bool TabsEqual(const std::vector<TaskbarTabController::CachedTab>& a,
-               const std::vector<TaskbarTabController::CachedTab>& b) {
+bool TaskbarTabController::TabsEqual(const std::vector<CachedTab>& a,
+                                     const std::vector<CachedTab>& b) {
     if (a.size() != b.size()) {
         return false;
     }
@@ -39,8 +41,6 @@ bool TabsEqual(const std::vector<TaskbarTabController::CachedTab>& a,
     }
     return true;
 }
-
-}  // namespace
 
 TaskbarTabController::TaskbarTabController(TabBand* owner) : m_owner(owner) {
     m_thumbButtonIcon = LoadIconW(nullptr, IDI_INFORMATION);
