@@ -26,6 +26,7 @@ public:
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static ATOM EnsurePopupWindowClass();
 
     void EnsureWindow(HWND ownerWindow);
     void InitializeWindow(HWND hwnd);

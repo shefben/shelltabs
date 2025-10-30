@@ -17,7 +17,13 @@ constexpr wchar_t kPopupClassName[] = L"ShellTabsTaskbarPopup";
 constexpr int kMaxVisibleItems = 10;
 constexpr int kItemHeight = 28;
 
-ATOM EnsurePopupWindowClass() {
+}  // namespace
+
+TaskbarTabPopup::TaskbarTabPopup(TabBand* owner) : m_owner(owner) {}
+
+TaskbarTabPopup::~TaskbarTabPopup() { Destroy(); }
+
+ATOM TaskbarTabPopup::EnsurePopupWindowClass() {
     static ATOM atom = 0;
     if (atom != 0) {
         return atom;
@@ -38,20 +44,12 @@ ATOM EnsurePopupWindowClass() {
     wc.hIconSm = nullptr;
 
     atom = RegisterClassExW(&wc);
-    if (atom == 0) {
-        if (GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
-            atom = 1;  // sentinel for already registered
-        }
+    if (atom == 0 && GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
+        atom = 1;  // sentinel for already registered
     }
 
     return atom;
 }
-
-}  // namespace
-
-TaskbarTabPopup::TaskbarTabPopup(TabBand* owner) : m_owner(owner) {}
-
-TaskbarTabPopup::~TaskbarTabPopup() { Destroy(); }
 
 void TaskbarTabPopup::EnsureWindow(HWND ownerWindow) {
     if (m_hwnd) {
