@@ -106,8 +106,9 @@ struct ShellTabsOptions;
 		bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
 		bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
 		bool HandleBreadcrumbPaint(HWND hwnd);
-		bool HandleProgressPaint(HWND hwnd);
-		bool HandleAddressEditPaint(HWND hwnd);
+                bool HandleProgressPaint(HWND hwnd);
+                bool HandleAddressEditPaint(HWND hwnd);
+                bool DrawAddressEditContent(HWND hwnd, HDC dc);
 		enum class BreadcrumbDiscoveryStage {
 			None,
 			ServiceUnavailable,
@@ -164,6 +165,7 @@ struct ShellTabsOptions;
                 COLORREF m_progressGradientBitmapEndColor = 0;
                 HWND m_addressEditWindow = nullptr;
                 bool m_addressEditSubclassInstalled = false;
+                bool m_handlingAddressEditPrintClient = false;
 		bool m_breadcrumbHookRegistered = false;
 		enum class BreadcrumbLogState {
 			Unknown,
