@@ -47,6 +47,89 @@ std::string WideToUtf8(std::wstring_view wide) {
     return result;
 }
 
+bool ReadUtf8File(const std::wstring& path, std::wstring* contents, bool* fileExists) {
+    if (!contents || path.empty()) {
+        return false;
+    }
+
+    contents->clear();
+    if (fileExists) {
+        *fileExists = false;
+    }
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+            return true;
+        }
+        return false;
+    }
+
+    if (fileExists) {
+        *fileExists = true;
+    }
+
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size) || size.HighPart != 0) {
+        CloseHandle(file);
+        return false;
+    }
+
+    if (size.QuadPart == 0) {
+        CloseHandle(file);
+        return true;
+    }
+
+    std::string buffer(static_cast<size_t>(size.QuadPart), '\0');
+    DWORD bytesRead = 0;
+    if (!buffer.empty() &&
+        !ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr)) {
+        CloseHandle(file);
+        return false;
+    }
+    CloseHandle(file);
+    buffer.resize(bytesRead);
+
+    if (buffer.empty()) {
+        return true;
+    }
+
+    std::wstring wide = Utf8ToWide(buffer);
+    if (wide.empty()) {
+        return false;
+    }
+
+    *contents = std::move(wide);
+    return true;
+}
+
+bool WriteUtf8File(const std::wstring& path, std::wstring_view contents) {
+    if (path.empty()) {
+        return false;
+    }
+
+    const std::string utf8 = WideToUtf8(contents);
+    if (!contents.empty() && utf8.empty()) {
+        return false;
+    }
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    DWORD bytesWritten = 0;
+    BOOL result = TRUE;
+    if (!utf8.empty()) {
+        result = WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr);
+        if (result && bytesWritten != utf8.size()) {
+            result = FALSE;
+        }
+    }
+    CloseHandle(file);
+    return result != FALSE;
+}
+
 void LogUnhandledException(const wchar_t* context, const wchar_t* details) {
     if (details && *details) {
         LogMessage(LogLevel::Error, L"%ls: unhandled exception - %ls", context && *context ? context : L"(unknown context)",

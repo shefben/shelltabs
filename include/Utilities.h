@@ -61,6 +61,8 @@ std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShell
 
 std::wstring Utf8ToWide(std::string_view utf8);
 std::string WideToUtf8(std::wstring_view wide);
+bool ReadUtf8File(const std::wstring& path, std::wstring* contents, bool* fileExists = nullptr);
+bool WriteUtf8File(const std::wstring& path, std::wstring_view contents);
 
 bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value,
                         COLORREF* color = nullptr);
