@@ -36,9 +36,6 @@ add_library(ShellTabs SHARED
     src/OptionsStore.cpp
     src/OptionsDialog.cpp
     src/ShellTabsMessages.cpp
-    src/TaskbarProxyWindow.cpp
-    src/TaskbarTabController.cpp
-    src/TaskbarTabPopup.cpp
     src/StringUtils.cpp
     src/Utilities.cpp
     src/Logging.cpp

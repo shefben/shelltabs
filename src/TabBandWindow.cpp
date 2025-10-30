@@ -2514,11 +2514,6 @@ void TabBandWindow::ClearExplorerContext() {
     m_explorerContext = {};
 }
 
-HICON TabBandWindow::GetTaskbarIcon(const TabViewItem& item, bool smallIcon) const {
-    const UINT sizeFlag = smallIcon ? SHGFI_SMALLICON : SHGFI_LARGEICON;
-    return LoadItemIcon(item, sizeFlag);
-}
-
 HICON TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT iconFlags) const {
     if (item.type != TabViewItemType::kTab) {
         return nullptr;
@@ -4306,18 +4301,6 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_SHELLTABS_DEFER_NAVIGATE: {
                 if (self->m_owner) {
                     self->m_owner->OnDeferredNavigate();
-                }
-                return 0;
-            }
-            case WM_SHELLTABS_SHOW_TASKBAR_POPUP: {
-                POINT anchor{};
-                if (wParam) {
-                    anchor = *reinterpret_cast<const POINT*>(wParam);
-                } else {
-                    GetCursorPos(&anchor);
-                }
-                if (self->m_owner) {
-                    self->m_owner->OnTaskbarThumbnailButtonInvoked(anchor);
                 }
                 return 0;
             }

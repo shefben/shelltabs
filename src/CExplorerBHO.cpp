@@ -32,7 +32,6 @@
 #include "Module.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
-#include "TaskbarTabController.h"
 #include "Utilities.h"
 
 #ifndef TBSTATE_HOT
@@ -1443,29 +1442,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             const UINT commandId = LOWORD(wParam);
             if (commandId == kOpenInNewTabCommandId) {
                 HandleExplorerCommand(commandId);
-                *result = 0;
-                return true;
-            }
-            if (commandId == TaskbarTabController::kThumbnailToolbarCommandId) {
-                HWND frame = m_frameWindow ? m_frameWindow : GetTopLevelExplorerWindow();
-                if (!frame) {
-                    LogMessage(LogLevel::Warning,
-                               L"Taskbar thumbnail command ignored: explorer frame unavailable");
-                    break;
-                }
-
-                HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
-                if (!bandWindow || !IsWindow(bandWindow)) {
-                    LogMessage(LogLevel::Warning,
-                               L"Taskbar thumbnail command failed: ShellTabs band window missing (frame=%p)",
-                               frame);
-                    break;
-                }
-
-                POINT anchor{};
-                GetCursorPos(&anchor);
-                SendMessageW(bandWindow, WM_SHELLTABS_SHOW_TASKBAR_POPUP,
-                             reinterpret_cast<WPARAM>(&anchor), 0);
                 *result = 0;
                 return true;
             }
