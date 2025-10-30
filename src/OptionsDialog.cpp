@@ -24,12 +24,12 @@
 #include <cstring>
 #include <shobjidl.h>
 #include <shlobj.h>
-#include <KnownFolders.h>
 #include <shlwapi.h>
 #include <commdlg.h>
 #include <wrl/client.h>
 #include <objbase.h>
 
+#include "BackgroundCache.h"
 #include "GroupStore.h"
 #include "Module.h"
 #include "OptionsStore.h"
@@ -853,55 +853,6 @@ bool EqualsInsensitive(const std::wstring& left, const std::wstring& right) {
     return _wcsicmp(left.c_str(), right.c_str()) == 0;
 }
 
-std::wstring EnsureOptionsStorageDirectory() {
-    PWSTR knownFolder = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
-        return {};
-    }
-
-    std::wstring directory(knownFolder);
-    CoTaskMemFree(knownFolder);
-    if (directory.empty()) {
-        return {};
-    }
-    if (directory.back() != L'\\') {
-        directory.push_back(L'\\');
-    }
-    directory += L"ShellTabs";
-    CreateDirectoryW(directory.c_str(), nullptr);
-    return directory;
-}
-
-std::wstring EnsureImageCacheDirectory() {
-    std::wstring baseDirectory = EnsureOptionsStorageDirectory();
-    if (baseDirectory.empty()) {
-        return {};
-    }
-    if (baseDirectory.back() != L'\\') {
-        baseDirectory.push_back(L'\\');
-    }
-    baseDirectory += L"Images";
-    CreateDirectoryW(baseDirectory.c_str(), nullptr);
-    return baseDirectory;
-}
-
-bool PathHasPrefixInsensitive(const std::wstring& path, const std::wstring& directory) {
-    if (path.empty() || directory.empty()) {
-        return false;
-    }
-    if (path.size() < directory.size()) {
-        return false;
-    }
-    if (_wcsnicmp(path.c_str(), directory.c_str(), directory.size()) != 0) {
-        return false;
-    }
-    if (path.size() == directory.size()) {
-        return true;
-    }
-    const wchar_t separator = path[directory.size()];
-    return separator == L'\\';
-}
-
 std::wstring ExtractDirectoryFromPath(const std::wstring& path) {
     if (path.empty()) {
         return {};
@@ -915,64 +866,7 @@ std::wstring ExtractDirectoryFromPath(const std::wstring& path) {
 
 bool CopyImageToCache(const std::wstring& sourcePath, const std::wstring& displayName, CachedImageMetadata* metadata,
                       std::wstring* createdPath) {
-    if (!metadata) {
-        return false;
-    }
-    if (createdPath) {
-        createdPath->clear();
-    }
-
-    std::wstring normalizedSource = NormalizeFileSystemPath(sourcePath);
-    if (normalizedSource.empty()) {
-        return false;
-    }
-
-    std::wstring cacheDirectory = EnsureImageCacheDirectory();
-    if (cacheDirectory.empty()) {
-        return false;
-    }
-
-    std::wstring targetPath = normalizedSource;
-    if (!PathHasPrefixInsensitive(normalizedSource, cacheDirectory)) {
-        GUID guid{};
-        if (FAILED(CoCreateGuid(&guid))) {
-            return false;
-        }
-        wchar_t guidBuffer[64];
-        if (StringFromGUID2(guid, guidBuffer, ARRAYSIZE(guidBuffer)) <= 0) {
-            return false;
-        }
-        std::wstring fileName(guidBuffer);
-        fileName.erase(std::remove(fileName.begin(), fileName.end(), L'{'), fileName.end());
-        fileName.erase(std::remove(fileName.begin(), fileName.end(), L'}'), fileName.end());
-        fileName.erase(std::remove(fileName.begin(), fileName.end(), L'-'), fileName.end());
-        const wchar_t* extension = PathFindExtensionW(normalizedSource.c_str());
-        std::wstring ext = (extension && *extension) ? extension : L".img";
-        if (cacheDirectory.back() != L'\\') {
-            cacheDirectory.push_back(L'\\');
-        }
-        targetPath = cacheDirectory + fileName + ext;
-        if (!CopyFileW(normalizedSource.c_str(), targetPath.c_str(), FALSE)) {
-            return false;
-        }
-        if (createdPath) {
-            *createdPath = targetPath;
-        }
-    }
-
-    std::wstring normalizedTarget = NormalizeFileSystemPath(targetPath);
-    if (!normalizedTarget.empty()) {
-        targetPath = normalizedTarget;
-    }
-
-    metadata->cachedImagePath = targetPath;
-    if (!displayName.empty()) {
-        metadata->displayName = displayName;
-    } else {
-        const wchar_t* fileName = PathFindFileNameW(normalizedSource.c_str());
-        metadata->displayName = fileName ? fileName : normalizedSource;
-    }
-    return true;
+    return CopyImageToBackgroundCache(sourcePath, displayName, metadata, createdPath);
 }
 
 bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* displayName, const std::wstring& initialDirectory) {
