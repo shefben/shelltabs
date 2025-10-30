@@ -31,6 +31,7 @@ add_library(ShellTabs SHARED
     src/FtpUrl.cpp
     src/Guids.cpp
     src/Module.cpp
+    src/ColorSerialization.cpp
     src/SessionStore.cpp
     src/GroupStore.cpp
     src/OptionsStore.cpp
@@ -124,5 +125,21 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         winhttp
         ws2_32
         credui
+    )
+
+    add_executable(ShellTabsColorSerializationTests
+        tests/ColorSerializationTests.cpp
+        src/ColorSerialization.cpp
+    )
+
+    target_include_directories(ShellTabsColorSerializationTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsColorSerializationTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
     )
 endif()
