@@ -9,6 +9,7 @@
 
 #include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cwchar>
 #include <algorithm>
@@ -19,22 +20,31 @@
 
 namespace shelltabs {
 
-namespace {
-std::wstring NarrowToWide(const char* value) {
-    if (!value || !*value) {
+std::wstring Utf8ToWide(std::string_view utf8) {
+    if (utf8.empty()) {
         return {};
     }
-    int length = MultiByteToWideChar(CP_UTF8, 0, value, -1, nullptr, 0);
+    const int length = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (length <= 0) {
         return {};
     }
-    std::wstring result;
-    result.resize(static_cast<size_t>(length - 1));
-    MultiByteToWideChar(CP_UTF8, 0, value, -1, result.data(), length);
+    std::wstring result(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), result.data(), length);
     return result;
 }
 
-}  // namespace
+std::string WideToUtf8(std::wstring_view wide) {
+    if (wide.empty()) {
+        return {};
+    }
+    const int length = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (length <= 0) {
+        return {};
+    }
+    std::string result(static_cast<size_t>(length), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), result.data(), length, nullptr, nullptr);
+    return result;
+}
 
 void LogUnhandledException(const wchar_t* context, const wchar_t* details) {
     if (details && *details) {
@@ -46,7 +56,7 @@ void LogUnhandledException(const wchar_t* context, const wchar_t* details) {
 }
 
 void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details) {
-    const std::wstring wide = NarrowToWide(details);
+    const std::wstring wide = details ? Utf8ToWide(details) : std::wstring();
     if (wide.empty()) {
         LogUnhandledException(context, nullptr);
         return;
