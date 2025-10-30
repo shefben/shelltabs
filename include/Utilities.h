@@ -52,6 +52,7 @@ UniquePidl ParseExplorerUrl(const std::wstring& url);
 bool TryParseFtpUrl(const std::wstring& url, FtpUrlParts* parts);
 UniquePidl CreateFtpPidlFromUrl(const FtpUrlParts& parts);
 std::wstring NormalizeFileSystemPath(const std::wstring& path);
+std::wstring GetShellTabsDataDirectory();
 bool TryGetFileSystemPath(IShellItem* item, std::wstring* path);
 bool IsLikelyFileSystemPath(const std::wstring& path);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,

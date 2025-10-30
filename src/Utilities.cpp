@@ -1,6 +1,7 @@
 #include "Utilities.h"
 
 #include <shlobj.h>
+#include <KnownFolders.h>
 #include <shobjidl_core.h>
 #include <shlwapi.h>
 #include <urlmon.h>
@@ -211,6 +212,27 @@ std::wstring NormalizeFileSystemPath(const std::wstring& path) {
 
     normalized.resize(wcslen(normalized.c_str()));
     return normalized;
+}
+
+std::wstring GetShellTabsDataDirectory() {
+    PWSTR knownFolder = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &knownFolder)) || !knownFolder) {
+        return {};
+    }
+
+    std::wstring directory(knownFolder);
+    CoTaskMemFree(knownFolder);
+    if (directory.empty()) {
+        return {};
+    }
+
+    if (directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    directory += L"ShellTabs";
+    CreateDirectoryW(directory.c_str(), nullptr);
+
+    return NormalizeFileSystemPath(directory);
 }
 
 bool TryGetFileSystemPath(IShellItem* item, std::wstring* path) {
