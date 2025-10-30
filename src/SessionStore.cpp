@@ -1,5 +1,7 @@
 #include "SessionStore.h"
 
+#include "StringUtils.h"
+
 #include <ShlObj.h>
 #include <Shlwapi.h>
 
@@ -24,30 +26,6 @@ constexpr wchar_t kSequenceToken[] = L"sequence";
 constexpr wchar_t kDockToken[] = L"dock";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
-
-std::wstring Trim(const std::wstring& value) {
-    const auto begin = value.find_first_not_of(L" \t\r\n");
-    if (begin == std::wstring::npos) {
-        return {};
-    }
-    const auto end = value.find_last_not_of(L" \t\r\n");
-    return value.substr(begin, end - begin + 1);
-}
-
-std::vector<std::wstring> Split(const std::wstring& value, wchar_t delimiter) {
-    std::vector<std::wstring> parts;
-    size_t start = 0;
-    while (start <= value.size()) {
-        const size_t pos = value.find(delimiter, start);
-        if (pos == std::wstring::npos) {
-            parts.emplace_back(value.substr(start));
-            break;
-        }
-        parts.emplace_back(value.substr(start, pos - start));
-        start = pos + 1;
-    }
-    return parts;
-}
 
 bool ParseBool(const std::wstring& token) {
     return token == L"1" || token == L"true" || token == L"TRUE";
