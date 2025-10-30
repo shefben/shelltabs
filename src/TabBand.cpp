@@ -32,6 +32,7 @@
 #include "Module.h"
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
+#include "TaskbarTabController.h"
 #include "Utilities.h"
 #include "FtpPidl.h"
 
@@ -119,6 +120,9 @@ bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
 TabBand::TabBand() : m_refCount(1) {
     ModuleAddRef();
     LogMessage(LogLevel::Info, L"TabBand constructed (this=%p)", this);
+    if (TaskbarTabController::IsSupported()) {
+        m_taskbarController = std::make_unique<TaskbarTabController>(this);
+    }
 }
 
 TabBand::~TabBand() {
@@ -1172,6 +1176,10 @@ void TabBand::DisconnectSite() {
         m_window.reset();
     }
 
+    if (m_taskbarController) {
+        m_taskbarController->Reset();
+    }
+
     m_tabs.Clear();
     m_internalNavigation = false;
     m_allowExternalNewWindows = 0;
@@ -1253,6 +1261,9 @@ void TabBand::UpdateTabsUI() {
                static_cast<unsigned long long>(items.size()));
     if (m_window) {
         m_window->SetTabs(items);
+    }
+    if (m_taskbarController) {
+        m_taskbarController->SyncTabs(items, m_tabs.SelectedLocation(), GetFrameWindow());
     }
     SaveSession();
 }

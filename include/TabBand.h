@@ -21,6 +21,7 @@
 namespace shelltabs {
 
 class TabBandWindow;
+class TaskbarTabController;
 
 class TabBand : public IDeskBand2,
                 public IObjectWithSite,
@@ -125,6 +126,8 @@ public:
     void OnDockingModeChanged(TabBandDockMode mode);
 
 private:
+    friend class TaskbarTabController;
+
     std::atomic<long> m_refCount;
     DWORD m_bandId = 0;
     DWORD m_viewMode = 0;
@@ -135,6 +138,7 @@ private:
     Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
 
     std::unique_ptr<TabBandWindow> m_window;
+    std::unique_ptr<TaskbarTabController> m_taskbarController;
     TabManager m_tabs;
     std::unique_ptr<SessionStore> m_sessionStore;
     bool m_restoringSession = false;
