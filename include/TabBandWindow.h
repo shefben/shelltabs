@@ -25,6 +25,7 @@
 #include <shobjidl.h>
 
 #include "OptionsStore.h"
+#include "PreviewOverlay.h"
 #include "TabManager.h"
 
 
@@ -187,9 +188,7 @@ private:
     bool m_dropHoverTimerActive = false;
     COLORREF m_progressStartColor = RGB(0, 120, 215);
     COLORREF m_progressEndColor = RGB(0, 153, 255);
-    HWND m_previewWindow = nullptr;
-    HBITMAP m_previewBitmap = nullptr;
-    SIZE m_previewBitmapSize{};
+    PreviewOverlay m_previewOverlay;
     size_t m_previewItemIndex = std::numeric_limits<size_t>::max();
     bool m_previewVisible = false;
     UINT m_shellNotifyMessage = 0;
@@ -244,7 +243,6 @@ private:
     void ShowPreviewForItem(size_t index, const POINT& screenPt);
     void HidePreviewWindow(bool destroy);
     void PositionPreviewWindow(const VisualItem& item, const POINT& screenPt);
-    HWND EnsurePreviewWindow();
     void RefreshProgressState();
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;

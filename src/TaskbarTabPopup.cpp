@@ -7,6 +7,7 @@
 
 #include "Logging.h"
 #include "Module.h"
+#include "PreviewCache.h"
 #include "TabBand.h"
 #include "TabBandWindow.h"
 
@@ -16,6 +17,8 @@ namespace {
 constexpr wchar_t kPopupClassName[] = L"ShellTabsTaskbarPopup";
 constexpr int kMaxVisibleItems = 10;
 constexpr int kItemHeight = 28;
+constexpr UINT_PTR kPreviewTimerId = 1;
+constexpr UINT kPreviewHoverDelayMs = 1000;
 
 }  // namespace
 
@@ -187,6 +190,12 @@ void TaskbarTabPopup::Populate(TabBandWindow* tabWindow) {
 }
 
 void TaskbarTabPopup::Show(const POINT& anchor, HWND ownerWindow, TabBandWindow* tabWindow) {
+    StopPreviewTimer();
+    HidePreview();
+    m_hotItem = -1;
+    m_previewItem = -1;
+    m_mouseTracking = false;
+    m_lastHoverPoint = POINT{};
     EnsureWindow(ownerWindow);
     if (!m_hwnd) {
         return;
@@ -246,6 +255,11 @@ void TaskbarTabPopup::Hide() {
     if (!m_hwnd || !m_visible) {
         return;
     }
+    StopPreviewTimer();
+    HidePreview();
+    m_hotItem = -1;
+    m_previewItem = -1;
+    m_mouseTracking = false;
     m_visible = false;
     ShowWindow(m_hwnd, SW_HIDE);
 }
@@ -257,6 +271,7 @@ void TaskbarTabPopup::Destroy() {
     }
     m_hwnd = nullptr;
     m_listView = nullptr;
+    m_previewOverlay.Destroy();
     if (m_imageList) {
         ImageList_Destroy(m_imageList);
         m_imageList = nullptr;
@@ -282,6 +297,24 @@ void TaskbarTabPopup::HandleNotify(NMHDR* header) {
     }
 
     switch (header->code) {
+        case LVN_HOTTRACK: {
+            auto* hot = reinterpret_cast<NMLISTVIEW*>(header);
+            POINT pt{};
+            int index = -1;
+            if (hot) {
+                pt = hot->ptAction;
+                index = hot->iItem;
+            }
+            OnHotItemChanged(index, pt);
+            break;
+        }
+        case LVN_ITEMCHANGED: {
+            auto* change = reinterpret_cast<NMLISTVIEW*>(header);
+            if (change) {
+                OnItemChanged(*change);
+            }
+            break;
+        }
         case LVN_ITEMACTIVATE: {
             auto* activate = reinterpret_cast<NMITEMACTIVATE*>(header);
             ActivateIndex(activate ? activate->iItem : -1);
@@ -304,9 +337,166 @@ void TaskbarTabPopup::HandleNotify(NMHDR* header) {
             HideInternal();
             break;
         }
+        case NM_HOVER: {
+            auto* hover = reinterpret_cast<NMLISTVIEW*>(header);
+            if (hover) {
+                OnHotItemChanged(hover->iItem, hover->ptAction);
+            }
+            HandleHover();
+            break;
+        }
         default:
             break;
     }
+}
+
+void TaskbarTabPopup::OnHotItemChanged(int index, const POINT& ptClient) {
+    if (index >= 0 && m_listView) {
+        POINT screenPt = ptClient;
+        ClientToScreen(m_listView, &screenPt);
+        m_lastHoverPoint = screenPt;
+    }
+
+    if (index != m_hotItem) {
+        m_hotItem = index;
+        StopPreviewTimer();
+        if (m_previewItem != index) {
+            HidePreview();
+        }
+    }
+
+    if (index >= 0) {
+        EnsureMouseTracking();
+    } else {
+        m_mouseTracking = false;
+    }
+}
+
+void TaskbarTabPopup::OnItemChanged(const NMLISTVIEW& info) {
+    if ((info.uChanged & LVIF_STATE) == 0) {
+        return;
+    }
+
+    const UINT oldSelected = info.uOldState & LVIS_SELECTED;
+    const UINT newSelected = info.uNewState & LVIS_SELECTED;
+    if (oldSelected == newSelected) {
+        return;
+    }
+
+    if (newSelected != 0) {
+        ShowPreviewForIndex(info.iItem);
+    } else if (info.iItem == m_previewItem) {
+        HidePreview();
+    }
+}
+
+void TaskbarTabPopup::HandleHover() {
+    if (!m_hwnd || m_hotItem < 0) {
+        return;
+    }
+
+    if (m_previewTimerActive) {
+        StopPreviewTimer();
+    }
+
+    if (SetTimer(m_hwnd, kPreviewTimerId, kPreviewHoverDelayMs, nullptr)) {
+        m_previewTimerActive = true;
+    }
+
+    m_mouseTracking = false;
+}
+
+void TaskbarTabPopup::HandleTimer(UINT_PTR timerId) {
+    if (timerId != kPreviewTimerId) {
+        return;
+    }
+
+    StopPreviewTimer();
+    if (m_hotItem >= 0) {
+        ShowPreviewForIndex(m_hotItem);
+    }
+}
+
+void TaskbarTabPopup::EnsureMouseTracking() {
+    if (!m_listView || m_mouseTracking) {
+        return;
+    }
+
+    TRACKMOUSEEVENT tme{sizeof(tme)};
+    tme.dwFlags = TME_LEAVE | TME_HOVER;
+    tme.hwndTrack = m_listView;
+    tme.dwHoverTime = HOVER_DEFAULT;
+    if (TrackMouseEvent(&tme)) {
+        m_mouseTracking = true;
+    }
+
+    if (m_hwnd) {
+        TRACKMOUSEEVENT parentTrack{sizeof(parentTrack)};
+        parentTrack.dwFlags = TME_LEAVE;
+        parentTrack.hwndTrack = m_hwnd;
+        TrackMouseEvent(&parentTrack);
+    }
+}
+
+void TaskbarTabPopup::HidePreview() {
+    m_previewOverlay.Hide(false);
+    m_previewItem = -1;
+}
+
+void TaskbarTabPopup::ShowPreviewForIndex(int index) {
+    StopPreviewTimer();
+
+    if (!m_hwnd || !m_listView || index < 0 || static_cast<size_t>(index) >= m_items.size()) {
+        HidePreview();
+        return;
+    }
+
+    const auto& item = m_items[static_cast<size_t>(index)];
+    if (!item.pidl) {
+        HidePreview();
+        return;
+    }
+
+    if (m_owner && item.location.IsValid()) {
+        m_owner->EnsureTabPreview(item.location);
+    }
+
+    auto preview = PreviewCache::Instance().GetPreview(item.pidl, kPreviewImageSize);
+    if (!preview.has_value() || !preview->bitmap) {
+        HidePreview();
+        return;
+    }
+
+    RECT itemRect{};
+    if (!ListView_GetItemRect(m_listView, index, &itemRect, LVIR_BOUNDS)) {
+        HidePreview();
+        return;
+    }
+
+    RECT screenRect = itemRect;
+    MapWindowPoints(m_listView, nullptr, reinterpret_cast<POINT*>(&screenRect), 2);
+
+    POINT cursor = m_lastHoverPoint;
+    if (m_hotItem != index || (cursor.x == 0 && cursor.y == 0)) {
+        cursor.x = (screenRect.left + screenRect.right) / 2;
+        cursor.y = (screenRect.top + screenRect.bottom) / 2;
+        m_lastHoverPoint = cursor;
+    }
+
+    if (!m_previewOverlay.Show(m_hwnd, preview->bitmap, preview->size, cursor)) {
+        HidePreview();
+        return;
+    }
+
+    m_previewOverlay.PositionRelativeToRect(screenRect, cursor);
+    m_previewItem = index;
+}
+
+void TaskbarTabPopup::StopPreviewTimer() {
+    if (m_previewTimerActive && m_hwnd) {
+        KillTimer(m_hwnd, kPreviewTimerId);
+    }
+    m_previewTimerActive = false;
 }
 
 void TaskbarTabPopup::HideInternal() { Hide(); }
@@ -353,10 +543,22 @@ LRESULT CALLBACK TaskbarTabPopup::WindowProc(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_NOTIFY:
             self->HandleNotify(reinterpret_cast<NMHDR*>(lParam));
             return 0;
+        case WM_MOUSEMOVE:
+            self->EnsureMouseTracking();
+            break;
+        case WM_MOUSELEAVE:
+            self->m_mouseTracking = false;
+            self->m_hotItem = -1;
+            self->StopPreviewTimer();
+            self->HidePreview();
+            break;
         case WM_SIZE:
             if (self->m_listView) {
                 MoveWindow(self->m_listView, 0, 0, LOWORD(lParam), HIWORD(lParam), TRUE);
             }
+            return 0;
+        case WM_TIMER:
+            self->HandleTimer(static_cast<UINT_PTR>(wParam));
             return 0;
         default:
             break;
