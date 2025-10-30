@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cwctype>
+#include <cwchar>
 #include <sstream>
 #include <string>
 
@@ -18,6 +19,7 @@ constexpr wchar_t kGroupToken[] = L"group";
 constexpr wchar_t kTabToken[] = L"tab";
 constexpr wchar_t kSelectedToken[] = L"selected";
 constexpr wchar_t kSequenceToken[] = L"sequence";
+constexpr wchar_t kDockToken[] = L"dock";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
 
@@ -73,6 +75,40 @@ std::string WideToUtf8(const std::wstring& wide) {
 
 bool ParseBool(const std::wstring& token) {
     return token == L"1" || token == L"true" || token == L"TRUE";
+}
+
+TabBandDockMode ParseDockMode(const std::wstring& token) {
+    if (token.empty()) {
+        return TabBandDockMode::kAutomatic;
+    }
+    if (_wcsicmp(token.c_str(), L"top") == 0) {
+        return TabBandDockMode::kTop;
+    }
+    if (_wcsicmp(token.c_str(), L"bottom") == 0) {
+        return TabBandDockMode::kBottom;
+    }
+    if (_wcsicmp(token.c_str(), L"left") == 0) {
+        return TabBandDockMode::kLeft;
+    }
+    if (_wcsicmp(token.c_str(), L"right") == 0) {
+        return TabBandDockMode::kRight;
+    }
+    return TabBandDockMode::kAutomatic;
+}
+
+std::wstring DockModeToString(TabBandDockMode mode) {
+    switch (mode) {
+        case TabBandDockMode::kTop:
+            return L"top";
+        case TabBandDockMode::kBottom:
+            return L"bottom";
+        case TabBandDockMode::kLeft:
+            return L"left";
+        case TabBandDockMode::kRight:
+            return L"right";
+        default:
+            return L"auto";
+    }
 }
 
 COLORREF ParseColor(const std::wstring& token, COLORREF fallback) {
@@ -365,6 +401,10 @@ bool SessionStore::Load(SessionData& data) const {
             if (tokens.size() >= 2) {
                 data.groupSequence = std::max(1, _wtoi(tokens[1].c_str()));
             }
+        } else if (header == kDockToken) {
+            if (tokens.size() >= 2) {
+                data.dockMode = ParseDockMode(tokens[1]);
+            }
         } else if (header == kGroupToken) {
             if (tokens.size() < 3) {
                 continue;
@@ -444,6 +484,8 @@ bool SessionStore::Save(const SessionData& data) const {
     content += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     content += kSequenceToken;
     content += L"|" + std::to_wstring(std::max(data.groupSequence, 1)) + L"\n";
+    content += kDockToken;
+    content += L"|" + DockModeToString(data.dockMode) + L"\n";
 
     for (const auto& group : data.groups) {
         content += kGroupToken;

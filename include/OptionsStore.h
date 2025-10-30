@@ -17,6 +17,14 @@ struct FolderBackgroundEntry {
     CachedImageMetadata image;
 };
 
+enum class TabBandDockMode {
+    kAutomatic = 0,
+    kTop,
+    kBottom,
+    kLeft,
+    kRight,
+};
+
 struct ShellTabsOptions {
     bool reopenOnCrash = false;
     bool persistGroupPaths = false;
@@ -40,6 +48,7 @@ struct ShellTabsOptions {
     bool enableFolderBackgrounds = false;
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
+    TabBandDockMode tabDockMode = TabBandDockMode::kAutomatic;
 };
 
 class OptionsStore {

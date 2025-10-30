@@ -24,6 +24,7 @@
 #include <wrl/client.h>
 #include <shobjidl.h>
 
+#include "OptionsStore.h"
 #include "TabManager.h"
 
 
@@ -48,6 +49,10 @@ public:
     bool HasFocus() const;
     void FocusTab();
     void RefreshTheme();
+
+    void SetPreferredDockMode(TabBandDockMode mode);
+    TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }
+    static uint32_t GetAvailableDockMask();
 
     struct HitInfo {
         bool hit = false;
@@ -192,6 +197,9 @@ private:
         Microsoft::WRL::ComPtr<IUnknown> m_siteUnknown;
         Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
         std::shared_ptr<ExplorerWindowHook> m_windowHook;
+
+        TabBandDockMode m_preferredDockMode = TabBandDockMode::kAutomatic;
+        TabBandDockMode m_currentDockMode = TabBandDockMode::kAutomatic;
 
         // Utilities
         // Helpers

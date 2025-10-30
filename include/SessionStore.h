@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "OptionsStore.h"
 #include "TabManager.h"
 
 namespace shelltabs {
@@ -32,6 +33,7 @@ struct SessionData {
     int selectedGroup = -1;
     int selectedTab = -1;
     int groupSequence = 1;
+    TabBandDockMode dockMode = TabBandDockMode::kAutomatic;
 };
 
 class SessionStore {
