@@ -14,6 +14,7 @@
 #include <exception>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -56,6 +57,9 @@ bool IsLikelyFileSystemPath(const std::wstring& path);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
 std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser);
+
+std::wstring Utf8ToWide(std::string_view utf8);
+std::string WideToUtf8(std::wstring_view wide);
 
 bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstring& prompt, std::wstring* value,
                         COLORREF* color = nullptr);

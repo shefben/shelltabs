@@ -1,5 +1,7 @@
 #include "Logging.h"
 
+#include "Utilities.h"
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -167,20 +169,6 @@ std::wstring BuildLogFilePath() {
     }
     directory.append(fileName);
     return directory;
-}
-
-std::string WideToUtf8(const std::wstring& value) {
-    if (value.empty()) {
-        return {};
-    }
-
-    int required = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
-    if (required <= 0) {
-        return {};
-    }
-    std::string buffer(static_cast<size_t>(required), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), buffer.data(), required, nullptr, nullptr);
-    return buffer;
 }
 
 void WriteLineToFile(const std::wstring& line) {
