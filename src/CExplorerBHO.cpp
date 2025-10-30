@@ -3019,9 +3019,19 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
         return false;
     }
 
+    DrawAddressEditContent(hwnd, dc);
+
+    EndPaint(hwnd, &ps);
+    return true;
+}
+
+bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
+    if (!hwnd || !dc) {
+        return false;
+    }
+
     RECT client{};
     if (!GetClientRect(hwnd, &client)) {
-        EndPaint(hwnd, &ps);
         return true;
     }
 
@@ -3033,7 +3043,13 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
     }
     const COLORREF originalTextColor = SetTextColor(dc, backgroundColor);
     const int originalBkMode = SetBkMode(dc, OPAQUE);
-    SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
+
+    if (!m_handlingAddressEditPrintClient) {
+        m_handlingAddressEditPrintClient = true;
+        SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
+        m_handlingAddressEditPrintClient = false;
+    }
+
     SetTextColor(dc, originalTextColor);
     SetBkMode(dc, originalBkMode);
 
@@ -3211,7 +3227,6 @@ bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
         ShowCaret(hwnd);
     }
 
-    EndPaint(hwnd, &ps);
     return true;
 }
 
@@ -3392,6 +3407,16 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
                 return 0;
             }
             break;
+        case WM_PRINTCLIENT: {
+            if (!self->m_handlingAddressEditPrintClient &&
+                self->m_breadcrumbFontGradientEnabled && self->m_useCustomBreadcrumbFontColors) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                if (self->DrawAddressEditContent(hwnd, dc)) {
+                    return 0;
+                }
+            }
+            break;
+        }
         case WM_SETTEXT:
         case EM_REPLACESEL:
         case EM_SETSEL:
