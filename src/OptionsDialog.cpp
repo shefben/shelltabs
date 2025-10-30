@@ -1267,16 +1267,43 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
     if (!data) {
         return;
     }
+    const size_t childCount = data->customizationChildPlacements.size();
+    HDWP deferHandle = childCount > 0
+                            ? BeginDeferWindowPos(static_cast<int>(childCount))
+                            : nullptr;
+    const bool attemptDefer = deferHandle != nullptr;
     for (const auto& placement : data->customizationChildPlacements) {
         if (!IsWindow(placement.hwnd)) {
             continue;
         }
         const int width = placement.rect.right - placement.rect.left;
         const int height = placement.rect.bottom - placement.rect.top;
-        SetWindowPos(placement.hwnd, nullptr, placement.rect.left,
-                     placement.rect.top - data->customizationScrollPos, width, height,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+        const int targetY = placement.rect.top - data->customizationScrollPos;
+        if (deferHandle) {
+            HDWP nextHandle = DeferWindowPos(deferHandle, placement.hwnd, nullptr, placement.rect.left,
+                                            targetY, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (!nextHandle) {
+                deferHandle = nullptr;
+                SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            } else {
+                deferHandle = nextHandle;
+            }
+        } else {
+            SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
     }
+    if (deferHandle) {
+        EndDeferWindowPos(deferHandle);
+    }
+    if (attemptDefer && !deferHandle) {
+        // Ensure any partially moved children receive a layout update if defer failed midway.
+        RedrawWindow(hwnd, nullptr, nullptr,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
+    RedrawWindow(hwnd, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 void UpdateCustomizationScrollInfo(HWND hwnd, OptionsDialogData* data) {
