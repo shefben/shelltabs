@@ -3,8 +3,8 @@
 #include <VersionHelpers.h>
 
 #include <algorithm>
-#include <utility>
 #include <cwchar>
+#include <utility>
 
 #include "Logging.h"
 #include "TabBand.h"
@@ -53,6 +53,21 @@ TaskbarTabController::~TaskbarTabController() { Reset(); }
 
 bool TaskbarTabController::IsSupported() noexcept { return IsWindows7OrGreater() != FALSE; }
 
+void TaskbarTabController::OnProxyActivatedThunk(void* context, TabLocation location) {
+    if (!context) {
+        return;
+    }
+    auto* self = static_cast<TaskbarTabController*>(context);
+    self->OnProxyActivated(location);
+}
+
+void TaskbarTabController::OnProxyActivated(TabLocation location) {
+    if (!m_owner) {
+        return;
+    }
+    m_owner->OnTabSelected(location);
+}
+
 bool TaskbarTabController::EnsureTaskbar() {
     if (m_taskbar) {
         return true;
@@ -86,6 +101,7 @@ void TaskbarTabController::SyncFrameSummary(const std::vector<TabViewItem>& item
     }
 
     if (!frame) {
+        TearDownProxies();
         m_frame = nullptr;
         m_cachedTabs.clear();
         m_activeLocation = {};
@@ -94,10 +110,12 @@ void TaskbarTabController::SyncFrameSummary(const std::vector<TabViewItem>& item
     }
 
     if (!EnsureTaskbar()) {
+        TearDownProxies();
         return;
     }
 
     if (frame != m_frame) {
+        TearDownProxies();
         m_cachedTabs.clear();
         m_frameTooltip.clear();
         m_activeLocation = {};
@@ -159,10 +177,55 @@ void TaskbarTabController::SyncFrameSummary(const std::vector<TabViewItem>& item
         RefreshFrameTooltip(frame, tooltip);
     }
 
+    if (m_taskbar) {
+        RemoveStaleProxies(frameEntries);
+
+        HWND previous = nullptr;
+        for (const auto& entry : frameEntries) {
+            TaskbarProxyWindow* proxy = EnsureProxy(entry, frame);
+            if (!proxy) {
+                continue;
+            }
+
+            HWND proxyHwnd = proxy->GetHwnd();
+            if (!proxyHwnd) {
+                continue;
+            }
+
+            if (!proxy->IsRegistered()) {
+                HRESULT hr = m_taskbar->RegisterTab(proxyHwnd, frame);
+                if (FAILED(hr)) {
+                    LogMessage(LogLevel::Warning,
+                               L"TaskbarTabController RegisterTab failed (hr=0x%08X)",
+                               static_cast<unsigned int>(hr));
+                } else {
+                    proxy->SetRegistered(true);
+                }
+            }
+
+            HRESULT orderHr = m_taskbar->SetTabOrder(proxyHwnd, previous);
+            if (FAILED(orderHr)) {
+                LogMessage(LogLevel::Warning, L"TaskbarTabController SetTabOrder failed (hr=0x%08X)",
+                           static_cast<unsigned int>(orderHr));
+            }
+
+            if (entry.selected) {
+                HRESULT activeHr = m_taskbar->SetTabActive(proxyHwnd, frame, 0);
+                if (FAILED(activeHr)) {
+                    LogMessage(LogLevel::Warning, L"TaskbarTabController SetTabActive failed (hr=0x%08X)",
+                               static_cast<unsigned int>(activeHr));
+                }
+            }
+
+            previous = proxyHwnd;
+        }
+    }
+
     EnsureThumbnailButton(frame);
 }
 
 void TaskbarTabController::Reset() {
+    TearDownProxies();
     m_taskbar.Reset();
     m_frame = nullptr;
     m_cachedTabs.clear();
@@ -240,6 +303,92 @@ void TaskbarTabController::EnsureThumbnailButton(HWND frame) {
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"TaskbarTabController ThumbBarUpdateButtons failed (hr=0x%08X)",
                    static_cast<unsigned int>(hr));
+    }
+}
+
+void TaskbarTabController::TearDownProxies() {
+    if (m_taskbar) {
+        for (auto& entry : m_proxies) {
+            TaskbarProxyWindow* proxy = entry.second.get();
+            if (!proxy) {
+                continue;
+            }
+            HWND hwnd = proxy->GetHwnd();
+            if (hwnd) {
+                HRESULT hr = m_taskbar->UnregisterTab(hwnd);
+                if (FAILED(hr)) {
+                    LogMessage(LogLevel::Warning,
+                               L"TaskbarTabController UnregisterTab failed (hr=0x%08X)",
+                               static_cast<unsigned int>(hr));
+                }
+            }
+            proxy->SetRegistered(false);
+            proxy->Destroy();
+        }
+    } else {
+        for (auto& entry : m_proxies) {
+            if (entry.second) {
+                entry.second->SetRegistered(false);
+                entry.second->Destroy();
+            }
+        }
+    }
+    m_proxies.clear();
+}
+
+TaskbarProxyWindow* TaskbarTabController::EnsureProxy(const FrameTabEntry& entry, HWND frame) {
+    auto it = m_proxies.find(entry.location);
+    if (it == m_proxies.end()) {
+        auto proxy = std::make_unique<TaskbarProxyWindow>(entry.location, &TaskbarTabController::OnProxyActivatedThunk,
+                                                          this);
+        if (!proxy->EnsureCreated(frame, entry)) {
+            return nullptr;
+        }
+        auto [insertedIt, inserted] = m_proxies.emplace(entry.location, std::move(proxy));
+        if (!inserted) {
+            return nullptr;
+        }
+        it = insertedIt;
+    } else {
+        if (!it->second->EnsureCreated(frame, entry)) {
+            it->second->Destroy();
+            m_proxies.erase(it);
+            return nullptr;
+        }
+    }
+
+    it->second->UpdateEntry(entry);
+    return it->second.get();
+}
+
+void TaskbarTabController::RemoveStaleProxies(const std::vector<FrameTabEntry>& entries) {
+    auto matches = [&entries](const TabLocation& location) {
+        return std::any_of(entries.begin(), entries.end(), [&](const FrameTabEntry& entry) {
+            return ProxyLocationEquals{}(entry.location, location);
+        });
+    };
+
+    for (auto it = m_proxies.begin(); it != m_proxies.end();) {
+        if (matches(it->first)) {
+            ++it;
+            continue;
+        }
+
+        if (it->second) {
+            HWND hwnd = it->second->GetHwnd();
+            if (hwnd && m_taskbar) {
+                HRESULT hr = m_taskbar->UnregisterTab(hwnd);
+                if (FAILED(hr)) {
+                    LogMessage(LogLevel::Warning,
+                               L"TaskbarTabController UnregisterTab failed (hr=0x%08X)",
+                               static_cast<unsigned int>(hr));
+                }
+            }
+            it->second->SetRegistered(false);
+            it->second->Destroy();
+        }
+
+        it = m_proxies.erase(it);
     }
 }
 
