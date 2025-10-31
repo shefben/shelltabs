@@ -2899,7 +2899,15 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 
         if (id == IDM_MANAGE_GROUPS) {
                 if (m_owner) {
-                        m_owner->OnShowOptionsDialog(2);
+                        std::wstring focusId;
+                        if (m_contextHit.location.groupIndex >= 0) {
+                                focusId = m_owner->GetSavedGroupId(m_contextHit.location.groupIndex);
+                        }
+                        if (!focusId.empty()) {
+                                m_owner->OnShowOptionsDialog(2, focusId);
+                        } else {
+                                m_owner->OnShowOptionsDialog(2);
+                        }
                 }
                 ClearExplorerContext();
                 return;
