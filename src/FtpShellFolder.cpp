@@ -1,6 +1,7 @@
 #include "FtpShellFolder.h"
 
 #include <shlobj.h>
+#include <shobjidl_core.h>
 #include <shlwapi.h>
 
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string_view>
+#include <type_traits>
 #include <thread>
 #include <vector>
 
@@ -232,6 +234,11 @@ void AssignFolderSettings(SFVCreate& create, const FOLDERSETTINGS& settings) {
         create.pViewSettings = &settings;
     } else if constexpr (requires(SFVCreate& candidate) { candidate.pFolderSettings = &settings; }) {
         create.pFolderSettings = &settings;
+    } else if constexpr (std::is_same_v<std::remove_cvref_t<SFVCreate>, SFV_CREATE>) {
+        // Some Windows SDK revisions omit the folder settings pointer from
+        // SFV_CREATE. In that configuration, fall back to setting the view
+        // options after the IShellView is created.
+        (void)settings;
     } else {
         static_assert(kDependentFalse<SFVCreate>, "SFV_CREATE is missing a folder settings member");
     }
@@ -1174,6 +1181,14 @@ IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
     hr = SHCreateShellFolderView(&create, reinterpret_cast<IShellView**>(ppv));
     if (create.pshf) {
         create.pshf->Release();
+    }
+    if (SUCCEEDED(hr) && ppv && *ppv) {
+        auto* shellView = static_cast<IShellView*>(*ppv);
+        Microsoft::WRL::ComPtr<IFolderView2> folderView;
+        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&folderView)))) {
+            folderView->SetViewMode(settings.ViewMode);
+            folderView->SetCurrentFolderFlags(settings.fFlags, settings.fFlags);
+        }
     }
     return hr;
 }
