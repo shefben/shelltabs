@@ -2699,9 +2699,11 @@ void TabBand::PerformFileOperation(TabLocation location, const std::vector<std::
     operation->PerformOperations();
 }
 
-std::vector<std::wstring> TabBand::GetSavedGroupNames() const {
+std::optional<std::vector<std::wstring>> TabBand::GetSavedGroupNames() const {
     auto& store = GroupStore::Instance();
-    LoadGroupStoreForContext(L"TabBand::GetSavedGroupNames failed to load saved groups", store);
+    if (!LoadGroupStoreForContext(L"TabBand::GetSavedGroupNames failed to load saved groups", store)) {
+        return std::nullopt;
+    }
     return store.GroupNames();
 }
 
