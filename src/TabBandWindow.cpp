@@ -2065,14 +2065,50 @@ void TabBandWindow::RefreshTheme() {
         UpdateRebarColors();  // NEW
 	}
 
-	UpdateAccentColor();
-	ResetThemePalette();
-	m_tabTheme = OpenThemeData(m_hwnd, L"Tab");
-	m_rebarTheme = OpenThemeData(m_hwnd, L"Rebar");
-	m_windowTheme = OpenThemeData(m_hwnd, L"Window");
-	UpdateThemePalette();
-	UpdateToolbarMetrics();
-	UpdateNewTabButtonTheme();
+        UpdateAccentColor();
+        ResetThemePalette();
+
+        const auto openTheme = [&](const wchar_t* classList, const wchar_t* operation) -> HTHEME {
+            SetLastError(ERROR_SUCCESS);
+            HTHEME handle = OpenThemeData(m_hwnd, classList);
+            if (!handle) {
+                const DWORD error = GetLastError();
+                if (error != ERROR_SUCCESS) {
+                    LogLastError(operation, error);
+                } else {
+                    LogMessage(LogLevel::Error,
+                               L"%s failed: OpenThemeData returned nullptr without extended error.",
+                               operation);
+                }
+            }
+            return handle;
+        };
+
+        HTHEME tabTheme = openTheme(L"Tab", L"OpenThemeData(Tab)");
+        HTHEME rebarTheme = openTheme(L"Rebar", L"OpenThemeData(Rebar)");
+        HTHEME windowTheme = openTheme(L"Window", L"OpenThemeData(Window)");
+
+        if (!tabTheme || !rebarTheme || !windowTheme) {
+            if (tabTheme) {
+                CloseThemeData(tabTheme);
+                tabTheme = nullptr;
+            }
+            if (rebarTheme) {
+                CloseThemeData(rebarTheme);
+                rebarTheme = nullptr;
+            }
+            if (windowTheme) {
+                CloseThemeData(windowTheme);
+                windowTheme = nullptr;
+            }
+        }
+
+        m_tabTheme = tabTheme;
+        m_rebarTheme = rebarTheme;
+        m_windowTheme = windowTheme;
+        UpdateThemePalette();
+        UpdateToolbarMetrics();
+        UpdateNewTabButtonTheme();
         RebuildLayout();
 
 }

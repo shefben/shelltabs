@@ -4107,9 +4107,28 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
     HTHEME theme = nullptr;
     if (IsAppThemed() && IsThemeActive()) {
+        SetLastError(ERROR_SUCCESS);
         theme = OpenThemeData(hwnd, L"BreadcrumbBar");
         if (!theme) {
+            const DWORD breadcrumbError = GetLastError();
+            if (breadcrumbError != ERROR_SUCCESS) {
+                LogLastError(L"OpenThemeData(BreadcrumbBar)", breadcrumbError);
+            } else {
+                LogMessage(LogLevel::Error,
+                           L"OpenThemeData(BreadcrumbBar) returned nullptr without extended error.");
+            }
+
+            SetLastError(ERROR_SUCCESS);
             theme = OpenThemeData(hwnd, L"Toolbar");
+            if (!theme) {
+                const DWORD toolbarError = GetLastError();
+                if (toolbarError != ERROR_SUCCESS) {
+                    LogLastError(L"OpenThemeData(Toolbar)", toolbarError);
+                } else {
+                    LogMessage(LogLevel::Error,
+                               L"OpenThemeData(Toolbar) returned nullptr without extended error.");
+                }
+            }
         }
     }
     struct ThemeCloser {
