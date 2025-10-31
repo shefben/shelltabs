@@ -66,6 +66,40 @@ bool PaneHookRouter::HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result)
         return false;
     }
 
+    auto applyHighlight = [&](int itemIndex, bool isSubItemStage) {
+        if (!m_provider || !m_listView) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        if (itemIndex < 0) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        PaneHighlight highlight{};
+        if (!m_provider->TryGetListViewHighlight(m_listView, itemIndex, &highlight)) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        bool applied = false;
+        if (highlight.hasTextColor) {
+            draw->clrText = highlight.textColor;
+            applied = true;
+        }
+        if (highlight.hasBackgroundColor) {
+            draw->clrTextBk = highlight.backgroundColor;
+            applied = true;
+        }
+
+        *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
+        if (!isSubItemStage) {
+            *result |= CDRF_NOTIFYSUBITEMDRAW;
+        }
+        return true;
+    };
+
     switch (draw->nmcd.dwDrawStage) {
         case CDDS_PREPAINT: {
             *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
@@ -73,40 +107,9 @@ bool PaneHookRouter::HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result)
         }
         case CDDS_ITEMPREPAINT:
         case CDDS_ITEMPREPAINT | CDDS_SUBITEM: {
-            if ((draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0 && draw->iSubItem != 0) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            if (!m_provider || !m_listView) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
             const int index = static_cast<int>(draw->nmcd.dwItemSpec);
-            if (index < 0) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            PaneHighlight highlight{};
-            if (!m_provider->TryGetListViewHighlight(m_listView, index, &highlight)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            bool applied = false;
-            if (highlight.hasTextColor) {
-                draw->clrText = highlight.textColor;
-                applied = true;
-            }
-            if (highlight.hasBackgroundColor) {
-                draw->clrTextBk = highlight.backgroundColor;
-                applied = true;
-            }
-
-            *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
-            return true;
+            const bool isSubItemStage = (draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0;
+            return applyHighlight(index, isSubItemStage);
         }
         default:
             break;
