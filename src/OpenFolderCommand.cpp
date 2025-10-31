@@ -79,14 +79,19 @@ IFACEMETHODIMP OpenFolderCommand::GetIcon(IShellItemArray*, LPWSTR* icon) {
 
     // Use the stock "New Folder" icon so Explorer can display a consistent glyph without
     // shipping an additional icon resource alongside the command implementation.
+    SHSTOCKICONID iconId = SIID_FOLDER;
+#ifdef SIID_NEWFOLDER
+    iconId = SIID_NEWFOLDER;
+#endif
+
     SHSTOCKICONINFO iconInfo = {};
     iconInfo.cbSize = sizeof(iconInfo);
-    HRESULT hr = SHGetStockIconInfo(SIID_NEWFOLDER, SHGSI_ICONLOCATION, &iconInfo);
+    HRESULT hr = SHGetStockIconInfo(iconId, SHGSI_ICONLOCATION, &iconInfo);
     if (FAILED(hr)) {
         return hr;
     }
 
-    std::wstring iconLocation = iconInfo.szIconFile;
+    std::wstring iconLocation = iconInfo.szPath;
     if (iconLocation.empty()) {
         return E_FAIL;
     }
