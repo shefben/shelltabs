@@ -1424,7 +1424,7 @@ void TabBand::OnFilesDropped(TabLocation location, const std::vector<std::wstrin
     PerformFileOperation(location, paths, move);
 }
 
-void TabBand::OnOpenFolderInNewTab(const std::wstring& path) {
+void TabBand::OnOpenFolderInNewTab(const std::wstring& path, bool select) {
     if (path.empty()) {
         return;
     }
@@ -1446,12 +1446,12 @@ void TabBand::OnOpenFolderInNewTab(const std::wstring& path) {
 
     const TabLocation selected = m_tabs.SelectedLocation();
     const int targetGroup = selected.groupIndex >= 0 ? selected.groupIndex : 0;
-    TabLocation location = m_tabs.Add(std::move(pidl), name, name, true, targetGroup);
+    TabLocation location = m_tabs.Add(std::move(pidl), name, name, select, targetGroup);
 
     UpdateTabsUI();
     SyncAllSavedGroups();
 
-    if (location.IsValid()) {
+    if (select && location.IsValid()) {
         NavigateToTab(location);
     }
 }

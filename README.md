@@ -15,6 +15,16 @@ ShellTabs is a Windows Explorer deskband extension that adds a lightweight tabbe
 - Session persistence reloads your tabs and islands after Explorer restarts, keeping group collapse state and ordering intact.
 - Dragging tabs or islands shows a translucent preview under the cursor so you can place them precisely before dropping.
 
+## Drag and Drop
+
+- Dropping files or folders onto an existing tab continues to delegate to Explorer's copy/move workflow. Hold **Shift** to
+  force a move, mirroring Explorer's default behavior; these drops are logged so you can confirm the fallback path was used.
+- Drag directories onto the empty portions of the tab strip to open each folder in a background tab—even when other tabs are
+  visible. Hold **Ctrl** to focus the first new tab in the foreground, or **Shift** to skip tab creation and reuse the
+  Explorer copy/move routine instead.
+- If the payload does not contain directories or no tab target is available, ShellTabs automatically falls back to Explorer's
+  native handling so files are not lost.
+
 ## Building
 
 The project is built as an in-process COM DLL using CMake and the Microsoft Visual C++ toolchain.

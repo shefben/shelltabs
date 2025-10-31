@@ -59,14 +59,24 @@ public:
     TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }
     static uint32_t GetAvailableDockMask();
 
+    enum class HitType {
+        kNone,
+        kWhitespace,
+        kGroupHeader,
+        kTab,
+    };
+
     struct HitInfo {
         bool hit = false;
         size_t itemIndex = 0;
-        TabViewItemType type = TabViewItemType::kGroupHeader;
+        HitType type = HitType::kNone;
         TabLocation location;
         bool before = false;
         bool after = false;
         bool closeButton = false;
+
+        bool IsWhitespace() const noexcept { return hit && type == HitType::kWhitespace; }
+        bool IsTab() const noexcept { return hit && type == HitType::kTab && location.IsValid(); }
     };
 
     struct DropTarget {
