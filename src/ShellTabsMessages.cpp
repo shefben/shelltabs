@@ -23,4 +23,9 @@ UINT GetProgressUpdateMessage() {
     return message;
 }
 
+UINT GetPaneAccentQueryMessage() {
+    static const UINT message = RegisterWindowMessageW(L"ShellTabs.PaneAccentQuery");
+    return message;
+}
+
 }  // namespace shelltabs

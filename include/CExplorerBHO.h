@@ -18,6 +18,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <optional>
 
 #include <exdisp.h>
 #include <ocidl.h>
@@ -87,6 +88,15 @@ struct ShellTabsOptions;
                         }
                 };
 
+                struct ListViewAccentResources {
+                        COLORREF accentColor = 0;
+                        COLORREF fillColor = 0;
+                        COLORREF textColor = 0;
+                        HBRUSH fillBrush = nullptr;
+                        HPEN focusPen = nullptr;
+                        bool valid = false;
+                };
+
                 void Disconnect();
                 HRESULT EnsureBandVisible();
                 HRESULT ConnectEvents();
@@ -119,6 +129,15 @@ struct ShellTabsOptions;
                 void RemoveExplorerViewSubclass();
                 bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
                 bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+                bool HandleListViewCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
+                void RefreshListViewAccentState(HWND hwnd);
+                bool EnsureListViewAccentResources(HWND listView, struct ListViewAccentResources** resources = nullptr);
+                void ReleaseListViewAccentResources(HWND listView);
+                void ClearListViewAccentCache();
+                void DestroyListViewAccentResources(ListViewAccentResources& resources);
+                std::optional<COLORREF> QueryActiveGroupAccentColor() const;
+                COLORREF ResolveListViewAccentColor() const;
+                HWND FindTabBandWindow() const;
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
                 void ClearFolderBackgrounds();
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
@@ -196,6 +215,7 @@ struct ShellTabsOptions;
                 bool m_useCustomProgressGradientColors = false;
                 COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
                 COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
+                bool m_useStockExplorerPaneColors = false;
                 HWND m_progressWindow = nullptr;
                 bool m_progressSubclassInstalled = false;
                 HBITMAP m_progressGradientBitmap = nullptr;
@@ -228,6 +248,7 @@ struct ShellTabsOptions;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
                 PaneHookRouter m_paneHooks;
+                std::unordered_map<HWND, ListViewAccentResources, HandleHasher> m_listViewAccentCache;
                 bool m_folderBackgroundsEnabled = false;
                 std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
                 std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;

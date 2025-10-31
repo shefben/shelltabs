@@ -299,6 +299,7 @@ private:
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
+    COLORREF ResolveActivePaneAccentColor() const;
     TabManager* ResolveManager() const noexcept;
     void RegisterShellNotifications();
     void UnregisterShellNotifications();

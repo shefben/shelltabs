@@ -3323,6 +3323,29 @@ void TabBandWindow::HandleProgressTimer() {
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
+COLORREF TabBandWindow::ResolveActivePaneAccentColor() const {
+    auto* manager = ResolveManager();
+    if (!manager) {
+        return m_accentColor;
+    }
+
+    TabLocation selected = manager->SelectedLocation();
+    if (!selected.IsValid()) {
+        return m_accentColor;
+    }
+
+    const TabGroup* group = manager->GetGroup(selected.groupIndex);
+    if (!group) {
+        return m_accentColor;
+    }
+
+    if (group->hasCustomOutline) {
+        return group->outlineColor;
+    }
+
+    return m_accentColor;
+}
+
 TabManager* TabBandWindow::ResolveManager() const noexcept {
     return m_owner ? &m_owner->GetTabManager() : nullptr;
 }
@@ -4912,6 +4935,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         if (progressMessage != 0 && message == progressMessage) {
             self->RefreshProgressState();
             return 0;
+        }
+        const UINT accentQueryMessage = GetPaneAccentQueryMessage();
+        if (accentQueryMessage != 0 && message == accentQueryMessage) {
+            return static_cast<LRESULT>(self->ResolveActivePaneAccentColor());
         }
         if (self->m_shellNotifyMessage != 0 && message == self->m_shellNotifyMessage) {
             self->OnShellNotify(wParam, lParam);

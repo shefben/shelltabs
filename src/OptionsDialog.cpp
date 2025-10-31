@@ -91,6 +91,7 @@ enum ControlIds : int {
     IDC_MAIN_BREADCRUMB_FONT_END_LABEL = 5029,
     IDC_MAIN_BREADCRUMB_FONT_END_PREVIEW = 5030,
     IDC_MAIN_BREADCRUMB_FONT_END_BUTTON = 5031,
+    IDC_MAIN_PANE_STOCK_COLORS = 5031 + 100,  // ensure unique id spacing
     IDC_MAIN_TAB_SELECTED_CHECK = 5032,
     IDC_MAIN_TAB_SELECTED_PREVIEW = 5033,
     IDC_MAIN_TAB_SELECTED_BUTTON = 5034,
@@ -813,19 +814,20 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     tabsGroup->x = 6;
     tabsGroup->y = 412;
     tabsGroup->cx = kMainDialogWidth - 12;
-    tabsGroup->cy = 88;
+    tabsGroup->cy = 128;
     tabsGroup->id = 0;
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Tabs");
     AppendWord(data, 0);
 
-    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 428, L"Use custom selected tab color");
-    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 446);
-    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 445, L"Choose");
-    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 464, L"Use custom unselected tab color");
-    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 482);
-    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 481, L"Choose");
+    addCheckbox(IDC_MAIN_PANE_STOCK_COLORS, 16, 428, L"Use Explorer pane colors");
+    addCheckbox(IDC_MAIN_TAB_SELECTED_CHECK, 16, 452, L"Use custom selected tab color");
+    addPreview(IDC_MAIN_TAB_SELECTED_PREVIEW, 24, 470);
+    addButton(IDC_MAIN_TAB_SELECTED_BUTTON, 62, 469, L"Choose");
+    addCheckbox(IDC_MAIN_TAB_UNSELECTED_CHECK, 16, 498, L"Use custom unselected tab color");
+    addPreview(IDC_MAIN_TAB_UNSELECTED_PREVIEW, 24, 516);
+    addButton(IDC_MAIN_TAB_UNSELECTED_BUTTON, 62, 515, L"Choose");
 
     auto addSizedPreview = [&](int controlId, int x, int y, int cx, int cy) {
         AlignDialogBuffer(data);
@@ -870,7 +872,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     backgroundsGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
     backgroundsGroup->dwExtendedStyle = 0;
     backgroundsGroup->x = 6;
-    backgroundsGroup->y = 510;
+    backgroundsGroup->y = 540;
     backgroundsGroup->cx = kMainDialogWidth - 12;
     backgroundsGroup->cy = 310;
     backgroundsGroup->id = 0;
@@ -879,20 +881,20 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     AppendString(data, L"Folder Backgrounds");
     AppendWord(data, 0);
 
-    addCheckbox(IDC_CUSTOM_BACKGROUND_ENABLE, 16, 526, L"Enable custom folder backgrounds");
-    addStatic(0, 24, 546, kMainDialogWidth - 32, 10, L"Universal background image:");
-    addSizedPreview(IDC_CUSTOM_BACKGROUND_PREVIEW, 24, 562, kUniversalPreviewSize.cx, kUniversalPreviewSize.cy);
-    addSizedButton(IDC_CUSTOM_BACKGROUND_BROWSE, 130, 562, 90, 16, L"Browse...");
-    addStatic(IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, 130, 638, kMainDialogWidth - 146, 12, L"", SS_LEFT);
-    addStatic(0, 24, 646, kMainDialogWidth - 32, 10, L"Folder overrides:");
-    addListView(IDC_CUSTOM_BACKGROUND_LIST, 24, 660, 140, 96);
-    addStatic(0, 176, 660, 64, 10, L"Preview:");
-    addSizedPreview(IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, 176, 674, kFolderPreviewSize.cx, kFolderPreviewSize.cy);
-    addStatic(IDC_CUSTOM_BACKGROUND_FOLDER_NAME, 176, 742, kMainDialogWidth - 200, 12, L"", SS_LEFT);
-    addSizedButton(IDC_CUSTOM_BACKGROUND_ADD, 24, 764, 60, 16, L"Add");
-    addSizedButton(IDC_CUSTOM_BACKGROUND_EDIT, 92, 764, 60, 16, L"Edit");
-    addSizedButton(IDC_CUSTOM_BACKGROUND_REMOVE, 160, 764, 60, 16, L"Remove");
-    addSizedButton(IDC_CUSTOM_BACKGROUND_CLEAN, 228, 764, 90, 16, L"Clean Up...");
+    addCheckbox(IDC_CUSTOM_BACKGROUND_ENABLE, 16, 556, L"Enable custom folder backgrounds");
+    addStatic(0, 24, 576, kMainDialogWidth - 32, 10, L"Universal background image:");
+    addSizedPreview(IDC_CUSTOM_BACKGROUND_PREVIEW, 24, 592, kUniversalPreviewSize.cx, kUniversalPreviewSize.cy);
+    addSizedButton(IDC_CUSTOM_BACKGROUND_BROWSE, 130, 592, 90, 16, L"Browse...");
+    addStatic(IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, 130, 668, kMainDialogWidth - 146, 12, L"", SS_LEFT);
+    addStatic(0, 24, 676, kMainDialogWidth - 32, 10, L"Folder overrides:");
+    addListView(IDC_CUSTOM_BACKGROUND_LIST, 24, 690, 140, 96);
+    addStatic(0, 176, 690, 64, 10, L"Preview:");
+    addSizedPreview(IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, 176, 704, kFolderPreviewSize.cx, kFolderPreviewSize.cy);
+    addStatic(IDC_CUSTOM_BACKGROUND_FOLDER_NAME, 176, 772, kMainDialogWidth - 200, 12, L"", SS_LEFT);
+    addSizedButton(IDC_CUSTOM_BACKGROUND_ADD, 24, 794, 60, 16, L"Add");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_EDIT, 92, 794, 60, 16, L"Edit");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_REMOVE, 160, 794, 60, 16, L"Remove");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_CLEAN, 228, 794, 90, 16, L"Clean Up...");
 
     AlignDialogBuffer(data);
     return data;
@@ -2935,6 +2937,8 @@ public:
         SetPreviewColor(hwnd, IDC_MAIN_PROGRESS_END_PREVIEW, &data->progressEndBrush,
                         data->workingOptions.progressBarGradientEndColor);
         UpdateProgressColorControlsEnabled(hwnd, data->workingOptions.useCustomProgressBarGradientColors);
+        CheckDlgButton(hwnd, IDC_MAIN_PANE_STOCK_COLORS,
+                       data->workingOptions.useStockExplorerPaneColors ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hwnd, IDC_MAIN_TAB_SELECTED_CHECK,
                        data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hwnd, IDC_MAIN_TAB_UNSELECTED_CHECK,
@@ -2993,6 +2997,11 @@ public:
             if (HandleColorSelection(hwnd, controlId, data)) {
                 NotifyParentOfChange(hwnd);
             }
+            return true;
+        }
+
+        if (controlId == IDC_MAIN_PANE_STOCK_COLORS) {
+            NotifyParentOfChange(hwnd);
             return true;
         }
 
@@ -3184,6 +3193,8 @@ private:
                 IsDlgButtonChecked(hwnd, IDC_MAIN_BREADCRUMB_FONT_CUSTOM) == BST_CHECKED;
             data->workingOptions.useCustomProgressBarGradientColors =
                 IsDlgButtonChecked(hwnd, IDC_MAIN_PROGRESS_CUSTOM) == BST_CHECKED;
+            data->workingOptions.useStockExplorerPaneColors =
+                IsDlgButtonChecked(hwnd, IDC_MAIN_PANE_STOCK_COLORS) == BST_CHECKED;
             data->workingOptions.useCustomTabSelectedColor =
                 IsDlgButtonChecked(hwnd, IDC_MAIN_TAB_SELECTED_CHECK) == BST_CHECKED;
             data->workingOptions.useCustomTabUnselectedColor =

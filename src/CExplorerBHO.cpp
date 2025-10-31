@@ -179,6 +179,38 @@ std::wstring NormalizeMenuText(const std::wstring& value) {
     return normalized.substr(first, last - first + 1);
 }
 
+COLORREF BlendColor(COLORREF source, COLORREF target, double ratio) {
+    ratio = std::clamp(ratio, 0.0, 1.0);
+    const double inverse = 1.0 - ratio;
+    const int r = static_cast<int>(GetRValue(source) * inverse + GetRValue(target) * ratio + 0.5);
+    const int g = static_cast<int>(GetGValue(source) * inverse + GetGValue(target) * ratio + 0.5);
+    const int b = static_cast<int>(GetBValue(source) * inverse + GetBValue(target) * ratio + 0.5);
+    return RGB(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
+}
+
+double ComputeRelativeLuminance(COLORREF color) {
+    const double r = static_cast<double>(GetRValue(color)) / 255.0;
+    const double g = static_cast<double>(GetGValue(color)) / 255.0;
+    const double b = static_cast<double>(GetBValue(color)) / 255.0;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+COLORREF ComputeAccentFillColor(COLORREF accent) {
+    const double luminance = ComputeRelativeLuminance(accent);
+    if (luminance < 0.35) {
+        return BlendColor(accent, RGB(255, 255, 255), 0.35);
+    }
+    if (luminance > 0.80) {
+        return BlendColor(accent, RGB(0, 0, 0), 0.20);
+    }
+    return BlendColor(accent, RGB(255, 255, 255), 0.20);
+}
+
+COLORREF ComputeAccentTextColor(COLORREF fillColor) {
+    const double luminance = ComputeRelativeLuminance(fillColor);
+    return luminance > 0.60 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+}
+
 using GetDpiForWindowFunction = UINT(WINAPI*)(HWND);
 using SetThreadDpiAwarenessContextFunction = DPI_AWARENESS_CONTEXT(WINAPI*)(DPI_AWARENESS_CONTEXT);
 
@@ -419,6 +451,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks(this) {
 
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
+    ClearListViewAccentCache();
     DestroyProgressGradientResources();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
@@ -1684,6 +1717,8 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
         RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
 
+    ClearListViewAccentCache();
+
     m_shellViewWindowSubclassInstalled = false;
     m_frameWindow = nullptr;
     m_frameSubclassInstalled = false;
@@ -1893,18 +1928,21 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             break;
         }
-	    case WM_PRINTCLIENT: {
-			// When LVS_EX_TRANSPARENTBKGND is set, the list view prints its client area via this message.
-			// Draw the background first, then allow the default procedure to render items.
-		    if (handlesBackground) {
-		        HDC dc = reinterpret_cast<HDC>(wParam);
-		        if (dc) {
-			        DrawFolderBackground(hwnd, dc);		
-		        }
-			    // Do not set *result here so the default processing continues.
-	        }
-		    break;
-		}
+        case WM_PRINTCLIENT: {
+                        // When LVS_EX_TRANSPARENTBKGND is set, the list view prints its client area via this message.
+                        // Draw the background first, then allow the default procedure to render items.
+                    if (handlesBackground) {
+                        HDC dc = reinterpret_cast<HDC>(wParam);
+                        if (dc) {
+                                DrawFolderBackground(hwnd, dc);
+                        }
+                            // Do not set *result here so the default processing continues.
+                }
+            if (isListView) {
+                RefreshListViewAccentState(hwnd);
+            }
+                    break;
+                }
         case WM_PAINT: {
             if (handlesBackground) {
                 if (wParam) {
@@ -1920,6 +1958,9 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                     }
                 }
             }
+            if (isListView) {
+                RefreshListViewAccentState(hwnd);
+            }
             break;
         }
         case WM_THEMECHANGED:
@@ -1934,7 +1975,24 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (!header) {
                 break;
             }
-            if (m_paneHooks.HandleNotify(header, result)) {
+            bool accentHandled = false;
+            LRESULT accentResult = 0;
+            if (header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
+                auto* draw = reinterpret_cast<NMLVCUSTOMDRAW*>(const_cast<NMHDR*>(header));
+                accentHandled = HandleListViewCustomDraw(draw, &accentResult);
+            }
+
+            LRESULT hookResult = 0;
+            const bool hookHandled = m_paneHooks.HandleNotify(header, &hookResult);
+
+            if (accentHandled || hookHandled) {
+                if (!accentHandled) {
+                    accentResult = 0;
+                }
+                if (!hookHandled) {
+                    hookResult = 0;
+                }
+                *result = accentResult | hookResult;
                 return true;
             }
             break;
@@ -1982,6 +2040,209 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     }
 
     return false;
+}
+
+void CExplorerBHO::RefreshListViewAccentState(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+
+    if (m_useStockExplorerPaneColors) {
+        ReleaseListViewAccentResources(hwnd);
+        return;
+    }
+
+    if (!EnsureListViewAccentResources(hwnd, nullptr)) {
+        ReleaseListViewAccentResources(hwnd);
+    }
+}
+
+void CExplorerBHO::DestroyListViewAccentResources(ListViewAccentResources& resources) {
+    if (resources.fillBrush) {
+        DeleteObject(resources.fillBrush);
+        resources.fillBrush = nullptr;
+    }
+    if (resources.focusPen) {
+        DeleteObject(resources.focusPen);
+        resources.focusPen = nullptr;
+    }
+    resources.valid = false;
+}
+
+void CExplorerBHO::ClearListViewAccentCache() {
+    for (auto& entry : m_listViewAccentCache) {
+        DestroyListViewAccentResources(entry.second);
+    }
+    m_listViewAccentCache.clear();
+}
+
+void CExplorerBHO::ReleaseListViewAccentResources(HWND listView) {
+    if (!listView) {
+        return;
+    }
+    auto it = m_listViewAccentCache.find(listView);
+    if (it == m_listViewAccentCache.end()) {
+        return;
+    }
+    DestroyListViewAccentResources(it->second);
+    m_listViewAccentCache.erase(it);
+}
+
+bool CExplorerBHO::EnsureListViewAccentResources(HWND listView, ListViewAccentResources** resources) {
+    if (!listView) {
+        return false;
+    }
+
+    if (m_useStockExplorerPaneColors) {
+        ReleaseListViewAccentResources(listView);
+        return false;
+    }
+
+    const COLORREF accent = ResolveListViewAccentColor();
+    auto it = m_listViewAccentCache.find(listView);
+    if (it == m_listViewAccentCache.end()) {
+        it = m_listViewAccentCache.emplace(listView, ListViewAccentResources{}).first;
+    }
+
+    ListViewAccentResources& entry = it->second;
+    if (!entry.valid || entry.accentColor != accent) {
+        DestroyListViewAccentResources(entry);
+        entry.accentColor = accent;
+        entry.fillColor = ComputeAccentFillColor(accent);
+        entry.textColor = ComputeAccentTextColor(entry.fillColor);
+        entry.fillBrush = CreateSolidBrush(entry.fillColor);
+        entry.focusPen = CreatePen(PS_SOLID, 1, accent);
+        entry.valid = entry.fillBrush != nullptr && entry.focusPen != nullptr;
+        if (!entry.valid) {
+            DestroyListViewAccentResources(entry);
+            m_listViewAccentCache.erase(it);
+            return false;
+        }
+    }
+
+    if (resources) {
+        *resources = &entry;
+    }
+    return true;
+}
+
+bool CExplorerBHO::HandleListViewCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result) {
+    if (!draw || !result) {
+        return false;
+    }
+
+    if (draw->nmcd.hdr.hwndFrom != m_listView) {
+        return false;
+    }
+
+    switch (draw->nmcd.dwDrawStage) {
+        case CDDS_PREPAINT: {
+            RefreshListViewAccentState(draw->nmcd.hdr.hwndFrom);
+            if (!EnsureListViewAccentResources(draw->nmcd.hdr.hwndFrom, nullptr)) {
+                return false;
+            }
+            *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+            return true;
+        }
+        case CDDS_ITEMPREPAINT:
+        case CDDS_ITEMPREPAINT | CDDS_SUBITEM: {
+            if ((draw->nmcd.uItemState & (CDIS_SELECTED | CDIS_DROPHILITED)) == 0) {
+                return false;
+            }
+
+            ListViewAccentResources* resources = nullptr;
+            if (!EnsureListViewAccentResources(draw->nmcd.hdr.hwndFrom, &resources)) {
+                return false;
+            }
+
+            RECT itemRect = draw->nmcd.rc;
+            if ((draw->nmcd.dwDrawStage & CDDS_SUBITEM) == 0) {
+                RECT bounds{};
+                if (ListView_GetItemRect(draw->nmcd.hdr.hwndFrom,
+                                         static_cast<int>(draw->nmcd.dwItemSpec), &bounds, LVIR_BOUNDS)) {
+                    itemRect = bounds;
+                }
+            }
+            FillRect(draw->nmcd.hdc, &itemRect, resources->fillBrush);
+            SetTextColor(draw->nmcd.hdc, resources->textColor);
+            SetBkColor(draw->nmcd.hdc, resources->fillColor);
+            *result = CDRF_NOTIFYPOSTPAINT | CDRF_NOTIFYSUBITEMDRAW | CDRF_NEWFONT;
+            return true;
+        }
+        case CDDS_ITEMPOSTPAINT: {
+            if ((draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0) {
+                return false;
+            }
+            if ((draw->nmcd.dwItemSpec == static_cast<ULONG_PTR>(-1)) ||
+                (draw->nmcd.uItemState & (CDIS_SELECTED | CDIS_DROPHILITED)) == 0 ||
+                (draw->nmcd.uItemState & CDIS_FOCUS) == 0) {
+                return false;
+            }
+
+            ListViewAccentResources* resources = nullptr;
+            if (!EnsureListViewAccentResources(draw->nmcd.hdr.hwndFrom, &resources)) {
+                return false;
+            }
+
+            RECT focusRect{};
+            if (!ListView_GetItemRect(draw->nmcd.hdr.hwndFrom,
+                                      static_cast<int>(draw->nmcd.dwItemSpec), &focusRect, LVIR_BOUNDS)) {
+                focusRect = draw->nmcd.rc;
+            }
+            InflateRect(&focusRect, -1, -1);
+            if (focusRect.right > focusRect.left && focusRect.bottom > focusRect.top) {
+                HPEN oldPen = static_cast<HPEN>(SelectObject(draw->nmcd.hdc, resources->focusPen));
+                if (oldPen) {
+                    MoveToEx(draw->nmcd.hdc, focusRect.left, focusRect.top, nullptr);
+                    LineTo(draw->nmcd.hdc, focusRect.right - 1, focusRect.top);
+                    LineTo(draw->nmcd.hdc, focusRect.right - 1, focusRect.bottom - 1);
+                    LineTo(draw->nmcd.hdc, focusRect.left, focusRect.bottom - 1);
+                    LineTo(draw->nmcd.hdc, focusRect.left, focusRect.top);
+                    SelectObject(draw->nmcd.hdc, oldPen);
+                }
+            }
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+        default:
+            break;
+    }
+
+    return false;
+}
+
+HWND CExplorerBHO::FindTabBandWindow() const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return nullptr;
+    }
+    return FindDescendantWindow(frame, L"ShellTabsBandWindow");
+}
+
+std::optional<COLORREF> CExplorerBHO::QueryActiveGroupAccentColor() const {
+    const UINT message = GetPaneAccentQueryMessage();
+    if (message == 0) {
+        return std::nullopt;
+    }
+
+    HWND bandWindow = FindTabBandWindow();
+    if (!bandWindow || !IsWindow(bandWindow)) {
+        return std::nullopt;
+    }
+
+    DWORD_PTR response = 0;
+    if (!SendMessageTimeoutW(bandWindow, message, 0, 0, SMTO_ABORTIFHUNG, 50, &response)) {
+        return std::nullopt;
+    }
+
+    return static_cast<COLORREF>(response & 0x00FFFFFF);
+}
+
+COLORREF CExplorerBHO::ResolveListViewAccentColor() const {
+    if (auto accent = QueryActiveGroupAccentColor()) {
+        return *accent;
+    }
+    return GetSysColor(COLOR_HOTLIGHT);
 }
 
 void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
@@ -2734,6 +2995,14 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
     m_progressGradientStartColor = options.progressBarGradientStartColor;
     m_progressGradientEndColor = options.progressBarGradientEndColor;
+    const bool previousStockPaneColors = m_useStockExplorerPaneColors;
+    m_useStockExplorerPaneColors = options.useStockExplorerPaneColors;
+    if (m_useStockExplorerPaneColors != previousStockPaneColors) {
+        ClearListViewAccentCache();
+        if (m_listView && IsWindow(m_listView)) {
+            InvalidateRect(m_listView, nullptr, TRUE);
+        }
+    }
 
     ReloadFolderBackgrounds(options);
     UpdateCurrentFolderBackground();
@@ -4035,6 +4304,7 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 
     if (msg == WM_NCDESTROY) {
         if (hwnd == self->m_listView) {
+            self->ReleaseListViewAccentResources(hwnd);
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
             self->m_paneHooks.SetListView(nullptr);
