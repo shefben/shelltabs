@@ -7,6 +7,11 @@
 
 #include "OptionsStore.h"
 
+namespace Gdiplus {
+class Graphics;
+class Rect;
+}  // namespace Gdiplus
+
 namespace shelltabs {
 
 enum class ExplorerSurfaceKind {
@@ -70,6 +75,11 @@ private:
                    const GlowColorSet& colors);
     void PaintDirectUi(HWND hwnd, const SurfaceState& state, HDC targetDc, const RECT& clipRect,
                        const GlowColorSet& colors);
+
+    static void FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
+                                 const Gdiplus::Rect& rect, BYTE alpha);
+    static void FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
+                                const RECT& outerRect, const RECT& innerRect, BYTE alpha);
 
     std::unordered_map<HWND, SurfaceState, HandleHasher> m_surfaces;
     GlowSurfacePalette m_palette{};

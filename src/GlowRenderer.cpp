@@ -26,58 +26,6 @@ int ScaleByDpi(int value, UINT dpi) {
     return std::max(1, MulDiv(value, static_cast<int>(dpi), 96));
 }
 
-void FillGradientRect(Gdiplus::Graphics& graphics, const ExplorerGlowRenderer::GlowColorSet& colors,
-                      const Gdiplus::Rect& rect, BYTE alpha) {
-    if (rect.Width <= 0 || rect.Height <= 0) {
-        return;
-    }
-
-    if (colors.gradient) {
-        Gdiplus::LinearGradientBrush brush(Gdiplus::Point(rect.X, rect.Y),
-                                           Gdiplus::Point(rect.X, rect.GetBottom()),
-                                           ToColor(alpha, colors.start), ToColor(alpha, colors.end));
-        graphics.FillRectangle(&brush, rect);
-    } else {
-        Gdiplus::SolidBrush brush(ToColor(alpha, colors.start));
-        graphics.FillRectangle(&brush, rect);
-    }
-}
-
-void FillFrameRegion(Gdiplus::Graphics& graphics, const ExplorerGlowRenderer::GlowColorSet& colors,
-                     const RECT& outerRect, const RECT& innerRect, BYTE alpha) {
-    if (outerRect.left >= outerRect.right || outerRect.top >= outerRect.bottom) {
-        return;
-    }
-
-    const Gdiplus::Rect outer(outerRect.left, outerRect.top, outerRect.right - outerRect.left,
-                              outerRect.bottom - outerRect.top);
-    const Gdiplus::Rect inner(innerRect.left, innerRect.top, innerRect.right - innerRect.left,
-                              innerRect.bottom - innerRect.top);
-
-    if (inner.Width <= 0 || inner.Height <= 0) {
-        FillGradientRect(graphics, colors, outer, alpha);
-        return;
-    }
-
-    if (inner.X < outer.X || inner.Y < outer.Y || inner.GetRight() > outer.GetRight() ||
-        inner.GetBottom() > outer.GetBottom()) {
-        FillGradientRect(graphics, colors, outer, alpha);
-        return;
-    }
-
-    const std::array<Gdiplus::Rect, 4> regions = {
-        Gdiplus::Rect(outer.X, outer.Y, outer.Width, inner.Y - outer.Y),
-        Gdiplus::Rect(outer.X, inner.GetBottom(), outer.Width, outer.GetBottom() - inner.GetBottom()),
-        Gdiplus::Rect(outer.X, inner.Y, inner.X - outer.X, inner.Height),
-        Gdiplus::Rect(inner.GetRight(), inner.Y, outer.GetRight() - inner.GetRight(), inner.Height)};
-
-    for (const auto& region : regions) {
-        if (region.Width > 0 && region.Height > 0) {
-            FillGradientRect(graphics, colors, region, alpha);
-        }
-    }
-}
-
 bool MatchesClass(HWND hwnd, const wchar_t* className) {
     if (!hwnd || !className) {
         return false;
@@ -284,6 +232,58 @@ void ExplorerGlowRenderer::PaintSurface(HWND hwnd, ExplorerSurfaceKind kind, HDC
             break;
         default:
             break;
+    }
+}
+
+void ExplorerGlowRenderer::FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
+                                            const Gdiplus::Rect& rect, BYTE alpha) {
+    if (rect.Width <= 0 || rect.Height <= 0) {
+        return;
+    }
+
+    if (colors.gradient) {
+        Gdiplus::LinearGradientBrush brush(Gdiplus::Point(rect.X, rect.Y),
+                                           Gdiplus::Point(rect.X, rect.GetBottom()),
+                                           ToColor(alpha, colors.start), ToColor(alpha, colors.end));
+        graphics.FillRectangle(&brush, rect);
+    } else {
+        Gdiplus::SolidBrush brush(ToColor(alpha, colors.start));
+        graphics.FillRectangle(&brush, rect);
+    }
+}
+
+void ExplorerGlowRenderer::FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
+                                           const RECT& outerRect, const RECT& innerRect, BYTE alpha) {
+    if (outerRect.left >= outerRect.right || outerRect.top >= outerRect.bottom) {
+        return;
+    }
+
+    const Gdiplus::Rect outer(outerRect.left, outerRect.top, outerRect.right - outerRect.left,
+                              outerRect.bottom - outerRect.top);
+    const Gdiplus::Rect inner(innerRect.left, innerRect.top, innerRect.right - innerRect.left,
+                              innerRect.bottom - innerRect.top);
+
+    if (inner.Width <= 0 || inner.Height <= 0) {
+        FillGradientRect(graphics, colors, outer, alpha);
+        return;
+    }
+
+    if (inner.X < outer.X || inner.Y < outer.Y || inner.GetRight() > outer.GetRight() ||
+        inner.GetBottom() > outer.GetBottom()) {
+        FillGradientRect(graphics, colors, outer, alpha);
+        return;
+    }
+
+    const std::array<Gdiplus::Rect, 4> regions = {
+        Gdiplus::Rect(outer.X, outer.Y, outer.Width, inner.Y - outer.Y),
+        Gdiplus::Rect(outer.X, inner.GetBottom(), outer.Width, outer.GetBottom() - inner.GetBottom()),
+        Gdiplus::Rect(outer.X, inner.Y, inner.X - outer.X, inner.Height),
+        Gdiplus::Rect(inner.GetRight(), inner.Y, outer.GetRight() - inner.GetRight(), inner.Height)};
+
+    for (const auto& region : regions) {
+        if (region.Width > 0 && region.Height > 0) {
+            FillGradientRect(graphics, colors, region, alpha);
+        }
     }
 }
 
