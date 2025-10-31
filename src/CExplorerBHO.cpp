@@ -51,6 +51,9 @@
 
 namespace {
 
+constexpr DWORD kEnsureRetryInitialDelayMs = 500;
+constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
+
 #ifndef ListView_GetItemW
 BOOL ListView_GetItemW(HWND hwnd, LVITEMW* item) {
     return static_cast<BOOL>(SendMessageW(hwnd, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(item)));
@@ -372,6 +375,9 @@ std::unordered_map<DWORD, BreadcrumbHookEntry> g_breadcrumbHooks;
 
 namespace shelltabs {
 
+std::mutex CExplorerBHO::s_ensureTimerLock;
+std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
+
 CExplorerBHO::CExplorerBHO() : m_refCount(1), m_randomEngine(std::random_device{}()) {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
@@ -398,6 +404,128 @@ CExplorerBHO::~CExplorerBHO() {
         m_gdiplusToken = 0;
     }
     ModuleRelease();
+}
+
+void CExplorerBHO::CancelEnsureRetry(BandEnsureState& state) {
+    if (!state.retryScheduled || state.timerId == 0) {
+        state.retryScheduled = false;
+        state.timerId = 0;
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
+        s_ensureTimers.erase(state.timerId);
+    }
+
+    KillTimer(nullptr, state.timerId);
+    state.timerId = 0;
+    state.retryScheduled = false;
+}
+
+void CExplorerBHO::CancelAllEnsureRetries() {
+    std::vector<UINT_PTR> timers;
+    timers.reserve(m_bandEnsureStates.size());
+
+    for (auto& entry : m_bandEnsureStates) {
+        BandEnsureState& state = entry.second;
+        if (state.timerId != 0) {
+            timers.push_back(state.timerId);
+            state.timerId = 0;
+        }
+        state.retryScheduled = false;
+        state.retryDelayMs = 0;
+    }
+
+    if (!timers.empty()) {
+        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
+        for (UINT_PTR timerId : timers) {
+            s_ensureTimers.erase(timerId);
+        }
+    }
+
+    for (UINT_PTR timerId : timers) {
+        KillTimer(nullptr, timerId);
+    }
+}
+
+void CExplorerBHO::ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr) {
+    CancelEnsureRetry(state);
+
+    DWORD nextDelay = state.retryDelayMs == 0 ? kEnsureRetryInitialDelayMs : state.retryDelayMs * 2;
+    if (nextDelay > kEnsureRetryMaxDelayMs) {
+        nextDelay = kEnsureRetryMaxDelayMs;
+    }
+
+    state.retryDelayMs = nextDelay;
+    state.lastOutcome = BandEnsureOutcome::TemporaryFailure;
+    state.lastHresult = lastHr;
+
+    UINT_PTR timerId = SetTimer(nullptr, 0, nextDelay, &CExplorerBHO::EnsureBandTimerProc);
+    if (timerId == 0) {
+        const DWORD error = GetLastError();
+        LogMessage(LogLevel::Error,
+                   L"EnsureBandVisible: failed to schedule retry timer (delay=%u ms, error=%lu) for host=%p after hr=0x%08X",
+                   nextDelay, error, hostWindow, lastHr);
+        state.retryScheduled = false;
+        state.timerId = 0;
+        m_shouldRetryEnsure = true;
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
+        s_ensureTimers[timerId] = this;
+    }
+
+    state.retryScheduled = true;
+    state.timerId = timerId;
+
+    LogMessage(LogLevel::Warning,
+               L"EnsureBandVisible: ShowBrowserBar returned 0x%08X for host=%p; retry #%zu scheduled in %u ms",
+               lastHr, hostWindow, state.attemptCount + 1, nextDelay);
+}
+
+void CExplorerBHO::HandleEnsureBandTimer(UINT_PTR timerId) {
+    HWND targetWindow = nullptr;
+
+    for (auto& entry : m_bandEnsureStates) {
+        BandEnsureState& state = entry.second;
+        if (state.timerId == timerId) {
+            state.timerId = 0;
+            state.retryScheduled = false;
+            targetWindow = entry.first;
+            break;
+        }
+    }
+
+    m_shouldRetryEnsure = true;
+
+    if (!targetWindow) {
+        return;
+    }
+
+    LogMessage(LogLevel::Info, L"EnsureBandVisible retry timer fired for host=%p", targetWindow);
+    EnsureBandVisible();
+}
+
+void CALLBACK CExplorerBHO::EnsureBandTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
+    CExplorerBHO* instance = nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
+        auto it = s_ensureTimers.find(timerId);
+        if (it != s_ensureTimers.end()) {
+            instance = it->second;
+            s_ensureTimers.erase(it);
+        }
+    }
+
+    KillTimer(nullptr, timerId);
+
+    if (instance) {
+        instance->HandleEnsureBandTimer(timerId);
+    }
 }
 IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
     if (!object) {
@@ -444,6 +572,8 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID
 }
 
 void CExplorerBHO::Disconnect() {
+    CancelAllEnsureRetries();
+    m_bandEnsureStates.clear();
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
     RemoveProgressSubclass();
@@ -467,9 +597,29 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
     return GuardExplorerCall(
         L"CExplorerBHO::EnsureBandVisible",
         [&]() -> HRESULT {
-            if (!m_webBrowser || !m_shouldRetryEnsure) {
+            if (!m_webBrowser) {
                 return S_OK;
             }
+
+            HWND hostWindow = GetTopLevelExplorerWindow();
+            BandEnsureState& state = m_bandEnsureStates[hostWindow];
+
+            if (!m_shouldRetryEnsure) {
+                return S_OK;
+            }
+
+            if (state.lastOutcome == BandEnsureOutcome::Success ||
+                state.lastOutcome == BandEnsureOutcome::PermanentFailure) {
+                m_shouldRetryEnsure = false;
+                return S_OK;
+            }
+
+            if (state.retryScheduled) {
+                m_shouldRetryEnsure = false;
+                return S_OK;
+            }
+
+            m_shouldRetryEnsure = false;
 
             Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
             HRESULT hr = m_webBrowser.As(&serviceProvider);
@@ -478,7 +628,13 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                 hr = m_site.As(&serviceProvider);
             }
             if (FAILED(hr) || !serviceProvider) {
-                return hr;
+                HRESULT failure = FAILED(hr) ? hr : E_NOINTERFACE;
+                LogMessage(LogLevel::Warning,
+                           L"EnsureBandVisible: IServiceProvider unavailable for host=%p (hr=0x%08X)",
+                           hostWindow, failure);
+                m_bandVisible = false;
+                ScheduleEnsureRetry(hostWindow, state, failure);
+                return failure;
             }
 
             Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
@@ -486,12 +642,77 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             if ((FAILED(hr) || !shellBrowser)) {
                 hr = serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&shellBrowser));
                 if (FAILED(hr) || !shellBrowser) {
-                    return hr;
+                    HRESULT failure = FAILED(hr) ? hr : E_NOINTERFACE;
+                    LogMessage(LogLevel::Warning,
+                               L"EnsureBandVisible: IShellBrowser unavailable for host=%p (hr=0x%08X)",
+                               hostWindow, failure);
+                    m_bandVisible = false;
+                    ScheduleEnsureRetry(hostWindow, state, failure);
+                    return failure;
                 }
             }
 
+            bool supportedHost = false;
+            wchar_t className[256] = {};
+            bool hasClassInformation = false;
+            if (hostWindow && IsWindow(hostWindow)) {
+                const int length = GetClassNameW(hostWindow, className, ARRAYSIZE(className));
+                if (length > 0) {
+                    hasClassInformation = true;
+                    supportedHost = (_wcsicmp(className, L"CabinetWClass") == 0);
+                }
+            }
+
+            HRESULT explorerBrowserHr = E_FAIL;
+            bool explorerBrowserAvailable = false;
+            Microsoft::WRL::ComPtr<IUnknown> explorerBrowser;
+            explorerBrowserHr = serviceProvider->QueryService(CLSID_ExplorerBrowser, IID_PPV_ARGS(&explorerBrowser));
+            if (SUCCEEDED(explorerBrowserHr) && explorerBrowser) {
+                explorerBrowserAvailable = true;
+                supportedHost = true;
+            }
+
+            if (!supportedHost) {
+                if (!hasClassInformation && !explorerBrowserAvailable) {
+                    if (!state.unsupportedHost) {
+                        LogMessage(LogLevel::Warning,
+                                   L"EnsureBandVisible: delaying band activation; host=%p not yet classified (ExplorerBrowser hr=0x%08X)",
+                                   hostWindow, explorerBrowserHr);
+                    }
+                    m_bandVisible = false;
+                    const HRESULT classificationHr = FAILED(explorerBrowserHr) ? explorerBrowserHr : E_FAIL;
+                    ScheduleEnsureRetry(hostWindow, state, classificationHr);
+                    return classificationHr;
+                }
+
+                if (!state.unsupportedHost) {
+                    if (hasClassInformation) {
+                        LogMessage(LogLevel::Warning,
+                                   L"EnsureBandVisible: host=%p uses unsupported class '%s'; ExplorerBrowser hr=0x%08X",
+                                   hostWindow, className, explorerBrowserHr);
+                    } else {
+                        LogMessage(LogLevel::Warning,
+                                   L"EnsureBandVisible: host=%p exposes ExplorerBrowser hr=0x%08X but remains unsupported",
+                                   hostWindow, explorerBrowserHr);
+                    }
+                }
+
+                CancelEnsureRetry(state);
+                state.unsupportedHost = true;
+                state.lastOutcome = BandEnsureOutcome::PermanentFailure;
+                state.lastHresult = HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+                state.retryDelayMs = 0;
+                m_bandVisible = false;
+                return state.lastHresult;
+            }
+
+            state.unsupportedHost = false;
+
             const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
             if (clsidString.empty()) {
+                LogMessage(LogLevel::Error, L"EnsureBandVisible: failed to stringify CLSID_ShellTabsBand");
+                m_bandVisible = false;
+                ScheduleEnsureRetry(hostWindow, state, E_FAIL);
                 return E_FAIL;
             }
 
@@ -500,6 +721,9 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             bandId.vt = VT_BSTR;
             bandId.bstrVal = SysAllocString(clsidString.c_str());
             if (!bandId.bstrVal) {
+                LogMessage(LogLevel::Error, L"EnsureBandVisible: SysAllocString failed for band CLSID");
+                m_bandVisible = false;
+                ScheduleEnsureRetry(hostWindow, state, E_OUTOFMEMORY);
                 return E_OUTOFMEMORY;
             }
 
@@ -508,6 +732,9 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             show.vt = VT_BOOL;
             show.boolVal = VARIANT_TRUE;
 
+            const size_t attempt = ++state.attemptCount;
+            LogMessage(LogLevel::Info, L"EnsureBandVisible: invoking ShowBrowserBar for host=%p (attempt %zu)",
+                       hostWindow, attempt);
             hr = m_webBrowser->ShowBrowserBar(&bandId, &show, nullptr);
 
             VariantClear(&bandId);
@@ -515,10 +742,26 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
 
             if (SUCCEEDED(hr)) {
                 m_bandVisible = true;
-                m_shouldRetryEnsure = false;
+                CancelEnsureRetry(state);
+                state.retryDelayMs = 0;
+                state.lastOutcome = BandEnsureOutcome::Success;
+                state.lastHresult = hr;
+                LogMessage(LogLevel::Info,
+                           L"EnsureBandVisible: ShowBrowserBar succeeded for host=%p on attempt %zu", hostWindow,
+                           attempt);
                 UpdateBreadcrumbSubclass();
             } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
-                m_shouldRetryEnsure = false;
+                m_bandVisible = false;
+                CancelEnsureRetry(state);
+                state.retryDelayMs = 0;
+                state.lastOutcome = BandEnsureOutcome::PermanentFailure;
+                state.lastHresult = hr;
+                LogMessage(LogLevel::Error,
+                           L"EnsureBandVisible: ShowBrowserBar denied access for host=%p (hr=0x%08X); stopping retries",
+                           hostWindow, hr);
+            } else {
+                m_bandVisible = false;
+                ScheduleEnsureRetry(hostWindow, state, hr);
             }
 
             return hr;
@@ -705,6 +948,7 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_ONVISIBLE:
                 case DISPID_WINDOWSTATECHANGED:
                     if (!m_bandVisible) {
+                        m_shouldRetryEnsure = true;
                         EnsureBandVisible();
                         UpdateBreadcrumbSubclass();
                     }
@@ -3784,4 +4028,3 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 }
 
 }  // namespace shelltabs
-
