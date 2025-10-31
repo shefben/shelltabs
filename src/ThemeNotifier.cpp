@@ -11,6 +11,7 @@
 #include <wrl/event.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <wtsapi32.h>
+#include <functional>
 #include <utility>
 
 #include "Logging.h"
@@ -21,10 +22,11 @@
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Wrappers::HStringReference;
 
-using ABI::Windows::Foundation::ITypedEventHandler;
 using ABI::Windows::UI::Color;
 using ABI::Windows::UI::ViewManagement::IUISettings;
 using ABI::Windows::UI::ViewManagement::IUISettings3;
+using UiSettingsColorChangedHandler =
+    ABI::Windows::Foundation::__FITypedEventHandler_2_Windows__CUI__CViewManagement__CUISettings_IInspectable_t;
 
 namespace shelltabs {
 
@@ -32,7 +34,7 @@ namespace {
 
 class UiSettingsEventHandler
     : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-                                          ITypedEventHandler<IUISettings*, ::IInspectable*>> {
+                                          UiSettingsColorChangedHandler> {
 public:
     using CallbackType = std::function<void()>;
 

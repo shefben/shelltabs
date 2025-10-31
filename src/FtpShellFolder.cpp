@@ -224,6 +224,8 @@ void AssignFolderSettings(SFVCreate& create, const FOLDERSETTINGS& settings) {
     // available alias at compile time so the view gets initialized correctly.
     if constexpr (requires(SFVCreate& candidate) { candidate.pfs = &settings; }) {
         create.pfs = &settings;
+    } else if constexpr (requires(SFVCreate& candidate) { candidate.psfs = &settings; }) {
+        create.psfs = &settings;
     } else if constexpr (requires(SFVCreate& candidate) { candidate.pfolderSettings = &settings; }) {
         create.pfolderSettings = &settings;
     } else if constexpr (requires(SFVCreate& candidate) { candidate.pViewSettings = &settings; }) {
