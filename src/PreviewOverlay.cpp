@@ -93,7 +93,7 @@ HBITMAP CreateFramedPreviewBitmap(HBITMAP sourceBitmap, const SIZE& sourceSize, 
         return nullptr;
     }
 
-    Gdiplus::Bitmap destBitmap(width, height, width * 4, Gdiplus::PixelFormat32bppPARGB, static_cast<BYTE*>(bits));
+    Gdiplus::Bitmap destBitmap(width, height, width * 4, PixelFormat32bppPARGB, static_cast<BYTE*>(bits));
     if (destBitmap.GetLastStatus() != Gdiplus::Ok) {
         DeleteObject(framedBitmap);
         return nullptr;
@@ -193,7 +193,7 @@ HBITMAP CreatePlaceholderContentBitmap(const SIZE& desiredSize, const wchar_t* t
         return nullptr;
     }
 
-    Gdiplus::Bitmap surface(width, height, width * 4, Gdiplus::PixelFormat32bppPARGB, static_cast<BYTE*>(bits));
+    Gdiplus::Bitmap surface(width, height, width * 4, PixelFormat32bppPARGB, static_cast<BYTE*>(bits));
     if (surface.GetLastStatus() != Gdiplus::Ok) {
         DeleteObject(bitmap);
         return nullptr;
