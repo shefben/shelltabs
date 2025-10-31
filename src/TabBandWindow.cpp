@@ -2891,7 +2891,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 
         if (id == IDM_NEW_THISPC_TAB) {
                 if (m_owner) {
-                        m_owner->OnNewThisPCInGroupRequested(-1);
+                        m_owner->OnNewTabRequested(-1);
                 }
                 ClearExplorerContext();
                 return;
@@ -3084,10 +3084,10 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
 bool TabBandWindow::HandleMouseUp(const POINT& pt) {
 	// 1) Empty-island "+" click → open "This PC" and consume
 	int groupIndex = -1;
-	if (FindEmptyIslandPlusAt(pt, &groupIndex) && m_owner) {
-		m_owner->OnNewThisPCInGroupRequested(groupIndex);
-		return true; // handled; UI refresh hides the '+'
-	}
+        if (FindEmptyIslandPlusAt(pt, &groupIndex) && m_owner) {
+                m_owner->OnNewTabRequested(groupIndex);
+                return true; // handled; UI refresh hides the '+'
+        }
 
 	// 2) Usual UI paths
 	UpdateCloseButtonHover(pt);

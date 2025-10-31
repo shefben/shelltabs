@@ -25,6 +25,13 @@ enum class TabBandDockMode {
     kRight,
 };
 
+enum class NewTabTemplate {
+    kDuplicateCurrent = 0,
+    kThisPc,
+    kCustomPath,
+    kSavedGroup,
+};
+
 struct ShellTabsOptions {
     bool reopenOnCrash = false;
     bool persistGroupPaths = false;
@@ -51,6 +58,9 @@ struct ShellTabsOptions {
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
     TabBandDockMode tabDockMode = TabBandDockMode::kAutomatic;
+    NewTabTemplate newTabTemplate = NewTabTemplate::kDuplicateCurrent;
+    std::wstring newTabCustomPath;
+    std::wstring newTabSavedGroup;
 };
 
 class OptionsStore {

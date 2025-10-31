@@ -73,10 +73,8 @@ public:
     void OnBrowserQuit();
     bool OnBrowserNewWindow(const std::wstring& targetUrl);
     bool OnCtrlBeforeNavigate(const std::wstring& url);
-	void OnNewThisPCInGroupRequested(int groupIndex);
-
     void OnTabSelected(TabLocation location);
-    void OnNewTabRequested();
+    void OnNewTabRequested(int targetGroup = -1);
     void OnCloseTabRequested(TabLocation location);
     void OnCloseOtherTabsRequested(TabLocation location);
     void OnCloseTabsToRightRequested(TabLocation location);

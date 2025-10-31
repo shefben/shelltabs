@@ -34,6 +34,7 @@
 #include "GroupStore.h"
 #include "Module.h"
 #include "OptionsStore.h"
+#include "StringUtils.h"
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
@@ -96,8 +97,15 @@ enum ControlIds : int {
     IDC_MAIN_PROGRESS_END_LABEL = 5042,
     IDC_MAIN_PROGRESS_END_PREVIEW = 5043,
     IDC_MAIN_PROGRESS_END_BUTTON = 5044,
-    IDC_MAIN_DOCK_LABEL = 5045,
-    IDC_MAIN_DOCK_COMBO = 5046,
+    IDC_MAIN_NEW_TAB_LABEL = 5045,
+    IDC_MAIN_NEW_TAB_COMBO = 5046,
+    IDC_MAIN_NEW_TAB_PATH_LABEL = 5047,
+    IDC_MAIN_NEW_TAB_PATH_EDIT = 5048,
+    IDC_MAIN_NEW_TAB_BROWSE = 5049,
+    IDC_MAIN_NEW_TAB_GROUP_LABEL = 5050,
+    IDC_MAIN_NEW_TAB_GROUP_COMBO = 5051,
+    IDC_MAIN_DOCK_LABEL = 5052,
+    IDC_MAIN_DOCK_COMBO = 5053,
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
     IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
@@ -159,6 +167,157 @@ struct OptionsDialogData {
     int customizationContentHeight = 0;
     int customizationScrollMax = 0;
 };
+
+std::wstring GetWindowTextString(HWND control) {
+    std::wstring text;
+    if (!control) {
+        return text;
+    }
+    const int length = GetWindowTextLengthW(control);
+    if (length <= 0) {
+        return text;
+    }
+    text.resize(static_cast<size_t>(length) + 1);
+    const int copied = GetWindowTextW(control, text.data(), length + 1);
+    if (copied >= 0) {
+        text.resize(static_cast<size_t>(copied));
+    } else {
+        text.clear();
+    }
+    return text;
+}
+
+NewTabTemplate GetSelectedNewTabTemplate(HWND hwnd, OptionsDialogData* data) {
+    HWND combo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_COMBO);
+    if (!combo) {
+        return data ? data->workingOptions.newTabTemplate : NewTabTemplate::kDuplicateCurrent;
+    }
+    const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    if (selection >= 0) {
+        const LRESULT value = SendMessageW(combo, CB_GETITEMDATA, selection, 0);
+        if (value != CB_ERR) {
+            return static_cast<NewTabTemplate>(value);
+        }
+    }
+    return data ? data->workingOptions.newTabTemplate : NewTabTemplate::kDuplicateCurrent;
+}
+
+void PopulateNewTabTemplateCombo(HWND hwnd, OptionsDialogData* data) {
+    HWND combo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_COMBO);
+    if (!combo) {
+        return;
+    }
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    struct TemplateEntry {
+        NewTabTemplate value;
+        const wchar_t* label;
+    } entries[] = {
+        {NewTabTemplate::kDuplicateCurrent, L"Duplicate current tab"},
+        {NewTabTemplate::kThisPc, L"This PC"},
+        {NewTabTemplate::kCustomPath, L"Custom path"},
+        {NewTabTemplate::kSavedGroup, L"Saved group"},
+    };
+
+    int selectionIndex = -1;
+    for (const auto& entry : entries) {
+        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(entry.label)));
+        if (index >= 0) {
+            SendMessageW(combo, CB_SETITEMDATA, index, static_cast<LPARAM>(entry.value));
+            if (data && data->workingOptions.newTabTemplate == entry.value && selectionIndex < 0) {
+                selectionIndex = index;
+            }
+        }
+    }
+
+    if (selectionIndex < 0) {
+        selectionIndex = 0;
+    }
+    SendMessageW(combo, CB_SETCURSEL, selectionIndex, 0);
+    if (data) {
+        const LRESULT value = SendMessageW(combo, CB_GETITEMDATA, selectionIndex, 0);
+        if (value != CB_ERR) {
+            data->workingOptions.newTabTemplate = static_cast<NewTabTemplate>(value);
+        }
+    }
+}
+
+void PopulateNewTabGroupCombo(HWND hwnd, OptionsDialogData* data) {
+    HWND combo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_GROUP_COMBO);
+    if (!combo) {
+        return;
+    }
+
+    const std::wstring previousSelection = data ? data->workingOptions.newTabSavedGroup : std::wstring();
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+
+    if (!data || data->workingGroups.empty()) {
+        const wchar_t placeholder[] = L"No saved groups available";
+        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(placeholder)));
+        if (index >= 0) {
+            SendMessageW(combo, CB_SETCURSEL, index, 0);
+        }
+        EnableWindow(combo, FALSE);
+        if (data) {
+            data->workingOptions.newTabSavedGroup.clear();
+        }
+        return;
+    }
+
+    EnableWindow(combo, TRUE);
+    int selectionIndex = -1;
+    for (const auto& group : data->workingGroups) {
+        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(group.name.c_str())));
+        if (index >= 0) {
+            if (!previousSelection.empty() && _wcsicmp(group.name.c_str(), previousSelection.c_str()) == 0) {
+                selectionIndex = index;
+            }
+        }
+    }
+
+    if (selectionIndex >= 0) {
+        SendMessageW(combo, CB_SETCURSEL, selectionIndex, 0);
+    } else {
+        SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+        data->workingOptions.newTabSavedGroup.clear();
+    }
+}
+
+void UpdateNewTabTemplateControls(HWND hwnd, OptionsDialogData* data) {
+    const NewTabTemplate selected = GetSelectedNewTabTemplate(hwnd, data);
+    if (data) {
+        data->workingOptions.newTabTemplate = selected;
+    }
+
+    const bool showPath = (selected == NewTabTemplate::kCustomPath);
+    const bool showGroup = (selected == NewTabTemplate::kSavedGroup);
+
+    auto updateControl = [](HWND control, bool visible, bool enable) {
+        if (!control) {
+            return;
+        }
+        ShowWindow(control, visible ? SW_SHOWNOACTIVATE : SW_HIDE);
+        EnableWindow(control, visible && enable);
+    };
+
+    HWND pathLabel = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_PATH_LABEL);
+    HWND pathEdit = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT);
+    HWND browseButton = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_BROWSE);
+    updateControl(pathLabel, showPath, true);
+    updateControl(pathEdit, showPath, true);
+    updateControl(browseButton, showPath, true);
+
+    HWND groupLabel = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_GROUP_LABEL);
+    HWND groupCombo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_GROUP_COMBO);
+    const bool hasGroups = data && !data->workingGroups.empty();
+    if (groupLabel) {
+        ShowWindow(groupLabel, showGroup ? SW_SHOWNOACTIVATE : SW_HIDE);
+        EnableWindow(groupLabel, showGroup);
+    }
+    if (groupCombo) {
+        ShowWindow(groupCombo, showGroup ? SW_SHOWNOACTIVATE : SW_HIDE);
+        EnableWindow(groupCombo, showGroup && hasGroups);
+    }
+}
 
 void AlignDialogBuffer(std::vector<BYTE>& buffer) {
     while (buffer.size() % 4 != 0) {
@@ -244,7 +403,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 5;
+    dlg->cdit = 12;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -307,11 +466,123 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    newTabLabel->dwExtendedStyle = 0;
+    newTabLabel->x = 10;
+    newTabLabel->y = 122;
+    newTabLabel->cx = kMainDialogWidth - 20;
+    newTabLabel->cy = 12;
+    newTabLabel->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Default new tab content:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+    newTabCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    newTabCombo->x = 10;
+    newTabCombo->y = 136;
+    newTabCombo->cx = kMainDialogWidth - 20;
+    newTabCombo->cy = 70;
+    newTabCombo->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_COMBO);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0085);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabPathLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabPathLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    newTabPathLabel->dwExtendedStyle = 0;
+    newTabPathLabel->x = 10;
+    newTabPathLabel->y = 158;
+    newTabPathLabel->cx = kMainDialogWidth - 80;
+    newTabPathLabel->cy = 12;
+    newTabPathLabel->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_PATH_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Custom path:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabPathEdit = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabPathEdit->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL;
+    newTabPathEdit->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    newTabPathEdit->x = 10;
+    newTabPathEdit->y = 172;
+    newTabPathEdit->cx = kMainDialogWidth - 100;
+    newTabPathEdit->cy = 14;
+    newTabPathEdit->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_PATH_EDIT);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0081);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabBrowse = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabBrowse->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+    newTabBrowse->dwExtendedStyle = 0;
+    newTabBrowse->x = static_cast<short>(kMainDialogWidth - 84);
+    newTabBrowse->y = 171;
+    newTabBrowse->cx = 74;
+    newTabBrowse->cy = 16;
+    newTabBrowse->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_BROWSE);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Browse...");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabGroupLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabGroupLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    newTabGroupLabel->dwExtendedStyle = 0;
+    newTabGroupLabel->x = 10;
+    newTabGroupLabel->y = 198;
+    newTabGroupLabel->cx = kMainDialogWidth - 20;
+    newTabGroupLabel->cy = 12;
+    newTabGroupLabel->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_GROUP_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Saved group:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* newTabGroupCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    newTabGroupCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+    newTabGroupCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    newTabGroupCombo->x = 10;
+    newTabGroupCombo->y = 212;
+    newTabGroupCombo->cx = kMainDialogWidth - 20;
+    newTabGroupCombo->cy = 70;
+    newTabGroupCombo->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_GROUP_COMBO);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0085);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* dockLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     dockLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     dockLabel->dwExtendedStyle = 0;
     dockLabel->x = 10;
-    dockLabel->y = 122;
+    dockLabel->y = 238;
     dockLabel->cx = kMainDialogWidth - 20;
     dockLabel->cy = 12;
     dockLabel->id = static_cast<WORD>(IDC_MAIN_DOCK_LABEL);
@@ -327,7 +598,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     dockCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
     dockCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
     dockCombo->x = 10;
-    dockCombo->y = 136;
+    dockCombo->y = 252;
     dockCombo->cx = kMainDialogWidth - 20;
     dockCombo->cy = 70;
     dockCombo->id = static_cast<WORD>(IDC_MAIN_DOCK_COMBO);
@@ -2214,6 +2485,11 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                     L"enabling this option reopens the child folder next time.";
                 SetDlgItemTextW(hwnd, IDC_MAIN_EXAMPLE, example);
 
+                PopulateNewTabTemplateCombo(hwnd, data);
+                SetDlgItemTextW(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT, data->workingOptions.newTabCustomPath.c_str());
+                PopulateNewTabGroupCombo(hwnd, data);
+                UpdateNewTabTemplateControls(hwnd, data);
+
                 HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
                 if (combo) {
                     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
@@ -2271,6 +2547,61 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
+                case IDC_MAIN_NEW_TAB_COMBO:
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        UpdateNewTabTemplateControls(hwnd, data);
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                case IDC_MAIN_NEW_TAB_PATH_EDIT:
+                    if (HIWORD(wParam) == EN_CHANGE) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            HWND edit = reinterpret_cast<HWND>(lParam);
+                            if (!edit) {
+                                edit = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT);
+                            }
+                            data->workingOptions.newTabCustomPath = Trim(GetWindowTextString(edit));
+                        }
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
+                case IDC_MAIN_NEW_TAB_BROWSE:
+                    if (HIWORD(wParam) == BN_CLICKED) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        std::wstring path = Trim(GetWindowTextString(GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT)));
+                        if (path.empty() && data) {
+                            path = data->workingOptions.newTabCustomPath;
+                        }
+                        if (BrowseForFolder(hwnd, &path)) {
+                            path = Trim(path);
+                            SetDlgItemTextW(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT, path.c_str());
+                            if (data) {
+                                data->workingOptions.newTabCustomPath = path;
+                            }
+                            SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        }
+                    }
+                    return TRUE;
+                case IDC_MAIN_NEW_TAB_GROUP_COMBO:
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                        if (data) {
+                            HWND combo = reinterpret_cast<HWND>(lParam);
+                            if (!combo) {
+                                combo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_GROUP_COMBO);
+                            }
+                            std::wstring selected = Trim(GetWindowTextString(combo));
+                            if (data->workingGroups.empty()) {
+                                data->workingOptions.newTabSavedGroup.clear();
+                            } else {
+                                data->workingOptions.newTabSavedGroup = selected;
+                            }
+                        }
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                    }
+                    return TRUE;
                 case IDC_MAIN_DOCK_COMBO:
                     if (HIWORD(wParam) == CBN_SELCHANGE) {
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
@@ -2282,18 +2613,52 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             break;
         }
         case WM_NOTIFY: {
-            if (((LPNMHDR)lParam)->code == PSN_APPLY) {
+            const auto code = reinterpret_cast<LPNMHDR>(lParam)->code;
+            if (code == PSN_SETACTIVE) {
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                if (data) {
+                    SetDlgItemTextW(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT, data->workingOptions.newTabCustomPath.c_str());
+                    PopulateNewTabGroupCombo(hwnd, data);
+                    UpdateNewTabTemplateControls(hwnd, data);
+                }
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, 0);
+                return TRUE;
+            }
+            if (code == PSN_APPLY) {
                 auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
                 if (data) {
                     data->workingOptions.reopenOnCrash =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
                     data->workingOptions.persistGroupPaths =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
-                    HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
-                    if (combo) {
-                        const LRESULT selection = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+
+                    if (HWND templateCombo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_COMBO)) {
+                        const LRESULT selection = SendMessageW(templateCombo, CB_GETCURSEL, 0, 0);
                         if (selection >= 0) {
-                            const LRESULT value = SendMessageW(combo, CB_GETITEMDATA, selection, 0);
+                            const LRESULT value = SendMessageW(templateCombo, CB_GETITEMDATA, selection, 0);
+                            if (value != CB_ERR) {
+                                data->workingOptions.newTabTemplate = static_cast<NewTabTemplate>(value);
+                            }
+                        }
+                    }
+
+                    data->workingOptions.newTabCustomPath =
+                        Trim(GetWindowTextString(GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_PATH_EDIT)));
+
+                    if (HWND groupCombo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_GROUP_COMBO)) {
+                        if (data->workingGroups.empty()) {
+                            data->workingOptions.newTabSavedGroup.clear();
+                        } else {
+                            data->workingOptions.newTabSavedGroup =
+                                Trim(GetWindowTextString(groupCombo));
+                        }
+                    }
+
+                    HWND dockCombo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
+                    if (dockCombo) {
+                        const LRESULT selection = SendMessageW(dockCombo, CB_GETCURSEL, 0, 0);
+                        if (selection >= 0) {
+                            const LRESULT value = SendMessageW(dockCombo, CB_GETITEMDATA, selection, 0);
                             if (value != CB_ERR) {
                                 data->workingOptions.tabDockMode =
                                     static_cast<TabBandDockMode>(value);
