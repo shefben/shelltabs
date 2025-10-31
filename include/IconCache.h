@@ -18,6 +18,9 @@ namespace shelltabs {
 std::wstring BuildIconCacheFamilyKey(PCIDLIST_ABSOLUTE pidl, const std::wstring& canonicalPath);
 
 class IconCache {
+private:
+    struct Entry;
+
 public:
     class Reference {
     public:
@@ -34,12 +37,14 @@ public:
 
     private:
         friend class IconCache;
-        Reference(class IconCache* cache, struct Entry* entry, HICON icon, bool addRef) noexcept;
-        void Attach(class IconCache* cache, struct Entry* entry, HICON icon, bool addRef) noexcept;
+        Reference(class IconCache* cache, struct IconCache::Entry* entry, HICON icon,
+                   bool addRef) noexcept;
+        void Attach(class IconCache* cache, struct IconCache::Entry* entry, HICON icon,
+                    bool addRef) noexcept;
         void ReleaseCurrent() noexcept;
 
         class IconCache* m_cache = nullptr;
-        struct Entry* m_entry = nullptr;
+        struct IconCache::Entry* m_entry = nullptr;
         HICON m_icon = nullptr;
     };
 
