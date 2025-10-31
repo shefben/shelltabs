@@ -68,6 +68,7 @@ using shelltabs::UniquePidl;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
+constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
 
 std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
@@ -624,6 +625,8 @@ namespace shelltabs {
 
 std::mutex CExplorerBHO::s_ensureTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
+std::mutex CExplorerBHO::s_openInNewTabTimerLock;
+std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 
 CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks(this) {
     ModuleAddRef();
@@ -783,6 +786,75 @@ void CALLBACK CExplorerBHO::EnsureBandTimerProc(HWND, UINT, UINT_PTR timerId, DW
         instance->HandleEnsureBandTimer(timerId);
     }
 }
+
+void CExplorerBHO::HandleOpenInNewTabTimer(UINT_PTR timerId) {
+    if (m_openInNewTabTimerId != timerId) {
+        return;
+    }
+
+    m_openInNewTabTimerId = 0;
+    m_openInNewTabRetryScheduled = false;
+    TryDispatchQueuedOpenInNewTabRequests();
+}
+
+void CExplorerBHO::ScheduleOpenInNewTabRetry() {
+    if (m_openInNewTabRetryScheduled || m_openInNewTabQueue.empty()) {
+        return;
+    }
+
+    UINT_PTR timerId = SetTimer(nullptr, 0, kOpenInNewTabRetryDelayMs, &CExplorerBHO::OpenInNewTabTimerProc);
+    if (timerId == 0) {
+        const DWORD error = GetLastError();
+        LogMessage(LogLevel::Error,
+                   L"Open In New Tab: failed to schedule retry timer (delay=%u ms, error=%lu)",
+                   kOpenInNewTabRetryDelayMs, error);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
+        s_openInNewTabTimers[timerId] = this;
+    }
+
+    m_openInNewTabRetryScheduled = true;
+    m_openInNewTabTimerId = timerId;
+}
+
+void CExplorerBHO::CancelOpenInNewTabRetry() {
+    if (!m_openInNewTabRetryScheduled || m_openInNewTabTimerId == 0) {
+        m_openInNewTabRetryScheduled = false;
+        m_openInNewTabTimerId = 0;
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
+        s_openInNewTabTimers.erase(m_openInNewTabTimerId);
+    }
+
+    KillTimer(nullptr, m_openInNewTabTimerId);
+    m_openInNewTabRetryScheduled = false;
+    m_openInNewTabTimerId = 0;
+}
+
+void CALLBACK CExplorerBHO::OpenInNewTabTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
+    CExplorerBHO* instance = nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
+        auto it = s_openInNewTabTimers.find(timerId);
+        if (it != s_openInNewTabTimers.end()) {
+            instance = it->second;
+            s_openInNewTabTimers.erase(it);
+        }
+    }
+
+    KillTimer(nullptr, timerId);
+
+    if (instance) {
+        instance->HandleOpenInNewTabTimer(timerId);
+    }
+}
 IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
@@ -858,7 +930,9 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID riid, LPOLESTR* rgszNames, UIN
 
 void CExplorerBHO::Disconnect() {
     CancelAllEnsureRetries();
+    CancelOpenInNewTabRetry();
     m_bandEnsureStates.clear();
+    m_openInNewTabQueue.clear();
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
     RemoveProgressSubclass();
@@ -1040,6 +1114,7 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                            L"EnsureBandVisible: ShowBrowserBar succeeded for host=%p on attempt %zu", hostWindow,
                            attempt);
                 UpdateBreadcrumbSubclass();
+                TryDispatchQueuedOpenInNewTabRequests();
             } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
                 m_bandVisible = false;
                 CancelEnsureRetry(state);
@@ -3281,27 +3356,66 @@ bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::w
     return true;
 }
 
-void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const {
+void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) {
     if (paths.empty()) {
         LogMessage(LogLevel::Info, L"DispatchOpenInNewTab skipped: no paths provided");
         return;
     }
 
+    QueueOpenInNewTabRequests(paths);
+    TryDispatchQueuedOpenInNewTabRequests();
+}
+
+void CExplorerBHO::QueueOpenInNewTabRequests(const std::vector<std::wstring>& paths) {
+    size_t added = 0;
+    for (const std::wstring& path : paths) {
+        if (path.empty()) {
+            LogMessage(LogLevel::Warning, L"QueueOpenInNewTabRequests skipped empty path entry");
+            continue;
+        }
+
+        m_openInNewTabQueue.push_back(path);
+        ++added;
+    }
+
+    if (added > 0) {
+        LogMessage(LogLevel::Info, L"Queued %zu Open In New Tab request(s); %zu pending", added,
+                   m_openInNewTabQueue.size());
+    }
+}
+
+void CExplorerBHO::TryDispatchQueuedOpenInNewTabRequests() {
+    if (m_openInNewTabQueue.empty()) {
+        CancelOpenInNewTabRetry();
+        return;
+    }
+
     HWND frame = GetTopLevelExplorerWindow();
     if (!frame) {
-        LogMessage(LogLevel::Warning, L"DispatchOpenInNewTab failed: explorer frame not found");
+        LogMessage(LogLevel::Warning,
+                   L"Open In New Tab dispatch deferred: explorer frame not found (%zu request(s) pending)",
+                   m_openInNewTabQueue.size());
+        ScheduleOpenInNewTabRetry();
         return;
     }
 
     HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
     if (!bandWindow || !IsWindow(bandWindow)) {
-        LogMessage(LogLevel::Warning, L"DispatchOpenInNewTab failed: ShellTabs band window missing (frame=%p)", frame);
+        LogMessage(LogLevel::Info,
+                   L"Open In New Tab dispatch deferred: ShellTabs band window missing (frame=%p, pending=%zu)",
+                   frame, m_openInNewTabQueue.size());
+        m_shouldRetryEnsure = true;
+        EnsureBandVisible();
+        ScheduleOpenInNewTabRetry();
         return;
     }
 
-    for (const std::wstring& path : paths) {
+    std::vector<std::wstring> pending;
+    pending.swap(m_openInNewTabQueue);
+    CancelOpenInNewTabRetry();
+
+    for (const std::wstring& path : pending) {
         if (path.empty()) {
-            LogMessage(LogLevel::Warning, L"DispatchOpenInNewTab skipped empty path entry");
             continue;
         }
 
