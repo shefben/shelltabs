@@ -68,6 +68,7 @@ struct ShellTabsOptions;
                         Success,
                         PermanentFailure,
                         TemporaryFailure,
+                        Throttled,
                 };
 
                 struct BandEnsureState {
@@ -91,7 +92,8 @@ struct ShellTabsOptions;
                 HRESULT ConnectEvents();
                 void DisconnectEvents();
                 HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
-                void ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr);
+                void ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr,
+                                         BandEnsureOutcome outcome, const wchar_t* reason = nullptr);
                 void CancelEnsureRetry(BandEnsureState& state);
                 void CancelAllEnsureRetries();
                 void HandleEnsureBandTimer(UINT_PTR timerId);
