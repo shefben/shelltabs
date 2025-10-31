@@ -36,6 +36,22 @@ constexpr wchar_t kTempSuffix[] = L".tmp";
 constexpr wchar_t kCheckpointSuffix[] = L".previous";
 constexpr wchar_t kChecksumToken[] = L"checksum";
 
+void NotifySessionChecksumMismatch(const std::wstring& corruptedPath) {
+    static std::once_flag s_corruptionNoticeOnce;
+    std::call_once(s_corruptionNoticeOnce, [&]() {
+        std::wstring message =
+            L"ShellTabs could not restore saved tabs because the session data failed an integrity check.";
+        if (!corruptedPath.empty()) {
+            message.append(L"\n\nFile: ");
+            message.append(corruptedPath);
+        }
+        message.append(L"\n\nA new session has been started.");
+
+        MessageBoxW(nullptr, message.c_str(), L"ShellTabs",
+                    MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST);
+    });
+}
+
 struct SessionMarkerState {
     std::mutex mutex;
     std::unordered_map<std::wstring, long> counts;
@@ -584,6 +600,8 @@ bool SessionStore::Load(SessionData& data) const {
     }
 
     const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
+    bool checkpointChecksumMismatch = false;
+    std::wstring checkpointCorruptionPath;
 
     auto restoreFromCheckpoint = [&](const wchar_t* reason) -> bool {
         if (checkpointPath.empty()) {
@@ -610,6 +628,8 @@ bool SessionStore::Load(SessionData& data) const {
         std::wstring fallbackSnapshot;
         const SessionFileStatus status = ParseSessionDocument(checkpointContent, fallbackData, fallbackSnapshot);
         if (status == SessionFileStatus::kChecksumMismatch) {
+            checkpointChecksumMismatch = true;
+            checkpointCorruptionPath = checkpointPath;
             LogMessage(LogLevel::Warning,
                        L"SessionStore checkpoint %ls failed checksum while handling %ls",
                        checkpointPath.c_str(), reason);
@@ -647,6 +667,10 @@ bool SessionStore::Load(SessionData& data) const {
             return true;
         }
 
+        if (checkpointChecksumMismatch) {
+            NotifySessionChecksumMismatch(checkpointCorruptionPath);
+        }
+
         const size_t separator = m_storagePath.find_last_of(L"\\/");
         if (separator != std::wstring::npos) {
             std::wstring directory = m_storagePath.substr(0, separator);
@@ -681,11 +705,21 @@ bool SessionStore::Load(SessionData& data) const {
         case SessionFileStatus::kChecksumMismatch:
             LogMessage(LogLevel::Warning,
                        L"SessionStore checksum mismatch detected for %ls", m_storagePath.c_str());
-            return restoreFromCheckpoint(L"checksum mismatch");
+            if (restoreFromCheckpoint(L"checksum mismatch")) {
+                return true;
+            }
+            NotifySessionChecksumMismatch(checkpointChecksumMismatch ? checkpointCorruptionPath : m_storagePath);
+            return false;
         case SessionFileStatus::kParseError:
             LogMessage(LogLevel::Warning,
                        L"SessionStore failed to parse %ls", m_storagePath.c_str());
-            return restoreFromCheckpoint(L"parse failure");
+            if (restoreFromCheckpoint(L"parse failure")) {
+                return true;
+            }
+            if (checkpointChecksumMismatch) {
+                NotifySessionChecksumMismatch(checkpointCorruptionPath);
+            }
+            return false;
     }
 
     if (!checkpointPath.empty() &&
