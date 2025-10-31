@@ -59,6 +59,7 @@ public:
     void SetPreferredDockMode(TabBandDockMode mode);
     TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }
     static uint32_t GetAvailableDockMask();
+    static constexpr UINT_PTR SessionFlushTimerId() noexcept { return kSessionFlushTimerId; }
 
     enum class HitType {
         kNone,

@@ -207,6 +207,9 @@ IFACEMETHODIMP TabBand::ContextSensitiveHelp(BOOL enterMode) {
             if (!site && m_dockingSite) {
                 m_dockingSite.As(&site);
             }
+            if (!site && m_dockingFrame) {
+                m_dockingFrame.As(&site);
+            }
             if (!site && m_site) {
                 m_site.As(&site);
             }
@@ -251,20 +254,23 @@ IFACEMETHODIMP TabBand::ResizeBorderDW(const RECT* prcBorder, IUnknown* punkTool
     return GuardExplorerCall(
         L"TabBand::ResizeBorderDW",
         [&]() -> HRESULT {
-            Microsoft::WRL::ComPtr<IDockingWindowSite> dockingSite = m_dockingSite;
-            if (!dockingSite && punkToolbarSite) {
-                punkToolbarSite->QueryInterface(IID_PPV_ARGS(&dockingSite));
+            Microsoft::WRL::ComPtr<IDockingWindowFrame> dockingFrame = m_dockingFrame;
+            if (!dockingFrame && m_dockingSite) {
+                m_dockingSite.As(&dockingFrame);
             }
-            if (!dockingSite && m_site) {
-                m_site.As(&dockingSite);
+            if (!dockingFrame && punkToolbarSite) {
+                punkToolbarSite->QueryInterface(IID_PPV_ARGS(&dockingFrame));
+            }
+            if (!dockingFrame && m_site) {
+                m_site.As(&dockingFrame);
             }
 
-            if (dockingSite) {
+            if (dockingFrame) {
                 IUnknown* siteForCall = punkToolbarSite;
                 if (!siteForCall && m_site) {
                     siteForCall = m_site.Get();
                 }
-                const HRESULT hr = dockingSite->ResizeBorderDW(prcBorder, siteForCall, fReserved);
+                const HRESULT hr = dockingFrame->ResizeBorderDW(prcBorder, siteForCall, fReserved);
                 if (FAILED(hr) && hr != E_NOTIMPL) {
                     return hr;
                 }
@@ -398,15 +404,20 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             m_site = site;
             m_siteOleWindow.Reset();
             m_dockingSite.Reset();
+            m_dockingFrame.Reset();
             if (site) {
                 site.As(&m_siteOleWindow);
                 site.As(&m_dockingSite);
+                site.As(&m_dockingFrame);
             }
             if (!m_siteOleWindow) {
                 pUnkSite->QueryInterface(IID_PPV_ARGS(&m_siteOleWindow));
             }
             if (!m_dockingSite) {
                 pUnkSite->QueryInterface(IID_PPV_ARGS(&m_dockingSite));
+            }
+            if (!m_dockingFrame) {
+                pUnkSite->QueryInterface(IID_PPV_ARGS(&m_dockingFrame));
             }
 
             Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
@@ -1753,6 +1764,7 @@ void TabBand::DisconnectSite() {
     m_site.Reset();
     m_siteOleWindow.Reset();
     m_dockingSite.Reset();
+    m_dockingFrame.Reset();
 
     if (m_window) {
         m_window->SetSite(nullptr);
@@ -2088,7 +2100,7 @@ void TabBand::StartSessionFlushTimer() {
     }
 
     constexpr UINT kSessionFlushIntervalMs = 15000;
-    if (SetTimer(hwnd, TabBandWindow::kSessionFlushTimerId, kSessionFlushIntervalMs, nullptr)) {
+    if (SetTimer(hwnd, TabBandWindow::SessionFlushTimerId(), kSessionFlushIntervalMs, nullptr)) {
         m_sessionFlushTimerActive = true;
         m_sessionFlushTimerPending = false;
     } else {
@@ -2106,7 +2118,7 @@ void TabBand::StopSessionFlushTimer() {
 
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
     if (hwnd) {
-        KillTimer(hwnd, TabBandWindow::kSessionFlushTimerId);
+        KillTimer(hwnd, TabBandWindow::SessionFlushTimerId());
     }
     m_sessionFlushTimerActive = false;
 }
