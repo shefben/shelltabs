@@ -1985,7 +1985,10 @@ void TabBandWindow::RefreshTheme() {
     m_themeColors = m_themeNotifier.GetThemeColors();
     m_highContrast = IsHighContrastActive();
 
-    //SetWindowTheme(m_hwnd, L"Explorer", nullptr);
+    // Ensure the band window itself opts into Explorer's visual styles so the
+    // subsequent theme handles pull the correct resources for both light and
+    // dark modes.
+    SetWindowTheme(m_hwnd, L"Explorer", nullptr);
     const bool darkMode = IsSystemDarkMode();
     const bool immersiveDark = !m_highContrast && darkMode;
     if (!m_windowDarkModeInitialized || immersiveDark != m_windowDarkModeValue) {
@@ -2413,7 +2416,9 @@ void TabBandWindow::UpdateNewTabButtonTheme() {
         m_buttonDarkModeValue = false;
         return;
     }
-    //SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
+    // Keep the new tab button styled like Explorer's toolbar buttons; this
+    // cooperates with immersive dark mode when available.
+    SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
     const bool applyDark = m_darkMode && !m_highContrast;
     if (!m_buttonDarkModeInitialized || m_buttonDarkModeValue != applyDark) {
         ApplyImmersiveDarkMode(m_newTabButton, applyDark);
@@ -5288,7 +5293,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                                                        0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
                                                        GetModuleHandleInstance(), nullptr);
                 if (self->m_newTabButton) {
-                    //SetWindowTheme(self->m_newTabButton, L"Explorer", nullptr);
+                    SetWindowTheme(self->m_newTabButton, L"Explorer", nullptr);
                     ApplyImmersiveDarkMode(self->m_newTabButton, self->m_darkMode);
                     SendMessageW(self->m_newTabButton, WM_SETFONT,
                                  reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
