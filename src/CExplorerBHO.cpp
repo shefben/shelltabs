@@ -125,6 +125,10 @@ Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
 EXTERN_C const GUID SID_STopLevelBrowserFrame;
 #endif
 
+#ifndef SID_NamespaceTreeControl
+EXTERN_C const GUID SID_NamespaceTreeControl;
+#endif
+
 bool IsShowBrowserBarThrottled(HRESULT hr) {
     if (hr == S_FALSE) {
         return true;
@@ -1158,14 +1162,8 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
-    Microsoft::WRL::ComPtr<IFolderView> baseFolderView;
-    hr = folderView.As(&baseFolderView);
-    if (FAILED(hr) || !baseFolderView) {
-        return false;
-    }
-
-    PIDLIST_RELATIVE child = nullptr;
-    hr = baseFolderView->GetItem(itemIndex, &child);
+    PITEMID_CHILD child = nullptr;
+    hr = folderView->GetItem(itemIndex, &child);
     if (FAILED(hr) || !child) {
         return false;
     }
@@ -1845,26 +1843,8 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
 
     if (!InstallExplorerViewSubclass(viewWindow)) {
         LogMessage(LogLevel::Warning, L"Explorer view subclass installation failed (view=%p)", viewWindow);
-   /* HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
-    HWND directUiHost = FindDescendantWindow(viewWindow, L"UIItemsView");
-    if (!directUiHost) {
-        directUiHost = FindDescendantWindow(viewWindow, L"ItemsViewWnd");
-    }
-
-    HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
-    if (!treeView) {
-        LogMessage(LogLevel::Info,
-                   L"Explorer view subclass setup continuing without tree view (view=%p list=%p)", viewWindow,
-                   listView);
-        TryAttachNamespaceTreeControl(shellView.Get());
-    }
-
-    /f (!InstallExplorerViewSubclass(viewWindow, listView, treeView, directUiHost)) {
-        LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass installation failed (view=%p list=%p tree=%p direct=%p)", viewWindow,
-                   listView, treeView, directUiHost);
         return;
-    }*/
+    }
 
     m_shellView = shellView;
     m_shellViewWindow = viewWindow;
