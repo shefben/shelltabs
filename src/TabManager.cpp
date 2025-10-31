@@ -665,6 +665,59 @@ std::vector<TabViewItem> TabManager::BuildView() const {
     return items;
 }
 
+TabProgressSnapshot TabManager::CollectProgressStates() const {
+    TabProgressSnapshot snapshot;
+    snapshot.reserve(TotalTabCount() + static_cast<int>(m_groups.size()));
+
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        ULONGLONG groupLastTick = 0;
+        uint64_t groupLastOrdinal = 0;
+
+        for (const auto& tab : group.tabs) {
+            if (tab.activationOrdinal > groupLastOrdinal ||
+                (tab.activationOrdinal == groupLastOrdinal && tab.lastActivatedTick > groupLastTick)) {
+                groupLastOrdinal = tab.activationOrdinal;
+                groupLastTick = tab.lastActivatedTick;
+            }
+        }
+
+        if (group.headerVisible) {
+            TabProgressSnapshotEntry header;
+            header.type = TabViewItemType::kGroupHeader;
+            header.location = {static_cast<int>(g), -1};
+            header.lastActivatedTick = groupLastTick;
+            header.activationOrdinal = groupLastOrdinal;
+            snapshot.emplace_back(std::move(header));
+        }
+
+        if (group.collapsed) {
+            continue;
+        }
+
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const auto& tab = group.tabs[t];
+            if (tab.hidden) {
+                continue;
+            }
+
+            TabProgressSnapshotEntry entry;
+            entry.type = TabViewItemType::kTab;
+            entry.location = {static_cast<int>(g), static_cast<int>(t)};
+            entry.lastActivatedTick = tab.lastActivatedTick;
+            entry.activationOrdinal = tab.activationOrdinal;
+            if (tab.progress.active) {
+                entry.progress.visible = true;
+                entry.progress.indeterminate = tab.progress.indeterminate;
+                entry.progress.fraction = tab.progress.indeterminate ? 0.0 : ClampProgress(tab.progress.fraction);
+            }
+            snapshot.emplace_back(std::move(entry));
+        }
+    }
+
+    return snapshot;
+}
+
 void TabManager::RegisterProgressListener(HWND hwnd) {
     if (!hwnd) {
         return;

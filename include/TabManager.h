@@ -98,6 +98,16 @@ struct TabViewItem {
     bool pinned = false;
 };
 
+struct TabProgressSnapshotEntry {
+    TabViewItemType type = TabViewItemType::kGroupHeader;
+    TabLocation location;
+    TabProgressView progress;
+    ULONGLONG lastActivatedTick = 0;
+    uint64_t activationOrdinal = 0;
+};
+
+using TabProgressSnapshot = std::vector<TabProgressSnapshotEntry>;
+
 class TabManager {
 public:
     struct ExplorerWindowId {
@@ -159,6 +169,7 @@ public:
     void Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence);
 
     std::vector<TabViewItem> BuildView() const;
+    TabProgressSnapshot CollectProgressStates() const;
 
     void RegisterProgressListener(HWND hwnd);
     void UnregisterProgressListener(HWND hwnd);
