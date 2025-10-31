@@ -178,7 +178,7 @@ bool SessionStore::Load(SessionData& data) const {
                 return false;
             }
             version = std::max(1, _wtoi(tokens[1].c_str()));
-            if (version > 4) {
+            if (version > 5) {
                 return false;
             }
             versionSeen = true;
@@ -262,6 +262,17 @@ bool SessionStore::Load(SessionData& data) const {
             tab.tooltip = tokens[2];
             tab.hidden = ParseBool(tokens[3]);
             tab.path = tokens[4];
+            size_t index = 5;
+            if (version >= 5) {
+                if (tokens.size() > index) {
+                    tab.lastActivatedTick = _wcstoui64(tokens[index].c_str(), nullptr, 10);
+                    ++index;
+                }
+                if (tokens.size() > index) {
+                    tab.activationOrdinal = _wcstoui64(tokens[index].c_str(), nullptr, 10);
+                    ++index;
+                }
+            }
             currentGroup->tabs.emplace_back(std::move(tab));
             return true;
         }
@@ -291,7 +302,7 @@ bool SessionStore::Save(const SessionData& data) const {
 
     std::wstring content;
     content += kVersionToken;
-    content += L"|4\n";
+    content += L"|5\n";
     content += kSelectedToken;
     content += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     content += kSequenceToken;
@@ -307,7 +318,9 @@ bool SessionStore::Save(const SessionData& data) const {
                    group.savedGroupId + L"\n";
         for (const auto& tab : group.tabs) {
             content += kTabToken;
-            content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path + L"\n";
+            content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path +
+                       L"|" + std::to_wstring(static_cast<unsigned long long>(tab.lastActivatedTick)) + L"|" +
+                       std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"\n";
         }
     }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -54,6 +55,8 @@ struct TabInfo {
     bool hidden = false;
     std::wstring path;
     TabProgressState progress;
+    ULONGLONG lastActivatedTick = 0;
+    uint64_t activationOrdinal = 0;
 };
 
 struct TabGroup {
@@ -86,6 +89,8 @@ struct TabViewItem {
     bool isSavedGroup = false;
     bool headerVisible = true;
     TabProgressView progress;
+    ULONGLONG lastActivatedTick = 0;
+    uint64_t activationOrdinal = 0;
 };
 
 class TabManager {
@@ -105,6 +110,9 @@ public:
     const TabInfo* Get(TabLocation location) const noexcept;
     TabInfo* Get(TabLocation location) noexcept;
     TabLocation Find(PCIDLIST_ABSOLUTE pidl) const;
+
+    TabLocation GetLastActivatedTab(bool includeHidden = false) const;
+    std::vector<TabLocation> GetTabsByActivationOrder(bool includeHidden = false) const;
 
     TabLocation Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex = -1);
     void Remove(TabLocation location);
@@ -148,12 +156,15 @@ private:
     TabLocation FindByPath(const std::wstring& path) const;
     bool ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now);
     bool ClearProgress(TabInfo* tab);
+    void UpdateSelectionActivation(TabLocation previousSelection);
+    void RecalculateNextActivationOrdinal();
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
     int m_selectedTab = -1;
     int m_groupSequence = 1;
     std::vector<HWND> m_progressListeners;
+    uint64_t m_nextActivationOrdinal = 1;
 };
 
 }  // namespace shelltabs

@@ -1378,6 +1378,8 @@ bool TabBand::RestoreSession() {
             tab.tooltip = tabData.tooltip.empty() ? tab.name : tabData.tooltip;
             tab.hidden = tabData.hidden;
             tab.path = tabData.path;
+            tab.lastActivatedTick = tabData.lastActivatedTick;
+            tab.activationOrdinal = tabData.activationOrdinal;
             group.tabs.emplace_back(std::move(tab));
         }
         if (!group.tabs.empty() || !group.savedGroupId.empty()) {
@@ -1445,6 +1447,8 @@ void TabBand::SaveSession() {
             storedTab.name = tab.name;
             storedTab.tooltip = tab.tooltip;
             storedTab.hidden = tab.hidden;
+            storedTab.lastActivatedTick = tab.lastActivatedTick;
+            storedTab.activationOrdinal = tab.activationOrdinal;
             storedGroup.tabs.emplace_back(std::move(storedTab));
         }
 
