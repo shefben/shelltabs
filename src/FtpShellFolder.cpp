@@ -22,6 +22,10 @@
 #include <winnls.h>
 #include <wininet.h>
 
+#ifndef INTERNET_OPTION_PASSIVE
+#define INTERNET_OPTION_PASSIVE 52
+#endif
+
 #ifdef _MSC_VER
 #pragma comment(lib, "propsys.lib")
 #endif
@@ -186,6 +190,8 @@ HRESULT RenameRemoteItem(const FtpConnectionOptions& options, const FtpCredentia
         return HRESULT_FROM_WIN32(GetLastError());
     }
     return S_OK;
+}
+
 template <typename>
 inline constexpr bool kDependentFalse = false;
 
