@@ -228,6 +228,8 @@ void AssignFolderSettings(SFVCreate& create, const FOLDERSETTINGS& settings) {
         create.pfolderSettings = &settings;
     } else if constexpr (requires(SFVCreate& candidate) { candidate.pViewSettings = &settings; }) {
         create.pViewSettings = &settings;
+    } else if constexpr (requires(SFVCreate& candidate) { candidate.pFolderSettings = &settings; }) {
+        create.pFolderSettings = &settings;
     } else {
         static_assert(kDependentFalse<SFVCreate>, "SFV_CREATE is missing a folder settings member");
     }
