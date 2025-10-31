@@ -28,6 +28,7 @@
 #include "PreviewOverlay.h"
 #include "TabManager.h"
 #include "resource.h"
+#include "ThemeNotifier.h"
 
 
 namespace shelltabs {
@@ -137,6 +138,8 @@ private:
     };
 
     struct ThemePalette {
+        COLORREF rebarGradientTop = 0;
+        COLORREF rebarGradientBottom = 0;
         COLORREF rebarBackground = 0;
         COLORREF borderTop = 0;
         COLORREF borderBottom = 0;
@@ -149,6 +152,7 @@ private:
         bool tabTextValid = false;
         bool tabSelectedTextValid = false;
         bool groupTextValid = false;
+        bool rebarGradientValid = false;
     };
 
     HWND m_hwnd = nullptr;
@@ -169,6 +173,7 @@ private:
     HTHEME m_rebarTheme = nullptr;
     HTHEME m_windowTheme = nullptr;
     bool m_darkMode = false;
+    bool m_highContrast = false;
     bool m_refreshingTheme = false;
     bool m_windowDarkModeInitialized = false;
     bool m_windowDarkModeValue = false;
@@ -198,6 +203,8 @@ private:
     bool m_progressTimerActive = false;
         int m_lastRowCount = 1;  // tracks wrapped rows for height calc
         // track if we've installed the subclass
+    ThemeNotifier m_themeNotifier;
+    ThemeNotifier::ThemeColors m_themeColors;
         bool m_rebarSubclassed = false;
 	struct EmptyIslandPlus {
 		int   groupIndex = -1;
@@ -251,6 +258,7 @@ private:
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
+    TabManager* ResolveManager() const noexcept;
     void RegisterShellNotifications();
     void UnregisterShellNotifications();
     void OnShellNotify(WPARAM wParam, LPARAM lParam);
@@ -331,6 +339,7 @@ private:
     friend class BandDropTarget;
 
     static constexpr UINT_PTR kDropHoverTimerId = 0x5348;  // 'SH'
+    static constexpr UINT_PTR kSessionFlushTimerId = 0x5346;  // 'SF'
     static constexpr UINT_PTR kProgressTimerId = 0x5349;   // 'SI'
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);

@@ -1,5 +1,6 @@
 #include "OptionsStore.h"
 
+#include "BackgroundCache.h"
 #include "StringUtils.h"
 #include "Utilities.h"
 
@@ -545,7 +546,12 @@ bool OptionsStore::Save() const {
     content += DockModeToString(m_options.tabDockMode);
     content += L"\n";
 
-    return WriteUtf8File(m_storagePath, content);
+    if (!WriteUtf8File(m_storagePath, content)) {
+        return false;
+    }
+
+    UpdateCachedImageUsage(m_options);
+    return true;
 }
 
 bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {

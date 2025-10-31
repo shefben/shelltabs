@@ -35,6 +35,7 @@
 #include "TabBand.h"
 #include "PreviewCache.h"
 #include "Utilities.h"
+#include "ExplorerThemeUtils.h"
 
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "Ole32.lib")
@@ -135,6 +136,7 @@ const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG = WM_APP + 60;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
+constexpr UINT WM_SHELLTABS_THEME_CHANGED = WM_APP + 63;
 const wchar_t kOverlayWindowClassName[] = L"ShellTabsDragOverlay";
 constexpr UINT kPreviewHoverTime = 400;
 constexpr ULONGLONG kProgressStaleTimeoutMs = 3000;
@@ -298,6 +300,61 @@ COLORREF AdjustForDarkTone(COLORREF color, double baseFactor, bool darkMode) {
         factor = std::clamp(factor + (luminance - 0.3) * 1.1, factor, 0.8);
     }
     return BlendColors(color, RGB(0, 0, 0), factor);
+}
+
+bool IsHighContrastActive() {
+    HIGHCONTRASTW info{sizeof(info)};
+    if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(info), &info, FALSE)) {
+        return false;
+    }
+    return (info.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
+struct HostChromeSample {
+    COLORREF top = GetSysColor(COLOR_BTNFACE);
+    COLORREF bottom = GetSysColor(COLOR_BTNFACE);
+    bool valid = false;
+};
+
+HostChromeSample SampleHostChrome(HWND host, const RECT& windowRect) {
+    HostChromeSample sample;
+    if (!host) {
+        return sample;
+    }
+
+    RECT localRect = windowRect;
+    if (localRect.left >= localRect.right || localRect.top >= localRect.bottom) {
+        return sample;
+    }
+
+    MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&localRect), 2);
+
+    HDC dc = GetWindowDC(host);
+    if (!dc) {
+        return sample;
+    }
+
+    const LONG height = localRect.bottom - localRect.top;
+    const LONG width = localRect.right - localRect.left;
+    if (height <= 0 || width <= 0) {
+        ReleaseDC(host, dc);
+        return sample;
+    }
+
+    const LONG sampleHeight = std::max<LONG>(4, std::min<LONG>(height / 3, 24));
+
+    RECT topRect = localRect;
+    topRect.bottom = std::min<LONG>(topRect.top + sampleHeight, localRect.bottom);
+
+    RECT bottomRect = localRect;
+    bottomRect.top = std::max<LONG>(bottomRect.bottom - sampleHeight, localRect.top);
+
+    sample.top = SampleAverageColor(dc, topRect);
+    sample.bottom = SampleAverageColor(dc, bottomRect);
+    sample.valid = true;
+
+    ReleaseDC(host, dc);
+    return sample;
 }
 
 COLORREF ResolveIndicatorColor(const TabViewItem* header, const TabViewItem& tab) {
@@ -490,8 +547,15 @@ HWND TabBandWindow::Create(HWND parent) {
             }
         }
         RegisterShellNotifications();
-        TabManager::Get().RegisterProgressListener(m_hwnd);
+        if (auto* manager = ResolveManager()) {
+            manager->RegisterProgressListener(m_hwnd);
+        }
         UpdateProgressAnimationState();
+        m_themeNotifier.Initialize(m_hwnd, [hwnd = m_hwnd]() {
+            if (IsWindow(hwnd)) {
+                PostMessageW(hwnd, WM_SHELLTABS_THEME_CHANGED, 0, 0);
+            }
+        });
     }
 
     return m_hwnd;
@@ -505,7 +569,9 @@ void TabBandWindow::Destroy() {
     ClearDropHoverState();
     HidePreviewWindow(true);
     if (m_hwnd) {
-        TabManager::Get().UnregisterProgressListener(m_hwnd);
+        if (auto* manager = ResolveManager()) {
+            manager->UnregisterProgressListener(m_hwnd);
+        }
     }
     UnregisterShellNotifications();
     if (m_hwnd && m_progressTimerActive) {
@@ -516,6 +582,7 @@ void TabBandWindow::Destroy() {
         RevokeDragDrop(m_hwnd);
     }
     m_dropTarget.Reset();
+    m_themeNotifier.Shutdown();
     m_darkMode = false;
     m_refreshingTheme = false;
     m_windowDarkModeInitialized = false;
@@ -1000,13 +1067,29 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 	}
 
 	// Fallback fill (your code) now actually runs in dark mode:
-	if (!backgroundDrawn) {
-		const COLORREF fallback = m_themePalette.rebarBackground;
-		HBRUSH b = CreateSolidBrush(fallback);
-		if (b) { FillRect(dc, &bounds, b); DeleteObject(b); }
-		else { FillRect(dc, &bounds, GetSysColorBrush(COLOR_BTNFACE)); }
-		backgroundDrawn = true;
-	}
+        if (!backgroundDrawn && m_themePalette.rebarGradientValid) {
+                TRIVERTEX vertices[2] = {
+                        {bounds.left, bounds.top, static_cast<COLOR16>(GetRValue(m_themePalette.rebarGradientTop) << 8),
+                         static_cast<COLOR16>(GetGValue(m_themePalette.rebarGradientTop) << 8),
+                         static_cast<COLOR16>(GetBValue(m_themePalette.rebarGradientTop) << 8), 0},
+                        {bounds.right, bounds.bottom,
+                         static_cast<COLOR16>(GetRValue(m_themePalette.rebarGradientBottom) << 8),
+                         static_cast<COLOR16>(GetGValue(m_themePalette.rebarGradientBottom) << 8),
+                         static_cast<COLOR16>(GetBValue(m_themePalette.rebarGradientBottom) << 8), 0},
+                };
+                GRADIENT_RECT rect = {0, 1};
+                if (GradientFill(dc, vertices, 2, &rect, 1, GRADIENT_FILL_RECT_V)) {
+                        backgroundDrawn = true;
+                }
+        }
+
+        if (!backgroundDrawn) {
+                const COLORREF fallback = m_themePalette.rebarBackground;
+                HBRUSH b = CreateSolidBrush(fallback);
+                if (b) { FillRect(dc, &bounds, b); DeleteObject(b); }
+                else { FillRect(dc, &bounds, GetSysColorBrush(COLOR_BTNFACE)); }
+                backgroundDrawn = true;
+        }
 
 	const int bandWidth = static_cast<int>(bounds.right - bounds.left);
 	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
@@ -1183,6 +1266,9 @@ void TabBandWindow::PaintSurface(HDC dc, const RECT& windowRect) const {
 }
 
 COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
+    if (m_highContrast) {
+        return item.selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_WINDOW);
+    }
     COLORREF base = item.selected ? m_themePalette.tabSelectedBase : m_themePalette.tabBase;
     if (item.selected) {
         base = BlendColors(base, m_accentColor, m_darkMode ? 0.45 : 0.35);
@@ -1194,6 +1280,9 @@ COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
 }
 
 COLORREF TabBandWindow::ResolveGroupBackground(const TabViewItem& item) const {
+    if (m_highContrast) {
+        return item.selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE);
+    }
     COLORREF base = m_themePalette.groupBase;
     if (item.selected) {
         base = BlendColors(base, m_accentColor, m_darkMode ? 0.4 : 0.25);
@@ -1209,6 +1298,9 @@ COLORREF TabBandWindow::ResolveTextColor(COLORREF background) const {
 }
 
 COLORREF TabBandWindow::ResolveTabTextColor(bool selected, COLORREF background) const {
+    if (m_highContrast) {
+        return selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT);
+    }
     if (selected) {
         if (m_themePalette.tabSelectedTextValid) {
             return m_themePalette.tabSelectedText;
@@ -1222,6 +1314,9 @@ COLORREF TabBandWindow::ResolveTabTextColor(bool selected, COLORREF background) 
 }
 
 COLORREF TabBandWindow::ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const {
+    if (m_highContrast) {
+        return item.selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT);
+    }
     if (item.selected && m_themePalette.tabSelectedTextValid) {
         return m_themePalette.tabSelectedText;
     }
@@ -1486,8 +1581,8 @@ void TabBandWindow::InstallRebarDarkSubclass() {
 	if (!m_parentRebar || !IsWindow(m_parentRebar) || m_rebarSubclassed) return;
 
 	// Keep Explorer's theme resources; we only overpaint the bg.
-	SetWindowTheme(m_parentRebar, L"Explorer", nullptr);  // was nullptr, which destabilized the band site
-	ApplyImmersiveDarkMode(m_parentRebar, m_darkMode);
+        SetWindowTheme(m_parentRebar, L"Explorer", nullptr);  // was nullptr, which destabilized the band site
+        ApplyImmersiveDarkMode(m_parentRebar, m_darkMode && !m_highContrast);
 
 	if (SetWindowSubclass(m_parentRebar, RebarSubclassProc, 0,
 		reinterpret_cast<DWORD_PTR>(this))) {
@@ -1542,23 +1637,27 @@ void TabBandWindow::RefreshTheme() {
 	m_refreshingTheme = true;
 	struct Guard { TabBandWindow* w; ~Guard() { if (w) w->m_refreshingTheme = false; } } g{ this };
 
-	CloseThemeHandles();
-	m_toolbarGripWidth = kToolbarGripWidth;
-	if (!m_hwnd) { /* existing reset block unchanged */ return; }
+    CloseThemeHandles();
+    m_toolbarGripWidth = kToolbarGripWidth;
+    if (!m_hwnd) { /* existing reset block unchanged */ return; }
 
-	//SetWindowTheme(m_hwnd, L"Explorer", nullptr);
-	const bool darkMode = IsSystemDarkMode();
-	if (!m_windowDarkModeInitialized || darkMode != m_windowDarkModeValue) {
-		ApplyImmersiveDarkMode(m_hwnd, darkMode);
-		m_windowDarkModeInitialized = true;
-		m_windowDarkModeValue = darkMode;
-	}
-	m_darkMode = darkMode;
+    m_themeColors = m_themeNotifier.GetThemeColors();
+    m_highContrast = IsHighContrastActive();
 
-	// NEW: also flip the parent rebar immediately
-	EnsureRebarIntegration();
+    //SetWindowTheme(m_hwnd, L"Explorer", nullptr);
+    const bool darkMode = IsSystemDarkMode();
+    const bool immersiveDark = !m_highContrast && darkMode;
+    if (!m_windowDarkModeInitialized || immersiveDark != m_windowDarkModeValue) {
+        ApplyImmersiveDarkMode(m_hwnd, immersiveDark);
+        m_windowDarkModeInitialized = true;
+        m_windowDarkModeValue = immersiveDark;
+    }
+    m_darkMode = immersiveDark;
+
+    // NEW: also flip the parent rebar immediately
+    EnsureRebarIntegration();
     AdjustBandHeightToRow();
-	if (m_parentRebar) {
+        if (m_parentRebar) {
         InstallRebarDarkSubclass();   // NEW: we own the bar bg now
         UpdateRebarColors();  // NEW
 	}
@@ -1592,38 +1691,82 @@ void TabBandWindow::ResetThemePalette() {
     m_themePalette.tabTextValid = false;
     m_themePalette.tabSelectedTextValid = false;
     m_themePalette.groupTextValid = false;
+    m_themePalette.rebarGradientValid = false;
 
-    const COLORREF windowColor = GetSysColor(COLOR_WINDOW);
+    if (m_highContrast) {
+        const COLORREF windowColor = GetSysColor(COLOR_WINDOW);
+        const COLORREF buttonColor = GetSysColor(COLOR_BTNFACE);
+        const COLORREF highlight = GetSysColor(COLOR_HIGHLIGHT);
+        const COLORREF frame = GetSysColor(COLOR_WINDOWFRAME);
+
+        m_themePalette.rebarBackground = buttonColor;
+        m_themePalette.rebarGradientTop = buttonColor;
+        m_themePalette.rebarGradientBottom = buttonColor;
+        m_themePalette.borderTop = frame;
+        m_themePalette.borderBottom = frame;
+        m_themePalette.tabBase = windowColor;
+        m_themePalette.tabSelectedBase = highlight;
+        m_themePalette.tabText = GetSysColor(COLOR_WINDOWTEXT);
+        m_themePalette.tabSelectedText = GetSysColor(COLOR_HIGHLIGHTTEXT);
+        m_themePalette.groupBase = buttonColor;
+        m_themePalette.groupText = GetSysColor(COLOR_BTNTEXT);
+        m_themePalette.tabTextValid = true;
+        m_themePalette.tabSelectedTextValid = true;
+        m_themePalette.groupTextValid = true;
+        return;
+    }
+
+    const COLORREF windowColor = m_themeColors.valid ? m_themeColors.background : GetSysColor(COLOR_WINDOW);
     const COLORREF buttonColor = GetSysColor(COLOR_BTNFACE);
-    const COLORREF windowBase = AdjustForDarkTone(windowColor, 0.55, m_darkMode);
-    const COLORREF buttonBase = AdjustForDarkTone(buttonColor, 0.4, m_darkMode);
+    const COLORREF foregroundColor = m_themeColors.valid ? m_themeColors.foreground : GetSysColor(COLOR_WINDOWTEXT);
 
-    m_themePalette.rebarBackground = m_darkMode ? BlendColors(buttonBase, windowBase, 0.55) : windowBase;
+    RECT windowRect{};
+    if (m_hwnd) {
+        GetWindowRect(m_hwnd, &windowRect);
+    }
+    HWND host = m_parentRebar ? m_parentRebar : GetParent(m_hwnd);
+    HostChromeSample chrome = SampleHostChrome(host, windowRect);
 
-    m_themePalette.borderTop = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(0, 0, 0), 0.6)
-                                          : GetSysColor(COLOR_3DSHADOW);
-    m_themePalette.borderBottom = m_darkMode ? BlendColors(m_themePalette.rebarBackground, RGB(255, 255, 255), 0.2)
-                                             : GetSysColor(COLOR_3DLIGHT);
+    const COLORREF baseBackground = chrome.valid ? BlendColors(chrome.top, chrome.bottom, 0.5)
+                                                 : AdjustForDarkTone(windowColor, 0.55, m_darkMode);
+    m_themePalette.rebarBackground = baseBackground;
+    if (chrome.valid) {
+        m_themePalette.rebarGradientTop = chrome.top;
+        m_themePalette.rebarGradientBottom = chrome.bottom;
+        m_themePalette.rebarGradientValid = true;
+    } else {
+        m_themePalette.rebarGradientTop = baseBackground;
+        m_themePalette.rebarGradientBottom = baseBackground;
+    }
 
     if (m_darkMode) {
-        const double rebarLuminance = ComputeLuminance(m_themePalette.rebarBackground);
-        const bool shouldBrighten = rebarLuminance <= 0.35;
-        const double blend = shouldBrighten ? 0.28 : 0.22;
-        const COLORREF contrastTarget = shouldBrighten ? RGB(255, 255, 255) : RGB(0, 0, 0);
-        m_themePalette.tabBase = BlendColors(m_themePalette.rebarBackground, contrastTarget, blend);
+        m_themePalette.borderTop = BlendColors(baseBackground, RGB(0, 0, 0), 0.6);
+        m_themePalette.borderBottom = BlendColors(baseBackground, RGB(255, 255, 255), 0.18);
     } else {
-        m_themePalette.tabBase = windowBase;
+        m_themePalette.borderTop = BlendColors(baseBackground, RGB(255, 255, 255), 0.18);
+        m_themePalette.borderBottom = BlendColors(baseBackground, RGB(0, 0, 0), 0.22);
     }
-    m_themePalette.tabSelectedBase = BlendColors(m_themePalette.tabBase, m_accentColor, m_darkMode ? 0.5 : 0.4);
-    m_themePalette.tabText = GetSysColor(COLOR_WINDOWTEXT);
-    m_themePalette.tabSelectedText = GetSysColor(COLOR_HIGHLIGHTTEXT);
 
-    const double groupBlend = m_darkMode ? 0.6 : 0.25;
-    m_themePalette.groupBase = BlendColors(buttonBase, windowBase, groupBlend);
-    m_themePalette.groupText = GetSysColor(COLOR_WINDOWTEXT);
+    const COLORREF tabBase = chrome.valid ? BlendColors(baseBackground, windowColor, m_darkMode ? 0.25 : 0.12)
+                                          : AdjustForDarkTone(windowColor, 0.4, m_darkMode);
+    m_themePalette.tabBase = tabBase;
+    m_themePalette.tabSelectedBase = BlendColors(tabBase, m_accentColor, m_darkMode ? 0.5 : 0.35);
+    m_themePalette.tabText = foregroundColor;
+    m_themePalette.tabSelectedText = GetSysColor(COLOR_HIGHLIGHTTEXT);
+    m_themePalette.tabTextValid = true;
+    m_themePalette.tabSelectedTextValid = true;
+
+    const COLORREF groupBase = chrome.valid ? BlendColors(baseBackground, buttonColor, 0.5)
+                                            : BlendColors(buttonColor, windowColor, m_darkMode ? 0.55 : 0.25);
+    m_themePalette.groupBase = groupBase;
+    m_themePalette.groupText = foregroundColor;
+    m_themePalette.groupTextValid = true;
 }
 
 void TabBandWindow::UpdateThemePalette() {
+    if (m_highContrast) {
+        return;
+    }
     if (m_darkMode) {
         ApplyOptionColorOverrides();
         return;
@@ -1677,6 +1820,9 @@ void TabBandWindow::UpdateThemePalette() {
 }
 
 void TabBandWindow::ApplyOptionColorOverrides() {
+    if (m_highContrast) {
+        return;
+    }
     auto& store = OptionsStore::Instance();
     store.Load();
     const ShellTabsOptions options = store.Get();
@@ -1792,8 +1938,8 @@ void TabBandWindow::RefreshRebarMetrics() {
 	m_toolbarGripWidth = static_cast<int>(want);
 
 	// 3) Colors: set bar-wide bk color and per-band bk so NO bright area remains.
-	const COLORREF barBk = m_themePalette.rebarBackground; // explicit, even in light
-	SendMessageW(m_parentRebar, RB_SETBKCOLOR, 0, static_cast<LPARAM>(barBk));
+        const COLORREF barBk = m_themePalette.rebarBackground; // explicit, even in light
+        SendMessageW(m_parentRebar, RB_SETBKCOLOR, 0, static_cast<LPARAM>(barBk));
 
 	REBARBANDINFOW colorInfo{ sizeof(colorInfo) };
 	colorInfo.fMask = RBBIM_COLORS;
@@ -1805,8 +1951,8 @@ void TabBandWindow::RefreshRebarMetrics() {
 	// Tone down etched highlights so the bar doesn't glow in dark mode.
 	COLORSCHEME cs{};
 	cs.dwSize = sizeof(cs);
-	cs.clrBtnHighlight = m_darkMode ? barBk : CLR_DEFAULT;
-	cs.clrBtnShadow = m_darkMode ? barBk : CLR_DEFAULT;
+        cs.clrBtnHighlight = (m_darkMode && !m_highContrast) ? barBk : CLR_DEFAULT;
+        cs.clrBtnShadow = (m_darkMode && !m_highContrast) ? barBk : CLR_DEFAULT;
 	SendMessageW(m_parentRebar, RB_SETCOLORSCHEME, 0, reinterpret_cast<LPARAM>(&cs));
 
 	// Repaint without forcing an erase (prevents flicker).
@@ -1919,16 +2065,34 @@ void TabBandWindow::UpdateNewTabButtonTheme() {
         return;
     }
     //SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
-    if (!m_buttonDarkModeInitialized || m_buttonDarkModeValue != m_darkMode) {
-        ApplyImmersiveDarkMode(m_newTabButton, m_darkMode);
+    const bool applyDark = m_darkMode && !m_highContrast;
+    if (!m_buttonDarkModeInitialized || m_buttonDarkModeValue != applyDark) {
+        ApplyImmersiveDarkMode(m_newTabButton, applyDark);
         m_buttonDarkModeInitialized = true;
-        m_buttonDarkModeValue = m_darkMode;
+        m_buttonDarkModeValue = applyDark;
+    }
+
+    LONG_PTR style = GetWindowLongPtrW(m_newTabButton, GWL_STYLE);
+    if (style) {
+        if (m_highContrast) {
+            style &= ~BS_FLAT;
+        } else {
+            style |= BS_FLAT;
+        }
+        SetWindowLongPtrW(m_newTabButton, GWL_STYLE, style);
     }
     SendMessageW(m_newTabButton, WM_SETFONT, reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
     InvalidateRect(m_newTabButton, nullptr, FALSE);
 }
 
 bool TabBandWindow::IsSystemDarkMode() const {
+    if (m_highContrast) {
+        return ComputeLuminance(GetSysColor(COLOR_WINDOW)) < 0.4;
+    }
+    if (m_themeColors.valid) {
+        return ComputeLuminance(m_themeColors.background) < 0.5;
+    }
+
     DWORD value = 1;
     DWORD size = sizeof(value);
     const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, kThemePreferenceKey, kThemePreferenceValue, RRF_RT_DWORD,
@@ -1947,6 +2111,9 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     indicator.bottom = rect.bottom;
     if (indicator.right > indicator.left) {
         COLORREF indicatorColor = item.data.hasCustomOutline ? item.data.outlineColor : m_accentColor;
+        if (m_highContrast && !item.data.hasCustomOutline) {
+            indicatorColor = GetSysColor(COLOR_WINDOWTEXT);
+        }
         if (item.data.selected) {
             indicatorColor = BlendColors(indicatorColor, RGB(0, 0, 0), 0.2);
         }
@@ -2029,68 +2196,86 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-	if (!usedTheme) {
-		COLORREF backgroundColor = computedBackground;
-		textColor = ResolveTabTextColor(selected, backgroundColor);
-		COLORREF baseBorder = m_darkMode
-			? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
-			: BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
-		COLORREF borderColor = hasAccent
-			? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
-			: baseBorder;
+        if (!usedTheme) {
+                COLORREF backgroundColor = computedBackground;
+                textColor = ResolveTabTextColor(selected, backgroundColor);
+                if (m_highContrast) {
+                        RECT fillRect = tabRect;
+                        fillRect.bottom = std::min(fillRect.bottom, rect.bottom - 1);
+                        HBRUSH brush = CreateSolidBrush(backgroundColor);
+                        if (brush) {
+                                FillRect(dc, &fillRect, brush);
+                                DeleteObject(brush);
+                        }
+                        HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_WINDOWTEXT));
+                        if (pen) {
+                                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+                                MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
+                                LineTo(dc, fillRect.right, fillRect.top);
+                                LineTo(dc, fillRect.right, fillRect.bottom);
+                                LineTo(dc, fillRect.left, fillRect.bottom);
+                                LineTo(dc, fillRect.left, fillRect.top);
+                                SelectObject(dc, oldPen);
+                                DeleteObject(pen);
+                        }
+                } else {
+                        COLORREF baseBorder = m_darkMode
+                                ? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
+                                : BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
+                        COLORREF borderColor = hasAccent
+                                ? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
+                                : baseBorder;
 
-		RECT shapeRect = tabRect;
-		// Keep the fill inside the island outline for ALL states.
-		// The outline is drawn at rect.bottom - 1, so don’t paint the bottom row.
-		const LONG bottomLimit = rect.bottom - 1;
-		if (shapeRect.bottom > bottomLimit) {
-			shapeRect.bottom = bottomLimit;
-		}
+                        RECT shapeRect = tabRect;
+                        const LONG bottomLimit = rect.bottom - 1;
+                        if (shapeRect.bottom > bottomLimit) {
+                                shapeRect.bottom = bottomLimit;
+                        }
 
-		const int radius = kTabCornerRadius;
-		POINT points[] = {
-			{shapeRect.left,        shapeRect.bottom},
-			{shapeRect.left,        shapeRect.top + radius},
-			{shapeRect.left + radius, shapeRect.top},
-			{shapeRect.right - radius,shapeRect.top},
-			{shapeRect.right,       shapeRect.top + radius},
-			{shapeRect.right,       shapeRect.bottom}
-		};
+                        const int radius = kTabCornerRadius;
+                        POINT points[] = {
+                                {shapeRect.left,        shapeRect.bottom},
+                                {shapeRect.left,        shapeRect.top + radius},
+                                {shapeRect.left + radius, shapeRect.top},
+                                {shapeRect.right - radius,shapeRect.top},
+                                {shapeRect.right,       shapeRect.top + radius},
+                                {shapeRect.right,       shapeRect.bottom}
+                        };
 
-		HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
-		if (region) {
-			HBRUSH brush = CreateSolidBrush(backgroundColor);
-			if (brush) {
-				FillRgn(dc, region, brush);
-				DeleteObject(brush);
-			}
-			HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-			if (pen) {
-				HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-				HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-				Polygon(dc, points, ARRAYSIZE(points));
-				SelectObject(dc, oldBrush);
-				SelectObject(dc, oldPen);
-				DeleteObject(pen);
-			}
-			DeleteObject(region);
-		}
+                        HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
+                        if (region) {
+                                HBRUSH brush = CreateSolidBrush(backgroundColor);
+                                if (brush) {
+                                        FillRgn(dc, region, brush);
+                                        DeleteObject(brush);
+                                }
+                                HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
+                                if (pen) {
+                                        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+                                        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+                                        Polygon(dc, points, ARRAYSIZE(points));
+                                        SelectObject(dc, oldBrush);
+                                        SelectObject(dc, oldPen);
+                                        DeleteObject(pen);
+                                }
+                                DeleteObject(region);
+                        }
 
-		// Bottom separator stays at rect.bottom - 1, which now aligns perfectly.
-		COLORREF bottomLineColor = selected ? backgroundColor
-			: (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
-				: GetSysColor(COLOR_3DLIGHT));
-		HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
-		if (bottomPen) {
-			HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
-			MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
-			LineTo(dc, rect.right - 1, rect.bottom - 1);
-			SelectObject(dc, oldPen);
-			DeleteObject(bottomPen);
-		}
+                        COLORREF bottomLineColor = selected ? backgroundColor
+                                : (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
+                                        : GetSysColor(COLOR_3DLIGHT));
+                        HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
+                        if (bottomPen) {
+                                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
+                                MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
+                                LineTo(dc, rect.right - 1, rect.bottom - 1);
+                                SelectObject(dc, oldPen);
+                                DeleteObject(bottomPen);
+                        }
+                }
 
-		computedBackground = backgroundColor;
-	}
+                computedBackground = backgroundColor;
+        }
 
     if (item.indicatorHandle) {
         RECT indicatorRect = tabRect;
@@ -2100,6 +2285,9 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         indicatorRect.bottom = rect.bottom;
         COLORREF indicatorColor = hasAccent ? accentColor
                                             : (m_darkMode ? RGB(120, 120, 180) : GetSysColor(COLOR_HOTLIGHT));
+        if (m_highContrast) {
+            indicatorColor = hasAccent ? accentColor : GetSysColor(COLOR_WINDOWTEXT);
+        }
         if (selected) {
             indicatorColor = DarkenColor(indicatorColor, 0.2);
         }
@@ -2176,6 +2364,9 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             COLORREF closeBackground = closeHot ? RGB(232, 17, 35)
                                                 : (m_darkMode ? BlendColors(computedBackground, RGB(255, 255, 255), 0.15)
                                                               : BlendColors(computedBackground, RGB(0, 0, 0), 0.12));
+            if (m_highContrast) {
+                closeBackground = computedBackground;
+            }
             if (closePressed) {
                 closeBackground = BlendColors(closeBackground, RGB(0, 0, 0), 0.2);
             }
@@ -2188,6 +2379,9 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
             COLORREF borderColor = closeHot ? BlendColors(closeBackground, RGB(0, 0, 0), 0.2)
                                             : BlendColors(closeBackground, RGB(0, 0, 0), m_darkMode ? 0.6 : 0.4);
+            if (m_highContrast) {
+                borderColor = GetSysColor(COLOR_WINDOWTEXT);
+            }
             HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
             if (borderPen) {
                 HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
@@ -2202,6 +2396,12 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
             RECT glyphRect = closeRect;
             COLORREF glyphColor = closeHot ? RGB(255, 255, 255) : ResolveTextColor(closeBackground);
+            if (m_highContrast) {
+                glyphColor = GetSysColor(COLOR_WINDOWTEXT);
+                if (closeHot) {
+                    glyphColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                }
+            }
             COLORREF previousColor = SetTextColor(dc, glyphColor);
             DrawTextW(dc, L"x", 1, &glyphRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             if (previousColor != CLR_INVALID) {
@@ -2689,7 +2889,8 @@ void TabBandWindow::CancelPreviewRequest() {
 }
 
 void TabBandWindow::RefreshProgressState() {
-    auto snapshot = TabManager::Get().BuildView();
+    auto* manager = ResolveManager();
+    const auto snapshot = manager ? manager->BuildView() : std::vector<TabViewItem>{};
     bool layoutMismatch = snapshot.size() != m_tabData.size();
     if (!layoutMismatch) {
         for (size_t i = 0; i < snapshot.size(); ++i) {
@@ -2763,7 +2964,8 @@ void TabBandWindow::HandleProgressTimer() {
         return;
     }
     const ULONGLONG now = GetTickCount64();
-    if (TabManager::Get().ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
+    if (auto* manager = ResolveManager(); manager &&
+        manager->ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
         RefreshProgressState();
         return;
     }
@@ -2772,6 +2974,10 @@ void TabBandWindow::HandleProgressTimer() {
         return;
     }
     InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+TabManager* TabBandWindow::ResolveManager() const noexcept {
+    return m_owner ? &m_owner->GetTabManager() : nullptr;
 }
 
 void TabBandWindow::RegisterShellNotifications() {
@@ -2811,25 +3017,29 @@ void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
     if (!notification) {
         return;
     }
+    auto* manager = ResolveManager();
+    if (!manager) {
+        return;
+    }
     const LONG eventId = static_cast<LONG>(wParam) & 0xFFFF;
-    auto touch = [](PCIDLIST_ABSOLUTE pidl) {
+    auto touch = [manager](PCIDLIST_ABSOLUTE pidl) {
         if (!pidl) {
             return;
         }
         if (auto parent = CloneParent(pidl)) {
-            TabManager::Get().TouchFolderOperation(parent.get());
+            manager->TouchFolderOperation(parent.get());
         } else {
-            TabManager::Get().TouchFolderOperation(pidl);
+            manager->TouchFolderOperation(pidl);
         }
     };
-    auto clear = [](PCIDLIST_ABSOLUTE pidl) {
+    auto clear = [manager](PCIDLIST_ABSOLUTE pidl) {
         if (!pidl) {
             return;
         }
         if (auto parent = CloneParent(pidl)) {
-            TabManager::Get().ClearFolderOperation(parent.get());
+            manager->ClearFolderOperation(parent.get());
         } else {
-            TabManager::Get().ClearFolderOperation(pidl);
+            manager->ClearFolderOperation(pidl);
         }
     };
 
@@ -4377,8 +4587,21 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                     self->HandleProgressTimer();
                     return 0;
                 }
+                if (wParam == TabBandWindow::kSessionFlushTimerId) {
+                    if (self->m_owner) {
+                        self->m_owner->OnPeriodicSessionFlush();
+                    }
+                    return 0;
+                }
                 return fallback();
             }
+            case WM_WTSSESSION_CHANGE: {
+                if (self->m_themeNotifier.HandleSessionChange(wParam, lParam)) {
+                    return 0;
+                }
+                return fallback();
+            }
+            case WM_SHELLTABS_THEME_CHANGED:
             //case WM_THEMECHANGED:
             case WM_SETTINGCHANGE:
             case WM_SYSCOLORCHANGE: {
@@ -4469,13 +4692,16 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_DESTROY: {
                 DragAcceptFiles(hwnd, FALSE);
+                KillTimer(hwnd, TabBandWindow::kSessionFlushTimerId);
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();
                 self->ClearDropHoverState();
                 self->HidePreviewWindow(true);
                 self->UnregisterShellNotifications();
-                TabManager::Get().UnregisterProgressListener(hwnd);
+                if (auto* manager = self->ResolveManager()) {
+                    manager->UnregisterProgressListener(hwnd);
+                }
                 if (self->m_progressTimerActive) {
                     KillTimer(hwnd, TabBandWindow::kProgressTimerId);
                     self->m_progressTimerActive = false;

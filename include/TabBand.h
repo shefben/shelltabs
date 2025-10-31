@@ -109,6 +109,9 @@ public:
     void CloseFrameWindowAsync();
     void EnsureTabPreview(TabLocation location);
 
+    TabManager& GetTabManager() noexcept { return m_tabs; }
+    const TabManager& GetTabManager() const noexcept { return m_tabs; }
+
     bool CanCloseOtherTabs(TabLocation location) const;
     bool CanCloseTabsToRight(TabLocation location) const;
     bool CanCloseTabsToLeft(TabLocation location) const;
@@ -152,6 +155,8 @@ private:
     mutable bool m_optionsLoaded = false;
     bool m_sessionMarkerActive = false;
     bool m_lastSessionUnclean = false;
+    bool m_sessionFlushTimerActive = false;
+    bool m_sessionFlushTimerPending = false;
 
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
@@ -202,6 +207,9 @@ private:
     void EnsureSessionStore();
     bool RestoreSession();
     void SaveSession();
+    void StartSessionFlushTimer();
+    void StopSessionFlushTimer();
+    void OnPeriodicSessionFlush();
     void ApplyOptionsChanges(const ShellTabsOptions& previousOptions);
     UniquePidl QueryCurrentFolder() const;
     void NavigateToTab(TabLocation location);
@@ -216,6 +224,7 @@ private:
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
     HWND GetFrameWindow() const;
+    TabManager::ExplorerWindowId BuildWindowId() const;
     std::wstring ResolveWindowToken();
     void ReleaseWindowToken();
     void CaptureActiveTabPreview();

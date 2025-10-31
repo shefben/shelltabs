@@ -6,6 +6,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <functional>
+#include <mutex>
+#include <unordered_map>
 
 #include "Utilities.h"
 
@@ -95,10 +98,38 @@ struct TabViewItem {
 
 class TabManager {
 public:
+    struct ExplorerWindowId {
+        HWND hwnd = nullptr;
+        uintptr_t frameCookie = 0;
+
+        bool IsValid() const noexcept { return hwnd != nullptr && frameCookie != 0; }
+        bool operator==(const ExplorerWindowId& other) const noexcept {
+            return hwnd == other.hwnd && frameCookie == other.frameCookie;
+        }
+        bool operator!=(const ExplorerWindowId& other) const noexcept { return !(*this == other); }
+    };
+
+    struct ExplorerWindowIdHash {
+        size_t operator()(const ExplorerWindowId& value) const noexcept {
+            const uintptr_t hwndValue = reinterpret_cast<uintptr_t>(value.hwnd);
+            size_t result = std::hash<uintptr_t>{}(hwndValue);
+            const size_t cookieHash = std::hash<uintptr_t>{}(value.frameCookie);
+            // Mix using a variant of boost::hash_combine
+            result ^= cookieHash + 0x9e3779b97f4a7c15ULL + (result << 6) + (result >> 2);
+            return result;
+        }
+    };
+
     TabManager();
+    ~TabManager();
 
     int TotalTabCount() const noexcept;
     static TabManager& Get();
+
+    void SetWindowId(ExplorerWindowId id);
+    void ClearWindowId();
+    ExplorerWindowId GetWindowId() const noexcept { return m_windowId; }
+    static size_t ActiveWindowCount();
 
     TabLocation SelectedLocation() const noexcept { return {m_selectedGroup, m_selectedTab}; }
     void SetSelectedLocation(TabLocation location);
@@ -165,6 +196,10 @@ private:
     int m_groupSequence = 1;
     std::vector<HWND> m_progressListeners;
     uint64_t m_nextActivationOrdinal = 1;
+    ExplorerWindowId m_windowId{};
+
+    static std::mutex s_windowMutex;
+    static std::unordered_map<ExplorerWindowId, TabManager*, ExplorerWindowIdHash> s_windowMap;
 };
 
 }  // namespace shelltabs
