@@ -50,6 +50,11 @@ struct ShellTabsOptions {
     bool useCustomProgressBarGradientColors = false;
     COLORREF progressBarGradientStartColor = RGB(0, 120, 215);
     COLORREF progressBarGradientEndColor = RGB(0, 153, 255);
+    bool enableNeonGlow = false;
+    bool useNeonGlowGradient = false;
+    bool useCustomNeonGlowColors = false;
+    COLORREF neonGlowPrimaryColor = RGB(0, 120, 215);
+    COLORREF neonGlowSecondaryColor = RGB(0, 153, 255);
     bool useCustomTabSelectedColor = false;
     COLORREF customTabSelectedColor = RGB(0, 120, 215);
     bool useCustomTabUnselectedColor = false;

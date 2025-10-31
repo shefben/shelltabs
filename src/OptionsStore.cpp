@@ -35,6 +35,9 @@ constexpr wchar_t kBreadcrumbDropdownAlphaMultiplierToken[] =
 constexpr wchar_t kBreadcrumbGradientColorsToken[] = L"breadcrumb_gradient_colors";
 constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradient_colors";
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
+constexpr wchar_t kGlowEnabledToken[] = L"neon_glow_enabled";
+constexpr wchar_t kGlowGradientToken[] = L"neon_glow_gradient";
+constexpr wchar_t kGlowColorsToken[] = L"neon_glow_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
 constexpr wchar_t kExplorerAccentColorsToken[] = L"explorer_listview_accents";
@@ -323,6 +326,35 @@ bool OptionsStore::Load() {
             return true;
         }
 
+        if (header == kGlowEnabledToken) {
+            if (tokens.size() >= 2) {
+                m_options.enableNeonGlow = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
+        if (header == kGlowGradientToken) {
+            if (tokens.size() >= 2) {
+                m_options.useNeonGlowGradient = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
+        if (header == kGlowColorsToken) {
+            if (tokens.size() >= 2) {
+                m_options.useCustomNeonGlowColors = ParseBool(tokens[1]);
+            }
+            if (tokens.size() >= 3) {
+                m_options.neonGlowPrimaryColor =
+                    ParseColorValue(tokens[2], m_options.neonGlowPrimaryColor);
+            }
+            if (tokens.size() >= 4) {
+                m_options.neonGlowSecondaryColor =
+                    ParseColorValue(tokens[3], m_options.neonGlowSecondaryColor);
+            }
+            return true;
+        }
+
         if (header == kTabSelectedColorToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomTabSelectedColor = ParseBool(tokens[1]);
@@ -495,6 +527,22 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += ColorToHexString(m_options.progressBarGradientEndColor);
     content += L"\n";
+    content += kGlowEnabledToken;
+    content += L"|";
+    content += m_options.enableNeonGlow ? L"1" : L"0";
+    content += L"\n";
+    content += kGlowGradientToken;
+    content += L"|";
+    content += m_options.useNeonGlowGradient ? L"1" : L"0";
+    content += L"\n";
+    content += kGlowColorsToken;
+    content += L"|";
+    content += m_options.useCustomNeonGlowColors ? L"1" : L"0";
+    content += L"|";
+    content += ColorToHexString(m_options.neonGlowPrimaryColor);
+    content += L"|";
+    content += ColorToHexString(m_options.neonGlowSecondaryColor);
+    content += L"\n";
     content += kTabSelectedColorToken;
     content += L"|";
     content += m_options.useCustomTabSelectedColor ? L"1" : L"0";
@@ -592,6 +640,11 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useCustomProgressBarGradientColors == right.useCustomProgressBarGradientColors &&
            left.progressBarGradientStartColor == right.progressBarGradientStartColor &&
            left.progressBarGradientEndColor == right.progressBarGradientEndColor &&
+           left.enableNeonGlow == right.enableNeonGlow &&
+           left.useNeonGlowGradient == right.useNeonGlowGradient &&
+           left.useCustomNeonGlowColors == right.useCustomNeonGlowColors &&
+           left.neonGlowPrimaryColor == right.neonGlowPrimaryColor &&
+           left.neonGlowSecondaryColor == right.neonGlowSecondaryColor &&
            left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&

@@ -1252,7 +1252,7 @@ void TabBand::OnEditGroupProperties(int groupIndex) {
     }
 
     if (!group->savedGroupId.empty()) {
-        OnShowOptionsDialog(2, group->savedGroupId, true);
+        OnShowOptionsDialog(OptionsDialogPage::kGroups, group->savedGroupId, true);
         return;
     }
 
@@ -2759,7 +2759,8 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     }
 }
 
-void TabBand::OnShowOptionsDialog(int initialTab, const std::wstring& focusGroupId, bool editFocusedGroup) {
+void TabBand::OnShowOptionsDialog(OptionsDialogPage initialPage, const std::wstring& focusGroupId,
+                                  bool editFocusedGroup) {
     EnsureOptionsLoaded();
     ShellTabsOptions previousOptions = m_options;
 
@@ -2772,7 +2773,7 @@ void TabBand::OnShowOptionsDialog(int initialTab, const std::wstring& focusGroup
     }
 
     OptionsDialogResult dialog =
-        ShowOptionsDialog(owner, initialTab, focusGroupId.empty() ? nullptr : focusGroupId.c_str(),
+        ShowOptionsDialog(owner, initialPage, focusGroupId.empty() ? nullptr : focusGroupId.c_str(),
                           editFocusedGroup);
     if (!dialog.saved) {
         return;

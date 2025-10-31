@@ -50,6 +50,9 @@ constexpr int kGroupDialogWidth = 320;
 constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
 constexpr int kEditorHeight = 220;
+constexpr int kGlowDialogWidth = 260;
+constexpr int kGlowDialogHeight = 180;
+constexpr int kGlowCheckboxWidth = 210;
 constexpr SIZE kUniversalPreviewSize = {96, 72};
 constexpr SIZE kFolderPreviewSize = {64, 64};
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
@@ -127,6 +130,16 @@ enum ControlIds : int {
     IDC_CUSTOM_BACKGROUND_FOLDER_NAME = 5310,
     IDC_CUSTOM_BACKGROUND_CLEAN = 5311,
 
+    IDC_GLOW_ENABLE = 5401,
+    IDC_GLOW_CUSTOM_COLORS = 5402,
+    IDC_GLOW_USE_GRADIENT = 5403,
+    IDC_GLOW_PRIMARY_LABEL = 5404,
+    IDC_GLOW_PRIMARY_PREVIEW = 5405,
+    IDC_GLOW_PRIMARY_BUTTON = 5406,
+    IDC_GLOW_SECONDARY_LABEL = 5407,
+    IDC_GLOW_SECONDARY_PREVIEW = 5408,
+    IDC_GLOW_SECONDARY_BUTTON = 5409,
+
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
     IDC_GROUP_EDIT = 5103,
@@ -167,6 +180,8 @@ struct OptionsDialogData {
     HBRUSH progressEndBrush = nullptr;
     HBRUSH tabSelectedBrush = nullptr;
     HBRUSH tabUnselectedBrush = nullptr;
+    HBRUSH glowPrimaryBrush = nullptr;
+    HBRUSH glowSecondaryBrush = nullptr;
     HBITMAP universalBackgroundPreview = nullptr;
     HBITMAP folderBackgroundPreview = nullptr;
     UINT64 universalPreviewToken = 0;
@@ -912,6 +927,186 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addSizedButton(IDC_CUSTOM_BACKGROUND_CLEAN, 228, 764, 90, 16, L"Clean Up...");
 
     AlignDialogBuffer(data);
+    return data;
+}
+
+std::vector<BYTE> BuildGlowPageTemplate() {
+    std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
+    auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
+    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
+    dlg->cdit = 10;
+    dlg->x = 0;
+    dlg->y = 0;
+    dlg->cx = kGlowDialogWidth;
+    dlg->cy = kGlowDialogHeight;
+
+    AppendWord(data, 0);
+    AppendWord(data, 0);
+    AppendWord(data, 0);
+    AppendWord(data, 9);
+    AppendString(data, L"Segoe UI");
+
+    AlignDialogBuffer(data);
+    size_t offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* glowGroup = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    glowGroup->style = WS_CHILD | WS_VISIBLE | BS_GROUPBOX;
+    glowGroup->dwExtendedStyle = 0;
+    glowGroup->x = 6;
+    glowGroup->y = 6;
+    glowGroup->cx = kGlowDialogWidth - 12;
+    glowGroup->cy = kGlowDialogHeight - 12;
+    glowGroup->id = 0;
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Neon glow");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* enableGlow = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    enableGlow->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+    enableGlow->dwExtendedStyle = 0;
+    enableGlow->x = 16;
+    enableGlow->y = 24;
+    enableGlow->cx = kGlowCheckboxWidth;
+    enableGlow->cy = 12;
+    enableGlow->id = static_cast<WORD>(IDC_GLOW_ENABLE);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Enable neon glow effects");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* customColors = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    customColors->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+    customColors->dwExtendedStyle = 0;
+    customColors->x = 16;
+    customColors->y = 44;
+    customColors->cx = kGlowCheckboxWidth;
+    customColors->cy = 12;
+    customColors->id = static_cast<WORD>(IDC_GLOW_CUSTOM_COLORS);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Use custom glow colors");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* useGradient = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    useGradient->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+    useGradient->dwExtendedStyle = 0;
+    useGradient->x = 16;
+    useGradient->y = 64;
+    useGradient->cx = kGlowCheckboxWidth;
+    useGradient->cy = 12;
+    useGradient->id = static_cast<WORD>(IDC_GLOW_USE_GRADIENT);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Blend glow with gradient");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* primaryLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    primaryLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    primaryLabel->dwExtendedStyle = 0;
+    primaryLabel->x = 16;
+    primaryLabel->y = 90;
+    primaryLabel->cx = 68;
+    primaryLabel->cy = 12;
+    primaryLabel->id = static_cast<WORD>(IDC_GLOW_PRIMARY_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Primary color:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* primaryPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    primaryPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
+    primaryPreview->dwExtendedStyle = 0;
+    primaryPreview->x = 86;
+    primaryPreview->y = 88;
+    primaryPreview->cx = 40;
+    primaryPreview->cy = 16;
+    primaryPreview->id = static_cast<WORD>(IDC_GLOW_PRIMARY_PREVIEW);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* primaryButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    primaryButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+    primaryButton->dwExtendedStyle = 0;
+    primaryButton->x = 134;
+    primaryButton->y = 86;
+    primaryButton->cx = 72;
+    primaryButton->cy = 14;
+    primaryButton->id = static_cast<WORD>(IDC_GLOW_PRIMARY_BUTTON);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Choose...");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* secondaryLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    secondaryLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    secondaryLabel->dwExtendedStyle = 0;
+    secondaryLabel->x = 16;
+    secondaryLabel->y = 118;
+    secondaryLabel->cx = 68;
+    secondaryLabel->cy = 12;
+    secondaryLabel->id = static_cast<WORD>(IDC_GLOW_SECONDARY_LABEL);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"Secondary color:");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* secondaryPreview = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    secondaryPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
+    secondaryPreview->dwExtendedStyle = 0;
+    secondaryPreview->x = 86;
+    secondaryPreview->y = 116;
+    secondaryPreview->cx = 40;
+    secondaryPreview->cy = 16;
+    secondaryPreview->id = static_cast<WORD>(IDC_GLOW_SECONDARY_PREVIEW);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0082);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* secondaryButton = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    secondaryButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+    secondaryButton->dwExtendedStyle = 0;
+    secondaryButton->x = 134;
+    secondaryButton->y = 114;
+    secondaryButton->cx = 72;
+    secondaryButton->cy = 14;
+    secondaryButton->id = static_cast<WORD>(IDC_GLOW_SECONDARY_BUTTON);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Choose...");
+    AppendWord(data, 0);
+
     return data;
 }
 
@@ -2194,6 +2389,49 @@ void UpdateTabColorControlsEnabled(HWND hwnd, bool selectedEnabled, bool unselec
     EnableWindow(GetDlgItem(hwnd, IDC_MAIN_TAB_UNSELECTED_BUTTON), unselectedEnabled);
 }
 
+void UpdateGlowControlStates(HWND hwnd) {
+    const bool glowEnabled = IsDlgButtonChecked(hwnd, IDC_GLOW_ENABLE) == BST_CHECKED;
+    EnableWindow(GetDlgItem(hwnd, IDC_GLOW_CUSTOM_COLORS), glowEnabled);
+
+    const bool customColors = glowEnabled &&
+                              IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
+    EnableWindow(GetDlgItem(hwnd, IDC_GLOW_USE_GRADIENT), customColors);
+
+    const int primaryControls[] = {IDC_GLOW_PRIMARY_LABEL, IDC_GLOW_PRIMARY_PREVIEW,
+                                   IDC_GLOW_PRIMARY_BUTTON};
+    for (int id : primaryControls) {
+        EnableWindow(GetDlgItem(hwnd, id), customColors);
+    }
+
+    const bool gradientEnabled = customColors &&
+                                 IsDlgButtonChecked(hwnd, IDC_GLOW_USE_GRADIENT) == BST_CHECKED;
+    const int secondaryControls[] = {IDC_GLOW_SECONDARY_LABEL, IDC_GLOW_SECONDARY_PREVIEW,
+                                     IDC_GLOW_SECONDARY_BUTTON};
+    for (int id : secondaryControls) {
+        EnableWindow(GetDlgItem(hwnd, id), gradientEnabled);
+    }
+}
+
+void RefreshGlowControls(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+
+    CheckDlgButton(hwnd, IDC_GLOW_ENABLE,
+                   data->workingOptions.enableNeonGlow ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(hwnd, IDC_GLOW_CUSTOM_COLORS,
+                   data->workingOptions.useCustomNeonGlowColors ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(hwnd, IDC_GLOW_USE_GRADIENT,
+                   data->workingOptions.useNeonGlowGradient ? BST_CHECKED : BST_UNCHECKED);
+
+    SetPreviewColor(hwnd, IDC_GLOW_PRIMARY_PREVIEW, &data->glowPrimaryBrush,
+                    data->workingOptions.neonGlowPrimaryColor);
+    SetPreviewColor(hwnd, IDC_GLOW_SECONDARY_PREVIEW, &data->glowSecondaryBrush,
+                    data->workingOptions.neonGlowSecondaryColor);
+
+    UpdateGlowControlStates(hwnd);
+}
+
 void SetPreviewColor(HWND hwnd, int controlId, HBRUSH* brush, COLORREF color) {
     if (!brush) {
         return;
@@ -2266,6 +2504,18 @@ bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) 
             targetBrush = &data->tabUnselectedBrush;
             previewId = IDC_MAIN_TAB_UNSELECTED_PREVIEW;
             targetColor = &data->workingOptions.customTabUnselectedColor;
+            break;
+        case IDC_GLOW_PRIMARY_BUTTON:
+            initial = data->workingOptions.neonGlowPrimaryColor;
+            targetBrush = &data->glowPrimaryBrush;
+            previewId = IDC_GLOW_PRIMARY_PREVIEW;
+            targetColor = &data->workingOptions.neonGlowPrimaryColor;
+            break;
+        case IDC_GLOW_SECONDARY_BUTTON:
+            initial = data->workingOptions.neonGlowSecondaryColor;
+            targetBrush = &data->glowSecondaryBrush;
+            previewId = IDC_GLOW_SECONDARY_PREVIEW;
+            targetColor = &data->workingOptions.neonGlowSecondaryColor;
             break;
         default:
             return false;
@@ -3470,6 +3720,135 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
     return FALSE;
 }
 
+INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+        case WM_INITDIALOG: {
+            auto* page = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
+            auto* data = page ? reinterpret_cast<OptionsDialogData*>(page->lParam) : nullptr;
+            SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(data));
+            RefreshGlowControls(hwnd, data);
+            return TRUE;
+        }
+        case WM_CTLCOLORDLG: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (dc) {
+                SetBkColor(dc, GetSysColor(COLOR_3DFACE));
+            }
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
+        }
+        case WM_CTLCOLORSTATIC: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                break;
+            }
+            HWND target = reinterpret_cast<HWND>(lParam);
+            if (!target) {
+                break;
+            }
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            const int controlId = GetDlgCtrlID(target);
+            if (controlId == IDC_GLOW_PRIMARY_PREVIEW && data->glowPrimaryBrush) {
+                SetBkMode(dc, OPAQUE);
+                SetBkColor(dc, data->workingOptions.neonGlowPrimaryColor);
+                return reinterpret_cast<INT_PTR>(data->glowPrimaryBrush);
+            }
+            if (controlId == IDC_GLOW_SECONDARY_PREVIEW && data->glowSecondaryBrush) {
+                SetBkMode(dc, OPAQUE);
+                SetBkColor(dc, data->workingOptions.neonGlowSecondaryColor);
+                return reinterpret_cast<INT_PTR>(data->glowSecondaryBrush);
+            }
+            wchar_t className[32];
+            if (GetClassNameW(target, className, ARRAYSIZE(className))) {
+                if (_wcsicmp(className, L"Button") == 0) {
+                    const LONG style = GetWindowLongW(target, GWL_STYLE);
+                    if ((style & BS_GROUPBOX) == BS_GROUPBOX) {
+                        SetBkMode(dc, TRANSPARENT);
+                        SetBkColor(dc, GetSysColor(COLOR_3DFACE));
+                        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
+                    }
+                }
+            }
+            SetBkMode(dc, TRANSPARENT);
+            SetBkColor(dc, GetSysColor(COLOR_3DFACE));
+            return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_3DFACE));
+        }
+        case WM_COMMAND: {
+            if (HIWORD(wParam) != BN_CLICKED) {
+                break;
+            }
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            const WORD controlId = LOWORD(wParam);
+            switch (controlId) {
+                case IDC_GLOW_ENABLE:
+                    if (data) {
+                        data->workingOptions.enableNeonGlow =
+                            IsDlgButtonChecked(hwnd, IDC_GLOW_ENABLE) == BST_CHECKED;
+                        UpdateGlowControlStates(hwnd);
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        ApplyCustomizationPreview(hwnd, data);
+                    }
+                    return TRUE;
+                case IDC_GLOW_CUSTOM_COLORS:
+                    if (data) {
+                        data->workingOptions.useCustomNeonGlowColors =
+                            IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
+                        UpdateGlowControlStates(hwnd);
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        ApplyCustomizationPreview(hwnd, data);
+                    }
+                    return TRUE;
+                case IDC_GLOW_USE_GRADIENT:
+                    if (data) {
+                        data->workingOptions.useNeonGlowGradient =
+                            IsDlgButtonChecked(hwnd, IDC_GLOW_USE_GRADIENT) == BST_CHECKED;
+                        UpdateGlowControlStates(hwnd);
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        ApplyCustomizationPreview(hwnd, data);
+                    }
+                    return TRUE;
+                case IDC_GLOW_PRIMARY_BUTTON:
+                case IDC_GLOW_SECONDARY_BUTTON:
+                    if (data && HandleColorButtonClick(hwnd, data, controlId)) {
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
+                        ApplyCustomizationPreview(hwnd, data);
+                    }
+                    return TRUE;
+                default:
+                    break;
+            }
+            break;
+        }
+        case WM_NOTIFY: {
+            auto* header = reinterpret_cast<LPNMHDR>(lParam);
+            if (!header) {
+                break;
+            }
+            if (header->code == PSN_SETACTIVE) {
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                RefreshGlowControls(hwnd, data);
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, 0);
+                return TRUE;
+            }
+            if (header->code == PSN_APPLY) {
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                if (data) {
+                    data->workingOptions.enableNeonGlow =
+                        IsDlgButtonChecked(hwnd, IDC_GLOW_ENABLE) == BST_CHECKED;
+                    data->workingOptions.useCustomNeonGlowColors =
+                        IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
+                    data->workingOptions.useNeonGlowGradient =
+                        IsDlgButtonChecked(hwnd, IDC_GLOW_USE_GRADIENT) == BST_CHECKED;
+                    data->applyInvoked = true;
+                }
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+                return TRUE;
+            }
+            break;
+        }
+    }
+    return FALSE;
+}
+
 INT_PTR CALLBACK GroupManagementPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_INITDIALOG: {
@@ -3528,8 +3907,8 @@ int CALLBACK OptionsSheetCallback(HWND hwnd, UINT message, LPARAM) {
 
 }  // namespace
 
-OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t* focusSavedGroupId,
-                                     bool editFocusedGroup) {
+OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage,
+                                     const wchar_t* focusSavedGroupId, bool editFocusedGroup) {
     INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&icc);
 
@@ -3539,7 +3918,8 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
     store.Load();
     data.originalOptions = store.Get();
     data.workingOptions = data.originalOptions;
-    data.initialTab = initialTab;
+    const int initialTabIndex = static_cast<int>(initialPage);
+    data.initialTab = initialTabIndex;
     auto& groupStore = GroupStore::Instance();
     groupStore.Load();
     data.originalGroups = groupStore.Groups();
@@ -3562,19 +3942,21 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
 
     std::vector<BYTE> mainTemplate = BuildMainPageTemplate();
     std::vector<BYTE> customizationTemplate = BuildCustomizationPageTemplate();
+    std::vector<BYTE> glowTemplate = BuildGlowPageTemplate();
     std::vector<BYTE> groupTemplate = BuildGroupPageTemplate();
 
     auto mainTemplateMemory = AllocateAlignedTemplate(mainTemplate);
     auto customizationTemplateMemory = AllocateAlignedTemplate(customizationTemplate);
+    auto glowTemplateMemory = AllocateAlignedTemplate(glowTemplate);
     auto groupTemplateMemory = AllocateAlignedTemplate(groupTemplate);
-    if (!mainTemplateMemory || !customizationTemplateMemory || !groupTemplateMemory) {
+    if (!mainTemplateMemory || !customizationTemplateMemory || !glowTemplateMemory || !groupTemplateMemory) {
         result.saved = false;
         result.groupsChanged = false;
         result.optionsChanged = false;
         return result;
     }
 
-    PROPSHEETPAGEW pages[3] = {};
+    PROPSHEETPAGEW pages[4] = {};
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
     pages[0].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[0].hInstance = GetModuleHandleInstance();
@@ -3594,10 +3976,18 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
     pages[2].dwSize = sizeof(PROPSHEETPAGEW);
     pages[2].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[2].hInstance = GetModuleHandleInstance();
-    pages[2].pResource = groupTemplateMemory.get();
-    pages[2].pfnDlgProc = GroupManagementPageProc;
+    pages[2].pResource = glowTemplateMemory.get();
+    pages[2].pfnDlgProc = GlowPageProc;
     pages[2].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[2].pszTitle = L"Groups && Islands";
+    pages[2].pszTitle = L"Glow";
+
+    pages[3].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[3].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
+    pages[3].hInstance = GetModuleHandleInstance();
+    pages[3].pResource = groupTemplateMemory.get();
+    pages[3].pfnDlgProc = GroupManagementPageProc;
+    pages[3].lParam = reinterpret_cast<LPARAM>(&data);
+    pages[3].pszTitle = L"Groups && Islands";
 
     PROPSHEETHEADERW header{};
     header.dwSize = sizeof(PROPSHEETHEADERW);
@@ -3606,7 +3996,8 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
     header.hInstance = GetModuleHandleInstance();
     header.pszCaption = L"ShellTabs Options";
     header.nPages = ARRAYSIZE(pages);
-    header.nStartPage = (initialTab >= 0 && initialTab < static_cast<int>(header.nPages)) ? initialTab : 0;
+    header.nStartPage =
+        (initialTabIndex >= 0 && initialTabIndex < static_cast<int>(header.nPages)) ? initialTabIndex : 0;
     header.ppsp = pages;
     header.pfnCallback = OptionsSheetCallback;
 
@@ -3731,6 +4122,14 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
     if (data.tabUnselectedBrush) {
         DeleteObject(data.tabUnselectedBrush);
         data.tabUnselectedBrush = nullptr;
+    }
+    if (data.glowPrimaryBrush) {
+        DeleteObject(data.glowPrimaryBrush);
+        data.glowPrimaryBrush = nullptr;
+    }
+    if (data.glowSecondaryBrush) {
+        DeleteObject(data.glowSecondaryBrush);
+        data.glowSecondaryBrush = nullptr;
     }
     if (data.universalBackgroundPreview) {
         DeleteObject(data.universalBackgroundPreview);
