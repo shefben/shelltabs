@@ -100,6 +100,12 @@ struct ShellTabsOptions;
                         HPEN focusPen = nullptr;
                 };
 
+                struct ListViewBackgroundImage {
+                        HBITMAP bitmap = nullptr;
+                        SIZE size{0, 0};
+                        std::wstring cacheKey;
+                };
+
                 struct TreeItemPidlResolution {
                         UniquePidl owned;
                         PCIDLIST_ABSOLUTE raw = nullptr;
@@ -151,9 +157,13 @@ struct ShellTabsOptions;
                 void ClearFolderBackgrounds();
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
                 Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
-                bool DrawFolderBackground(HWND hwnd, HDC dc) const;
+                bool DrawFolderBackground(HWND hwnd, HDC dc);
                 void UpdateCurrentFolderBackground();
                 void InvalidateFolderBackgroundTargets() const;
+                bool EnsureListViewBackgroundImage(HWND listView);
+                void ClearListViewBackgroundImage();
+                std::wstring ResolveBackgroundCacheKey() const;
+                HBITMAP CreateListViewBackgroundBitmap(const SIZE& targetSize, Gdiplus::Bitmap* background) const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
@@ -290,6 +300,7 @@ struct ShellTabsOptions;
                 std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
                 std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 std::wstring m_currentFolderKey;
+                ListViewBackgroundImage m_listViewBackgroundImage;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;
