@@ -363,6 +363,9 @@ private:
                 int   groupIndex = -1;
                 RECT  rect{};   // click target for "+"
 	};
+        bool m_rebarIntegrationDirty = true;
+        HWND m_lastIntegratedRebar = nullptr;
+        HWND m_lastIntegratedFrame = nullptr;
 
 	// Render-time cache of empty-island "+" hit targets
 	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
@@ -440,6 +443,8 @@ private:
     void UpdateCloseButtonHover(const POINT& pt);
     void ClearCloseButtonHover();
 
+    void InvalidateRebarIntegration();
+    bool NeedsRebarIntegration() const;
     void EnsureRebarIntegration();
     void RefreshRebarMetrics();
     int FindRebarBandIndex() const;
