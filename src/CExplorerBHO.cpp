@@ -1145,11 +1145,11 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
-    LVITEMW item{};
-    item.mask = LVIF_PARAM;
-    item.iItem = itemIndex;
-    if (ListView_GetItemW(listView, &item)) {
-        return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), highlight);
+    LVITEMW listViewItem{};
+    listViewItem.mask = LVIF_PARAM;
+    listViewItem.iItem = itemIndex;
+    if (ListView_GetItemW(listView, &listViewItem)) {
+        return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(listViewItem.lParam), highlight);
     }
 
     if (!m_shellView) {
@@ -1162,14 +1162,14 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
-    Microsoft::WRL::ComPtr<IUnknown> item;
-    hr = folderView->GetItem(itemIndex, IID_PPV_ARGS(&item));
-    if (FAILED(hr) || !item) {
+    Microsoft::WRL::ComPtr<IUnknown> shellItem;
+    hr = folderView->GetItem(itemIndex, IID_PPV_ARGS(&shellItem));
+    if (FAILED(hr) || !shellItem) {
         return false;
     }
 
     PIDLIST_ABSOLUTE pidl = nullptr;
-    hr = SHGetIDListFromObject(item.Get(), &pidl);
+    hr = SHGetIDListFromObject(shellItem.Get(), &pidl);
     if (FAILED(hr) || !pidl) {
         return false;
     }
