@@ -642,6 +642,7 @@ void TabBandWindow::ClearVisualItems() {
     }
 
     m_items.clear();
+    m_progressRegions.clear();
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
@@ -903,9 +904,10 @@ void TabBandWindow::RebuildLayout() {
         }
         m_lastRowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
 
-	if (oldFont) SelectObject(dc, oldFont);
-	ReleaseDC(m_hwnd, dc);
-	InvalidateRect(m_hwnd, nullptr, FALSE);
+        if (oldFont) SelectObject(dc, oldFont);
+        ReleaseDC(m_hwnd, dc);
+        UpdateProgressRegions();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 
@@ -2001,6 +2003,59 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
     return rect;
 }
 
+bool TabBandWindow::ComputeProgressRect(const VisualItem& item, RECT* rect) const {
+    if (!rect) {
+        return false;
+    }
+    *rect = RECT{0, 0, 0, 0};
+    if (item.data.type != TabViewItemType::kTab) {
+        return false;
+    }
+    if (!item.data.progress.visible) {
+        return false;
+    }
+    RECT bounds = item.bounds;
+    if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+        return false;
+    }
+    const int islandIndicator = item.indicatorHandle ? kIslandIndicatorWidth : 0;
+    RECT tabRect = bounds;
+    tabRect.left += islandIndicator;
+
+    RECT closeRect = ComputeCloseButtonRect(item);
+    int trailingBoundary = bounds.right - kPaddingX;
+    if (closeRect.right > closeRect.left) {
+        trailingBoundary = std::min(trailingBoundary, closeRect.left - kCloseButtonSpacing);
+    }
+
+    int textLeft = bounds.left + islandIndicator + kPaddingX;
+    if (item.icon) {
+        textLeft += item.iconWidth + kIconGap;
+    }
+    int textRight = trailingBoundary;
+    if (textRight <= textLeft) {
+        return false;
+    }
+
+    RECT outer{textLeft, std::max(tabRect.top + 4, tabRect.bottom - 6), textRight, tabRect.bottom - 2};
+    if (outer.right <= outer.left || outer.bottom <= outer.top) {
+        return false;
+    }
+
+    *rect = outer;
+    return true;
+}
+
+void TabBandWindow::UpdateProgressRegions() {
+    m_progressRegions.clear();
+    for (size_t i = 0; i < m_items.size(); ++i) {
+        RECT rect{};
+        if (ComputeProgressRect(m_items[i], &rect)) {
+            m_progressRegions.push_back({i, rect});
+        }
+    }
+}
+
 void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
     const bool selected = item.data.selected;
@@ -2688,7 +2743,7 @@ void TabBandWindow::CancelPreviewRequest() {
     }
 }
 
-void TabBandWindow::RefreshProgressState() {
+void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>* changedTabs) {
     auto snapshot = TabManager::Get().BuildView();
     bool layoutMismatch = snapshot.size() != m_tabData.size();
     if (!layoutMismatch) {
@@ -2706,7 +2761,20 @@ void TabBandWindow::RefreshProgressState() {
         return;
     }
 
-    bool changed = false;
+    auto shouldProcess = [&](const TabLocation& location) -> bool {
+        if (!changedTabs || changedTabs->empty()) {
+            return true;
+        }
+        return std::any_of(changedTabs->begin(), changedTabs->end(), [&](const TabLocation& hint) {
+            return hint.groupIndex == location.groupIndex && hint.tabIndex == location.tabIndex;
+        });
+    };
+
+    bool progressChangedAny = false;
+    bool metadataChanged = false;
+    std::vector<RECT> tabInvalidations;
+    std::vector<size_t> progressRectIndices;
+
     for (size_t i = 0; i < snapshot.size(); ++i) {
         if (m_tabData[i].lastActivatedTick != snapshot[i].lastActivatedTick ||
             m_tabData[i].activationOrdinal != snapshot[i].activationOrdinal) {
@@ -2716,19 +2784,90 @@ void TabBandWindow::RefreshProgressState() {
                 m_items[i].data.lastActivatedTick = snapshot[i].lastActivatedTick;
                 m_items[i].data.activationOrdinal = snapshot[i].activationOrdinal;
             }
-            changed = true;
+            metadataChanged = true;
         }
-        if (m_tabData[i].progress != snapshot[i].progress) {
-            m_tabData[i].progress = snapshot[i].progress;
-            if (i < m_items.size()) {
-                m_items[i].data.progress = snapshot[i].progress;
+
+        const TabProgressView previousProgress = m_tabData[i].progress;
+        const bool progressChanged = previousProgress != snapshot[i].progress;
+        if (!progressChanged) {
+            continue;
+        }
+
+        progressChangedAny = true;
+
+        if (i < m_items.size()) {
+            VisualItem& visual = m_items[i];
+            const bool handleProgress = shouldProcess(snapshot[i].location);
+            const bool visibilityChanged = previousProgress.visible != snapshot[i].progress.visible;
+            const bool modeChanged = previousProgress.indeterminate != snapshot[i].progress.indeterminate;
+
+            bool invalidateTab = false;
+            bool invalidateProgressRect = false;
+
+            if (visibilityChanged || modeChanged || (!snapshot[i].progress.visible && previousProgress.visible)) {
+                invalidateTab = true;
+            } else if (handleProgress && snapshot[i].progress.visible) {
+                invalidateProgressRect = true;
+            } else if (!handleProgress && snapshot[i].progress.visible) {
+                invalidateTab = true;
             }
-            changed = true;
+
+            if (invalidateTab) {
+                tabInvalidations.push_back(visual.bounds);
+            } else if (invalidateProgressRect) {
+                progressRectIndices.push_back(i);
+            }
+        }
+
+        m_tabData[i].progress = snapshot[i].progress;
+        if (i < m_items.size()) {
+            m_items[i].data.progress = snapshot[i].progress;
         }
     }
+
     UpdateProgressAnimationState();
-    if (changed && m_hwnd) {
+
+    std::vector<RECT> progressInvalidations;
+    progressInvalidations.reserve(progressRectIndices.size());
+    for (size_t index : progressRectIndices) {
+        if (index >= m_items.size()) {
+            continue;
+        }
+        RECT rect{};
+        if (ComputeProgressRect(m_items[index], &rect)) {
+            progressInvalidations.push_back(rect);
+        } else {
+            tabInvalidations.push_back(m_items[index].bounds);
+        }
+    }
+
+    if (progressChangedAny) {
+        UpdateProgressRegions();
+    }
+
+    if (!m_hwnd) {
+        return;
+    }
+
+    if (metadataChanged) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    if (!progressChangedAny) {
+        return;
+    }
+
+    if (tabInvalidations.empty() && progressInvalidations.empty()) {
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    for (const auto& rect : tabInvalidations) {
+        InvalidateRect(m_hwnd, &rect, FALSE);
+    }
+    for (const auto& rect : progressInvalidations) {
+        InvalidateRect(m_hwnd, &rect, FALSE);
     }
 }
 
@@ -2763,15 +2902,30 @@ void TabBandWindow::HandleProgressTimer() {
         return;
     }
     const ULONGLONG now = GetTickCount64();
-    if (TabManager::Get().ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
-        RefreshProgressState();
+    auto expired = TabManager::Get().ExpireFolderOperations(now, kProgressStaleTimeoutMs);
+    if (!expired.empty()) {
+        RefreshProgressState(&expired);
         return;
     }
     if (!AnyProgressActive()) {
         UpdateProgressAnimationState();
         return;
     }
-    InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (m_progressRegions.empty()) {
+        UpdateProgressRegions();
+    }
+    bool invalidated = false;
+    for (const auto& region : m_progressRegions) {
+        RECT rect = region.rect;
+        if (rect.right <= rect.left || rect.bottom <= rect.top) {
+            continue;
+        }
+        InvalidateRect(m_hwnd, &rect, FALSE);
+        invalidated = true;
+    }
+    if (!invalidated) {
+        UpdateProgressAnimationState();
+    }
 }
 
 void TabBandWindow::RegisterShellNotifications() {

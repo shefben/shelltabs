@@ -129,7 +129,7 @@ public:
     void UnregisterProgressListener(HWND hwnd);
     void TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<double> fraction = std::nullopt);
     void ClearFolderOperation(PCIDLIST_ABSOLUTE folder);
-    bool ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
+    std::vector<TabLocation> ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
     bool HasActiveProgress() const;
 
     void ToggleGroupCollapsed(int groupIndex);

@@ -748,23 +748,25 @@ void TabManager::ClearFolderOperation(PCIDLIST_ABSOLUTE folder) {
     }
 }
 
-bool TabManager::ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs) {
-    bool changed = false;
-    for (auto& group : m_groups) {
-        for (auto& tab : group.tabs) {
+std::vector<TabLocation> TabManager::ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs) {
+    std::vector<TabLocation> expired;
+    for (size_t groupIndex = 0; groupIndex < m_groups.size(); ++groupIndex) {
+        auto& group = m_groups[groupIndex];
+        for (size_t tabIndex = 0; tabIndex < group.tabs.size(); ++tabIndex) {
+            auto& tab = group.tabs[tabIndex];
             if (!tab.progress.active) {
                 continue;
             }
             if (now >= tab.progress.lastUpdateTick && (now - tab.progress.lastUpdateTick) > timeoutMs) {
                 tab.progress = {};
-                changed = true;
+                expired.push_back({static_cast<int>(groupIndex), static_cast<int>(tabIndex)});
             }
         }
     }
-    if (changed) {
+    if (!expired.empty()) {
         NotifyProgressListeners();
     }
-    return changed;
+    return expired;
 }
 
 bool TabManager::HasActiveProgress() const {

@@ -159,6 +159,11 @@ private:
     RECT m_clientRect{};
     std::vector<TabViewItem> m_tabData;
     std::vector<VisualItem> m_items;
+    struct ProgressRegion {
+        size_t itemIndex = 0;
+        RECT rect{};
+    };
+    std::vector<ProgressRegion> m_progressRegions;
     DragState m_drag;
     HitInfo m_contextHit;
     std::vector<std::pair<UINT, TabLocation>> m_hiddenTabCommands;
@@ -247,7 +252,7 @@ private:
     void PositionPreviewWindow(const VisualItem& item, const POINT& screenPt);
     void HandlePreviewReady(uint64_t requestId);
     void CancelPreviewRequest();
-    void RefreshProgressState();
+    void RefreshProgressState(const std::vector<TabLocation>* changedTabs = nullptr);
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
@@ -301,6 +306,8 @@ private:
     COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
     std::vector<GroupOutline> BuildGroupOutlines() const;
     RECT ComputeCloseButtonRect(const VisualItem& item) const;
+    bool ComputeProgressRect(const VisualItem& item, RECT* rect) const;
+    void UpdateProgressRegions();
     HBITMAP CreateDragVisualBitmap(const VisualItem& item, SIZE* size) const;
     void UpdateDragOverlay(const POINT& clientPt, const POINT& screenPt);
     void HideDragOverlay(bool destroy);
