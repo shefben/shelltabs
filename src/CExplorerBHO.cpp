@@ -3066,18 +3066,39 @@ bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) co
 }
 
 bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) const {
-    if (!m_treeView || !IsWindow(m_treeView)) {
+    if (paths.size() >= kMaxTrackedSelection) {
         return false;
     }
 
-    if (paths.size() >= kMaxTrackedSelection) {
-        return false;
+    bool appended = false;
+
+    if (m_namespaceTreeControl) {
+        Microsoft::WRL::ComPtr<INameSpaceTreeControl> control(m_namespaceTreeControl);
+        Microsoft::WRL::ComPtr<IShellItemArray> items;
+        const HRESULT hr = control->GetSelectedItems(0, IID_PPV_ARGS(&items));
+        if (FAILED(hr) || !items) {
+            LogMessage(LogLevel::Info,
+                       L"CollectPathsFromTreeView skipped: namespace tree selection unavailable (hr=0x%08lX)", hr);
+        } else if (CollectPathsFromItemArray(items.Get(), paths)) {
+            appended = true;
+        } else {
+            LogMessage(LogLevel::Info,
+                       L"CollectPathsFromTreeView skipped: namespace tree selection lacks filesystem folders");
+        }
+    }
+
+    if (appended || paths.size() >= kMaxTrackedSelection) {
+        return appended;
+    }
+
+    if (!m_treeView || !IsWindow(m_treeView)) {
+        return appended;
     }
 
     HTREEITEM selection = TreeView_GetSelection(m_treeView);
     if (!selection) {
         LogMessage(LogLevel::Info, L"CollectPathsFromTreeView skipped: no selection");
-        return false;
+        return appended;
     }
 
     TVITEMEXW item{};
@@ -3085,12 +3106,12 @@ bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) co
     item.hItem = selection;
     if (!TreeView_GetItemW(m_treeView, &item)) {
         LogLastError(L"TreeView_GetItem(selection)", GetLastError());
-        return false;
+        return appended;
     }
 
     if (!AppendPathFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), paths)) {
         LogMessage(LogLevel::Info, L"CollectPathsFromTreeView skipped: selection not a filesystem folder");
-        return false;
+        return appended;
     }
 
     return !paths.empty();
