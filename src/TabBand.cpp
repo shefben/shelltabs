@@ -130,6 +130,32 @@ bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
     ComPtr<IShellFolder> folder;
     return SUCCEEDED(SHBindToObject(nullptr, pidl, nullptr, IID_PPV_ARGS(&folder)));
 }
+
+void LogLoadFailure(const wchar_t* context, const std::wstring& details) {
+    if (!details.empty()) {
+        LogMessage(LogLevel::Warning, L"%ls: %ls", context, details.c_str());
+    } else {
+        LogMessage(LogLevel::Warning, L"%ls", context);
+    }
+}
+
+bool LoadGroupStoreForContext(const wchar_t* context, GroupStore& store) {
+    std::wstring errorContext;
+    if (!store.Load(&errorContext)) {
+        LogLoadFailure(context, errorContext);
+        return false;
+    }
+    return true;
+}
+
+bool LoadOptionsStoreForContext(const wchar_t* context, OptionsStore& store) {
+    std::wstring errorContext;
+    if (!store.Load(&errorContext)) {
+        LogLoadFailure(context, errorContext);
+        return false;
+    }
+    return true;
+}
 }
 
 TabBand::TabBand() : m_refCount(1), m_processedGroupStoreGeneration(0) {
@@ -689,7 +715,9 @@ void TabBand::OnNewTabRequested(int targetGroup) {
                 return;
             }
             auto& store = GroupStore::Instance();
-            store.Load();
+            if (!LoadGroupStoreForContext(L"TabBand::OnNewTabRequested failed to load saved groups", store)) {
+                return;
+            }
             const SavedGroup* saved = store.Find(target);
             if (!saved) {
                 return;
@@ -1283,8 +1311,9 @@ void TabBand::OnEditGroupProperties(int groupIndex) {
 
     if (!group->savedGroupId.empty() && colorChanged) {
         auto& store = GroupStore::Instance();
-        store.Load();
-        store.UpdateColor(group->savedGroupId, color);
+        if (LoadGroupStoreForContext(L"TabBand::OnEditGroupProperties failed to load saved groups", store)) {
+            store.UpdateColor(group->savedGroupId, color);
+        }
     }
 }
 
@@ -1733,7 +1762,7 @@ void TabBand::EnsureOptionsLoaded() const {
         return;
     }
     auto& store = OptionsStore::Instance();
-    store.Load();
+    LoadOptionsStoreForContext(L"TabBand::EnsureOptionsLoaded failed to load options", store);
     m_options = store.Get();
     m_optionsLoaded = true;
 }
@@ -1795,7 +1824,8 @@ void TabBand::InitializeTabs() {
 
     std::shared_ptr<PendingWindowSeed> pendingSeed = DequeuePendingWindowSeed();
 
-    GroupStore::Instance().Load();
+    auto& groupStore = GroupStore::Instance();
+    LoadGroupStoreForContext(L"TabBand::InitializeTabs failed to load saved groups", groupStore);
     EnsureSessionStore();
     EnsureOptionsLoaded();
     if (m_requestedDockMode == TabBandDockMode::kAutomatic) {
@@ -2671,7 +2701,7 @@ void TabBand::PerformFileOperation(TabLocation location, const std::vector<std::
 
 std::vector<std::wstring> TabBand::GetSavedGroupNames() const {
     auto& store = GroupStore::Instance();
-    store.Load();
+    LoadGroupStoreForContext(L"TabBand::GetSavedGroupNames failed to load saved groups", store);
     return store.GroupNames();
 }
 
@@ -2695,7 +2725,9 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
     }
 
     auto& store = GroupStore::Instance();
-    store.Load();
+    if (!LoadGroupStoreForContext(L"TabBand::OnCreateSavedGroup failed to load saved groups", store)) {
+        return;
+    }
     if (store.Find(name)) {
         MessageBoxW(hwnd, L"A saved group with that name already exists.", L"ShellTabs", MB_OK | MB_ICONWARNING);
         return;
@@ -2722,7 +2754,9 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
 
 void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     auto& store = GroupStore::Instance();
-    store.Load();
+    if (!LoadGroupStoreForContext(L"TabBand::OnLoadSavedGroup failed to load saved groups", store)) {
+        return;
+    }
     const SavedGroup* saved = store.Find(name);
     if (!saved) {
         return;
@@ -2812,7 +2846,7 @@ void TabBand::OnShowOptionsDialog(OptionsDialogPage initialPage, const std::wstr
     }
     if (dialog.groupsChanged) {
         auto& store = GroupStore::Instance();
-        store.Load();
+        LoadGroupStoreForContext(L"TabBand::OnShowOptionsDialog failed to load saved groups", store);
         std::vector<SavedGroup> updatedGroups = dialog.savedGroups;
         if (updatedGroups.empty()) {
             updatedGroups = store.Groups();
@@ -2952,7 +2986,9 @@ bool TabBand::ApplySavedGroupMetadata(const std::vector<SavedGroup>& savedGroups
 
 void TabBand::OnSavedGroupsChanged() {
     auto& store = GroupStore::Instance();
-    store.Load();
+    if (!LoadGroupStoreForContext(L"TabBand::OnSavedGroupsChanged failed to load saved groups", store)) {
+        return;
+    }
 
     const uint64_t generation = store.ChangeGeneration();
     if (generation != 0 && generation == m_processedGroupStoreGeneration) {

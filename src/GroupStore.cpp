@@ -47,13 +47,33 @@ const SavedGroup* GroupStore::Find(const std::wstring& name) const {
     return nullptr;
 }
 
-bool GroupStore::Load() {
+namespace {
+
+std::wstring FormatLoadError(std::wstring message, DWORD error) {
+    if (error != ERROR_SUCCESS) {
+        message += L" (error=";
+        message += std::to_wstring(static_cast<unsigned long long>(error));
+        message += L")";
+    }
+    return message;
+}
+
+}  // namespace
+
+bool GroupStore::Load(std::wstring* errorContext) {
     if (m_loaded) {
+        if (errorContext) {
+            errorContext->clear();
+        }
         return true;
     }
 
     const std::wstring path = ResolveStoragePath();
     if (path.empty()) {
+        if (errorContext) {
+            *errorContext = L"Group store path unavailable";
+        }
+        m_loaded = false;
         return false;
     }
 
@@ -62,11 +82,21 @@ bool GroupStore::Load() {
 
     std::wstring content;
     if (!ReadUtf8File(path, &content)) {
+        const DWORD readError = GetLastError();
+        if (errorContext) {
+            std::wstring message = L"Failed to read ";
+            message += path;
+            *errorContext = FormatLoadError(std::move(message), readError);
+        }
+        m_loaded = false;
         return false;
     }
 
     if (content.empty()) {
         m_loaded = true;
+        if (errorContext) {
+            errorContext->clear();
+        }
         return true;
     }
 
@@ -116,6 +146,9 @@ bool GroupStore::Load() {
     });
 
     m_loaded = true;
+    if (errorContext) {
+        errorContext->clear();
+    }
     return true;
 }
 
@@ -238,9 +271,13 @@ std::wstring GroupStore::ResolveStoragePath() const {
     return base;
 }
 
-bool GroupStore::EnsureLoaded() const {
+bool GroupStore::EnsureLoaded(std::wstring* errorContext) const {
     if (!m_loaded) {
-        const_cast<GroupStore*>(this)->Load();
+        if (!const_cast<GroupStore*>(this)->Load(errorContext)) {
+            return false;
+        }
+    } else if (errorContext) {
+        errorContext->clear();
     }
     return m_loaded;
 }

@@ -3705,7 +3705,23 @@ void CExplorerBHO::RemoveBreadcrumbHook() {
 
 void CExplorerBHO::UpdateBreadcrumbSubclass() {
     auto& store = OptionsStore::Instance();
-    store.Load();
+    static bool loggedOptionsLoadFailure = false;
+    std::wstring errorContext;
+    if (!store.Load(&errorContext)) {
+        if (!loggedOptionsLoadFailure) {
+            if (!errorContext.empty()) {
+                LogMessage(LogLevel::Warning,
+                           L"CExplorerBHO::UpdateBreadcrumbSubclass failed to load options: %ls",
+                           errorContext.c_str());
+            } else {
+                LogMessage(LogLevel::Warning,
+                           L"CExplorerBHO::UpdateBreadcrumbSubclass failed to load options");
+            }
+            loggedOptionsLoadFailure = true;
+        }
+    } else if (loggedOptionsLoadFailure) {
+        loggedOptionsLoadFailure = false;
+    }
     const ShellTabsOptions options = store.Get();
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;

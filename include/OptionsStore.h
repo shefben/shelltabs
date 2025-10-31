@@ -98,7 +98,7 @@ class OptionsStore {
 public:
     static OptionsStore& Instance();
 
-    bool Load();
+    bool Load(std::wstring* errorContext = nullptr);
     bool Save() const;
 
     const ShellTabsOptions& Get() const noexcept { return m_options; }
@@ -107,7 +107,7 @@ public:
 private:
     OptionsStore() = default;
 
-    bool EnsureLoaded() const;
+    bool EnsureLoaded(std::wstring* errorContext = nullptr) const;
     std::wstring ResolveStoragePath() const;
 
     mutable bool m_loaded = false;
