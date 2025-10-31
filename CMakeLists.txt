@@ -40,6 +40,8 @@ add_library(ShellTabs SHARED
     src/StringUtils.cpp
     src/Utilities.cpp
     src/Logging.cpp
+    src/ThemeNotifier.cpp
+    src/ExplorerThemeUtils.cpp
     src/resource.rc
 )
 
@@ -57,6 +59,7 @@ target_compile_definitions(ShellTabs PRIVATE
     _UNICODE
     _WIN32_WINNT=0x0A00
     NOMINMAX
+    $<$<BOOL:${SHELLTABS_BUILD_TESTS}>:SHELLTABS_ENABLE_THEME_TEST_HOOKS>
 )
 
 target_compile_options(ShellTabs PRIVATE
@@ -86,6 +89,8 @@ target_link_libraries(ShellTabs PRIVATE
     Shlwapi
     gdiplus
     propsys
+    runtimeobject
+    wtsapi32
 )
 
 set_target_properties(ShellTabs PROPERTIES
@@ -143,6 +148,13 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         _WIN32_WINNT=0x0A00
     )
 
+    add_executable(ShellTabsThemeTransitionTests
+        tests/ThemeTransitionTests.cpp
+        tests/TestLoggingStubs.cpp
+        src/ThemeNotifier.cpp
+    )
+
+    target_include_directories(ShellTabsThemeTransitionTests PRIVATE
     add_executable(ShellTabsTabManagerTests
         tests/TabManagerWindowTests.cpp
         src/TabManager.cpp
@@ -157,13 +169,16 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
-    target_compile_definitions(ShellTabsTabManagerTests PRIVATE
+    target_compile_definitions(ShellTabsThemeTransitionTests PRIVATE
         UNICODE
         _UNICODE
         _WIN32_WINNT=0x0A00
+        SHELLTABS_ENABLE_THEME_TEST_HOOKS
     )
 
-    target_link_libraries(ShellTabsTabManagerTests PRIVATE
+    target_link_libraries(ShellTabsThemeTransitionTests PRIVATE
+        runtimeobject
+        wtsapi32
         shlwapi
         shell32
         ole32
