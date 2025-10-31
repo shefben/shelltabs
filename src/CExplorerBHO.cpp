@@ -1057,11 +1057,49 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
     LVITEMW item{};
     item.mask = LVIF_PARAM;
     item.iItem = itemIndex;
-    if (!ListView_GetItemW(listView, &item)) {
+    if (ListView_GetItemW(listView, &item)) {
+        return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), highlight);
+    }
+
+    if (!m_shellView) {
         return false;
     }
 
-    return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), highlight);
+    Microsoft::WRL::ComPtr<IFolderView2> folderView;
+    HRESULT hr = m_shellView.As(&folderView);
+    if (FAILED(hr) || !folderView) {
+        return false;
+    }
+
+    PIDLIST_RELATIVE child = nullptr;
+    hr = folderView->GetItem(itemIndex, &child);
+    if (FAILED(hr) || !child) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IPersistFolder2> persist;
+    hr = folderView->GetFolder(IID_PPV_ARGS(&persist));
+    if (FAILED(hr) || !persist) {
+        CoTaskMemFree(child);
+        return false;
+    }
+
+    PIDLIST_ABSOLUTE parent = nullptr;
+    hr = persist->GetCurFolder(&parent);
+    if (FAILED(hr) || !parent) {
+        CoTaskMemFree(child);
+        return false;
+    }
+
+    UniquePidl parentHolder(parent);
+    PIDLIST_ABSOLUTE combined = ILCombine(parentHolder.get(), child);
+    CoTaskMemFree(child);
+    if (!combined) {
+        return false;
+    }
+
+    UniquePidl absolute(combined);
+    return ResolveHighlightFromPidl(absolute.get(), highlight);
 }
 
 bool CExplorerBHO::TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) {
@@ -1628,6 +1666,71 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
     return root == frame;
 }
 
+void CExplorerBHO::DetachListView() {
+    if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
+        RemoveWindowSubclass(m_listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+    }
+    if (m_listView) {
+        ClearListViewAccentResources(m_listView);
+    }
+    m_listView = nullptr;
+    m_listViewSubclassInstalled = false;
+    m_paneHooks.SetListView(nullptr);
+}
+
+bool CExplorerBHO::AttachListView(HWND listView) {
+    if (!listView || !IsWindow(listView)) {
+        DetachListView();
+        return false;
+    }
+
+    if (m_listView == listView && m_listViewSubclassInstalled) {
+        return true;
+    }
+
+    DetachListView();
+
+    if (!SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        LogLastError(L"SetWindowSubclass(list view)", GetLastError());
+        return false;
+    }
+
+    m_listView = listView;
+    m_listViewSubclassInstalled = true;
+
+    ListView_SetBkColor(listView, CLR_NONE);
+    ListView_SetTextBkColor(listView, CLR_NONE);
+    DWORD exStyle = ListView_GetExtendedListViewStyle(listView);
+    exStyle |= LVS_EX_DOUBLEBUFFER;
+    exStyle |= LVS_EX_TRANSPARENTBKGND;
+    ListView_SetExtendedListViewStyle(listView, exStyle);
+
+    m_paneHooks.SetListView(m_listView);
+    LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
+    return true;
+}
+
+void CExplorerBHO::EnsureListViewSubclass() {
+    if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
+        return;
+    }
+
+    if (m_listView && !IsWindow(m_listView)) {
+        DetachListView();
+    }
+
+    const HWND candidates[] = {m_directUiView, m_shellViewWindow};
+    for (HWND candidate : candidates) {
+        if (!candidate || !IsWindow(candidate)) {
+            continue;
+        }
+        HWND listView = FindDescendantWindow(candidate, L"SysListView32");
+        if (listView && AttachListView(listView)) {
+            return;
+        }
+    }
+}
+
 void CExplorerBHO::UpdateExplorerViewSubclass() {
     RemoveExplorerViewSubclass();
 
@@ -1647,20 +1750,11 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
         return;
     }
 
-	HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
-	// Windows 10/11 may use different class names for the folder view; try them if SysListView32 is missing.
-	if (!listView) {
-		listView = FindDescendantWindow(viewWindow, L"UIItemsView");
-		if (!listView) {
-			listView = FindDescendantWindow(viewWindow, L"ItemsViewWnd");
-		}
-	}
-	if (!listView) {
-		LogMessage(LogLevel::Warning,
-		           L"Explorer view subclass setup aborted: list view not found for view window %p",
-                   viewWindow);
-		return;
-	}
+    HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
+    HWND directUiHost = FindDescendantWindow(viewWindow, L"UIItemsView");
+    if (!directUiHost) {
+        directUiHost = FindDescendantWindow(viewWindow, L"ItemsViewWnd");
+    }
 
     HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
     if (!treeView) {
@@ -1669,19 +1763,20 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
                    listView);
     }
 
-    if (!InstallExplorerViewSubclass(viewWindow, listView, treeView)) {
+    if (!InstallExplorerViewSubclass(viewWindow, listView, treeView, directUiHost)) {
         LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass installation failed (view=%p list=%p tree=%p)", viewWindow, listView,
-                   treeView);
+                   L"Explorer view subclass installation failed (view=%p list=%p tree=%p direct=%p)", viewWindow,
+                   listView, treeView, directUiHost);
         return;
     }
 
     m_shellView = shellView;
     m_shellViewWindow = viewWindow;
+    EnsureListViewSubclass();
     UpdateCurrentFolderBackground();
 }
 
-bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView) {
+bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView, HWND directUiHost) {
     bool installed = false;
 
     if (viewWindow && IsWindow(viewWindow)) {
@@ -1690,13 +1785,6 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
             m_shellViewWindowSubclassInstalled = true;
             installed = true;
             LogMessage(LogLevel::Info, L"Installed shell view window subclass (view=%p)", viewWindow);
-			// Make the list view background transparent so our background image can be drawn by the parent.
-			ListView_SetBkColor(listView, CLR_NONE);
-			ListView_SetTextBkColor(listView, CLR_NONE);
-			DWORD exStyle = ListView_GetExtendedListViewStyle(listView);
-			exStyle |= LVS_EX_DOUBLEBUFFER;
-			exStyle |= LVS_EX_TRANSPARENTBKGND;
-			ListView_SetExtendedListViewStyle(listView, exStyle);
         } else {
             LogLastError(L"SetWindowSubclass(shell view window)", GetLastError());
             m_shellViewWindowSubclassInstalled = false;
@@ -1724,15 +1812,25 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
         m_frameWindow = nullptr;
     }
 
-    if (listView && IsWindow(listView)) {
-        if (SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-            m_listView = listView;
-            m_listViewSubclassInstalled = true;
+    if (directUiHost && directUiHost != listView && directUiHost != viewWindow && IsWindow(directUiHost)) {
+        if (SetWindowSubclass(directUiHost, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
+                              0)) {
+            m_directUiView = directUiHost;
+            m_directUiSubclassInstalled = true;
             installed = true;
-            LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
+            LogMessage(LogLevel::Info, L"Installed explorer DirectUI host subclass (direct=%p)", directUiHost);
         } else {
-            LogLastError(L"SetWindowSubclass(list view)", GetLastError());
+            LogLastError(L"SetWindowSubclass(DirectUI host)", GetLastError());
+            m_directUiView = nullptr;
+            m_directUiSubclassInstalled = false;
         }
+    } else {
+        m_directUiView = nullptr;
+        m_directUiSubclassInstalled = false;
+    }
+
+    if (AttachListView(listView)) {
+        installed = true;
     }
 
     if (treeView && treeView != listView && IsWindow(treeView)) {
@@ -1745,17 +1843,16 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
         }
     }
 
-    m_paneHooks.SetListView(m_listViewSubclassInstalled ? m_listView : nullptr);
     m_paneHooks.SetTreeView(m_treeViewSubclassInstalled ? m_treeView : nullptr);
 
     if (installed) {
         ClearPendingOpenInNewTabState();
-        LogMessage(LogLevel::Info, L"Explorer view subclass ready (view=%p list=%p tree=%p)", viewWindow,
-                   listView, treeView);
+        LogMessage(LogLevel::Info, L"Explorer view subclass ready (view=%p list=%p tree=%p direct=%p)", viewWindow,
+                   m_listView, m_treeView, m_directUiView);
     } else {
         LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass installation skipped: no valid targets (view=%p list=%p tree=%p)",
-                   viewWindow, listView, treeView);
+                   L"Explorer view subclass installation skipped: no valid targets (view=%p list=%p tree=%p direct=%p)",
+                   viewWindow, listView, treeView, directUiHost);
     }
 
     return installed;
@@ -1770,23 +1867,21 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
         RemoveWindowSubclass(m_frameWindow, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
     }
-    if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
-        RemoveWindowSubclass(m_listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+    DetachListView();
+    if (m_directUiView && m_directUiSubclassInstalled && IsWindow(m_directUiView)) {
+        RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
+                             reinterpret_cast<UINT_PTR>(this));
     }
     if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
         RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
 
-    if (m_listView) {
-        ClearListViewAccentResources(m_listView);
-    }
-
     m_shellViewWindowSubclassInstalled = false;
     m_frameWindow = nullptr;
     m_frameSubclassInstalled = false;
-    m_listView = nullptr;
+    m_directUiView = nullptr;
+    m_directUiSubclassInstalled = false;
     m_treeView = nullptr;
-    m_listViewSubclassInstalled = false;
     m_treeViewSubclassInstalled = false;
     m_paneHooks.Reset();
     m_shellViewWindow = nullptr;
@@ -1948,6 +2043,9 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, TRUE);
+    }
+    if (m_directUiView && IsWindow(m_directUiView)) {
+        InvalidateRect(m_directUiView, nullptr, TRUE);
     }
     if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
         InvalidateRect(m_shellViewWindow, nullptr, TRUE);
@@ -2160,8 +2258,11 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     }
 
     const bool isListView = (hwnd == m_listView);
-    const bool isDirectUi = MatchesClass(hwnd, L"DirectUIHWND");
+    const bool isDirectUiHost = (hwnd == m_directUiView);
+    const bool isDirectUiClass = MatchesClass(hwnd, L"DirectUIHWND");
+    const bool isDirectUi = isDirectUiHost || isDirectUiClass;
     const bool handlesBackground = isListView || isDirectUi;
+    const bool isShellViewWindow = (hwnd == m_shellViewWindow);
 
     const UINT optionsChangedMessage = GetOptionsChangedMessage();
     if (optionsChangedMessage != 0 && msg == optionsChangedMessage) {
@@ -2174,6 +2275,11 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         RefreshListViewAccentState();
         *result = 0;
         return true;
+    }
+
+    if ((isShellViewWindow || isDirectUiHost) &&
+        (msg == WM_WINDOWPOSCHANGED || msg == WM_SHOWWINDOW || msg == WM_SIZE || msg == WM_PAINT)) {
+        EnsureListViewSubclass();
     }
 
     switch (msg) {
@@ -2216,6 +2322,12 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             if (isListView && ShouldUseListViewAccentColors()) {
                 EnsureListViewAccentResources(hwnd, nullptr);
+            }
+            break;
+        }
+        case WM_PARENTNOTIFY: {
+            if ((isShellViewWindow || isDirectUiHost) && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
+                EnsureListViewSubclass();
             }
             break;
         }
@@ -4360,6 +4472,9 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
             self->m_paneHooks.SetListView(nullptr);
+        } else if (hwnd == self->m_directUiView) {
+            self->m_directUiView = nullptr;
+            self->m_directUiSubclassInstalled = false;
         } else if (hwnd == self->m_treeView) {
             self->m_treeView = nullptr;
             self->m_treeViewSubclassInstalled = false;

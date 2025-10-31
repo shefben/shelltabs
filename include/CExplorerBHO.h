@@ -164,6 +164,9 @@ struct ShellTabsOptions;
                 void ClearListViewAccentResources();
                 bool HandleListViewAccentCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
                 void RefreshListViewAccentState();
+                void EnsureListViewSubclass();
+                bool AttachListView(HWND listView);
+                void DetachListView();
 		enum class BreadcrumbDiscoveryStage {
 			None,
 			ServiceUnavailable,
@@ -234,10 +237,12 @@ struct ShellTabsOptions;
 		ULONG_PTR m_gdiplusToken = 0;
 		mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
 		Microsoft::WRL::ComPtr<IShellView> m_shellView;
-		HWND m_shellViewWindow = nullptr;
-		bool m_shellViewWindowSubclassInstalled = false;
-		HWND m_frameWindow = nullptr;
-		bool m_frameSubclassInstalled = false;
+                HWND m_shellViewWindow = nullptr;
+                bool m_shellViewWindowSubclassInstalled = false;
+                HWND m_frameWindow = nullptr;
+                bool m_frameSubclassInstalled = false;
+                HWND m_directUiView = nullptr;
+                bool m_directUiSubclassInstalled = false;
                 HWND m_listView = nullptr;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
