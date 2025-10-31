@@ -393,6 +393,8 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
                 return E_FAIL;
             }
 
+            m_tabs.SetWindowId(BuildWindowId());
+
             LogMessage(LogLevel::Info, L"TabBand::SetSite EnsureSessionStore");
             EnsureSessionStore();
 
@@ -1494,6 +1496,15 @@ HWND TabBand::GetFrameWindow() const {
     return candidate;
 }
 
+TabManager::ExplorerWindowId TabBand::BuildWindowId() const {
+    TabManager::ExplorerWindowId id;
+    id.hwnd = GetFrameWindow();
+    if (m_webBrowser) {
+        id.frameCookie = reinterpret_cast<uintptr_t>(m_webBrowser.Get());
+    }
+    return id;
+}
+
 std::wstring TabBand::ResolveWindowToken() {
     if (!m_windowToken.empty()) {
         return m_windowToken;
@@ -1629,6 +1640,7 @@ void TabBand::DisconnectSite() {
         SessionStore::ClearSessionMarker();
         m_sessionMarkerActive = false;
     }
+    m_tabs.ClearWindowId();
     ReleaseWindowToken();
 
     if (m_browserEvents) {
