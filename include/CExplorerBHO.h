@@ -10,6 +10,7 @@
 #endif
 
 #include <windows.h>
+#include <CommCtrl.h>
 #include <unknwn.h>
 
 #include <atomic>
@@ -87,6 +88,13 @@ struct ShellTabsOptions;
                         }
                 };
 
+                struct ListViewAccentResources {
+                        COLORREF accentColor = 0;
+                        COLORREF textColor = RGB(255, 255, 255);
+                        HBRUSH backgroundBrush = nullptr;
+                        HPEN focusPen = nullptr;
+                };
+
                 void Disconnect();
                 HRESULT EnsureBandVisible();
                 HRESULT ConnectEvents();
@@ -130,25 +138,32 @@ struct ShellTabsOptions;
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
                 void HandleExplorerMenuDismiss(HMENU menu);
-		bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
-		bool CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const;
-		bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
-		bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
+                bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
+                bool CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const;
+                bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
+                bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
                 bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
                 bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
                 bool ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const;
                 bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
                 void DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const;
-		void ClearPendingOpenInNewTabState();
-		void EnsureBreadcrumbHook();
-		void RemoveBreadcrumbHook();
-		bool IsBreadcrumbToolbarCandidate(HWND hwnd) const;
-		bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
-		bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
-		bool HandleBreadcrumbPaint(HWND hwnd);
+                void ClearPendingOpenInNewTabState();
+                void EnsureBreadcrumbHook();
+                void RemoveBreadcrumbHook();
+                bool IsBreadcrumbToolbarCandidate(HWND hwnd) const;
+                bool IsBreadcrumbToolbarAncestor(HWND hwnd) const;
+                bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
+                bool HandleBreadcrumbPaint(HWND hwnd);
                 bool HandleProgressPaint(HWND hwnd);
                 bool HandleAddressEditPaint(HWND hwnd);
                 bool DrawAddressEditContent(HWND hwnd, HDC dc);
+                bool ShouldUseListViewAccentColors() const;
+                bool ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const;
+                bool EnsureListViewAccentResources(HWND listView, ListViewAccentResources** resources);
+                void ClearListViewAccentResources(HWND listView);
+                void ClearListViewAccentResources();
+                bool HandleListViewAccentCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
+                void RefreshListViewAccentState();
 		enum class BreadcrumbDiscoveryStage {
 			None,
 			ServiceUnavailable,
@@ -235,6 +250,8 @@ struct ShellTabsOptions;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::unordered_map<HWND, BandEnsureState, HandleHasher> m_bandEnsureStates;
+                std::unordered_map<HWND, ListViewAccentResources, HandleHasher> m_listViewAccentCache;
+                bool m_useExplorerAccentColors = true;
 
                 static std::mutex s_ensureTimerLock;
                 static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;

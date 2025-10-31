@@ -65,6 +65,18 @@ TabManager& TabManager::Get() {
     return instance;
 }
 
+TabManager* TabManager::Find(ExplorerWindowId id) {
+    if (!id.IsValid()) {
+        return nullptr;
+    }
+    std::scoped_lock lock(s_windowMutex);
+    auto it = s_windowMap.find(id);
+    if (it == s_windowMap.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
 void TabManager::SetWindowId(ExplorerWindowId id) {
     std::scoped_lock lock(s_windowMutex);
     if (m_windowId == id) {

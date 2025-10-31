@@ -127,6 +127,7 @@ public:
 
     int TotalTabCount() const noexcept;
     static TabManager& Get();
+    static TabManager* Find(ExplorerWindowId id);
 
     void SetWindowId(ExplorerWindowId id);
     void ClearWindowId();

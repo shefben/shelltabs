@@ -113,6 +113,7 @@ enum ControlIds : int {
     IDC_MAIN_NEW_TAB_GROUP_COMBO = 5051,
     IDC_MAIN_DOCK_LABEL = 5052,
     IDC_MAIN_DOCK_COMBO = 5053,
+    IDC_MAIN_LISTVIEW_ACCENT = 5054,
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
     IDC_CUSTOM_BACKGROUND_BROWSE = 5302,
@@ -418,7 +419,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 12;
+    dlg->cdit = 13;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -465,11 +466,27 @@ std::vector<BYTE> BuildMainPageTemplate() {
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* explorerAccentCheck = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    explorerAccentCheck->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+    explorerAccentCheck->dwExtendedStyle = 0;
+    explorerAccentCheck->x = 10;
+    explorerAccentCheck->y = 52;
+    explorerAccentCheck->cx = kMainCheckboxWidth;
+    explorerAccentCheck->cy = 12;
+    explorerAccentCheck->id = static_cast<WORD>(IDC_MAIN_LISTVIEW_ACCENT);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Apply tab group accents to Explorer list view");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
     auto* exampleStatic = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
     exampleStatic->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     exampleStatic->dwExtendedStyle = 0;
     exampleStatic->x = 10;
-    exampleStatic->y = 56;
+    exampleStatic->y = 76;
     exampleStatic->cx = kMainDialogWidth - 20;
     exampleStatic->cy = 60;
     exampleStatic->id = static_cast<WORD>(IDC_MAIN_EXAMPLE);
@@ -485,7 +502,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     newTabLabel->dwExtendedStyle = 0;
     newTabLabel->x = 10;
-    newTabLabel->y = 122;
+    newTabLabel->y = 142;
     newTabLabel->cx = kMainDialogWidth - 20;
     newTabLabel->cy = 12;
     newTabLabel->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_LABEL);
@@ -501,7 +518,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
     newTabCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
     newTabCombo->x = 10;
-    newTabCombo->y = 136;
+    newTabCombo->y = 156;
     newTabCombo->cx = kMainDialogWidth - 20;
     newTabCombo->cy = 70;
     newTabCombo->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_COMBO);
@@ -517,7 +534,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabPathLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     newTabPathLabel->dwExtendedStyle = 0;
     newTabPathLabel->x = 10;
-    newTabPathLabel->y = 158;
+    newTabPathLabel->y = 178;
     newTabPathLabel->cx = kMainDialogWidth - 80;
     newTabPathLabel->cy = 12;
     newTabPathLabel->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_PATH_LABEL);
@@ -533,7 +550,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabPathEdit->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL;
     newTabPathEdit->dwExtendedStyle = WS_EX_CLIENTEDGE;
     newTabPathEdit->x = 10;
-    newTabPathEdit->y = 172;
+    newTabPathEdit->y = 192;
     newTabPathEdit->cx = kMainDialogWidth - 100;
     newTabPathEdit->cy = 14;
     newTabPathEdit->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_PATH_EDIT);
@@ -549,7 +566,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabBrowse->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     newTabBrowse->dwExtendedStyle = 0;
     newTabBrowse->x = static_cast<short>(kMainDialogWidth - 84);
-    newTabBrowse->y = 171;
+    newTabBrowse->y = 191;
     newTabBrowse->cx = 74;
     newTabBrowse->cy = 16;
     newTabBrowse->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_BROWSE);
@@ -565,7 +582,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabGroupLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     newTabGroupLabel->dwExtendedStyle = 0;
     newTabGroupLabel->x = 10;
-    newTabGroupLabel->y = 198;
+    newTabGroupLabel->y = 218;
     newTabGroupLabel->cx = kMainDialogWidth - 20;
     newTabGroupLabel->cy = 12;
     newTabGroupLabel->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_GROUP_LABEL);
@@ -581,7 +598,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabGroupCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
     newTabGroupCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
     newTabGroupCombo->x = 10;
-    newTabGroupCombo->y = 212;
+    newTabGroupCombo->y = 232;
     newTabGroupCombo->cx = kMainDialogWidth - 20;
     newTabGroupCombo->cy = 70;
     newTabGroupCombo->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_GROUP_COMBO);
@@ -597,7 +614,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     dockLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     dockLabel->dwExtendedStyle = 0;
     dockLabel->x = 10;
-    dockLabel->y = 238;
+    dockLabel->y = 258;
     dockLabel->cx = kMainDialogWidth - 20;
     dockLabel->cy = 12;
     dockLabel->id = static_cast<WORD>(IDC_MAIN_DOCK_LABEL);
@@ -613,7 +630,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     dockCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
     dockCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
     dockCombo->x = 10;
-    dockCombo->y = 252;
+    dockCombo->y = 272;
     dockCombo->cx = kMainDialogWidth - 20;
     dockCombo->cy = 70;
     dockCombo->id = static_cast<WORD>(IDC_MAIN_DOCK_COMBO);
@@ -2693,6 +2710,8 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 CheckDlgButton(hwnd, IDC_MAIN_REOPEN, data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwnd, IDC_MAIN_PERSIST,
                                data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwnd, IDC_MAIN_LISTVIEW_ACCENT,
+                               data->workingOptions.useExplorerAccentColors ? BST_CHECKED : BST_UNCHECKED);
                 const wchar_t example[] =
                     L"Example: if a group opens to C:\\test and you browse to C\\test\\child, "
                     L"enabling this option reopens the child folder next time.";
@@ -2756,6 +2775,7 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             switch (LOWORD(wParam)) {
                 case IDC_MAIN_REOPEN:
                 case IDC_MAIN_PERSIST:
+                case IDC_MAIN_LISTVIEW_ACCENT:
                     if (HIWORD(wParam) == BN_CLICKED) {
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
@@ -2844,6 +2864,8 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_REOPEN) == BST_CHECKED;
                     data->workingOptions.persistGroupPaths =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
+                    data->workingOptions.useExplorerAccentColors =
+                        IsDlgButtonChecked(hwnd, IDC_MAIN_LISTVIEW_ACCENT) == BST_CHECKED;
 
                     if (HWND templateCombo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_COMBO)) {
                         const LRESULT selection = SendMessageW(templateCombo, CB_GETCURSEL, 0, 0);
