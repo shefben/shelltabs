@@ -8,6 +8,7 @@
 #include <wrl/client.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <roapi.h>
+#include <roerrorapi.h>
 #include <shobjidl_core.h>
 
 #include <atomic>
@@ -33,7 +34,7 @@ HRESULT CreateToastDocument(const std::wstring& body,
     *document = nullptr;
 
     RoInitializeWrapper initializer(RO_INIT_MULTITHREADED);
-    const HRESULT initHr = initializer.HResult();
+    const HRESULT initHr = initializer;
     if (FAILED(initHr) && initHr != RO_E_INITIALIZED) {
         return initHr;
     }
@@ -108,7 +109,7 @@ bool NotifyAutomationDisabledByPolicy(HRESULT hr) noexcept {
         }
 
         RoInitializeWrapper initializer(RO_INIT_MULTITHREADED);
-        HRESULT initHr = initializer.HResult();
+        const HRESULT initHr = initializer;
         if (FAILED(initHr) && initHr != RO_E_INITIALIZED) {
             LogMessage(LogLevel::Warning,
                        L"NotifyAutomationDisabledByPolicy: RoInitialize failed (hr=0x%08X)", initHr);
