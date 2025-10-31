@@ -2055,6 +2055,7 @@ void TabBandWindow::RefreshTheme() {
     m_toolbarGripWidth = kToolbarGripWidth;
     if (!m_hwnd) { /* existing reset block unchanged */ return; }
 
+    m_themeNotifier.RefreshColorsFromSystem();
     m_themeColors = m_themeNotifier.GetThemeColors();
     m_highContrast = IsHighContrastActive();
 
@@ -5578,7 +5579,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 return fallback();
             }
             case WM_SHELLTABS_THEME_CHANGED:
-            //case WM_THEMECHANGED:
+            case WM_THEMECHANGED:
             case WM_SETTINGCHANGE:
             case WM_SYSCOLORCHANGE: {
                 self->RefreshTheme();

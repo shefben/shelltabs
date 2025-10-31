@@ -186,6 +186,10 @@ ThemeNotifier::ThemeColors ThemeNotifier::GetThemeColors() const {
     return m_cachedColors;
 }
 
+void ThemeNotifier::RefreshColorsFromSystem() {
+    UpdateColorSnapshot();
+}
+
 bool ThemeNotifier::HandleSessionChange(WPARAM sessionEvent, LPARAM) {
     if (!ShouldHandleSessionEvent(static_cast<DWORD>(sessionEvent))) {
         return false;

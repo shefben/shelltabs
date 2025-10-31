@@ -27,6 +27,11 @@ public:
 
     ThemeColors GetThemeColors() const;
 
+    // Forces a synchronous refresh of the cached system colors. This is used when
+    // Explorer broadcasts legacy theme messages (WM_THEMECHANGED/WM_SYSCOLORCHANGE)
+    // so the band can update even if WinRT notifications are unavailable.
+    void RefreshColorsFromSystem();
+
     bool HandleSessionChange(WPARAM sessionEvent, LPARAM lParam);
 
 #if defined(SHELLTABS_ENABLE_THEME_TEST_HOOKS)
