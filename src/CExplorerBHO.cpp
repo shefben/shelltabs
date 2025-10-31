@@ -1162,34 +1162,19 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
-    PITEMID_CHILD child = nullptr;
-    hr = folderView->GetItem(itemIndex, &child);
-    if (FAILED(hr) || !child) {
+    Microsoft::WRL::ComPtr<IUnknown> item;
+    hr = folderView->GetItem(itemIndex, IID_PPV_ARGS(&item));
+    if (FAILED(hr) || !item) {
         return false;
     }
 
-    Microsoft::WRL::ComPtr<IPersistFolder2> persist;
-    hr = folderView->GetFolder(IID_PPV_ARGS(&persist));
-    if (FAILED(hr) || !persist) {
-        CoTaskMemFree(child);
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    hr = SHGetIDListFromObject(item.Get(), &pidl);
+    if (FAILED(hr) || !pidl) {
         return false;
     }
 
-    PIDLIST_ABSOLUTE parent = nullptr;
-    hr = persist->GetCurFolder(&parent);
-    if (FAILED(hr) || !parent) {
-        CoTaskMemFree(child);
-        return false;
-    }
-
-    UniquePidl parentHolder(parent);
-    PIDLIST_ABSOLUTE combined = ILCombine(parentHolder.get(), child);
-    CoTaskMemFree(child);
-    if (!combined) {
-        return false;
-    }
-
-    UniquePidl absolute(combined);
+    UniquePidl absolute(pidl);
     return ResolveHighlightFromPidl(absolute.get(), highlight);
 }
 
