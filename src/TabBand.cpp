@@ -741,6 +741,7 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
     if (!removed) {
         return;
     }
+    CancelPendingPreviewForTab(*removed);
     EnsureTabPath(*removed);
     closedSet.entries.push_back({location.tabIndex, std::move(*removed)});
     PushClosedSet(std::move(closedSet));
@@ -797,6 +798,7 @@ void TabBand::OnCloseOtherTabsRequested(TabLocation location) {
         if (!removed) {
             continue;
         }
+        CancelPendingPreviewForTab(*removed);
         EnsureTabPath(*removed);
         closedSet.entries.push_back({index, std::move(*removed)});
     }
@@ -853,6 +855,7 @@ void TabBand::OnCloseTabsToRightRequested(TabLocation location) {
         if (!removed) {
             continue;
         }
+        CancelPendingPreviewForTab(*removed);
         EnsureTabPath(*removed);
         closedSet.entries.push_back({index, std::move(*removed)});
     }
@@ -909,6 +912,7 @@ void TabBand::OnCloseTabsToLeftRequested(TabLocation location) {
         if (!removed) {
             continue;
         }
+        CancelPendingPreviewForTab(*removed);
         EnsureTabPath(*removed);
         closedSet.entries.push_back({index, std::move(*removed)});
     }
@@ -1107,6 +1111,7 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
     seed->type = WindowSeedType::StandaloneTab;
     EnqueuePendingWindowSeed(seed);
     OpenTabInNewWindow(*tab);
+    CancelPendingPreviewForTab(*tab);
     m_tabs.Remove(location);
     if (m_tabs.TotalTabCount() == 0) {
         EnsureTabForCurrentFolder();
@@ -1193,6 +1198,7 @@ void TabBand::OnCloseIslandRequested(int groupIndex) {
     if (!removed) {
         return;
     }
+    CancelPendingPreviewForGroup(*removed);
 
     ClosedTabSet closedSet;
     closedSet.groupIndex = groupIndex;
@@ -1273,6 +1279,7 @@ void TabBand::OnDetachGroupRequested(int groupIndex) {
     if (!removedGroup) {
         return;
     }
+    CancelPendingPreviewForGroup(*removedGroup);
 
     std::shared_ptr<PendingWindowSeed> seed;
     if (!removedGroup->tabs.empty()) {
@@ -1326,6 +1333,8 @@ std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool*
         }
         return std::nullopt;
     }
+
+    CancelPendingPreviewForTab(*removed);
 
     if (removedLastTab) {
         *removedLastTab = wasLastTab;
@@ -1393,6 +1402,8 @@ std::optional<TabGroup> TabBand::DetachGroupForTransfer(int groupIndex, bool* wa
         }
         return std::nullopt;
     }
+
+    CancelPendingPreviewForGroup(*removed);
 
     if (m_tabs.TotalTabCount() == 0) {
         EnsureTabForCurrentFolder();
@@ -1658,7 +1669,8 @@ void TabBand::CaptureActiveTabPreview() {
         return;
     }
 
-    PreviewCache::Instance().StorePreviewFromWindow(tab->pidl.get(), viewWindow, kPreviewImageSize);
+    PreviewCache::Instance().StorePreviewFromWindow(tab->pidl.get(), viewWindow, kPreviewImageSize,
+                                                    ResolveWindowToken());
 }
 
 void TabBand::EnsureWindow() {
@@ -1721,6 +1733,14 @@ void TabBand::DisconnectSite() {
     }
     m_sessionMarkerActive = false;
     m_tabs.ClearWindowId();
+    for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
+        if (const TabGroup* group = m_tabs.GetGroup(groupIndex)) {
+            CancelPendingPreviewForGroup(*group);
+        }
+    }
+    if (!m_windowToken.empty()) {
+        PreviewCache::Instance().CancelPendingCapturesForOwner(m_windowToken);
+    }
     ReleaseWindowToken();
 
     if (m_browserEvents) {
@@ -1748,6 +1768,14 @@ void TabBand::DisconnectSite() {
 
 void TabBand::InitializeTabs() {
     LogScope scope(L"TabBand::InitializeTabs");
+    for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
+        if (const TabGroup* group = m_tabs.GetGroup(groupIndex)) {
+            CancelPendingPreviewForGroup(*group);
+        }
+    }
+    if (!m_windowToken.empty()) {
+        PreviewCache::Instance().CancelPendingCapturesForOwner(m_windowToken);
+    }
     m_tabs.Clear();
 
     std::shared_ptr<PendingWindowSeed> pendingSeed = DequeuePendingWindowSeed();
@@ -2265,6 +2293,18 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
 
 UniquePidl TabBand::QueryCurrentFolder() const {
     return GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
+}
+
+void TabBand::CancelPendingPreviewForTab(const TabInfo& tab) const {
+    if (tab.pidl) {
+        PreviewCache::Instance().CancelPendingCapturesForKey(tab.pidl.get());
+    }
+}
+
+void TabBand::CancelPendingPreviewForGroup(const TabGroup& group) const {
+    for (const auto& tab : group.tabs) {
+        CancelPendingPreviewForTab(tab);
+    }
 }
 
 void TabBand::NavigateToTab(TabLocation location) {
