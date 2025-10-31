@@ -15,6 +15,7 @@
 #include <wrl/client.h>
 
 #include "BrowserEvents.h"
+#include "GroupStore.h"
 #include "TabManager.h"
 #include "SessionStore.h"
 #include "OptionsStore.h"
@@ -148,6 +149,7 @@ private:
     Microsoft::WRL::ComPtr<IInputObjectSite> m_site;
     Microsoft::WRL::ComPtr<IOleWindow> m_siteOleWindow;
     Microsoft::WRL::ComPtr<IDockingWindowSite> m_dockingSite;
+    Microsoft::WRL::ComPtr<IDockingWindowFrame> m_dockingFrame;
     Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
     Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
 
