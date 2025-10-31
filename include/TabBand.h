@@ -146,6 +146,8 @@ private:
     bool m_isComposited = false;
 
     Microsoft::WRL::ComPtr<IInputObjectSite> m_site;
+    Microsoft::WRL::ComPtr<IOleWindow> m_siteOleWindow;
+    Microsoft::WRL::ComPtr<IDockingWindowSite> m_dockingSite;
     Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
     Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
 

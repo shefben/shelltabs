@@ -199,8 +199,27 @@ IFACEMETHODIMP TabBand::GetWindow(HWND* phwnd) {
         []() -> HRESULT { return E_FAIL; });
 }
 
-IFACEMETHODIMP TabBand::ContextSensitiveHelp(BOOL) {
-    return E_NOTIMPL;
+IFACEMETHODIMP TabBand::ContextSensitiveHelp(BOOL enterMode) {
+    return GuardExplorerCall(
+        L"TabBand::ContextSensitiveHelp",
+        [&]() -> HRESULT {
+            Microsoft::WRL::ComPtr<IOleWindow> site = m_siteOleWindow;
+            if (!site && m_dockingSite) {
+                m_dockingSite.As(&site);
+            }
+            if (!site && m_site) {
+                m_site.As(&site);
+            }
+
+            if (site) {
+                const HRESULT hr = site->ContextSensitiveHelp(enterMode);
+                if (FAILED(hr) && hr != E_NOTIMPL) {
+                    return hr;
+                }
+            }
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::ShowDW(BOOL fShow) {
@@ -228,8 +247,31 @@ IFACEMETHODIMP TabBand::CloseDW(DWORD) {
         []() -> HRESULT { return E_FAIL; });
 }
 
-IFACEMETHODIMP TabBand::ResizeBorderDW(const RECT*, IUnknown*, BOOL) {
-    return E_NOTIMPL;
+IFACEMETHODIMP TabBand::ResizeBorderDW(const RECT* prcBorder, IUnknown* punkToolbarSite, BOOL fReserved) {
+    return GuardExplorerCall(
+        L"TabBand::ResizeBorderDW",
+        [&]() -> HRESULT {
+            Microsoft::WRL::ComPtr<IDockingWindowSite> dockingSite = m_dockingSite;
+            if (!dockingSite && punkToolbarSite) {
+                punkToolbarSite->QueryInterface(IID_PPV_ARGS(&dockingSite));
+            }
+            if (!dockingSite && m_site) {
+                m_site.As(&dockingSite);
+            }
+
+            if (dockingSite) {
+                IUnknown* siteForCall = punkToolbarSite;
+                if (!siteForCall && m_site) {
+                    siteForCall = m_site.Get();
+                }
+                const HRESULT hr = dockingSite->ResizeBorderDW(prcBorder, siteForCall, fReserved);
+                if (FAILED(hr) && hr != E_NOTIMPL) {
+                    return hr;
+                }
+            }
+            return S_OK;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO* pdbi) {
@@ -354,6 +396,18 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
                 return hr;
             }
             m_site = site;
+            m_siteOleWindow.Reset();
+            m_dockingSite.Reset();
+            if (site) {
+                site.As(&m_siteOleWindow);
+                site.As(&m_dockingSite);
+            }
+            if (!m_siteOleWindow) {
+                pUnkSite->QueryInterface(IID_PPV_ARGS(&m_siteOleWindow));
+            }
+            if (!m_dockingSite) {
+                pUnkSite->QueryInterface(IID_PPV_ARGS(&m_dockingSite));
+            }
 
             Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
             hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&serviceProvider));
@@ -1677,6 +1731,8 @@ void TabBand::DisconnectSite() {
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
     m_site.Reset();
+    m_siteOleWindow.Reset();
+    m_dockingSite.Reset();
 
     if (m_window) {
         m_window->SetSite(nullptr);
