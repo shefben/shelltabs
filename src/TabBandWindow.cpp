@@ -5,7 +5,10 @@
 
 #include <algorithm>  // for 2-arg std::max/std::min
 
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -29,6 +32,7 @@
 #include <dwmapi.h>
 #include <cwchar>
 
+#include "Logging.h"
 #include "Module.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
@@ -57,6 +61,117 @@ TabBandDockMode DockModeFromRebarStyle(DWORD style) {
         return TabBandDockMode::kBottom;
     }
     return TabBandDockMode::kTop;
+}
+
+size_t HashCombine(size_t seed, size_t value) noexcept {
+    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
+}
+
+size_t HashWideString(const std::wstring& value) noexcept {
+    return std::hash<std::wstring>{}(value);
+}
+
+struct TabViewItemKey {
+    TabViewItemType type = TabViewItemType::kGroupHeader;
+    uint64_t ordinal = 0;
+    std::wstring savedGroupId;
+    std::wstring path;
+    std::wstring name;
+};
+
+struct TabViewItemKeyHash {
+    size_t operator()(const TabViewItemKey& key) const noexcept {
+        size_t hash = static_cast<size_t>(key.type);
+        hash = HashCombine(hash, static_cast<size_t>(key.ordinal));
+        hash = HashCombine(hash, HashWideString(key.savedGroupId));
+        hash = HashCombine(hash, HashWideString(key.path));
+        hash = HashCombine(hash, HashWideString(key.name));
+        return hash;
+    }
+};
+
+struct TabViewItemKeyEqual {
+    bool operator()(const TabViewItemKey& a, const TabViewItemKey& b) const noexcept {
+        return a.type == b.type && a.ordinal == b.ordinal && a.savedGroupId == b.savedGroupId &&
+               a.path == b.path && a.name == b.name;
+    }
+};
+
+TabViewItemKey MakeKey(const TabViewItem& item) {
+    TabViewItemKey key;
+    key.type = item.type;
+    if (item.type == TabViewItemType::kTab) {
+        key.ordinal = item.activationOrdinal != 0 ? item.activationOrdinal : item.lastActivatedTick;
+        if (key.ordinal == 0 && item.pidl) {
+            key.ordinal = reinterpret_cast<uint64_t>(item.pidl);
+        }
+        key.path = item.path;
+        key.name = item.name;
+    } else {
+        key.ordinal = static_cast<uint64_t>(item.location.groupIndex);
+        key.savedGroupId = item.savedGroupId;
+        key.name = item.name;
+    }
+    return key;
+}
+
+RECT NormalizeRect(const RECT& rect) noexcept {
+    RECT normalized = rect;
+    if (normalized.left > normalized.right) {
+        std::swap(normalized.left, normalized.right);
+    }
+    if (normalized.top > normalized.bottom) {
+        std::swap(normalized.top, normalized.bottom);
+    }
+    return normalized;
+}
+
+bool ClipRectToClient(const RECT& rect, const RECT& client, RECT* clipped) noexcept {
+    if (!clipped) {
+        return false;
+    }
+    RECT normalized = NormalizeRect(rect);
+    RECT intersection{};
+    if (!IntersectRect(&intersection, &normalized, &client)) {
+        return false;
+    }
+    if (IsRectEmpty(&intersection)) {
+        return false;
+    }
+    *clipped = intersection;
+    return true;
+}
+
+bool EquivalentTabViewItem(const TabViewItem& a, const TabViewItem& b) noexcept {
+    return a.type == b.type && a.name == b.name && a.tooltip == b.tooltip &&
+           a.selected == b.selected && a.collapsed == b.collapsed && a.totalTabs == b.totalTabs &&
+           a.visibleTabs == b.visibleTabs && a.hiddenTabs == b.hiddenTabs &&
+           a.hasCustomOutline == b.hasCustomOutline && a.outlineColor == b.outlineColor &&
+           a.outlineStyle == b.outlineStyle && a.headerVisible == b.headerVisible &&
+           a.isSavedGroup == b.isSavedGroup && a.progress == b.progress;
+}
+
+bool EquivalentVisualMetadata(const TabBandWindow::VisualItem& a,
+                              const TabBandWindow::VisualItem& b) noexcept {
+    if (a.firstInGroup != b.firstInGroup) {
+        return false;
+    }
+    if (a.badgeWidth != b.badgeWidth) {
+        return false;
+    }
+    if (a.hasGroupHeader != b.hasGroupHeader) {
+        return false;
+    }
+    if (a.collapsedPlaceholder != b.collapsedPlaceholder) {
+        return false;
+    }
+    if (a.indicatorHandle != b.indicatorHandle) {
+        return false;
+    }
+    if (a.hasGroupHeader && !EquivalentTabViewItem(a.groupHeader, b.groupHeader)) {
+        return false;
+    }
+    return true;
 }
 
 uint32_t DockModeToMask(TabBandDockMode mode) {
@@ -536,6 +651,9 @@ void TabBandWindow::Destroy() {
     m_parentRebar = nullptr;
     m_rebarBandIndex = -1;
     m_tabData.clear();
+    m_nextRedrawIncremental = false;
+    m_redrawMetrics = {};
+    m_lastAppliedRowCount = 0;
 }
 
 void TabBandWindow::Show(bool show) {
@@ -549,11 +667,59 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_tabData = items;
     m_contextHit = {};
     ClearExplorerContext();
-    RebuildLayout();
-    AdjustBandHeightToRow();
-    UpdateProgressAnimationState();
-    if (m_hwnd) {
+
+    if (!m_hwnd) {
+        DestroyVisualItemResources(m_items);
+        m_items.clear();
+        m_emptyIslandPlusButtons.clear();
+        m_nextRedrawIncremental = false;
+        m_lastAppliedRowCount = 0;
+        return;
+    }
+
+    std::vector<VisualItem> oldItems;
+    oldItems.swap(m_items);
+
+    HideDragOverlay(true);
+    HidePreviewWindow(false);
+    m_drag = {};
+    m_emptyIslandPlusButtons.clear();
+
+    LayoutResult layout = BuildLayoutItems(items);
+
+    LayoutDiffStats diff = ComputeLayoutDiff(oldItems, layout.items);
+    const int normalizedRowCount = layout.rowCount > 0 ? layout.rowCount : std::max(m_lastRowCount, 1);
+    const bool rowCountChanged = normalizedRowCount != m_lastRowCount;
+
+    m_items = std::move(layout.items);
+    m_lastRowCount = normalizedRowCount;
+
+    bool topologyChanged = diff.inserted > 0 || diff.removed > 0 || rowCountChanged;
+    if (topologyChanged) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
+        m_nextRedrawIncremental = false;
+    } else if (!diff.invalidRects.empty()) {
+        for (const auto& rect : diff.invalidRects) {
+            InvalidateRect(m_hwnd, &rect, FALSE);
+        }
+        m_nextRedrawIncremental = true;
+    } else {
+        m_nextRedrawIncremental = false;
+    }
+
+    if (rowCountChanged) {
+        AdjustBandHeightToRow();
+    }
+
+    UpdateProgressAnimationState();
+
+    DestroyVisualItemResources(oldItems);
+
+    if (diff.inserted > 0 || diff.removed > 0 || diff.moved > 0 || diff.updated > 0) {
+        LogMessage(LogLevel::Info,
+                   L"Tab diff: +%zu -%zu move=%zu update=%zu rows=%d incremental=%ls",
+                   diff.inserted, diff.removed, diff.moved, diff.updated, m_lastRowCount,
+                   m_nextRedrawIncremental ? L"true" : L"false");
     }
 }
 
@@ -626,20 +792,22 @@ void TabBandWindow::Layout(int width, int height) {
 
     m_clientRect.right = std::max(0, buttonX - kButtonMargin);
     RebuildLayout();
-    AdjustBandHeightToRow();
-    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void TabBandWindow::DestroyVisualItemResources(std::vector<VisualItem>& items) {
+    for (auto& item : items) {
+        if (item.icon) {
+            DestroyIcon(item.icon);
+            item.icon = nullptr;
+        }
+    }
 }
 
 void TabBandWindow::ClearVisualItems() {
     HideDragOverlay(true);
     HidePreviewWindow(false);
 
-    for (auto& item : m_items) {
-        if (item.icon) {
-            DestroyIcon(item.icon);
-            item.icon = nullptr;
-        }
-    }
+    DestroyVisualItemResources(m_items);
 
     m_items.clear();
     m_drag = {};
@@ -647,21 +815,23 @@ void TabBandWindow::ClearVisualItems() {
     m_emptyIslandPlusButtons.clear();
 }
 
-void TabBandWindow::RebuildLayout() {
-    ClearVisualItems();
+TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<TabViewItem>& items) {
+    LayoutResult result;
     if (!m_hwnd) {
-        return;
+        return result;
     }
+
+    m_emptyIslandPlusButtons.clear();
 
     RECT bounds = m_clientRect;
     const int availableWidth = bounds.right - bounds.left;
     if (availableWidth <= 0) {
-        return;
+        return result;
     }
 
     HDC dc = GetDC(m_hwnd);
     if (!dc) {
-        return;
+        return result;
     }
     HFONT font = GetDefaultFont();
     HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
@@ -715,7 +885,9 @@ void TabBandWindow::RebuildLayout() {
 	bool pendingIndicator = false;
 	TabViewItem indicatorHeader{};
 
-	for (const auto& item : m_tabData) {
+        result.items.reserve(items.size() + 8);
+
+        for (const auto& item : items) {
 		if (item.type == TabViewItemType::kGroupHeader) {
 			pendingIndicator = false;
 			currentGroup = item.location.groupIndex;
@@ -748,7 +920,7 @@ void TabBandWindow::RebuildLayout() {
 			visual.indicatorHandle = true;
                         visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
                         visual.row = row;
-                        m_items.emplace_back(std::move(visual));
+                        result.items.emplace_back(std::move(visual));
                         x += width;
 
                         // NEW: empty island => reserve a tiny body and register a '+' target
@@ -766,7 +938,7 @@ void TabBandWindow::RebuildLayout() {
                                                 emptyBody.groupHeader = currentHeader;
                                                 emptyBody.bounds = placeholder;
                                                 emptyBody.row = row;
-                                                m_items.emplace_back(std::move(emptyBody));
+                                                result.items.emplace_back(std::move(emptyBody));
 
                                                 const int bodyWidth = placeholder.right - placeholder.left;
                                                 if (bodyWidth >= 4) {
@@ -800,7 +972,7 @@ void TabBandWindow::RebuildLayout() {
 			currentGroup = item.location.groupIndex;
 			headerMetadata = false;
 			expectFirstTab = true;
-			if (!m_items.empty()) {
+			if (!result.items.empty()) {
 				x += kGroupGap;
 			}
 			pendingIndicator = false;
@@ -874,8 +1046,8 @@ void TabBandWindow::RebuildLayout() {
                 }
 
                 if (wrapped && visual.firstInGroup) {
-                        if (!m_items.empty()) {
-                                VisualItem& previous = m_items.back();
+                        if (!result.items.empty()) {
+                                VisualItem& previous = result.items.back();
                                 if (previous.indicatorHandle &&
                                         previous.data.location.groupIndex == item.location.groupIndex) {
                                         const int indicatorWidth = previous.bounds.right - previous.bounds.left;
@@ -893,19 +1065,132 @@ void TabBandWindow::RebuildLayout() {
 
                 visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
                 visual.row = row;
-                visual.index = m_items.size();
-                m_items.emplace_back(std::move(visual));
+                visual.index = result.items.size();
+                result.items.emplace_back(std::move(visual));
                 x += width;
         }
 
         if (row > maxRowUsed) {
                 maxRowUsed = row;
         }
-        m_lastRowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
+        result.rowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
 
-	if (oldFont) SelectObject(dc, oldFont);
-	ReleaseDC(m_hwnd, dc);
-	InvalidateRect(m_hwnd, nullptr, FALSE);
+        if (oldFont) SelectObject(dc, oldFont);
+        ReleaseDC(m_hwnd, dc);
+    return result;
+}
+
+void TabBandWindow::RebuildLayout() {
+    if (!m_hwnd) {
+        DestroyVisualItemResources(m_items);
+        m_items.clear();
+        m_emptyIslandPlusButtons.clear();
+        m_nextRedrawIncremental = false;
+        return;
+    }
+
+    std::vector<VisualItem> oldItems;
+    oldItems.swap(m_items);
+
+    HideDragOverlay(true);
+    HidePreviewWindow(false);
+    m_drag = {};
+    m_contextHit = {};
+    m_emptyIslandPlusButtons.clear();
+
+    LayoutResult layout = BuildLayoutItems(m_tabData);
+    m_items = std::move(layout.items);
+
+    const int normalizedRowCount = layout.rowCount > 0 ? layout.rowCount : std::max(m_lastRowCount, 1);
+    const bool rowChanged = normalizedRowCount != m_lastRowCount;
+    m_lastRowCount = normalizedRowCount;
+
+    DestroyVisualItemResources(oldItems);
+
+    if (m_hwnd) {
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+
+    m_nextRedrawIncremental = false;
+
+    if (rowChanged) {
+        AdjustBandHeightToRow();
+    }
+}
+
+TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
+    const std::vector<VisualItem>& oldItems, const std::vector<VisualItem>& newItems) const {
+    LayoutDiffStats stats;
+
+    if (!m_hwnd) {
+        stats.inserted = newItems.size();
+        stats.removed = oldItems.size();
+        return stats;
+    }
+
+    std::unordered_map<TabViewItemKey, std::vector<size_t>, TabViewItemKeyHash, TabViewItemKeyEqual> oldMap;
+    oldMap.reserve(oldItems.size());
+    for (size_t i = 0; i < oldItems.size(); ++i) {
+        oldMap[MakeKey(oldItems[i].data)].push_back(i);
+    }
+
+    std::vector<bool> consumed(oldItems.size(), false);
+
+    RECT client = m_clientRect;
+    if (client.right <= client.left || client.bottom <= client.top) {
+        if (m_hwnd) {
+            GetClientRect(m_hwnd, &client);
+        }
+    }
+
+    auto enqueueRect = [&](const RECT& rect) {
+        RECT clipped{};
+        if (ClipRectToClient(rect, client, &clipped)) {
+            stats.invalidRects.push_back(clipped);
+        }
+    };
+
+    for (const auto& item : newItems) {
+        const auto key = MakeKey(item.data);
+        auto it = oldMap.find(key);
+        if (it == oldMap.end() || it->second.empty()) {
+            ++stats.inserted;
+            enqueueRect(item.bounds);
+            continue;
+        }
+
+        const size_t oldIndex = it->second.back();
+        it->second.pop_back();
+        consumed[oldIndex] = true;
+        const VisualItem& oldItem = oldItems[oldIndex];
+
+        const bool moved = !EqualRect(&oldItem.bounds, &item.bounds);
+        const bool contentChanged = !EquivalentTabViewItem(oldItem.data, item.data) ||
+                                    !EquivalentVisualMetadata(oldItem, item);
+
+        if (moved) {
+            ++stats.moved;
+        }
+        if (contentChanged) {
+            ++stats.updated;
+        }
+        if (moved || contentChanged) {
+            RECT unionRect{};
+            RECT oldRect = NormalizeRect(oldItem.bounds);
+            RECT newRect = NormalizeRect(item.bounds);
+            UnionRect(&unionRect, &oldRect, &newRect);
+            enqueueRect(unionRect);
+        }
+    }
+
+    for (size_t i = 0; i < consumed.size(); ++i) {
+        if (!consumed[i]) {
+            ++stats.removed;
+            enqueueRect(oldItems[i].bounds);
+        }
+    }
+
+    return stats;
 }
 
 
@@ -1037,6 +1322,24 @@ void TabBandWindow::Draw(HDC dc) const {
         return;
     }
 
+    const bool incremental = m_nextRedrawIncremental;
+    struct DrawMetricsGuard {
+        TabBandWindow* owner;
+        bool incremental;
+        std::chrono::steady_clock::time_point start;
+        DrawMetricsGuard(TabBandWindow* o, bool inc)
+            : owner(o), incremental(inc), start(std::chrono::steady_clock::now()) {}
+        ~DrawMetricsGuard() {
+            if (!owner) {
+                return;
+            }
+            const auto end = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(end - start).count();
+            owner->RecordRedrawDuration(ms, incremental);
+            owner->m_nextRedrawIncremental = false;
+        }
+    } guard(const_cast<TabBandWindow*>(this), incremental);
+
     HDC memDC = CreateCompatibleDC(dc);
     if (!memDC) {
         PaintSurface(dc, windowRect);
@@ -1057,6 +1360,38 @@ void TabBandWindow::Draw(HDC dc) const {
     SelectObject(memDC, oldBitmap);
     DeleteObject(buffer);
     DeleteDC(memDC);
+}
+
+void TabBandWindow::RecordRedrawDuration(double milliseconds, bool incremental) {
+    m_redrawMetrics.lastDurationMs = milliseconds;
+    m_redrawMetrics.lastWasIncremental = incremental;
+
+    if (incremental) {
+        m_redrawMetrics.incrementalTotalMs += milliseconds;
+        ++m_redrawMetrics.incrementalCount;
+    } else {
+        m_redrawMetrics.fullTotalMs += milliseconds;
+        ++m_redrawMetrics.fullCount;
+    }
+
+    const uint64_t totalSamples = m_redrawMetrics.incrementalCount + m_redrawMetrics.fullCount;
+    if (totalSamples > 0 && (totalSamples % 60) == 0) {
+        const double incrementalAvg = m_redrawMetrics.incrementalCount > 0
+                                          ? m_redrawMetrics.incrementalTotalMs /
+                                                static_cast<double>(m_redrawMetrics.incrementalCount)
+                                          : 0.0;
+        const double fullAvg = m_redrawMetrics.fullCount > 0
+                                   ? m_redrawMetrics.fullTotalMs /
+                                         static_cast<double>(m_redrawMetrics.fullCount)
+                                   : 0.0;
+
+        LogMessage(LogLevel::Info,
+                   L"Tab redraw metrics: incremental %.2f ms (%llu), full %.2f ms (%llu), last %.2f ms (%ls)",
+                   incrementalAvg,
+                   static_cast<unsigned long long>(m_redrawMetrics.incrementalCount), fullAvg,
+                   static_cast<unsigned long long>(m_redrawMetrics.fullCount), milliseconds,
+                   incremental ? L"incremental" : L"full");
+    }
 }
 
 void TabBandWindow::DrawEmptyIslandPluses(HDC dc) const {
@@ -1517,14 +1852,18 @@ void TabBandWindow::AdjustBandHeightToRow() {
         if (rowHeight <= 0) rowHeight = 24;
         rowHeight = std::max(rowHeight, kButtonHeight - kButtonMargin);
 
-	int rowsFromItems = (maxRowIndex >= 0) ? (maxRowIndex + 1) : 0;
-	int rows = std::max(rowsFromItems, m_lastRowCount);
-	rows = std::max(rows, 1);
-	rows = std::min(rows, kMaxTabRows);
+        int rowsFromItems = (maxRowIndex >= 0) ? (maxRowIndex + 1) : 0;
+        int rows = std::max(rowsFromItems, m_lastRowCount);
+        rows = std::max(rows, 1);
+        rows = std::min(rows, kMaxTabRows);
+        if (rows == m_lastAppliedRowCount) {
+            return;
+        }
+        m_lastAppliedRowCount = rows;
         int desired = rows * rowHeight + (rows - 1) * kRowGap;
         desired = std::max(desired, kButtonHeight + kButtonMargin * 2);
 
-	REBARBANDINFOW bi{ sizeof(bi) };
+        REBARBANDINFOW bi{ sizeof(bi) };
 	bi.fMask = RBBIM_CHILDSIZE;
 	bi.cyChild = desired;
 	bi.cyMinChild = desired;
@@ -1571,8 +1910,7 @@ void TabBandWindow::RefreshTheme() {
 	UpdateThemePalette();
 	UpdateToolbarMetrics();
 	UpdateNewTabButtonTheme();
-	RebuildLayout();
-	AdjustBandHeightToRow();
+        RebuildLayout();
 
 }
 
