@@ -343,6 +343,8 @@ private:
     void UpdateDropTarget(const POINT& pt);
     void CompleteDrop();
     DropTarget ComputeDropTarget(const POINT& pt, const HitInfo& origin) const;
+    int ComputeIndicatorXForInsertion(int groupIndex, int tabIndex) const;
+    void AdjustDropTargetForPinned(const HitInfo& origin, DropTarget& target) const;
     void UpdateExternalDrag(const POINT& screenPt);
     bool TryCompleteExternalDrop();
     void HandleExternalDragUpdate();
@@ -381,6 +383,7 @@ private:
     bool IsSystemDarkMode() const;
     void UpdateAccentColor();
     void ResetThemePalette();
+    void DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF color) const;
     void UpdateThemePalette();
     void UpdateToolbarMetrics();
 

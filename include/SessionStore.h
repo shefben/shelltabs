@@ -17,6 +17,7 @@ struct SessionTab {
     std::wstring name;
     std::wstring tooltip;
     bool hidden = false;
+    bool pinned = false;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
 };

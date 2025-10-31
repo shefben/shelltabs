@@ -1088,12 +1088,27 @@ void TabBand::OnCloneTabRequested(TabLocation location) {
     }
     std::wstring tooltip = tab->tooltip.empty() ? name : tab->tooltip;
 
-    TabLocation newLocation = m_tabs.Add(std::move(clone), name, tooltip, true, location.groupIndex);
+    TabLocation newLocation = m_tabs.Add(std::move(clone), name, tooltip, true, location.groupIndex, tab->pinned);
     UpdateTabsUI();
     SyncAllSavedGroups();
     if (newLocation.IsValid()) {
         NavigateToTab(newLocation);
     }
+}
+
+void TabBand::OnToggleTabPinned(TabLocation location) {
+    if (!location.IsValid()) {
+        return;
+    }
+    const auto* tab = m_tabs.Get(location);
+    if (!tab) {
+        return;
+    }
+    if (!m_tabs.ToggleTabPinned(location)) {
+        return;
+    }
+    UpdateTabsUI();
+    SyncAllSavedGroups();
 }
 
 void TabBand::OnToggleGroupCollapsed(int groupIndex) {
@@ -1821,10 +1836,22 @@ bool TabBand::RestoreSession() {
         group.outlineColor = groupData.outlineColor;
         group.outlineStyle = groupData.outlineStyle;
         group.savedGroupId = groupData.savedGroupId;
+        std::vector<const SessionTab*> pinnedTabs;
+        std::vector<const SessionTab*> unpinnedTabs;
+        pinnedTabs.reserve(groupData.tabs.size());
+        unpinnedTabs.reserve(groupData.tabs.size());
         for (const auto& tabData : groupData.tabs) {
+            if (tabData.pinned) {
+                pinnedTabs.push_back(&tabData);
+            } else {
+                unpinnedTabs.push_back(&tabData);
+            }
+        }
+
+        auto appendTab = [&](const SessionTab& tabData) {
             UniquePidl pidl = ParseDisplayName(tabData.path);
             if (!pidl) {
-                continue;
+                return;
             }
             TabInfo tab;
             tab.pidl = std::move(pidl);
@@ -1837,10 +1864,18 @@ bool TabBand::RestoreSession() {
             }
             tab.tooltip = tabData.tooltip.empty() ? tab.name : tabData.tooltip;
             tab.hidden = tabData.hidden;
+            tab.pinned = tabData.pinned;
             tab.path = tabData.path;
             tab.lastActivatedTick = tabData.lastActivatedTick;
             tab.activationOrdinal = tabData.activationOrdinal;
             group.tabs.emplace_back(std::move(tab));
+        };
+
+        for (const SessionTab* entry : pinnedTabs) {
+            appendTab(*entry);
+        }
+        for (const SessionTab* entry : unpinnedTabs) {
+            appendTab(*entry);
         }
         if (!group.tabs.empty() || !group.savedGroupId.empty()) {
             groups.emplace_back(std::move(group));
@@ -1902,21 +1937,34 @@ void TabBand::SaveSession() {
         storedGroup.outlineStyle = group->outlineStyle;
         storedGroup.savedGroupId = group->savedGroupId;
 
-        for (const auto& tab : group->tabs) {
+        auto appendTab = [&](const TabInfo& tab) {
             SessionTab storedTab;
             storedTab.path = tab.path;
             if (storedTab.path.empty()) {
                 storedTab.path = GetParsingName(tab.pidl.get());
             }
             if (storedTab.path.empty()) {
-                continue;
+                return false;
             }
             storedTab.name = tab.name;
             storedTab.tooltip = tab.tooltip;
             storedTab.hidden = tab.hidden;
+            storedTab.pinned = tab.pinned;
             storedTab.lastActivatedTick = tab.lastActivatedTick;
             storedTab.activationOrdinal = tab.activationOrdinal;
             storedGroup.tabs.emplace_back(std::move(storedTab));
+            return true;
+        };
+
+        for (const auto& tab : group->tabs) {
+            if (tab.pinned) {
+                appendTab(tab);
+            }
+        }
+        for (const auto& tab : group->tabs) {
+            if (!tab.pinned) {
+                appendTab(tab);
+            }
         }
 
         if (!storedGroup.tabs.empty() || !storedGroup.savedGroupId.empty()) {
@@ -2040,6 +2088,7 @@ std::optional<SessionClosedSet> TabBand::BuildSessionClosedSet(const ClosedTabSe
         storedTab.tab.name = entry.tab.name;
         storedTab.tab.tooltip = entry.tab.tooltip;
         storedTab.tab.hidden = entry.tab.hidden;
+        storedTab.tab.pinned = entry.tab.pinned;
         storedTab.tab.path = entry.tab.path;
         if (storedTab.tab.path.empty()) {
             storedTab.tab.path = GetParsingName(entry.tab.pidl.get());
@@ -2096,6 +2145,7 @@ std::optional<TabBand::ClosedTabSet> TabBand::BuildClosedSetFromSession(const Se
         }
         tab.tooltip = storedTab.tab.tooltip.empty() ? tab.name : storedTab.tab.tooltip;
         tab.hidden = storedTab.tab.hidden;
+        tab.pinned = storedTab.tab.pinned;
         tab.path = storedTab.tab.path;
         EnsureTabPath(tab);
         set.entries.push_back({storedTab.index, std::move(tab)});
