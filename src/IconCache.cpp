@@ -113,11 +113,13 @@ IconCache::Reference::~Reference() { ReleaseCurrent(); }
 
 void IconCache::Reference::Reset() noexcept { ReleaseCurrent(); }
 
-IconCache::Reference::Reference(IconCache* cache, Entry* entry, HICON icon, bool addRef) noexcept {
+IconCache::Reference::Reference(IconCache* cache, IconCache::Entry* entry, HICON icon,
+                                bool addRef) noexcept {
     Attach(cache, entry, icon, addRef);
 }
 
-void IconCache::Reference::Attach(IconCache* cache, Entry* entry, HICON icon, bool addRef) noexcept {
+void IconCache::Reference::Attach(IconCache* cache, IconCache::Entry* entry, HICON icon,
+                                  bool addRef) noexcept {
     m_cache = cache;
     m_entry = entry;
     m_icon = icon;
