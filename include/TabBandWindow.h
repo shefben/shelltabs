@@ -237,6 +237,8 @@ private:
     int m_rebarBandIndex = -1;
     bool m_rebarZOrderTop = false;
     Microsoft::WRL::ComPtr<IDropTarget> m_dropTarget;
+    bool m_dropTargetRegistered = false;
+    bool m_dropTargetRegistrationPending = false;
     HitInfo m_dropHoverHit;
     bool m_dropHoverHasFileData = false;
     bool m_dropHoverTimerActive = false;
@@ -403,6 +405,9 @@ private:
     HRESULT OnNativeDragLeave();
     HRESULT OnNativeDrop(IDataObject* dataObject, DWORD keyState, const POINTL& point, DWORD* effect);
 
+    void EnsureDropTargetRegistered();
+    void ScheduleDropTargetRegistrationRetry();
+
     class BandDropTarget;
     friend class BandDropTarget;
 
@@ -416,6 +421,7 @@ private:
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
 constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
 constexpr UINT WM_SHELLTABS_PREVIEW_READY = WM_APP + 64;
+constexpr UINT WM_SHELLTABS_REGISTER_DRAGDROP = WM_APP + 65;
 constexpr ULONG_PTR SHELLTABS_COPYDATA_OPEN_FOLDER = 'STNT';
 
 }  // namespace shelltabs

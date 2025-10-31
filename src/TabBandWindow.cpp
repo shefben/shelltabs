@@ -640,10 +640,7 @@ HWND TabBandWindow::Create(HWND parent) {
             m_dropTarget.Attach(new BandDropTarget(this));
         }
         if (m_dropTarget) {
-            const HRESULT hr = RegisterDragDrop(m_hwnd, m_dropTarget.Get());
-            if (FAILED(hr)) {
-                m_dropTarget.Reset();
-            }
+            EnsureDropTargetRegistered();
         }
         RegisterShellNotifications();
         if (auto* manager = ResolveManager()) {
@@ -658,6 +655,36 @@ HWND TabBandWindow::Create(HWND parent) {
     }
 
     return m_hwnd;
+}
+
+void TabBandWindow::EnsureDropTargetRegistered() {
+    if (!m_hwnd || !m_dropTarget) {
+        return;
+    }
+    if (m_dropTargetRegistered) {
+        return;
+    }
+
+    const HRESULT hr = RegisterDragDrop(m_hwnd, m_dropTarget.Get());
+    if (SUCCEEDED(hr) || hr == DRAGDROP_E_ALREADYREGISTERED) {
+        m_dropTargetRegistered = true;
+        m_dropTargetRegistrationPending = false;
+        return;
+    }
+
+    if (hr == CO_E_NOTINITIALIZED) {
+        ScheduleDropTargetRegistrationRetry();
+    }
+}
+
+void TabBandWindow::ScheduleDropTargetRegistrationRetry() {
+    if (!m_hwnd || m_dropTargetRegistrationPending) {
+        return;
+    }
+
+    if (PostMessageW(m_hwnd, WM_SHELLTABS_REGISTER_DRAGDROP, 0, 0)) {
+        m_dropTargetRegistrationPending = true;
+    }
 }
 
 void TabBandWindow::Destroy() {
@@ -677,10 +704,12 @@ void TabBandWindow::Destroy() {
         KillTimer(m_hwnd, kProgressTimerId);
         m_progressTimerActive = false;
     }
-    if (m_hwnd && m_dropTarget) {
+    if (m_hwnd && m_dropTargetRegistered) {
         RevokeDragDrop(m_hwnd);
+        m_dropTargetRegistered = false;
     }
     m_dropTarget.Reset();
+    m_dropTargetRegistrationPending = false;
     m_themeNotifier.Shutdown();
     m_darkMode = false;
     m_refreshingTheme = false;
@@ -5462,6 +5491,11 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->HandleExternalDropExecute();
                 return 0;
             }
+            case WM_SHELLTABS_REGISTER_DRAGDROP: {
+                self->m_dropTargetRegistrationPending = false;
+                self->EnsureDropTargetRegistered();
+                return 0;
+            }
             case WM_SHELLTABS_PREVIEW_READY: {
                 self->HandlePreviewReady(static_cast<uint64_t>(wParam));
                 return 0;
@@ -5523,10 +5557,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                     KillTimer(hwnd, TabBandWindow::kProgressTimerId);
                     self->m_progressTimerActive = false;
                 }
-                if (self->m_dropTarget) {
+                if (self->m_dropTargetRegistered) {
                     RevokeDragDrop(hwnd);
-                    self->m_dropTarget.Reset();
+                    self->m_dropTargetRegistered = false;
                 }
+                self->m_dropTarget.Reset();
+                self->m_dropTargetRegistrationPending = false;
                 self->m_parentRebar = nullptr;
                 self->m_rebarBandIndex = -1;
                 UnregisterWindow(hwnd, self);
