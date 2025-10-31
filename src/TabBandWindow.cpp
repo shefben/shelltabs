@@ -776,6 +776,7 @@ void TabBandWindow::Destroy() {
     m_parentRebar = nullptr;
     m_rebarBandIndex = -1;
     m_tabData.clear();
+    m_tabLocationIndex.clear();
     m_nextRedrawIncremental = false;
     m_redrawMetrics = {};
     m_lastAppliedRowCount = 0;
@@ -788,8 +789,28 @@ void TabBandWindow::Show(bool show) {
     ShowWindow(m_hwnd, show ? SW_SHOW : SW_HIDE);
 }
 
+void TabBandWindow::RebuildTabLocationIndex() {
+    m_tabLocationIndex.clear();
+    if (m_tabData.empty()) {
+        return;
+    }
+
+    m_tabLocationIndex.reserve(m_tabData.size());
+    for (size_t i = 0; i < m_tabData.size(); ++i) {
+        const auto& item = m_tabData[i];
+        if (item.type != TabViewItemType::kTab) {
+            continue;
+        }
+        if (!item.location.IsValid()) {
+            continue;
+        }
+        m_tabLocationIndex[item.location] = i;
+    }
+}
+
 void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_tabData = items;
+    RebuildTabLocationIndex();
     m_contextHit = {};
     ClearExplorerContext();
 
@@ -1253,6 +1274,7 @@ void TabBandWindow::RebuildLayout() {
         m_emptyIslandPlusButtons.clear();
         m_nextRedrawIncremental = false;
         InvalidateGroupOutlineCache();
+        RebuildTabLocationIndex();
         return;
     }
 
@@ -1268,6 +1290,7 @@ void TabBandWindow::RebuildLayout() {
     m_emptyIslandPlusButtons.clear();
 
     LayoutResult layout = BuildLayoutItems(m_tabData);
+    RebuildTabLocationIndex();
     m_items = std::move(layout.items);
     RebuildProgressRectCache();
     RebuildGroupOutlineCache();
@@ -5547,17 +5570,11 @@ size_t TabBandWindow::FindTabDataIndex(TabLocation location) const {
     if (!location.IsValid()) {
         return kInvalidIndex;
     }
-    for (size_t i = 0; i < m_tabData.size(); ++i) {
-        const auto& item = m_tabData[i];
-        if (item.type != TabViewItemType::kTab) {
-            continue;
-        }
-        if (item.location.groupIndex == location.groupIndex &&
-            item.location.tabIndex == location.tabIndex) {
-            return i;
-        }
+    const auto it = m_tabLocationIndex.find(location);
+    if (it == m_tabLocationIndex.end()) {
+        return kInvalidIndex;
     }
-    return kInvalidIndex;
+    return it->second;
 }
 
 const TabBandWindow::VisualItem* TabBandWindow::FindLastGroupHeader() const {
