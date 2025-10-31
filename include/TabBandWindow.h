@@ -205,6 +205,7 @@ private:
     HWND m_hwnd = nullptr;
     HWND m_newTabButton = nullptr;
     HWND m_parentRebar = nullptr;
+    HWND m_parentFrame = nullptr;
     TabBand* m_owner = nullptr;
 
     RECT m_clientRect{};

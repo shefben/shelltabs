@@ -50,6 +50,37 @@ namespace shelltabs {
 namespace {
 
 std::atomic<uint32_t> g_availableDockMask{0};
+std::mutex g_availableDockMaskMutex;
+std::unordered_map<HWND, uint32_t> g_availableDockMaskByFrame;
+
+void RecomputeAvailableDockMaskLocked() {
+    uint32_t combined = 0;
+    for (const auto& entry : g_availableDockMaskByFrame) {
+        combined |= entry.second;
+    }
+    g_availableDockMask.store(combined, std::memory_order_release);
+}
+
+void StoreAvailableDockMaskForFrame(HWND frame, uint32_t mask) {
+    if (!frame || mask == 0) {
+        return;
+    }
+
+    std::scoped_lock lock(g_availableDockMaskMutex);
+    g_availableDockMaskByFrame[frame] = mask;
+    RecomputeAvailableDockMaskLocked();
+}
+
+void ClearAvailableDockMaskForFrame(HWND frame) {
+    if (!frame) {
+        return;
+    }
+
+    std::scoped_lock lock(g_availableDockMaskMutex);
+    if (g_availableDockMaskByFrame.erase(frame) > 0) {
+        RecomputeAvailableDockMaskLocked();
+    }
+}
 
 TabBandDockMode DockModeFromRebarStyle(DWORD style) {
     if ((style & CCS_VERT) != 0) {
@@ -182,9 +213,7 @@ void UpdateAvailableDockMaskFromFrame(HWND frame) {
         },
         reinterpret_cast<LPARAM>(&mask));
 
-    if (mask != 0) {
-        g_availableDockMask.store(mask, std::memory_order_release);
-    }
+    StoreAvailableDockMaskForFrame(frame, mask);
 }
 // Older Windows SDKs used by consumers of the project might not expose the
 // SID_SDataObject symbol (the service identifier for the current data object).
@@ -727,6 +756,10 @@ void TabBandWindow::Destroy() {
         UnregisterWindow(m_hwnd, this);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
+    }
+    if (m_parentFrame) {
+        ClearAvailableDockMaskForFrame(m_parentFrame);
+        m_parentFrame = nullptr;
     }
     m_parentRebar = nullptr;
     m_rebarBandIndex = -1;
@@ -2352,10 +2385,24 @@ void TabBandWindow::EnsureRebarIntegration() {
                 }
         }
 
-        if (!m_parentRebar) return;
+        if (!m_parentRebar) {
+                if (m_parentFrame) {
+                        ClearAvailableDockMaskForFrame(m_parentFrame);
+                        m_parentFrame = nullptr;
+                }
+                return;
+        }
 
         HWND frame = GetAncestor(m_parentRebar, GA_ROOT);
-        UpdateAvailableDockMaskFromFrame(frame);
+        if (frame != m_parentFrame) {
+                if (m_parentFrame) {
+                        ClearAvailableDockMaskForFrame(m_parentFrame);
+                }
+                m_parentFrame = frame;
+        }
+        if (frame) {
+                UpdateAvailableDockMaskFromFrame(frame);
+        }
 
         const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(m_parentRebar, GWL_STYLE));
         const TabBandDockMode detectedMode = DockModeFromRebarStyle(style);
@@ -5563,6 +5610,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 self->m_dropTarget.Reset();
                 self->m_dropTargetRegistrationPending = false;
+                if (self->m_parentFrame) {
+                    ClearAvailableDockMaskForFrame(self->m_parentFrame);
+                    self->m_parentFrame = nullptr;
+                }
                 self->m_parentRebar = nullptr;
                 self->m_rebarBandIndex = -1;
                 UnregisterWindow(hwnd, self);
