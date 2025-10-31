@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <cwctype>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -52,11 +53,48 @@ int CountLeadingPinned(const TabGroup& group) {
 }
 }  // namespace
 
+namespace {
+std::wstring NormalizeLookupKey(const std::wstring& value) {
+    if (value.empty()) {
+        return {};
+    }
+    std::wstring normalized = NormalizeFileSystemPath(value);
+    if (normalized.empty()) {
+        normalized = value;
+    }
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return normalized;
+}
+
+std::wstring BuildLookupKey(PCIDLIST_ABSOLUTE pidl, const std::wstring& storedPath) {
+    if (!storedPath.empty()) {
+        return NormalizeLookupKey(storedPath);
+    }
+    if (!pidl) {
+        return {};
+    }
+    std::wstring canonical = GetCanonicalParsingName(pidl);
+    if (canonical.empty()) {
+        canonical = GetParsingName(pidl);
+    }
+    return NormalizeLookupKey(canonical);
+}
+
+std::wstring BuildLookupKey(const TabInfo& tab) {
+    return BuildLookupKey(tab.pidl.get(), tab.path);
+}
+}  // namespace
+
 std::mutex TabManager::s_windowMutex;
 std::unordered_map<TabManager::ExplorerWindowId, TabManager*, TabManager::ExplorerWindowIdHash>
     TabManager::s_windowMap;
 
-TabManager::TabManager() { EnsureDefaultGroup(); }
+TabManager::TabManager() {
+    EnsureDefaultGroup();
+    RebuildIndices();
+}
 
 TabManager::~TabManager() { ClearWindowId(); }
 
@@ -185,37 +223,12 @@ TabLocation TabManager::Find(PCIDLIST_ABSOLUTE pidl) const {
     if (!pidl) {
         return {};
     }
-    for (size_t g = 0; g < m_groups.size(); ++g) {
-        const auto& group = m_groups[g];
-        for (size_t t = 0; t < group.tabs.size(); ++t) {
-            const auto& tab = group.tabs[t];
-            if (ArePidlsCanonicallyEqual(tab.pidl.get(), pidl)) {
-                if (!ArePidlsEqual(tab.pidl.get(), pidl)) {
-                    std::wstring storedCanonical = tab.path;
-                    if (storedCanonical.empty() && tab.pidl) {
-                        storedCanonical = GetCanonicalParsingName(tab.pidl.get());
-                        if (storedCanonical.empty()) {
-                            storedCanonical = GetParsingName(tab.pidl.get());
-                        }
-                    }
-                    std::wstring incomingCanonical = GetCanonicalParsingName(pidl);
-                    if (incomingCanonical.empty()) {
-                        incomingCanonical = GetParsingName(pidl);
-                    }
-                    LogMessage(LogLevel::Warning,
-                               L"Canonical PIDL collision detected during navigation (group=%zu, tab=%zu, stored=%ls, incoming=%ls)",
-                               g, t,
-                               storedCanonical.empty() ? L"(unknown)" : storedCanonical.c_str(),
-                               incomingCanonical.empty() ? L"(unknown)" : incomingCanonical.c_str());
-                }
-                return {static_cast<int>(g), static_cast<int>(t)};
-            }
-            if (ArePidlsEqual(tab.pidl.get(), pidl)) {
-                return {static_cast<int>(g), static_cast<int>(t)};
-            }
-        }
+    const std::wstring key = BuildLookupKey(pidl, std::wstring{});
+    const TabLocation cached = ResolveFromIndex(key, pidl, false);
+    if (cached.IsValid()) {
+        return cached;
     }
-    return {};
+    return ScanForPidl(pidl);
 }
 
 TabLocation TabManager::GetLastActivatedTab(bool includeHidden) const {
@@ -342,6 +355,7 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
 
     EnsureVisibleSelection();
     UpdateSelectionActivation(previousSelection);
+    RebuildIndices();
     return location;
 }
 
@@ -398,6 +412,7 @@ void TabManager::Remove(TabLocation location) {
 
     EnsureVisibleSelection();
     UpdateSelectionActivation(previousSelection);
+    RebuildIndices();
 }
 
 std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
@@ -455,6 +470,7 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
     EnsureVisibleSelection();
 
     UpdateSelectionActivation(previousSelection);
+    RebuildIndices();
     return removed;
 }
 
@@ -492,6 +508,7 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
     EnsureVisibleSelection();
 
     UpdateSelectionActivation(previousSelection);
+    RebuildIndices();
     return {groupIndex, insertIndex};
 }
 
@@ -514,6 +531,7 @@ std::optional<TabGroup> TabManager::TakeGroup(int groupIndex) {
 
     EnsureDefaultGroup();
     EnsureVisibleSelection();
+    RebuildIndices();
 
     return removed;
 }
@@ -536,6 +554,7 @@ int TabManager::InsertGroup(TabGroup group, int insertIndex) {
     }
 
     EnsureVisibleSelection();
+    RebuildIndices();
     return insertIndex;
 }
 
@@ -551,6 +570,7 @@ void TabManager::Clear() {
     m_groupSequence = 1;
     m_nextActivationOrdinal = 1;
     EnsureDefaultGroup();
+    RebuildIndices();
 }
 
 void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence) {
@@ -569,6 +589,7 @@ void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int se
     EnsureDefaultGroup();
     RecalculateNextActivationOrdinal();
     EnsureVisibleSelection();
+    RebuildIndices();
 }
 
 std::vector<TabViewItem> TabManager::BuildView() const {
@@ -709,6 +730,126 @@ TabLocation TabManager::FindByPath(const std::wstring& path) const {
     if (path.empty()) {
         return {};
     }
+    const std::wstring key = BuildLookupKey(nullptr, path);
+    const TabLocation cached = ResolveFromIndex(key, nullptr, true);
+    if (cached.IsValid()) {
+        return cached;
+    }
+    return ScanForPath(path);
+}
+
+TabLocation TabManager::ResolveFromIndex(const std::wstring& key, PCIDLIST_ABSOLUTE pidl, bool requireVisible) const {
+    if (key.empty()) {
+        return {};
+    }
+    const auto it = m_locationIndex.find(key);
+    if (it == m_locationIndex.end()) {
+        return {};
+    }
+
+    TabLocation candidate;
+    const TabInfo* candidateTab = nullptr;
+    bool canonicalMismatch = false;
+    bool ambiguous = false;
+
+    for (const auto& location : it->second) {
+        const TabInfo* tab = Get(location);
+        if (!tab) {
+            continue;
+        }
+        if (requireVisible && tab->hidden) {
+            continue;
+        }
+        if (pidl) {
+            if (!ArePidlsCanonicallyEqual(tab->pidl.get(), pidl)) {
+                continue;
+            }
+            if (ArePidlsEqual(tab->pidl.get(), pidl)) {
+                return location;
+            }
+            if (!candidate.IsValid()) {
+                candidate = location;
+                candidateTab = tab;
+                canonicalMismatch = true;
+            } else {
+                ambiguous = true;
+            }
+        } else {
+            if (!candidate.IsValid()) {
+                candidate = location;
+                candidateTab = tab;
+            } else {
+                ambiguous = true;
+            }
+        }
+    }
+
+    if (candidate.IsValid() && !ambiguous) {
+        if (pidl && canonicalMismatch && candidateTab) {
+            std::wstring storedCanonical = candidateTab->path;
+            if (storedCanonical.empty() && candidateTab->pidl) {
+                storedCanonical = GetCanonicalParsingName(candidateTab->pidl.get());
+                if (storedCanonical.empty()) {
+                    storedCanonical = GetParsingName(candidateTab->pidl.get());
+                }
+            }
+            std::wstring incomingCanonical = GetCanonicalParsingName(pidl);
+            if (incomingCanonical.empty()) {
+                incomingCanonical = GetParsingName(pidl);
+            }
+            LogMessage(LogLevel::Warning,
+                       L"Canonical PIDL collision detected during navigation (group=%d, tab=%d, stored=%ls, incoming=%ls)",
+                       candidate.groupIndex, candidate.tabIndex,
+                       storedCanonical.empty() ? L"(unknown)" : storedCanonical.c_str(),
+                       incomingCanonical.empty() ? L"(unknown)" : incomingCanonical.c_str());
+        }
+        return candidate;
+    }
+
+    return {};
+}
+
+TabLocation TabManager::ScanForPidl(PCIDLIST_ABSOLUTE pidl) const {
+    if (!pidl) {
+        return {};
+    }
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const auto& tab = group.tabs[t];
+            if (ArePidlsCanonicallyEqual(tab.pidl.get(), pidl)) {
+                if (!ArePidlsEqual(tab.pidl.get(), pidl)) {
+                    std::wstring storedCanonical = tab.path;
+                    if (storedCanonical.empty() && tab.pidl) {
+                        storedCanonical = GetCanonicalParsingName(tab.pidl.get());
+                        if (storedCanonical.empty()) {
+                            storedCanonical = GetParsingName(tab.pidl.get());
+                        }
+                    }
+                    std::wstring incomingCanonical = GetCanonicalParsingName(pidl);
+                    if (incomingCanonical.empty()) {
+                        incomingCanonical = GetParsingName(pidl);
+                    }
+                    LogMessage(LogLevel::Warning,
+                               L"Canonical PIDL collision detected during navigation (group=%zu, tab=%zu, stored=%ls, incoming=%ls)",
+                               g, t,
+                               storedCanonical.empty() ? L"(unknown)" : storedCanonical.c_str(),
+                               incomingCanonical.empty() ? L"(unknown)" : incomingCanonical.c_str());
+                }
+                return {static_cast<int>(g), static_cast<int>(t)};
+            }
+            if (ArePidlsEqual(tab.pidl.get(), pidl)) {
+                return {static_cast<int>(g), static_cast<int>(t)};
+            }
+        }
+    }
+    return {};
+}
+
+TabLocation TabManager::ScanForPath(const std::wstring& path) const {
+    if (path.empty()) {
+        return {};
+    }
     for (size_t g = 0; g < m_groups.size(); ++g) {
         const auto& group = m_groups[g];
         for (size_t t = 0; t < group.tabs.size(); ++t) {
@@ -726,6 +867,21 @@ TabLocation TabManager::FindByPath(const std::wstring& path) const {
         }
     }
     return {};
+}
+
+void TabManager::RebuildIndices() {
+    m_locationIndex.clear();
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const auto& tab = group.tabs[t];
+            const std::wstring key = BuildLookupKey(tab);
+            if (key.empty()) {
+                continue;
+            }
+            m_locationIndex[key].push_back({static_cast<int>(g), static_cast<int>(t)});
+        }
+    }
 }
 
 bool TabManager::ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now) {
@@ -1007,6 +1163,7 @@ int TabManager::CreateGroupAfter(int groupIndex, std::wstring name, bool headerV
 
     EnsureDefaultGroup();
     EnsureVisibleSelection();
+    RebuildIndices();
 
     return std::clamp(insertIndex, 0, static_cast<int>(m_groups.size()) - 1);
 }
@@ -1082,6 +1239,7 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
     }
 
     EnsureVisibleSelection();
+    RebuildIndices();
 }
 
 bool TabManager::SetTabPinned(TabLocation location, bool pinned) {
@@ -1161,6 +1319,7 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
     }
 
     EnsureVisibleSelection();
+    RebuildIndices();
 }
 
 void TabManager::EnsureDefaultGroup() {
