@@ -61,6 +61,82 @@ void NotifyHighlightObservers(const std::vector<HWND>& listViews, const std::vec
     DispatchInvalidations(treeViews, HighlightPaneType::TreeView);
 }
 
+bool TryGetTreeItemRect(HWND treeView, HTREEITEM item, RECT* rect) {
+    if (!treeView || !item || !rect) {
+        return false;
+    }
+
+    RECT itemRect{};
+    if (!TreeView_GetItemRect(treeView, item, &itemRect, FALSE)) {
+        return false;
+    }
+
+    RECT clientRect{};
+    if (GetClientRect(treeView, &clientRect)) {
+        itemRect.left = clientRect.left;
+        itemRect.right = clientRect.right;
+    }
+
+    *rect = itemRect;
+    return true;
+}
+
+void InvalidateTreeRegion(HWND treeView, const RECT* rect) {
+    if (!treeView || !IsWindow(treeView)) {
+        return;
+    }
+
+    InvalidateRect(treeView, rect, FALSE);
+}
+
+void InvalidateTreeSelectionChange(HWND treeView, HTREEITEM oldItem, HTREEITEM newItem) {
+    if (!treeView || !IsWindow(treeView)) {
+        return;
+    }
+
+    RECT invalidRect{};
+    bool hasRect = false;
+
+    RECT itemRect{};
+    if (TryGetTreeItemRect(treeView, oldItem, &itemRect)) {
+        invalidRect = itemRect;
+        hasRect = true;
+    }
+
+    if (TryGetTreeItemRect(treeView, newItem, &itemRect)) {
+        if (hasRect) {
+            UnionRect(&invalidRect, &invalidRect, &itemRect);
+        } else {
+            invalidRect = itemRect;
+            hasRect = true;
+        }
+    }
+
+    if (hasRect) {
+        InvalidateTreeRegion(treeView, &invalidRect);
+    } else {
+        InvalidateTreeRegion(treeView, nullptr);
+    }
+}
+
+void InvalidateTreeItemBranch(HWND treeView, HTREEITEM item) {
+    if (!treeView || !IsWindow(treeView)) {
+        return;
+    }
+
+    RECT itemRect{};
+    if (TryGetTreeItemRect(treeView, item, &itemRect)) {
+        RECT clientRect{};
+        if (GetClientRect(treeView, &clientRect)) {
+            RECT invalidRect{clientRect.left, itemRect.top, clientRect.right, clientRect.bottom};
+            InvalidateTreeRegion(treeView, &invalidRect);
+            return;
+        }
+    }
+
+    InvalidateTreeRegion(treeView, nullptr);
+}
+
 std::wstring NormalizeHighlightKey(const std::wstring& path) {
     if (path.empty()) {
         return {};
@@ -137,6 +213,18 @@ bool PaneHookRouter::HandleNotify(const NMHDR* header, LRESULT* result) {
             case NM_CUSTOMDRAW: {
                 auto* draw = reinterpret_cast<NMTVCUSTOMDRAW*>(const_cast<NMHDR*>(header));
                 return HandleTreeCustomDraw(draw, result);
+            }
+            case TVN_ITEMCHANGING:
+            {
+                const auto* change = reinterpret_cast<const NMTREEVIEW*>(header);
+                InvalidateTreeSelectionChange(m_treeView, change->itemOld.hItem, change->itemNew.hItem);
+                break;
+            }
+            case TVN_ITEMEXPANDED:
+            {
+                const auto* expanded = reinterpret_cast<const NMTREEVIEW*>(header);
+                InvalidateTreeItemBranch(m_treeView, expanded->itemNew.hItem);
+                break;
             }
             case TVN_SELCHANGEDW:
             case TVN_SELCHANGEDA: {
