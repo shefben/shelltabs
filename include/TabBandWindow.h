@@ -19,6 +19,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_map>
+#include <functional>
 
 #include <commctrl.h>
 #include <wrl/client.h>
@@ -107,6 +109,20 @@ private:
         bool indicatorHandle = false;
         size_t index = 0;
         int row = 0;
+    };
+
+    struct TabLocationHash {
+        size_t operator()(const TabLocation& location) const noexcept {
+            const size_t group = std::hash<int>{}(location.groupIndex);
+            const size_t tab = std::hash<int>{}(location.tabIndex);
+            return group ^ (tab + 0x9e3779b97f4a7c15ULL + (group << 6) + (group >> 2));
+        }
+    };
+
+    struct TabLocationEqual {
+        bool operator()(const TabLocation& lhs, const TabLocation& rhs) const noexcept {
+            return lhs.groupIndex == rhs.groupIndex && lhs.tabIndex == rhs.tabIndex;
+        }
     };
 
     struct TabPaintMetrics {
@@ -215,6 +231,7 @@ private:
 
     RECT m_clientRect{};
     std::vector<TabViewItem> m_tabData;
+    std::unordered_map<TabLocation, size_t, TabLocationHash, TabLocationEqual> m_tabLocationIndex;
     std::vector<VisualItem> m_items;
     std::vector<RECT> m_progressRects;
     std::vector<size_t> m_activeProgressIndices;
@@ -381,6 +398,7 @@ private:
     const VisualItem* FindLastGroupHeader() const;
     const VisualItem* FindVisualForHit(const HitInfo& hit) const;
     size_t FindTabDataIndex(TabLocation location) const;
+    void RebuildTabLocationIndex();
     TabPaintMetrics ComputeTabPaintMetrics(const VisualItem& item) const;
     bool ComputeProgressBounds(const VisualItem& item, const TabPaintMetrics& metrics, RECT* out) const;
     void EnsureProgressRectCache();
