@@ -758,6 +758,7 @@ void TabBandWindow::Destroy() {
     m_buttonDarkModeInitialized = false;
     m_buttonDarkModeValue = false;
     ResetThemePalette();
+    ReleaseBackBuffer();
 
     if (m_newTabButton) {
         DestroyWindow(m_newTabButton);
@@ -938,6 +939,25 @@ void TabBandWindow::ClearVisualItems() {
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
+}
+
+void TabBandWindow::ReleaseBackBuffer() {
+    if (m_backBufferDC && m_backBufferOldBitmap && m_backBufferOldBitmap != HGDI_ERROR) {
+        SelectObject(m_backBufferDC, m_backBufferOldBitmap);
+    }
+    m_backBufferOldBitmap = nullptr;
+
+    if (m_backBufferBitmap) {
+        DeleteObject(m_backBufferBitmap);
+        m_backBufferBitmap = nullptr;
+    }
+
+    if (m_backBufferDC) {
+        DeleteDC(m_backBufferDC);
+        m_backBufferDC = nullptr;
+    }
+
+    m_backBufferSize = {0, 0};
 }
 
 TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<TabViewItem>& items) {
@@ -1464,7 +1484,7 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 }
 
 
-void TabBandWindow::Draw(HDC dc) const {
+void TabBandWindow::Draw(HDC dc) {
     if (!dc) {
         return;
     }
@@ -1496,28 +1516,46 @@ void TabBandWindow::Draw(HDC dc) const {
             owner->RecordRedrawDuration(ms, incremental);
             owner->m_nextRedrawIncremental = false;
         }
-    } guard(const_cast<TabBandWindow*>(this), incremental);
+    } guard(this, incremental);
 
-    HDC memDC = CreateCompatibleDC(dc);
-    if (!memDC) {
-        PaintSurface(dc, windowRect);
-        return;
+    const bool sizeChanged = m_backBufferSize.cx != width || m_backBufferSize.cy != height;
+    if (sizeChanged) {
+        ReleaseBackBuffer();
     }
 
-    HBITMAP buffer = CreateCompatibleBitmap(dc, width, height);
-    if (!buffer) {
-        DeleteDC(memDC);
-        PaintSurface(dc, windowRect);
-        return;
+    if (!m_backBufferDC) {
+        m_backBufferDC = CreateCompatibleDC(dc);
+        if (!m_backBufferDC) {
+            PaintSurface(dc, windowRect);
+            return;
+        }
     }
 
-    HGDIOBJ oldBitmap = SelectObject(memDC, buffer);
+    if (!m_backBufferBitmap) {
+        HBITMAP newBitmap = CreateCompatibleBitmap(dc, width, height);
+        if (!newBitmap) {
+            ReleaseBackBuffer();
+            PaintSurface(dc, windowRect);
+            return;
+        }
+
+        HGDIOBJ old = SelectObject(m_backBufferDC, newBitmap);
+        if (!old || old == HGDI_ERROR) {
+            DeleteObject(newBitmap);
+            ReleaseBackBuffer();
+            PaintSurface(dc, windowRect);
+            return;
+        }
+
+        m_backBufferOldBitmap = old;
+        m_backBufferBitmap = newBitmap;
+        m_backBufferSize.cx = width;
+        m_backBufferSize.cy = height;
+    }
+
     RECT localRect{0, 0, width, height};
-    PaintSurface(memDC, localRect);
-    BitBlt(dc, windowRect.left, windowRect.top, width, height, memDC, 0, 0, SRCCOPY);
-    SelectObject(memDC, oldBitmap);
-    DeleteObject(buffer);
-    DeleteDC(memDC);
+    PaintSurface(m_backBufferDC, localRect);
+    BitBlt(dc, windowRect.left, windowRect.top, width, height, m_backBufferDC, 0, 0, SRCCOPY);
 }
 
 void TabBandWindow::RecordRedrawDuration(double milliseconds, bool incremental) {
@@ -5685,6 +5723,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->CloseThemeHandles();
                 self->ClearDropHoverState();
                 self->HidePreviewWindow(true);
+                self->ReleaseBackBuffer();
                 self->UnregisterShellNotifications();
                 if (auto* manager = self->ResolveManager()) {
                     manager->UnregisterProgressListener(hwnd);

@@ -270,6 +270,11 @@ private:
         Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
         std::shared_ptr<ExplorerWindowHook> m_windowHook;
 
+        HDC m_backBufferDC = nullptr;
+        HBITMAP m_backBufferBitmap = nullptr;
+        HGDIOBJ m_backBufferOldBitmap = nullptr;
+        SIZE m_backBufferSize{};
+
         TabBandDockMode m_preferredDockMode = TabBandDockMode::kAutomatic;
         TabBandDockMode m_currentDockMode = TabBandDockMode::kAutomatic;
         bool m_nextRedrawIncremental = false;
@@ -292,7 +297,7 @@ private:
 
     void Layout(int width, int height);
     void RebuildLayout();
-    void Draw(HDC dc) const;
+    void Draw(HDC dc);
     void PaintSurface(HDC dc, const RECT& windowRect) const;
     void DrawBackground(HDC dc, const RECT& bounds) const;
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
@@ -303,6 +308,7 @@ private:
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
     void ClearVisualItems();
+    void ReleaseBackBuffer();
     void ClearExplorerContext();
     IconCache::Reference LoadItemIcon(const TabViewItem& item, UINT iconFlags) const;
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
