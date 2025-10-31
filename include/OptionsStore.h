@@ -32,6 +32,30 @@ enum class NewTabTemplate {
     kSavedGroup,
 };
 
+enum class GlowSurfaceMode {
+    kExplorerAccent = 0,
+    kSolid,
+    kGradient,
+};
+
+struct GlowSurfaceOptions {
+    GlowSurfaceMode mode = GlowSurfaceMode::kGradient;
+    COLORREF solidColor = RGB(0, 120, 215);
+    COLORREF gradientStartColor = RGB(0, 120, 215);
+    COLORREF gradientEndColor = RGB(0, 153, 255);
+
+    GlowSurfaceOptions() = default;
+    explicit GlowSurfaceOptions(GlowSurfaceMode initialMode) : mode(initialMode) {}
+};
+
+struct GlowSurfacePalette {
+    GlowSurfaceOptions header{};
+    GlowSurfaceOptions listView{GlowSurfaceMode::kExplorerAccent};
+    GlowSurfaceOptions toolbar{};
+    GlowSurfaceOptions rebar{};
+    GlowSurfaceOptions edits{};
+};
+
 struct ShellTabsOptions {
     bool reopenOnCrash = false;
     bool persistGroupPaths = false;
@@ -60,6 +84,7 @@ struct ShellTabsOptions {
     bool useCustomTabUnselectedColor = false;
     COLORREF customTabUnselectedColor = RGB(200, 200, 200);
     bool useExplorerAccentColors = true;
+    GlowSurfacePalette glowPalette{};
     bool enableFolderBackgrounds = false;
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
@@ -95,6 +120,16 @@ inline bool operator!=(const ShellTabsOptions& left, const ShellTabsOptions& rig
     return !(left == right);
 }
 
+bool operator==(const GlowSurfaceOptions& left, const GlowSurfaceOptions& right) noexcept;
+inline bool operator!=(const GlowSurfaceOptions& left, const GlowSurfaceOptions& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept;
+inline bool operator!=(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept {
+    return !(left == right);
+}
+
 bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept;
 inline bool operator!=(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {
     return !(left == right);
@@ -104,6 +139,9 @@ bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& 
 inline bool operator!=(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
     return !(left == right);
 }
+
+void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options);
+void UpdateLegacyGlowSettingsFromPalette(ShellTabsOptions& options);
 
 }  // namespace shelltabs
 
