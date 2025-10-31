@@ -20,6 +20,7 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <cstring>
@@ -51,6 +52,12 @@ constexpr int kEditorWidth = 340;
 constexpr int kEditorHeight = 220;
 constexpr SIZE kUniversalPreviewSize = {96, 72};
 constexpr SIZE kFolderPreviewSize = {64, 64};
+constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
+
+struct PreviewBitmapResult {
+    UINT64 token = 0;
+    HBITMAP bitmap = nullptr;
+};
 
 enum ControlIds : int {
     IDC_MAIN_REOPEN = 5001,
@@ -117,6 +124,7 @@ enum ControlIds : int {
     IDC_CUSTOM_BACKGROUND_REMOVE = 5308,
     IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW = 5309,
     IDC_CUSTOM_BACKGROUND_FOLDER_NAME = 5310,
+    IDC_CUSTOM_BACKGROUND_CLEAN = 5311,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -158,6 +166,8 @@ struct OptionsDialogData {
     HBRUSH tabUnselectedBrush = nullptr;
     HBITMAP universalBackgroundPreview = nullptr;
     HBITMAP folderBackgroundPreview = nullptr;
+    UINT64 universalPreviewToken = 0;
+    UINT64 folderPreviewToken = 0;
     std::wstring lastFolderBrowsePath;
     std::wstring lastImageBrowseDirectory;
     std::vector<std::wstring> createdCachedImagePaths;
@@ -877,6 +887,7 @@ std::vector<BYTE> BuildCustomizationPageTemplate() {
     addSizedButton(IDC_CUSTOM_BACKGROUND_ADD, 24, 764, 60, 16, L"Add");
     addSizedButton(IDC_CUSTOM_BACKGROUND_EDIT, 92, 764, 60, 16, L"Edit");
     addSizedButton(IDC_CUSTOM_BACKGROUND_REMOVE, 160, 764, 60, 16, L"Remove");
+    addSizedButton(IDC_CUSTOM_BACKGROUND_CLEAN, 228, 764, 90, 16, L"Clean Up...");
 
     AlignDialogBuffer(data);
     return data;
@@ -1229,9 +1240,12 @@ std::wstring ExtractDirectoryFromPath(const std::wstring& path) {
     return path.substr(0, separator);
 }
 
-bool CopyImageToCache(const std::wstring& sourcePath, const std::wstring& displayName, CachedImageMetadata* metadata,
-                      std::wstring* createdPath) {
-    return CopyImageToBackgroundCache(sourcePath, displayName, metadata, createdPath);
+bool CopyImageToCache(const std::wstring& sourcePath,
+                      const std::wstring& displayName,
+                      CachedImageMetadata* metadata,
+                      std::wstring* createdPath,
+                      std::wstring* errorMessage) {
+    return CopyImageToBackgroundCache(sourcePath, displayName, metadata, createdPath, errorMessage);
 }
 
 bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* displayName, const std::wstring& initialDirectory) {
@@ -1407,7 +1421,7 @@ void UpdateFolderBackgroundControlsEnabled(HWND hwnd, bool enabled) {
                             IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, IDC_CUSTOM_BACKGROUND_LIST,
                             IDC_CUSTOM_BACKGROUND_ADD,           IDC_CUSTOM_BACKGROUND_EDIT,
                             IDC_CUSTOM_BACKGROUND_REMOVE,        IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW,
-                            IDC_CUSTOM_BACKGROUND_FOLDER_NAME};
+                            IDC_CUSTOM_BACKGROUND_FOLDER_NAME,   IDC_CUSTOM_BACKGROUND_CLEAN};
     for (int id : controls) {
         if (HWND control = GetDlgItem(hwnd, id)) {
             EnableWindow(control, enabled);
@@ -1429,9 +1443,73 @@ void UpdateFolderBackgroundButtons(HWND hwnd) {
     if (HWND removeButton = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_REMOVE)) {
         EnableWindow(removeButton, hasSelection);
     }
+    if (HWND cleanButton = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_CLEAN)) {
+        EnableWindow(cleanButton, enabled);
+    }
 }
 
-HBITMAP LoadPreviewBitmap(const std::wstring& path, const SIZE& size) {
+std::wstring FormatCacheMaintenanceSummary(const CacheMaintenanceResult& result) {
+    if (result.removedPaths.empty() && result.failures.empty()) {
+        return L"No orphaned cache entries were found.";
+    }
+
+    std::wstring message;
+    if (!result.removedPaths.empty()) {
+        message += L"Removed " + std::to_wstring(result.removedPaths.size()) + L" orphaned cached image";
+        message += result.removedPaths.size() == 1 ? L"." : L"s.";
+        const size_t listCount = std::min<size_t>(result.removedPaths.size(), 5);
+        for (size_t i = 0; i < listCount; ++i) {
+            message += L"\n  - " + result.removedPaths[i];
+        }
+        if (result.removedPaths.size() > listCount) {
+            message += L"\n  - ...";
+        }
+    }
+
+    if (!result.failures.empty()) {
+        if (!message.empty()) {
+            message += L"\n\n";
+        }
+        message += L"Unable to remove " + std::to_wstring(result.failures.size()) + L" cache item";
+        message += result.failures.size() == 1 ? L":" : L"s:";
+        for (const auto& failure : result.failures) {
+            message += L"\n  - " + failure.path;
+            if (!failure.message.empty()) {
+                message += L" (" + failure.message + L")";
+            }
+        }
+    }
+
+    return message;
+}
+
+void HandleBackgroundCacheMaintenance(HWND hwnd, OptionsDialogData* data) {
+    auto& store = OptionsStore::Instance();
+    store.Load();
+    ShellTabsOptions persisted = store.Get();
+
+    std::vector<std::wstring> protectedPaths;
+    if (data) {
+        std::vector<std::wstring> workingReferences = CollectCachedImageReferences(data->workingOptions);
+        protectedPaths.insert(protectedPaths.end(), workingReferences.begin(), workingReferences.end());
+        for (const auto& created : data->createdCachedImagePaths) {
+            if (!created.empty()) {
+                protectedPaths.push_back(created);
+            }
+        }
+    }
+
+    CacheMaintenanceResult maintenance = RemoveOrphanedCacheEntries(persisted, protectedPaths);
+    std::wstring summary = FormatCacheMaintenanceSummary(maintenance);
+    if (summary.empty()) {
+        summary = L"Cache maintenance completed.";
+    }
+
+    const UINT icon = maintenance.failures.empty() ? MB_ICONINFORMATION : MB_ICONWARNING;
+    MessageBoxW(hwnd, summary.c_str(), L"ShellTabs", MB_OK | icon);
+}
+
+HBITMAP LoadPreviewBitmapSync(const std::wstring& path, const SIZE& size) {
     if (path.empty()) {
         return nullptr;
     }
@@ -1455,6 +1533,42 @@ HBITMAP LoadPreviewBitmap(const std::wstring& path, const SIZE& size) {
     if (FAILED(hr)) {
         return nullptr;
     }
+    TouchCachedImage(path);
+    return bitmap;
+}
+
+HBITMAP CreatePlaceholderBitmap(const SIZE& size) {
+    if (size.cx <= 0 || size.cy <= 0) {
+        return nullptr;
+    }
+
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = size.cx;
+    info.bmiHeader.biHeight = -size.cy;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) {
+        if (bitmap && !bits) {
+            DeleteObject(bitmap);
+            bitmap = nullptr;
+        }
+        return bitmap;
+    }
+
+    DWORD* pixels = static_cast<DWORD*>(bits);
+    for (int y = 0; y < size.cy; ++y) {
+        for (int x = 0; x < size.cx; ++x) {
+            const bool dark = (((x / 4) + (y / 4)) & 1) == 0;
+            const BYTE value = dark ? 0xC0 : 0xE0;
+            pixels[y * size.cx + x] = 0xFF000000 | (static_cast<DWORD>(value) << 16) |
+                                      (static_cast<DWORD>(value) << 8) | static_cast<DWORD>(value);
+        }
+    }
     return bitmap;
 }
 
@@ -1477,13 +1591,62 @@ void SetPreviewBitmap(HWND hwnd, int controlId, HBITMAP* stored, HBITMAP bitmap)
     *stored = bitmap;
 }
 
+void RequestPreviewBitmap(HWND hwnd,
+                          int controlId,
+                          const std::wstring& path,
+                          const SIZE& size,
+                          UINT64* tokenStorage,
+                          HBITMAP* storedBitmap) {
+    if (!tokenStorage || !storedBitmap) {
+        return;
+    }
+
+    const UINT64 token = ++(*tokenStorage);
+
+    if (path.empty()) {
+        SetPreviewBitmap(hwnd, controlId, storedBitmap, nullptr);
+        return;
+    }
+
+    HBITMAP placeholder = CreatePlaceholderBitmap(size);
+    SetPreviewBitmap(hwnd, controlId, storedBitmap, placeholder);
+
+    std::wstring pathCopy = path;
+    std::thread([hwnd, controlId, size, token, pathCopy]() {
+        HRESULT initHr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        if (FAILED(initHr) && initHr != RPC_E_CHANGED_MODE) {
+            auto* result = new PreviewBitmapResult{token, nullptr};
+            if (!PostMessageW(hwnd, WM_PREVIEW_BITMAP_READY, static_cast<WPARAM>(controlId),
+                               reinterpret_cast<LPARAM>(result))) {
+                delete result;
+            }
+            return;
+        }
+
+        HBITMAP bitmap = LoadPreviewBitmapSync(pathCopy, size);
+
+        if (SUCCEEDED(initHr)) {
+            CoUninitialize();
+        }
+
+        auto* result = new PreviewBitmapResult{token, bitmap};
+        if (!PostMessageW(hwnd, WM_PREVIEW_BITMAP_READY, static_cast<WPARAM>(controlId),
+                          reinterpret_cast<LPARAM>(result))) {
+            if (result->bitmap) {
+                DeleteObject(result->bitmap);
+            }
+            delete result;
+        }
+    }).detach();
+}
+
 void UpdateUniversalBackgroundPreview(HWND hwnd, OptionsDialogData* data) {
     if (!data) {
         return;
     }
-    HBITMAP bitmap = LoadPreviewBitmap(data->workingOptions.universalFolderBackgroundImage.cachedImagePath,
-                                       kUniversalPreviewSize);
-    SetPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_PREVIEW, &data->universalBackgroundPreview, bitmap);
+    RequestPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_PREVIEW,
+                         data->workingOptions.universalFolderBackgroundImage.cachedImagePath,
+                         kUniversalPreviewSize, &data->universalPreviewToken, &data->universalBackgroundPreview);
     const std::wstring& name = data->workingOptions.universalFolderBackgroundImage.displayName;
     SetDlgItemTextW(hwnd, IDC_CUSTOM_BACKGROUND_UNIVERSAL_NAME, name.empty() ? L"(None)" : name.c_str());
 }
@@ -1494,14 +1657,15 @@ void UpdateSelectedFolderBackgroundPreview(HWND hwnd, OptionsDialogData* data) {
     }
     HWND list = GetDlgItem(hwnd, IDC_CUSTOM_BACKGROUND_LIST);
     const int selection = GetSelectedFolderBackgroundIndex(list);
-    HBITMAP bitmap = nullptr;
     std::wstring name;
+    std::wstring path;
     if (selection >= 0 && static_cast<size_t>(selection) < data->workingOptions.folderBackgroundEntries.size()) {
         const auto& entry = data->workingOptions.folderBackgroundEntries[static_cast<size_t>(selection)];
         name = entry.image.displayName;
-        bitmap = LoadPreviewBitmap(entry.image.cachedImagePath, kFolderPreviewSize);
+        path = entry.image.cachedImagePath;
     }
-    SetPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, &data->folderBackgroundPreview, bitmap);
+    RequestPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, path, kFolderPreviewSize,
+                         &data->folderPreviewToken, &data->folderBackgroundPreview);
     SetDlgItemTextW(hwnd, IDC_CUSTOM_BACKGROUND_FOLDER_NAME, name.c_str());
 }
 
@@ -1633,9 +1797,15 @@ void HandleUniversalBackgroundBrowse(HWND hwnd, OptionsDialogData* data) {
     }
     CachedImageMetadata metadata = data->workingOptions.universalFolderBackgroundImage;
     std::wstring createdPath;
+    std::wstring errorMessage;
     const std::wstring previousPath = metadata.cachedImagePath;
-    if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath)) {
-        MessageBoxW(hwnd, L"Unable to copy the selected image.", L"ShellTabs", MB_OK | MB_ICONERROR);
+    if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath, &errorMessage)) {
+        std::wstring message = L"Unable to copy the selected image.";
+        if (!errorMessage.empty()) {
+            message += L"\n\n";
+            message += errorMessage;
+        }
+        MessageBoxW(hwnd, message.c_str(), L"ShellTabs", MB_OK | MB_ICONERROR);
         return;
     }
     data->workingOptions.universalFolderBackgroundImage = metadata;
@@ -1678,8 +1848,14 @@ void HandleAddFolderBackgroundEntry(HWND hwnd, OptionsDialogData* data) {
 
     CachedImageMetadata metadata;
     std::wstring createdPath;
-    if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath)) {
-        MessageBoxW(hwnd, L"Unable to copy the selected image.", L"ShellTabs", MB_OK | MB_ICONERROR);
+    std::wstring errorMessage;
+    if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath, &errorMessage)) {
+        std::wstring message = L"Unable to copy the selected image.";
+        if (!errorMessage.empty()) {
+            message += L"\n\n";
+            message += errorMessage;
+        }
+        MessageBoxW(hwnd, message.c_str(), L"ShellTabs", MB_OK | MB_ICONERROR);
         return;
     }
     if (!createdPath.empty()) {
@@ -1741,9 +1917,15 @@ void HandleEditFolderBackgroundEntry(HWND hwnd, OptionsDialogData* data) {
     if (BrowseForImage(hwnd, &imagePath, &displayName, initialDirectory)) {
         CachedImageMetadata metadata = entry.image;
         std::wstring createdPath;
+        std::wstring errorMessage;
         const std::wstring previousPath = metadata.cachedImagePath;
-        if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath)) {
-            MessageBoxW(hwnd, L"Unable to copy the selected image.", L"ShellTabs", MB_OK | MB_ICONERROR);
+        if (!CopyImageToCache(imagePath, displayName, &metadata, &createdPath, &errorMessage)) {
+            std::wstring message = L"Unable to copy the selected image.";
+            if (!errorMessage.empty()) {
+                message += L"\n\n";
+                message += errorMessage;
+            }
+            MessageBoxW(hwnd, message.c_str(), L"ShellTabs", MB_OK | MB_ICONERROR);
             return;
         }
         entry.image = std::move(metadata);
@@ -2893,6 +3075,11 @@ private:
                     HandleRemoveFolderBackgroundEntry(hwnd, data);
                 }
                 return true;
+            case IDC_CUSTOM_BACKGROUND_CLEAN:
+                if (data && IsDlgButtonChecked(hwnd, IDC_CUSTOM_BACKGROUND_ENABLE) == BST_CHECKED) {
+                    HandleBackgroundCacheMaintenance(hwnd, data);
+                }
+                return true;
             default:
                 return false;
         }
@@ -3067,6 +3254,36 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 return TRUE;
             }
             break;
+        }
+        case WM_PREVIEW_BITMAP_READY: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            auto* result = reinterpret_cast<PreviewBitmapResult*>(lParam);
+            if (!result) {
+                return TRUE;
+            }
+
+            const int controlId = static_cast<int>(wParam);
+            bool applied = false;
+            if (data) {
+                if (controlId == IDC_CUSTOM_BACKGROUND_PREVIEW && result->token == data->universalPreviewToken) {
+                    SetPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_PREVIEW, &data->universalBackgroundPreview,
+                                     result->bitmap);
+                    result->bitmap = nullptr;
+                    applied = true;
+                } else if (controlId == IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW &&
+                           result->token == data->folderPreviewToken) {
+                    SetPreviewBitmap(hwnd, IDC_CUSTOM_BACKGROUND_FOLDER_PREVIEW, &data->folderBackgroundPreview,
+                                     result->bitmap);
+                    result->bitmap = nullptr;
+                    applied = true;
+                }
+            }
+
+            if (!applied && result->bitmap) {
+                DeleteObject(result->bitmap);
+            }
+            delete result;
+            return TRUE;
         }
         case WM_CTLCOLORSTATIC: {
             auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
