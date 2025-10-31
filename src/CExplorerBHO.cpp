@@ -4,6 +4,7 @@
 #include <exdispid.h>
 #include <oleauto.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <shlguid.h>
 #include <CommCtrl.h>
 #include <windowsx.h>
@@ -467,6 +468,8 @@ class shelltabs::CExplorerBHO::NamespaceTreeCustomDrawSink
 public:
     explicit NamespaceTreeCustomDrawSink(CExplorerBHO* owner) noexcept : m_refCount(1), m_owner(owner) {}
 
+    virtual ~NamespaceTreeCustomDrawSink() = default;
+
     void Detach() noexcept { m_owner = nullptr; }
 
     IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
@@ -501,7 +504,8 @@ public:
 
     IFACEMETHODIMP PostPaint(HDC, RECT*) override { return S_OK; }
 
-    IFACEMETHODIMP ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* details, LRESULT* result) override {
+    IFACEMETHODIMP ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* details, COLORREF* textColor, COLORREF* textBackground,
+                                LRESULT* result) override {
         if (result) {
             *result = CDRF_DODEFAULT;
         }
@@ -520,12 +524,12 @@ public:
         }
 
         bool applied = false;
-        if (highlight.hasTextColor) {
-            details->clrText = highlight.textColor;
+        if (highlight.hasTextColor && textColor) {
+            *textColor = highlight.textColor;
             applied = true;
         }
-        if (highlight.hasBackgroundColor) {
-            details->clrTextBk = highlight.backgroundColor;
+        if (highlight.hasBackgroundColor && textBackground) {
+            *textBackground = highlight.backgroundColor;
             applied = true;
         }
 
@@ -1154,8 +1158,14 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
+    Microsoft::WRL::ComPtr<IFolderView> baseFolderView;
+    hr = folderView.As(&baseFolderView);
+    if (FAILED(hr) || !baseFolderView) {
+        return false;
+    }
+
     PIDLIST_RELATIVE child = nullptr;
-    hr = folderView->GetItem(itemIndex, &child);
+    hr = baseFolderView->GetItem(itemIndex, &child);
     if (FAILED(hr) || !child) {
         return false;
     }

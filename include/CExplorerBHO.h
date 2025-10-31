@@ -128,7 +128,7 @@ struct ShellTabsOptions;
                 void DestroyProgressGradientResources();
                 void UpdateExplorerViewSubclass();
                 void RemoveExplorerViewSubclass();
-                bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
+                bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView, HWND directUiHost);
                 void TryAttachNamespaceTreeControl(IShellView* shellView);
                 void ResetNamespaceTreeControl();
                 bool TryResolveNamespaceTreeHighlight(const NSTCCUSTOMDRAW& details, PaneHighlight* highlight) const;
