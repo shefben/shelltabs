@@ -3738,9 +3738,9 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
                                 focusId = m_owner->GetSavedGroupId(m_contextHit.location.groupIndex);
                         }
                         if (!focusId.empty()) {
-                                m_owner->OnShowOptionsDialog(2, focusId);
+                                m_owner->OnShowOptionsDialog(OptionsDialogPage::kGroups, focusId);
                         } else {
-                                m_owner->OnShowOptionsDialog(2);
+                                m_owner->OnShowOptionsDialog(OptionsDialogPage::kGroups);
                         }
                 }
                 ClearExplorerContext();
@@ -3749,7 +3749,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 
         if (id == IDM_OPTIONS) {
                 if (m_owner) {
-                        m_owner->OnShowOptionsDialog(0);
+                        m_owner->OnShowOptionsDialog(OptionsDialogPage::kGeneral);
                 }
                 ClearExplorerContext();
                 return;

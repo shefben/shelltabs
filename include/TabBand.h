@@ -20,6 +20,7 @@
 #include "SessionStore.h"
 #include "OptionsStore.h"
 #include "GroupStore.h"
+#include "OptionsDialog.h"
 
 namespace shelltabs {
 
@@ -136,7 +137,8 @@ public:
     std::vector<std::wstring> GetSavedGroupNames() const;
     void OnCreateSavedGroup(int afterGroup);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
-    void OnShowOptionsDialog(int initialTab = 0, const std::wstring& focusGroupId = std::wstring(),
+    void OnShowOptionsDialog(OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
+                             const std::wstring& focusGroupId = std::wstring(),
                              bool editFocusedGroup = false);
     void OnSavedGroupsChanged();
     void OnDeferredNavigate();

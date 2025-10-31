@@ -10,6 +10,13 @@
 
 namespace shelltabs {
 
+enum class OptionsDialogPage : int {
+    kGeneral = 0,
+    kCustomizations = 1,
+    kGlow = 2,
+    kGroups = 3,
+};
+
 struct OptionsDialogResult {
     bool saved = false;
     bool optionsChanged = false;
@@ -19,7 +26,8 @@ struct OptionsDialogResult {
     std::vector<std::wstring> removedGroupIds;
 };
 
-OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab = 0,
+OptionsDialogResult ShowOptionsDialog(HWND parent,
+                                     OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
                                      const wchar_t* focusSavedGroupId = nullptr,
                                      bool editFocusedGroup = false);
 
