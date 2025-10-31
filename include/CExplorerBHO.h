@@ -23,6 +23,7 @@
 #include <exdisp.h>
 #include <ocidl.h>
 #include <shlobj.h>
+#include <shobjidl_core.h>
 
 #include <wrl/client.h>
 
@@ -64,6 +65,8 @@ struct ShellTabsOptions;
                 bool TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) override;
 
         private:
+                class NamespaceTreeCustomDrawSink;
+
                 enum class BandEnsureOutcome {
                         Unknown,
                         Success,
@@ -126,6 +129,10 @@ struct ShellTabsOptions;
                 void UpdateExplorerViewSubclass();
                 void RemoveExplorerViewSubclass();
                 bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView);
+                void TryAttachNamespaceTreeControl(IShellView* shellView);
+                void ResetNamespaceTreeControl();
+                bool TryResolveNamespaceTreeHighlight(const NSTCCUSTOMDRAW& details, PaneHighlight* highlight) const;
+                void InvalidateNamespaceTreeControl() const;
                 bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
                 void ClearFolderBackgrounds();
@@ -243,6 +250,9 @@ struct ShellTabsOptions;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
                 PaneHookRouter m_paneHooks;
+                Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
+                Microsoft::WRL::ComPtr<NamespaceTreeCustomDrawSink> m_namespaceTreeCustomDrawSink;
+                DWORD m_namespaceTreeCustomDrawCookie = 0;
                 bool m_folderBackgroundsEnabled = false;
                 std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
                 std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
