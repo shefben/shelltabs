@@ -35,6 +35,7 @@
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
 #include "Utilities.h"
+#include "IconCache.h"
 #include "FtpPidl.h"
 
 namespace shelltabs {
@@ -2207,11 +2208,16 @@ void TabBand::EnsureTabForCurrentFolder() {
     const TabLocation selected = m_tabs.SelectedLocation();
     if (selected.IsValid()) {
         if (auto* tab = m_tabs.Get(selected)) {
+            const std::wstring oldKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
             tab->pidl = ClonePidl(current.get());
             tab->name = name;
             tab->tooltip = name;
             tab->hidden = false;
             tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
+            const std::wstring newKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
+            if (!oldKey.empty() && oldKey != newKey) {
+                IconCache::Instance().InvalidateFamily(oldKey);
+            }
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
             SyncSavedGroup(selected.groupIndex);
             return;
@@ -2221,10 +2227,15 @@ void TabBand::EnsureTabForCurrentFolder() {
     TabLocation existing = m_tabs.Find(current.get());
     if (existing.IsValid()) {
         if (auto* tab = m_tabs.Get(existing)) {
+            const std::wstring oldKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
             tab->hidden = false;
             tab->name = name;
             tab->tooltip = name;
             tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
+            const std::wstring newKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
+            if (!oldKey.empty() && oldKey != newKey) {
+                IconCache::Instance().InvalidateFamily(oldKey);
+            }
         }
         m_tabs.SetGroupCollapsed(existing.groupIndex, false);
         m_tabs.SetSelectedLocation(existing);

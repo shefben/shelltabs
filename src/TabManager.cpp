@@ -2,6 +2,7 @@
 
 #include "Logging.h"
 #include "ShellTabsMessages.h"
+#include "IconCache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,15 @@ inline double ClampProgress(double value) {
         return 1.0;
     }
     return value;
+}
+}  // namespace
+
+namespace {
+void InvalidateTabIcon(const TabInfo& tab) {
+    const std::wstring familyKey = BuildIconCacheFamilyKey(tab.pidl.get(), tab.path);
+    if (!familyKey.empty()) {
+        IconCache::Instance().InvalidateFamily(familyKey);
+    }
 }
 }  // namespace
 
@@ -319,6 +329,10 @@ void TabManager::Remove(TabLocation location) {
 
     const bool wasSelected = (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex);
 
+    if (location.tabIndex >= 0 && location.tabIndex < static_cast<int>(group.tabs.size())) {
+        InvalidateTabIcon(group.tabs[static_cast<size_t>(location.tabIndex)]);
+    }
+
     group.tabs.erase(group.tabs.begin() + location.tabIndex);
 
     if (group.tabs.empty()) {
@@ -369,6 +383,7 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
     }
 
     TabInfo removed = std::move(group.tabs[static_cast<size_t>(location.tabIndex)]);
+    InvalidateTabIcon(removed);
 
     const bool wasSelected = (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex);
 
@@ -487,6 +502,11 @@ int TabManager::InsertGroup(TabGroup group, int insertIndex) {
 }
 
 void TabManager::Clear() {
+    for (const auto& group : m_groups) {
+        for (const auto& tab : group.tabs) {
+            InvalidateTabIcon(tab);
+        }
+    }
     m_groups.clear();
     m_selectedGroup = -1;
     m_selectedTab = -1;
@@ -496,6 +516,11 @@ void TabManager::Clear() {
 }
 
 void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence) {
+    for (const auto& group : m_groups) {
+        for (const auto& tab : group.tabs) {
+            InvalidateTabIcon(tab);
+        }
+    }
     m_groups = std::move(groups);
     m_selectedGroup = selectedGroup;
     m_selectedTab = selectedTab;

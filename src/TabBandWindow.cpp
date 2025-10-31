@@ -746,6 +746,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
 
     std::vector<VisualItem> oldItems;
     oldItems.swap(m_items);
+    DestroyVisualItemResources(oldItems);
 
     HideDragOverlay(true);
     HidePreviewWindow(false);
@@ -779,8 +780,6 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     }
 
     UpdateProgressAnimationState();
-
-    DestroyVisualItemResources(oldItems);
 
     if (diff.inserted > 0 || diff.removed > 0 || diff.moved > 0 || diff.updated > 0) {
         LogMessage(LogLevel::Info,
@@ -863,10 +862,7 @@ void TabBandWindow::Layout(int width, int height) {
 
 void TabBandWindow::DestroyVisualItemResources(std::vector<VisualItem>& items) {
     for (auto& item : items) {
-        if (item.icon) {
-            DestroyIcon(item.icon);
-            item.icon = nullptr;
-        }
+        item.icon.Reset();
     }
 }
 
@@ -1076,14 +1072,15 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
                 visual.badgeWidth = 0;
 
                 visual.icon = LoadItemIcon(item, SHGFI_SMALLICON);
-		if (visual.icon) {
-			visual.iconWidth = baseIconWidth;
-			visual.iconHeight = baseIconHeight;
-			ICONINFO iconInfo{};
-			if (GetIconInfo(visual.icon, &iconInfo)) {
-				BITMAP bitmap{};
-				if (iconInfo.hbmColor &&
-					GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                if (visual.icon) {
+                        visual.iconWidth = baseIconWidth;
+                        visual.iconHeight = baseIconHeight;
+                        ICONINFO iconInfo{};
+                        HICON iconHandle = visual.icon.Get();
+                        if (iconHandle && GetIconInfo(iconHandle, &iconInfo)) {
+                                BITMAP bitmap{};
+                                if (iconInfo.hbmColor &&
+                                        GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
 					visual.iconWidth = bitmap.bmWidth;
 					visual.iconHeight = bitmap.bmHeight;
 				}
@@ -1092,11 +1089,11 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 					visual.iconWidth = bitmap.bmWidth;
 					visual.iconHeight = bitmap.bmHeight / 2;
 				}
-				if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-				if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
-			}
-			if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
-			if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
+                                if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
+                                if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
+                        }
+                        if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
+                        if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
 			width += visual.iconWidth + kIconGap;
 		}
 
@@ -2652,7 +2649,7 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         const int iconHeight = std::min(item.iconHeight, availableHeight - 4);
         const int iconWidth = item.iconWidth;
         const int iconY = rect.top + (availableHeight - iconHeight) / 2;
-        DrawIconEx(dc, textLeft, iconY, item.icon, iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
+        DrawIconEx(dc, textLeft, iconY, item.icon.Get(), iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
         textLeft += iconWidth + kIconGap;
     }
 
@@ -3052,24 +3049,38 @@ void TabBandWindow::ClearExplorerContext() {
     m_explorerContext = {};
 }
 
-HICON TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT iconFlags) const {
+IconCache::Reference TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT iconFlags) const {
     if (item.type != TabViewItemType::kTab) {
-        return nullptr;
+        return {};
     }
 
-    SHFILEINFOW info{};
-    const UINT flags = SHGFI_ICON | SHGFI_ADDOVERLAYS | iconFlags;
-    if (item.pidl) {
-        if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(item.pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
-            return info.hIcon;
-        }
+    const UINT resolvedFlags = (iconFlags & (SHGFI_LARGEICON | SHGFI_SMALLICON)) != 0
+                                   ? (iconFlags & (SHGFI_LARGEICON | SHGFI_SMALLICON))
+                                   : SHGFI_SMALLICON;
+    std::wstring path = item.path;
+    if (path.empty() && item.pidl) {
+        path = GetParsingName(item.pidl);
     }
-    if (!item.path.empty()) {
-        if (SHGetFileInfoW(item.path.c_str(), 0, &info, sizeof(info), flags)) {
-            return info.hIcon;
+    const std::wstring familyKey = BuildIconCacheFamilyKey(item.pidl, item.path.empty() ? path : item.path);
+    PCIDLIST_ABSOLUTE pidl = item.pidl;
+
+    auto loader = [pidl, path, resolvedFlags]() -> HICON {
+        SHFILEINFOW info{};
+        const UINT flags = SHGFI_ICON | SHGFI_ADDOVERLAYS | resolvedFlags;
+        if (pidl) {
+            if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
+                return info.hIcon;
+            }
         }
-    }
-    return nullptr;
+        if (!path.empty()) {
+            if (SHGetFileInfoW(path.c_str(), 0, &info, sizeof(info), flags)) {
+                return info.hIcon;
+            }
+        }
+        return nullptr;
+    };
+
+    return IconCache::Instance().Acquire(familyKey, resolvedFlags, loader);
 }
 
 bool TabBandWindow::HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result) {
@@ -3162,11 +3173,9 @@ void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
         if (placeholderText.empty()) {
             placeholderText = !visual.data.path.empty() ? visual.data.path : L"Generating preview…";
         }
-        HICON icon = LoadItemIcon(visual.data, SHGFI_LARGEICON);
-        overlayShown = m_previewOverlay.Show(m_hwnd, nullptr, kPreviewImageSize, screenPt, placeholderText.c_str(), icon);
-        if (icon) {
-            DestroyIcon(icon);
-        }
+        IconCache::Reference icon = LoadItemIcon(visual.data, SHGFI_LARGEICON);
+        overlayShown = m_previewOverlay.Show(m_hwnd, nullptr, kPreviewImageSize, screenPt, placeholderText.c_str(),
+                                             icon.Get());
         if (overlayShown) {
             m_previewRequestId = PreviewCache::Instance().RequestPreviewAsync(visual.data.pidl, kPreviewImageSize, m_hwnd,
                                                                              WM_SHELLTABS_PREVIEW_READY);

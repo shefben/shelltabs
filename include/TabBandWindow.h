@@ -26,6 +26,7 @@
 
 #include "OptionsStore.h"
 #include "PreviewOverlay.h"
+#include "IconCache.h"
 #include "TabManager.h"
 #include "resource.h"
 #include "ThemeNotifier.h"
@@ -85,7 +86,7 @@ private:
         RECT bounds{};
         bool firstInGroup = false;
         int badgeWidth = 0;
-        HICON icon = nullptr;
+        IconCache::Reference icon;
         int iconWidth = 0;
         int iconHeight = 0;
         bool hasGroupHeader = false;
@@ -274,7 +275,7 @@ private:
     void DrawDragVisual(HDC dc) const;
     void ClearVisualItems();
     void ClearExplorerContext();
-    HICON LoadItemIcon(const TabViewItem& item, UINT iconFlags) const;
+    IconCache::Reference LoadItemIcon(const TabViewItem& item, UINT iconFlags) const;
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void EnsureMouseTracking(const POINT& pt);
     void UpdateHoverPreview(const POINT& pt);
