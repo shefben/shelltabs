@@ -1624,6 +1624,9 @@ void TabBand::EnsureWindow() {
         }
         LogMessage(LogLevel::Info, L"TabBand::EnsureWindow created window hwnd=%p",
                    m_window ? m_window->GetHwnd() : nullptr);
+        if (m_sessionFlushTimerPending) {
+            StartSessionFlushTimer();
+        }
     } else {
         LogMessage(LogLevel::Error, L"TabBand::EnsureWindow failed to create window");
     }
@@ -1642,10 +1645,11 @@ void TabBand::EnsureOptionsLoaded() const {
 void TabBand::DisconnectSite() {
     LogMessage(LogLevel::Info, L"TabBand::DisconnectSite (this=%p)", this);
     SaveSession();
-    if (m_sessionMarkerActive) {
-        SessionStore::ClearSessionMarker();
-        m_sessionMarkerActive = false;
+    StopSessionFlushTimer();
+    if (m_sessionMarkerActive && m_sessionStore) {
+        m_sessionStore->ClearSessionMarker();
     }
+    m_sessionMarkerActive = false;
     m_tabs.ClearWindowId();
     ReleaseWindowToken();
 
@@ -1682,9 +1686,14 @@ void TabBand::InitializeTabs() {
     if (m_requestedDockMode == TabBandDockMode::kAutomatic) {
         m_requestedDockMode = m_options.tabDockMode;
     }
-    m_lastSessionUnclean = SessionStore::WasPreviousSessionUnclean();
-    SessionStore::MarkSessionActive();
-    m_sessionMarkerActive = true;
+    if (m_sessionStore) {
+        m_lastSessionUnclean = m_sessionStore->WasPreviousSessionUnclean();
+        m_sessionStore->MarkSessionActive();
+        m_sessionMarkerActive = true;
+        StartSessionFlushTimer();
+    } else {
+        m_lastSessionUnclean = false;
+    }
 
     bool shouldRestore = true;
     if (m_lastSessionUnclean && !m_options.reopenOnCrash) {
@@ -1773,6 +1782,7 @@ void TabBand::EnsureSessionStore() {
 
     LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
     m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
+    StartSessionFlushTimer();
 }
 
 bool TabBand::RestoreSession() {
@@ -1924,6 +1934,52 @@ void TabBand::SaveSession() {
     }
 
     m_sessionStore->Save(data);
+}
+
+void TabBand::StartSessionFlushTimer() {
+    if (!m_sessionStore) {
+        m_sessionFlushTimerActive = false;
+        m_sessionFlushTimerPending = false;
+        return;
+    }
+
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    if (!hwnd) {
+        m_sessionFlushTimerPending = true;
+        return;
+    }
+
+    if (m_sessionFlushTimerActive) {
+        m_sessionFlushTimerPending = false;
+        return;
+    }
+
+    constexpr UINT kSessionFlushIntervalMs = 15000;
+    if (SetTimer(hwnd, TabBandWindow::kSessionFlushTimerId, kSessionFlushIntervalMs, nullptr)) {
+        m_sessionFlushTimerActive = true;
+        m_sessionFlushTimerPending = false;
+    } else {
+        LogMessage(LogLevel::Warning, L"TabBand::StartSessionFlushTimer failed (hwnd=%p, error=%lu)", hwnd,
+                   GetLastError());
+        m_sessionFlushTimerPending = true;
+    }
+}
+
+void TabBand::StopSessionFlushTimer() {
+    m_sessionFlushTimerPending = false;
+    if (!m_sessionFlushTimerActive) {
+        return;
+    }
+
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    if (hwnd) {
+        KillTimer(hwnd, TabBandWindow::kSessionFlushTimerId);
+    }
+    m_sessionFlushTimerActive = false;
+}
+
+void TabBand::OnPeriodicSessionFlush() {
+    SaveSession();
 }
 
 TabBand::ClosedGroupMetadata TabBand::CaptureGroupMetadata(const TabGroup& group) const {

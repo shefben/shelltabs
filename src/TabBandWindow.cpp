@@ -4391,6 +4391,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                     self->HandleProgressTimer();
                     return 0;
                 }
+                if (wParam == TabBandWindow::kSessionFlushTimerId) {
+                    if (self->m_owner) {
+                        self->m_owner->OnPeriodicSessionFlush();
+                    }
+                    return 0;
+                }
                 return fallback();
             }
             //case WM_THEMECHANGED:
@@ -4483,6 +4489,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_DESTROY: {
                 DragAcceptFiles(hwnd, FALSE);
+                KillTimer(hwnd, TabBandWindow::kSessionFlushTimerId);
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();

@@ -155,6 +155,8 @@ private:
     mutable bool m_optionsLoaded = false;
     bool m_sessionMarkerActive = false;
     bool m_lastSessionUnclean = false;
+    bool m_sessionFlushTimerActive = false;
+    bool m_sessionFlushTimerPending = false;
 
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
@@ -205,6 +207,9 @@ private:
     void EnsureSessionStore();
     bool RestoreSession();
     void SaveSession();
+    void StartSessionFlushTimer();
+    void StopSessionFlushTimer();
+    void OnPeriodicSessionFlush();
     void ApplyOptionsChanges(const ShellTabsOptions& previousOptions);
     UniquePidl QueryCurrentFolder() const;
     void NavigateToTab(TabLocation location);
