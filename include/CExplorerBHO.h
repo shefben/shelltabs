@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -33,7 +34,7 @@ namespace shelltabs {
 struct ShellTabsOptions;
 
         class CExplorerBHO : public IObjectWithSite, public IDispatch {
-	public:
+        public:
 		CExplorerBHO();
 		~CExplorerBHO();
 		// IUnknown
@@ -54,13 +55,41 @@ struct ShellTabsOptions;
 		IFACEMETHODIMP SetSite(IUnknown* site) override;
 		IFACEMETHODIMP GetSite(REFIID riid, void** site) override;
 
-	private:
-		void Disconnect();
-		HRESULT EnsureBandVisible();
-		HRESULT ConnectEvents();
-		void DisconnectEvents();
-		HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
-		void UpdateBreadcrumbSubclass();
+        private:
+                enum class BandEnsureOutcome {
+                        Unknown,
+                        Success,
+                        PermanentFailure,
+                        TemporaryFailure,
+                };
+
+                struct BandEnsureState {
+                        BandEnsureOutcome lastOutcome = BandEnsureOutcome::Unknown;
+                        size_t attemptCount = 0;
+                        DWORD retryDelayMs = 0;
+                        UINT_PTR timerId = 0;
+                        bool retryScheduled = false;
+                        bool unsupportedHost = false;
+                        HRESULT lastHresult = S_OK;
+                };
+
+                struct HandleHasher {
+                        size_t operator()(HWND hwnd) const noexcept {
+                                return reinterpret_cast<size_t>(hwnd);
+                        }
+                };
+
+                void Disconnect();
+                HRESULT EnsureBandVisible();
+                HRESULT ConnectEvents();
+                void DisconnectEvents();
+                HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
+                void ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr);
+                void CancelEnsureRetry(BandEnsureState& state);
+                void CancelAllEnsureRetries();
+                void HandleEnsureBandTimer(UINT_PTR timerId);
+                static void CALLBACK EnsureBandTimerProc(HWND hwnd, UINT msg, UINT_PTR timerId, DWORD tickCount);
+                void UpdateBreadcrumbSubclass();
 		void RemoveBreadcrumbSubclass();
 		HWND FindBreadcrumbToolbar() const;
 		HWND FindBreadcrumbToolbarInWindow(HWND root) const;
@@ -198,6 +227,10 @@ struct ShellTabsOptions;
                 std::wstring m_currentFolderKey;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
+                std::unordered_map<HWND, BandEnsureState, HandleHasher> m_bandEnsureStates;
+
+                static std::mutex s_ensureTimerLock;
+                static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;
 		bool m_contextMenuInserted = false;
 		static constexpr UINT kOpenInNewTabCommandId = 0xE170;
 		static constexpr UINT kMaxTrackedSelection = 16;
