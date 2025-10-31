@@ -30,6 +30,7 @@
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
+#include "Notifications.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"
@@ -53,6 +54,69 @@ namespace {
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
+
+#ifndef ERROR_AUTOMATION_DISABLED
+#define ERROR_AUTOMATION_DISABLED 430L
+#endif
+
+#ifndef ERROR_ACCESS_DISABLED_BY_POLICY
+#define ERROR_ACCESS_DISABLED_BY_POLICY 1260L
+#endif
+
+#ifndef ERROR_ACCESS_DISABLED_BY_POLICY_ADMIN
+#define ERROR_ACCESS_DISABLED_BY_POLICY_ADMIN 1262L
+#endif
+
+#ifndef ERROR_ACCESS_DISABLED_BY_POLICY_DEFAULT
+#define ERROR_ACCESS_DISABLED_BY_POLICY_DEFAULT 1261L
+#endif
+
+#ifndef ERROR_ACCESS_DISABLED_BY_POLICY_OTHER
+#define ERROR_ACCESS_DISABLED_BY_POLICY_OTHER 1263L
+#endif
+
+#ifndef SID_STopLevelBrowserFrame
+EXTERN_C const GUID SID_STopLevelBrowserFrame;
+#endif
+
+bool IsShowBrowserBarThrottled(HRESULT hr) {
+    if (hr == S_FALSE) {
+        return true;
+    }
+
+    switch (HRESULT_CODE(hr)) {
+        case ERROR_RETRY:
+        case ERROR_BUSY:
+        case ERROR_TIMEOUT:
+            return HRESULT_FACILITY(hr) == FACILITY_WIN32;
+        default:
+            break;
+    }
+
+    return false;
+}
+
+bool IsAutomationDisabledResult(HRESULT hr) {
+    if (hr == HRESULT_FROM_WIN32(ERROR_AUTOMATION_DISABLED)) {
+        return true;
+    }
+
+    if (HRESULT_FACILITY(hr) != FACILITY_WIN32) {
+        return false;
+    }
+
+    switch (HRESULT_CODE(hr)) {
+        case ERROR_ACCESS_DISABLED_BY_POLICY:
+        case ERROR_ACCESS_DISABLED_BY_POLICY_ADMIN:
+        case ERROR_ACCESS_DISABLED_BY_POLICY_DEFAULT:
+        case ERROR_ACCESS_DISABLED_BY_POLICY_OTHER:
+            return true;
+        default:
+            break;
+    }
+
+    return false;
+}
 
 #ifndef ListView_GetItemW
 BOOL ListView_GetItemW(HWND hwnd, LVITEMW* item) {
@@ -409,9 +473,16 @@ void CExplorerBHO::CancelAllEnsureRetries() {
     for (UINT_PTR timerId : timers) {
         KillTimer(nullptr, timerId);
     }
+
+    for (auto& entry : m_bandEnsureStates) {
+        BandEnsureState& state = entry.second;
+        state.lastOutcome = BandEnsureOutcome::Unknown;
+        state.lastHresult = S_OK;
+    }
 }
 
-void CExplorerBHO::ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr) {
+void CExplorerBHO::ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr,
+                                       BandEnsureOutcome outcome, const wchar_t* reason) {
     CancelEnsureRetry(state);
 
     DWORD nextDelay = state.retryDelayMs == 0 ? kEnsureRetryInitialDelayMs : state.retryDelayMs * 2;
@@ -420,7 +491,7 @@ void CExplorerBHO::ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, 
     }
 
     state.retryDelayMs = nextDelay;
-    state.lastOutcome = BandEnsureOutcome::TemporaryFailure;
+    state.lastOutcome = outcome;
     state.lastHresult = lastHr;
 
     UINT_PTR timerId = SetTimer(nullptr, 0, nextDelay, &CExplorerBHO::EnsureBandTimerProc);
@@ -443,9 +514,10 @@ void CExplorerBHO::ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, 
     state.retryScheduled = true;
     state.timerId = timerId;
 
+    const wchar_t* description = reason ? reason : L"ShowBrowserBar failure";
     LogMessage(LogLevel::Warning,
-               L"EnsureBandVisible: ShowBrowserBar returned 0x%08X for host=%p; retry #%zu scheduled in %u ms",
-               lastHr, hostWindow, state.attemptCount + 1, nextDelay);
+               L"EnsureBandVisible: %s (hr=0x%08X code=%lu) for host=%p; retry #%zu scheduled in %u ms",
+               description, lastHr, HRESULT_CODE(lastHr), hostWindow, state.attemptCount + 1, nextDelay);
 }
 
 void CExplorerBHO::HandleEnsureBandTimer(UINT_PTR timerId) {
@@ -595,7 +667,8 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                            L"EnsureBandVisible: IServiceProvider unavailable for host=%p (hr=0x%08X)",
                            hostWindow, failure);
                 m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, failure);
+                ScheduleEnsureRetry(hostWindow, state, failure, BandEnsureOutcome::TemporaryFailure,
+                                     L"IServiceProvider unavailable");
                 return failure;
             }
 
@@ -609,7 +682,8 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                                L"EnsureBandVisible: IShellBrowser unavailable for host=%p (hr=0x%08X)",
                                hostWindow, failure);
                     m_bandVisible = false;
-                    ScheduleEnsureRetry(hostWindow, state, failure);
+                    ScheduleEnsureRetry(hostWindow, state, failure, BandEnsureOutcome::TemporaryFailure,
+                                         L"IShellBrowser unavailable");
                     return failure;
                 }
             }
@@ -643,7 +717,8 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                     }
                     m_bandVisible = false;
                     const HRESULT classificationHr = FAILED(explorerBrowserHr) ? explorerBrowserHr : E_FAIL;
-                    ScheduleEnsureRetry(hostWindow, state, classificationHr);
+                    ScheduleEnsureRetry(hostWindow, state, classificationHr, BandEnsureOutcome::TemporaryFailure,
+                                         L"Explorer host classification pending");
                     return classificationHr;
                 }
 
@@ -674,7 +749,8 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             if (clsidString.empty()) {
                 LogMessage(LogLevel::Error, L"EnsureBandVisible: failed to stringify CLSID_ShellTabsBand");
                 m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, E_FAIL);
+                ScheduleEnsureRetry(hostWindow, state, E_FAIL, BandEnsureOutcome::TemporaryFailure,
+                                     L"Failed to format band CLSID");
                 return E_FAIL;
             }
 
@@ -685,7 +761,8 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             if (!bandId.bstrVal) {
                 LogMessage(LogLevel::Error, L"EnsureBandVisible: SysAllocString failed for band CLSID");
                 m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, E_OUTOFMEMORY);
+                ScheduleEnsureRetry(hostWindow, state, E_OUTOFMEMORY, BandEnsureOutcome::TemporaryFailure,
+                                     L"SysAllocString failed for band CLSID");
                 return E_OUTOFMEMORY;
             }
 
@@ -723,7 +800,26 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                            hostWindow, hr);
             } else {
                 m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, hr);
+                const bool throttled = IsShowBrowserBarThrottled(hr);
+                if (throttled) {
+                    LogMessage(LogLevel::Warning,
+                               L"EnsureBandVisible: ShowBrowserBar throttled for host=%p on attempt %zu (hr=0x%08X code=%lu)",
+                               hostWindow, attempt, hr, HRESULT_CODE(hr));
+                    ScheduleEnsureRetry(hostWindow, state, hr, BandEnsureOutcome::Throttled,
+                                         L"ShowBrowserBar throttled");
+                } else if (IsAutomationDisabledResult(hr)) {
+                    CancelEnsureRetry(state);
+                    state.retryDelayMs = 0;
+                    state.lastOutcome = BandEnsureOutcome::PermanentFailure;
+                    state.lastHresult = hr;
+                    LogMessage(LogLevel::Error,
+                               L"EnsureBandVisible: automation disabled by policy for host=%p (hr=0x%08X code=%lu)",
+                               hostWindow, hr, HRESULT_CODE(hr));
+                    NotifyAutomationDisabledByPolicy(hr);
+                } else {
+                    ScheduleEnsureRetry(hostWindow, state, hr, BandEnsureOutcome::TemporaryFailure,
+                                         L"ShowBrowserBar failed");
+                }
             }
 
             return hr;
@@ -1065,11 +1161,49 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
         return toolbar;
     };
 
+    auto probeAdditionalProviders = [&](const Microsoft::WRL::ComPtr<IServiceProvider>& provider,
+                                        const wchar_t* source) -> HWND {
+        if (!provider) {
+            return nullptr;
+        }
+
+        Microsoft::WRL::ComPtr<IUnknown> frameService;
+        HRESULT hr = provider->QueryService(SID_STopLevelBrowserFrame, IID_PPV_ARGS(&frameService));
+        if (FAILED(hr) || !frameService) {
+            return nullptr;
+        }
+
+        Microsoft::WRL::ComPtr<IOleWindow> frameWindow;
+        if (SUCCEEDED(frameService.As(&frameWindow)) && frameWindow) {
+            HWND frameHwnd = nullptr;
+            if (SUCCEEDED(frameWindow->GetWindow(&frameHwnd)) && frameHwnd) {
+                LogMessage(LogLevel::Info,
+                           L"Breadcrumb ribbon frame discovered via %s (hwnd=%p)", source ? source : L"?",
+                           frameHwnd);
+                if (HWND fromWindow = FindBreadcrumbToolbarInWindow(frameHwnd)) {
+                    return fromWindow;
+                }
+            }
+        }
+
+        Microsoft::WRL::ComPtr<IServiceProvider> nestedProvider;
+        if (SUCCEEDED(frameService.As(&nestedProvider)) && nestedProvider) {
+            if (HWND fromNested = queryBreadcrumbToolbar(nestedProvider, L"RibbonFrame")) {
+                return fromNested;
+            }
+        }
+
+        return nullptr;
+    };
+
     if (m_shellBrowser) {
         Microsoft::WRL::ComPtr<IServiceProvider> provider;
         if (SUCCEEDED(m_shellBrowser.As(&provider))) {
             if (HWND fromService = queryBreadcrumbToolbar(provider, L"IShellBrowser")) {
                 return fromService;
+            }
+            if (HWND fromFrame = probeAdditionalProviders(provider, L"IShellBrowser")) {
+                return fromFrame;
             }
         }
     }
@@ -1079,6 +1213,9 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
         if (SUCCEEDED(m_webBrowser.As(&provider))) {
             if (HWND fromService = queryBreadcrumbToolbar(provider, L"IWebBrowser2")) {
                 return fromService;
+            }
+            if (HWND fromFrame = probeAdditionalProviders(provider, L"IWebBrowser2")) {
+                return fromFrame;
             }
         }
     }
@@ -1094,6 +1231,33 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
     HWND rebar = travelBand ? GetParent(travelBand) : nullptr;
     if (!rebar) {
         rebar = FindDescendantWindow(frame, L"ReBarWindow32");
+    }
+    if (!rebar) {
+        DWORD threadId = GetWindowThreadProcessId(frame, nullptr);
+        if (threadId != 0) {
+            struct EnumData {
+                HWND rebar = nullptr;
+            } data{};
+            EnumThreadWindows(
+                threadId,
+                [](HWND hwnd, LPARAM param) -> BOOL {
+                    auto* data = reinterpret_cast<EnumData*>(param);
+                    if (!data) {
+                        return FALSE;
+                    }
+                    if (MatchesClass(hwnd, L"ReBarWindow32")) {
+                        data->rebar = hwnd;
+                        return FALSE;
+                    }
+                    return TRUE;
+                },
+                reinterpret_cast<LPARAM>(&data));
+
+            if (data.rebar) {
+                LogMessage(LogLevel::Info, L"Breadcrumb rebar located via thread scan (hwnd=%p)", data.rebar);
+                rebar = data.rebar;
+            }
+        }
     }
     if (!rebar) {
         LogBreadcrumbStage(BreadcrumbDiscoveryStage::RebarMissing,

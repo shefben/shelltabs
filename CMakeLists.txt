@@ -41,6 +41,7 @@ add_library(ShellTabs SHARED
     src/StringUtils.cpp
     src/Utilities.cpp
     src/Logging.cpp
+    src/Notifications.cpp
     src/PaneHooks.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
@@ -201,5 +202,20 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         ole32
         oleaut32
         uuid
+    )
+
+    add_executable(ShellTabsGuardTests
+        tests/UtilitiesGuardTests.cpp
+    )
+
+    target_include_directories(ShellTabsGuardTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsGuardTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
     )
 endif()
