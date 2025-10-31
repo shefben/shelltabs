@@ -2291,8 +2291,20 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
         previousOptions.customTabSelectedColor != m_options.customTabSelectedColor ||
         previousOptions.useCustomTabUnselectedColor != m_options.useCustomTabUnselectedColor ||
         previousOptions.customTabUnselectedColor != m_options.customTabUnselectedColor;
+    const bool glowEnabledChanged = previousOptions.enableNeonGlow != m_options.enableNeonGlow;
+    const bool glowCustomChanged =
+        previousOptions.useCustomNeonGlowColors != m_options.useCustomNeonGlowColors;
+    const bool glowGradientChanged =
+        previousOptions.useNeonGlowGradient != m_options.useNeonGlowGradient;
+    const bool glowColorChanged = previousOptions.neonGlowPrimaryColor != m_options.neonGlowPrimaryColor ||
+                                  previousOptions.neonGlowSecondaryColor != m_options.neonGlowSecondaryColor;
+    const bool glowPaletteChanged = previousOptions.glowPalette != m_options.glowPalette;
+    const bool accentColorsChanged =
+        previousOptions.useExplorerAccentColors != m_options.useExplorerAccentColors;
     if (backgroundChanged || fontChanged || backgroundTransparencyChanged || fontBrightnessChanged ||
-        backgroundColorsChanged || fontColorsChanged || tabColorsChanged) {
+        backgroundColorsChanged || fontColorsChanged || tabColorsChanged || glowEnabledChanged ||
+        glowCustomChanged || glowGradientChanged || glowColorChanged || glowPaletteChanged ||
+        accentColorsChanged) {
         const UINT message = GetOptionsChangedMessage();
         if (message != 0) {
             SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);

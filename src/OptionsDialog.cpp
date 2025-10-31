@@ -424,6 +424,7 @@ void ApplyCustomizationPreview(HWND pageWindow, OptionsDialogData* data) {
         return;
     }
 
+    UpdateGlowPaletteFromLegacySettings(data->workingOptions);
     OptionsStore::Instance().Set(data->workingOptions);
     data->previewOptionsBroadcasted = true;
     ForceExplorerUIRefresh(GetParent(pageWindow));
@@ -2455,6 +2456,8 @@ bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) 
     HBRUSH* targetBrush = nullptr;
     int previewId = 0;
     COLORREF* targetColor = nullptr;
+    const bool glowColorControl =
+        (controlId == IDC_GLOW_PRIMARY_BUTTON || controlId == IDC_GLOW_SECONDARY_BUTTON);
 
     switch (controlId) {
         case IDC_MAIN_BREADCRUMB_BG_START_BUTTON:
@@ -2523,6 +2526,9 @@ bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) 
 
     if (targetColor && PromptForColor(hwnd, initial, targetColor)) {
         SetPreviewColor(hwnd, previewId, targetBrush, *targetColor);
+        if (glowColorControl) {
+            UpdateGlowPaletteFromLegacySettings(data->workingOptions);
+        }
         return true;
     }
     return false;
@@ -3116,6 +3122,7 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         IsDlgButtonChecked(hwnd, IDC_MAIN_PERSIST) == BST_CHECKED;
                     data->workingOptions.useExplorerAccentColors =
                         IsDlgButtonChecked(hwnd, IDC_MAIN_LISTVIEW_ACCENT) == BST_CHECKED;
+                    UpdateGlowPaletteFromLegacySettings(data->workingOptions);
 
                     if (HWND templateCombo = GetDlgItem(hwnd, IDC_MAIN_NEW_TAB_COMBO)) {
                         const LRESULT selection = SendMessageW(templateCombo, CB_GETCURSEL, 0, 0);
@@ -3792,6 +3799,7 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
                     if (data) {
                         data->workingOptions.useCustomNeonGlowColors =
                             IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
+                        UpdateGlowPaletteFromLegacySettings(data->workingOptions);
                         UpdateGlowControlStates(hwnd);
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                         ApplyCustomizationPreview(hwnd, data);
@@ -3801,6 +3809,7 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
                     if (data) {
                         data->workingOptions.useNeonGlowGradient =
                             IsDlgButtonChecked(hwnd, IDC_GLOW_USE_GRADIENT) == BST_CHECKED;
+                        UpdateGlowPaletteFromLegacySettings(data->workingOptions);
                         UpdateGlowControlStates(hwnd);
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                         ApplyCustomizationPreview(hwnd, data);
@@ -3838,6 +3847,7 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
                         IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
                     data->workingOptions.useNeonGlowGradient =
                         IsDlgButtonChecked(hwnd, IDC_GLOW_USE_GRADIENT) == BST_CHECKED;
+                    UpdateGlowPaletteFromLegacySettings(data->workingOptions);
                     data->applyInvoked = true;
                 }
                 SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);

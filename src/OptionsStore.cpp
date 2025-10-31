@@ -7,6 +7,7 @@
 #include <Shlwapi.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cwchar>
 #include <sstream>
@@ -38,6 +39,7 @@ constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kGlowEnabledToken[] = L"neon_glow_enabled";
 constexpr wchar_t kGlowGradientToken[] = L"neon_glow_gradient";
 constexpr wchar_t kGlowColorsToken[] = L"neon_glow_colors";
+constexpr wchar_t kGlowSurfaceToken[] = L"glow_surface";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
 constexpr wchar_t kExplorerAccentColorsToken[] = L"explorer_listview_accents";
@@ -86,6 +88,80 @@ std::wstring ColorToHexString(COLORREF color) {
     return stream.str();
 }
 
+constexpr COLORREF kDefaultGlowPrimaryColor = RGB(0, 120, 215);
+constexpr COLORREF kDefaultGlowSecondaryColor = RGB(0, 153, 255);
+
+struct GlowSurfaceMapping {
+    const wchar_t* token;
+    GlowSurfaceOptions GlowSurfacePalette::*member;
+    bool supportsExplorerAccent;
+};
+
+constexpr std::array<GlowSurfaceMapping, 5> kGlowSurfaceMappings = {{{L"header", &GlowSurfacePalette::header, false},
+                                                                     {L"list_view", &GlowSurfacePalette::listView, true},
+                                                                     {L"toolbar", &GlowSurfacePalette::toolbar, false},
+                                                                     {L"rebar", &GlowSurfacePalette::rebar, false},
+                                                                     {L"edits", &GlowSurfacePalette::edits, false}}};
+
+const GlowSurfaceMapping* FindGlowSurfaceMapping(const std::wstring& token, size_t* index) {
+    if (token.empty()) {
+        return nullptr;
+    }
+    for (size_t i = 0; i < kGlowSurfaceMappings.size(); ++i) {
+        if (_wcsicmp(token.c_str(), kGlowSurfaceMappings[i].token) == 0) {
+            if (index) {
+                *index = i;
+            }
+            return &kGlowSurfaceMappings[i];
+        }
+    }
+    return nullptr;
+}
+
+GlowSurfaceOptions* GetGlowSurfaceOptions(ShellTabsOptions* options, const GlowSurfaceMapping& mapping) {
+    if (!options) {
+        return nullptr;
+    }
+    return &(options->glowPalette.*(mapping.member));
+}
+
+const GlowSurfaceOptions* GetGlowSurfaceOptions(const ShellTabsOptions* options,
+                                                const GlowSurfaceMapping& mapping) {
+    if (!options) {
+        return nullptr;
+    }
+    return &(options->glowPalette.*(mapping.member));
+}
+
+GlowSurfaceMode ParseGlowMode(const std::wstring& token, GlowSurfaceMode fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+    if (_wcsicmp(token.c_str(), L"accent") == 0) {
+        return GlowSurfaceMode::kExplorerAccent;
+    }
+    if (_wcsicmp(token.c_str(), L"solid") == 0) {
+        return GlowSurfaceMode::kSolid;
+    }
+    if (_wcsicmp(token.c_str(), L"gradient") == 0) {
+        return GlowSurfaceMode::kGradient;
+    }
+    return fallback;
+}
+
+const wchar_t* GlowModeToString(GlowSurfaceMode mode) {
+    switch (mode) {
+        case GlowSurfaceMode::kExplorerAccent:
+            return L"accent";
+        case GlowSurfaceMode::kSolid:
+            return L"solid";
+        case GlowSurfaceMode::kGradient:
+            return L"gradient";
+        default:
+            return L"gradient";
+    }
+}
+
 bool HasDirectoryPrefix(const std::wstring& path, const std::wstring& directory) {
     if (path.size() < directory.size()) {
         return false;
@@ -118,6 +194,47 @@ std::wstring NormalizeCachePath(const std::wstring& path, const std::wstring& di
 }
 
 }  // namespace
+
+void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options) {
+    const bool gradient = options.useNeonGlowGradient;
+    const COLORREF primary = options.neonGlowPrimaryColor;
+    const COLORREF secondary = options.useNeonGlowGradient ? options.neonGlowSecondaryColor : primary;
+
+    const auto applyLegacy = [&](GlowSurfaceOptions& surface, bool allowAccent) {
+        if (allowAccent && options.useExplorerAccentColors) {
+            surface.mode = GlowSurfaceMode::kExplorerAccent;
+        } else if (gradient) {
+            surface.mode = GlowSurfaceMode::kGradient;
+        } else {
+            surface.mode = GlowSurfaceMode::kSolid;
+        }
+        surface.solidColor = primary;
+        surface.gradientStartColor = primary;
+        surface.gradientEndColor = gradient ? secondary : primary;
+    };
+
+    applyLegacy(options.glowPalette.header, false);
+    applyLegacy(options.glowPalette.toolbar, false);
+    applyLegacy(options.glowPalette.rebar, false);
+    applyLegacy(options.glowPalette.edits, false);
+    applyLegacy(options.glowPalette.listView, true);
+}
+
+void UpdateLegacyGlowSettingsFromPalette(ShellTabsOptions& options) {
+    const GlowSurfaceOptions& header = options.glowPalette.header;
+
+    options.useExplorerAccentColors =
+        options.glowPalette.listView.mode == GlowSurfaceMode::kExplorerAccent;
+
+    options.useNeonGlowGradient = (header.mode == GlowSurfaceMode::kGradient);
+    options.neonGlowPrimaryColor = header.solidColor;
+    options.neonGlowSecondaryColor = options.useNeonGlowGradient ? header.gradientEndColor : header.solidColor;
+
+    options.useCustomNeonGlowColors =
+        header.solidColor != kDefaultGlowPrimaryColor ||
+        header.gradientStartColor != kDefaultGlowPrimaryColor ||
+        header.gradientEndColor != kDefaultGlowSecondaryColor;
+}
 
 OptionsStore& OptionsStore::Instance() {
     static OptionsStore store;
@@ -172,6 +289,9 @@ bool OptionsStore::Load() {
     }
 
     int version = 1;
+    std::array<bool, kGlowSurfaceMappings.size()> glowSurfaceSpecified{};
+    glowSurfaceSpecified.fill(false);
+    bool anyGlowSurfaceToken = false;
     ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring>& tokens) {
         if (tokens.empty()) {
             return true;
@@ -355,6 +475,34 @@ bool OptionsStore::Load() {
             return true;
         }
 
+        if (header == kGlowSurfaceToken) {
+            if (tokens.size() >= 2) {
+                size_t surfaceIndex = 0;
+                const GlowSurfaceMapping* mapping = FindGlowSurfaceMapping(tokens[1], &surfaceIndex);
+                if (mapping) {
+                    if (GlowSurfaceOptions* surface = GetGlowSurfaceOptions(&m_options, *mapping)) {
+                        anyGlowSurfaceToken = true;
+                        glowSurfaceSpecified[surfaceIndex] = true;
+                        if (tokens.size() >= 3) {
+                            surface->mode = ParseGlowMode(tokens[2], surface->mode);
+                        }
+                        if (tokens.size() >= 4) {
+                            surface->solidColor = ParseColorValue(tokens[3], surface->solidColor);
+                        }
+                        if (tokens.size() >= 5) {
+                            surface->gradientStartColor =
+                                ParseColorValue(tokens[4], surface->gradientStartColor);
+                        }
+                        if (tokens.size() >= 6) {
+                            surface->gradientEndColor =
+                                ParseColorValue(tokens[5], surface->gradientEndColor);
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
         if (header == kTabSelectedColorToken) {
             if (tokens.size() >= 2) {
                 m_options.useCustomTabSelectedColor = ParseBool(tokens[1]);
@@ -431,6 +579,28 @@ bool OptionsStore::Load() {
         return true;
     });
 
+    if (anyGlowSurfaceToken) {
+        ShellTabsOptions fallbackOptions = m_options;
+        UpdateLegacyGlowSettingsFromPalette(fallbackOptions);
+        UpdateGlowPaletteFromLegacySettings(fallbackOptions);
+
+        for (size_t i = 0; i < glowSurfaceSpecified.size(); ++i) {
+            if (glowSurfaceSpecified[i]) {
+                continue;
+            }
+            const GlowSurfaceMapping& mapping = kGlowSurfaceMappings[i];
+            GlowSurfaceOptions* target = GetGlowSurfaceOptions(&m_options, mapping);
+            const GlowSurfaceOptions* fallback = GetGlowSurfaceOptions(&fallbackOptions, mapping);
+            if (target && fallback) {
+                *target = *fallback;
+            }
+        }
+
+        UpdateLegacyGlowSettingsFromPalette(m_options);
+    } else {
+        UpdateGlowPaletteFromLegacySettings(m_options);
+    }
+
     m_loaded = true;
     return true;
 }
@@ -439,6 +609,11 @@ bool OptionsStore::Save() const {
     if (!EnsureLoaded()) {
         return false;
     }
+
+    ShellTabsOptions persistedOptions = m_options;
+    UpdateLegacyGlowSettingsFromPalette(persistedOptions);
+    const_cast<OptionsStore*>(this)->m_options = persistedOptions;
+    const ShellTabsOptions& options = const_cast<OptionsStore*>(this)->m_options;
 
     const_cast<OptionsStore*>(this)->m_storagePath = ResolveStoragePath();
     if (m_storagePath.empty()) {
@@ -461,109 +636,127 @@ bool OptionsStore::Save() const {
     std::wstring content = L"version|1\n";
     content += kReopenToken;
     content += L"|";
-    content += m_options.reopenOnCrash ? L"1" : L"0";
+    content += options.reopenOnCrash ? L"1" : L"0";
     content += L"\n";
     content += kPersistToken;
     content += L"|";
-    content += m_options.persistGroupPaths ? L"1" : L"0";
+    content += options.persistGroupPaths ? L"1" : L"0";
     content += L"\n";
     content += kNewTabTemplateToken;
     content += L"|";
-    content += NewTabTemplateToString(m_options.newTabTemplate);
+    content += NewTabTemplateToString(options.newTabTemplate);
     content += L"\n";
     content += kNewTabCustomPathToken;
     content += L"|";
-    content += Trim(m_options.newTabCustomPath);
+    content += Trim(options.newTabCustomPath);
     content += L"\n";
     content += kNewTabSavedGroupToken;
     content += L"|";
-    content += Trim(m_options.newTabSavedGroup);
+    content += Trim(options.newTabSavedGroup);
     content += L"\n";
     content += kBreadcrumbGradientToken;
     content += L"|";
-    content += m_options.enableBreadcrumbGradient ? L"1" : L"0";
+    content += options.enableBreadcrumbGradient ? L"1" : L"0";
     content += L"\n";
     content += kBreadcrumbFontGradientToken;
     content += L"|";
-    content += m_options.enableBreadcrumbFontGradient ? L"1" : L"0";
+    content += options.enableBreadcrumbFontGradient ? L"1" : L"0";
     content += L"\n";
     content += kBreadcrumbGradientTransparencyToken;
     content += L"|";
-    content += std::to_wstring(std::clamp(m_options.breadcrumbGradientTransparency, 0, 100));
+    content += std::to_wstring(std::clamp(options.breadcrumbGradientTransparency, 0, 100));
     content += L"\n";
     content += kBreadcrumbFontBrightnessToken;
     content += L"|";
-    content += std::to_wstring(std::clamp(m_options.breadcrumbFontBrightness, 0, 100));
+    content += std::to_wstring(std::clamp(options.breadcrumbFontBrightness, 0, 100));
     content += L"\n";
     content += kBreadcrumbHighlightAlphaMultiplierToken;
     content += L"|";
-    content += std::to_wstring(std::clamp(m_options.breadcrumbHighlightAlphaMultiplier, 0, 200));
+    content += std::to_wstring(std::clamp(options.breadcrumbHighlightAlphaMultiplier, 0, 200));
     content += L"\n";
     content += kBreadcrumbDropdownAlphaMultiplierToken;
     content += L"|";
-    content += std::to_wstring(std::clamp(m_options.breadcrumbDropdownAlphaMultiplier, 0, 200));
+    content += std::to_wstring(std::clamp(options.breadcrumbDropdownAlphaMultiplier, 0, 200));
     content += L"\n";
     content += kBreadcrumbGradientColorsToken;
     content += L"|";
-    content += m_options.useCustomBreadcrumbGradientColors ? L"1" : L"0";
+    content += options.useCustomBreadcrumbGradientColors ? L"1" : L"0";
     content += L"|";
-    content += ColorToHexString(m_options.breadcrumbGradientStartColor);
+    content += ColorToHexString(options.breadcrumbGradientStartColor);
     content += L"|";
-    content += ColorToHexString(m_options.breadcrumbGradientEndColor);
+    content += ColorToHexString(options.breadcrumbGradientEndColor);
     content += L"\n";
     content += kBreadcrumbFontGradientColorsToken;
     content += L"|";
-    content += m_options.useCustomBreadcrumbFontColors ? L"1" : L"0";
+    content += options.useCustomBreadcrumbFontColors ? L"1" : L"0";
     content += L"|";
-    content += ColorToHexString(m_options.breadcrumbFontGradientStartColor);
+    content += ColorToHexString(options.breadcrumbFontGradientStartColor);
     content += L"|";
-    content += ColorToHexString(m_options.breadcrumbFontGradientEndColor);
+    content += ColorToHexString(options.breadcrumbFontGradientEndColor);
     content += L"\n";
     content += kProgressGradientColorsToken;
     content += L"|";
-    content += m_options.useCustomProgressBarGradientColors ? L"1" : L"0";
+    content += options.useCustomProgressBarGradientColors ? L"1" : L"0";
     content += L"|";
-    content += ColorToHexString(m_options.progressBarGradientStartColor);
+    content += ColorToHexString(options.progressBarGradientStartColor);
     content += L"|";
-    content += ColorToHexString(m_options.progressBarGradientEndColor);
+    content += ColorToHexString(options.progressBarGradientEndColor);
     content += L"\n";
     content += kGlowEnabledToken;
     content += L"|";
-    content += m_options.enableNeonGlow ? L"1" : L"0";
+    content += options.enableNeonGlow ? L"1" : L"0";
     content += L"\n";
     content += kGlowGradientToken;
     content += L"|";
-    content += m_options.useNeonGlowGradient ? L"1" : L"0";
+    content += options.useNeonGlowGradient ? L"1" : L"0";
     content += L"\n";
     content += kGlowColorsToken;
     content += L"|";
-    content += m_options.useCustomNeonGlowColors ? L"1" : L"0";
+    content += options.useCustomNeonGlowColors ? L"1" : L"0";
     content += L"|";
-    content += ColorToHexString(m_options.neonGlowPrimaryColor);
+    content += ColorToHexString(options.neonGlowPrimaryColor);
     content += L"|";
-    content += ColorToHexString(m_options.neonGlowSecondaryColor);
+    content += ColorToHexString(options.neonGlowSecondaryColor);
     content += L"\n";
+    for (const auto& mapping : kGlowSurfaceMappings) {
+        const GlowSurfaceOptions* surface = GetGlowSurfaceOptions(&options, mapping);
+        if (!surface) {
+            continue;
+        }
+        content += kGlowSurfaceToken;
+        content += L"|";
+        content += mapping.token;
+        content += L"|";
+        content += GlowModeToString(surface->mode);
+        content += L"|";
+        content += ColorToHexString(surface->solidColor);
+        content += L"|";
+        content += ColorToHexString(surface->gradientStartColor);
+        content += L"|";
+        content += ColorToHexString(surface->gradientEndColor);
+        content += L"\n";
+    }
     content += kTabSelectedColorToken;
     content += L"|";
-    content += m_options.useCustomTabSelectedColor ? L"1" : L"0";
+    content += options.useCustomTabSelectedColor ? L"1" : L"0";
     content += L"|";
-    content += ColorToHexString(m_options.customTabSelectedColor);
+    content += ColorToHexString(options.customTabSelectedColor);
     content += L"\n";
     content += kTabUnselectedColorToken;
     content += L"|";
-    content += m_options.useCustomTabUnselectedColor ? L"1" : L"0";
+    content += options.useCustomTabUnselectedColor ? L"1" : L"0";
     content += L"|";
-    content += ColorToHexString(m_options.customTabUnselectedColor);
+    content += ColorToHexString(options.customTabUnselectedColor);
     content += L"\n";
 
     content += kExplorerAccentColorsToken;
     content += L"|";
-    content += m_options.useExplorerAccentColors ? L"1" : L"0";
+    content += options.useExplorerAccentColors ? L"1" : L"0";
     content += L"\n";
 
     content += kFolderBackgroundsEnabledToken;
     content += L"|";
-    content += m_options.enableFolderBackgrounds ? L"1" : L"0";
+    content += options.enableFolderBackgrounds ? L"1" : L"0";
     content += L"\n";
 
     const auto appendCachedImageLine = [&](const wchar_t* token, const std::wstring& path,
@@ -581,10 +774,10 @@ bool OptionsStore::Save() const {
         content += L"\n";
     };
 
-    appendCachedImageLine(kFolderBackgroundUniversalToken, m_options.universalFolderBackgroundImage.cachedImagePath,
-                          m_options.universalFolderBackgroundImage.displayName);
+    appendCachedImageLine(kFolderBackgroundUniversalToken, options.universalFolderBackgroundImage.cachedImagePath,
+                          options.universalFolderBackgroundImage.displayName);
 
-    for (const auto& entry : m_options.folderBackgroundEntries) {
+    for (const auto& entry : options.folderBackgroundEntries) {
         const std::wstring normalizedFolder = NormalizeFileSystemPath(entry.folderPath);
         const std::wstring normalizedCache =
             NormalizeCachePath(entry.image.cachedImagePath, storageDirectory);
@@ -604,14 +797,14 @@ bool OptionsStore::Save() const {
 
     content += kTabDockingToken;
     content += L"|";
-    content += DockModeToString(m_options.tabDockMode);
+    content += DockModeToString(options.tabDockMode);
     content += L"\n";
 
     if (!WriteUtf8File(m_storagePath, content)) {
         return false;
     }
 
-    UpdateCachedImageUsage(m_options);
+    UpdateCachedImageUsage(options);
     return true;
 }
 
@@ -621,6 +814,17 @@ bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& righ
 
 bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
     return left.folderPath == right.folderPath && left.image == right.image;
+}
+
+bool operator==(const GlowSurfaceOptions& left, const GlowSurfaceOptions& right) noexcept {
+    return left.mode == right.mode && left.solidColor == right.solidColor &&
+           left.gradientStartColor == right.gradientStartColor &&
+           left.gradientEndColor == right.gradientEndColor;
+}
+
+bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept {
+    return left.header == right.header && left.listView == right.listView &&
+           left.toolbar == right.toolbar && left.rebar == right.rebar && left.edits == right.edits;
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
@@ -650,6 +854,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
            left.customTabUnselectedColor == right.customTabUnselectedColor &&
            left.useExplorerAccentColors == right.useExplorerAccentColors &&
+           left.glowPalette == right.glowPalette &&
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
