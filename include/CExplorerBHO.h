@@ -128,7 +128,11 @@ struct ShellTabsOptions;
                 void DestroyProgressGradientResources();
                 void UpdateExplorerViewSubclass();
                 void RemoveExplorerViewSubclass();
-                bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView, HWND directUiHost);
+                bool InstallExplorerViewSubclass(HWND viewWindow);
+                bool TryResolveExplorerPanes();
+                void ScheduleExplorerPaneRetry();
+                void CancelExplorerPaneRetry();
+                //bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView, HWND directUiHost);
                 void TryAttachNamespaceTreeControl(IShellView* shellView);
                 void ResetNamespaceTreeControl();
                 bool TryResolveNamespaceTreeHighlight(const NSTCCUSTOMDRAW& details, PaneHighlight* highlight) const;
@@ -254,6 +258,11 @@ struct ShellTabsOptions;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
+                bool m_explorerPaneRetryPending = false;
+                UINT_PTR m_explorerPaneRetryTimerId = 0;
+                bool m_loggedExplorerPanesReady = false;
+                bool m_loggedListViewMissing = false;
+                bool m_loggedTreeViewMissing = false;
                 PaneHookRouter m_paneHooks;
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
                 Microsoft::WRL::ComPtr<NamespaceTreeCustomDrawSink> m_namespaceTreeCustomDrawSink;
@@ -270,10 +279,10 @@ struct ShellTabsOptions;
 
                 static std::mutex s_ensureTimerLock;
                 static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;
-		bool m_contextMenuInserted = false;
-		static constexpr UINT kOpenInNewTabCommandId = 0xE170;
-		static constexpr UINT kMaxTrackedSelection = 16;
-	};
+                bool m_contextMenuInserted = false;
+                static constexpr UINT kOpenInNewTabCommandId = 0xE170;
+                static constexpr UINT kMaxTrackedSelection = 16;
+        };
 
 }  // namespace shelltabs
 
