@@ -7,6 +7,7 @@
 #include <shobjidl.h>
 #include <shlguid.h>
 #include <CommCtrl.h>
+#include <KnownFolders.h>
 #include <windowsx.h>
 #include <uxtheme.h>
 #include <OleIdl.h>
@@ -26,6 +27,7 @@
 #include <vector>
 #include <wrl/client.h>
 #include <shobjidl_core.h>
+#include <optional>
 
 #include "BackgroundCache.h"
 #include "ComUtils.h"
@@ -58,9 +60,73 @@ namespace {
 using shelltabs::LogLevel;
 using shelltabs::LogMessage;
 using shelltabs::LogMessageV;
+using shelltabs::ArePidlsEqual;
+using shelltabs::GetCanonicalParsingName;
+using shelltabs::GetParsingName;
+using shelltabs::UniquePidl;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
+
+std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return std::nullopt;
+    }
+
+    struct KnownVirtualFolderMapping {
+        const KNOWNFOLDERID* folderId;
+        const wchar_t* canonical;
+    };
+
+    static const KnownVirtualFolderMapping kKnownVirtualFolders[] = {
+        {&FOLDERID_ComputerFolder, L"shell:MyComputerFolder"},
+        {&FOLDERID_NetworkFolder, L"shell:NetworkPlacesFolder"},
+        {&FOLDERID_ControlPanelFolder, L"shell:ControlPanelFolder"},
+        {&FOLDERID_RecycleBinFolder, L"shell:RecycleBinFolder"},
+        {&FOLDERID_Libraries, L"shell:Libraries"},
+#ifdef FOLDERID_QuickAccess
+        {&FOLDERID_QuickAccess, L"shell:QuickAccess"},
+#endif
+#ifdef FOLDERID_AppsFolder
+        {&FOLDERID_AppsFolder, L"shell:AppsFolder"},
+#endif
+    };
+
+    for (const auto& mapping : kKnownVirtualFolders) {
+        PIDLIST_ABSOLUTE knownFolder = nullptr;
+        if (FAILED(SHGetKnownFolderIDList(*mapping.folderId, KF_FLAG_DEFAULT | KF_FLAG_NO_ALIAS, nullptr, &knownFolder)) ||
+            !knownFolder) {
+            continue;
+        }
+
+        UniquePidl known(knownFolder);
+        if (ArePidlsEqual(pidl, known.get())) {
+            return std::wstring(mapping.canonical);
+        }
+    }
+
+    auto canonical = GetCanonicalParsingName(pidl);
+    if (!canonical.empty()) {
+        if (canonical.rfind(L"shell:", 0) == 0) {
+            return canonical;
+        }
+        if (canonical.rfind(L"::", 0) == 0) {
+            return L"shell:" + canonical;
+        }
+    }
+
+    auto parsing = GetParsingName(pidl);
+    if (!parsing.empty()) {
+        if (parsing.rfind(L"shell:", 0) == 0) {
+            return parsing;
+        }
+        if (parsing.rfind(L"::", 0) == 0) {
+            return L"shell:" + parsing;
+        }
+    }
+
+    return std::nullopt;
+}
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
     static std::once_flag once;
@@ -3112,35 +3178,69 @@ bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::w
         return false;
     }
 
+    std::wstring value;
+
+    enum class FileSystemFailureReason {
+        kNone,
+        kBindFailed,
+        kAttributeMismatch,
+        kPathResolutionFailed,
+    } failureReason = FileSystemFailureReason::kNone;
+
+    HRESULT failureHr = S_OK;
+    SFGAOF failureAttributes = 0;
+
     Microsoft::WRL::ComPtr<IShellFolder> parentFolder;
     PCUITEMID_CHILD child = nullptr;
     HRESULT hr = SHBindToParent(pidl, IID_PPV_ARGS(&parentFolder), &child);
     if (FAILED(hr) || !parentFolder || !child) {
-        LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to bind to parent (hr=0x%08lX)", hr);
-        return false;
-    }
-
-    SFGAOF attributes = SFGAO_FOLDER | SFGAO_FILESYSTEM;
-    hr = parentFolder->GetAttributesOf(1, &child, &attributes);
-    if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
-        LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: attributes=0x%08lX (hr=0x%08lX)", attributes, hr);
-        return false;
-    }
-
-    PWSTR path = nullptr;
-    hr = SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &path);
-    if (FAILED(hr) || !path || path[0] == L'\0') {
-        if (path) {
-            CoTaskMemFree(path);
+        failureReason = FileSystemFailureReason::kBindFailed;
+        failureHr = hr;
+    } else {
+        SFGAOF attributes = SFGAO_FOLDER | SFGAO_FILESYSTEM;
+        hr = parentFolder->GetAttributesOf(1, &child, &attributes);
+        if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
+            failureReason = FileSystemFailureReason::kAttributeMismatch;
+            failureHr = hr;
+            failureAttributes = attributes;
+        } else {
+            PWSTR path = nullptr;
+            hr = SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &path);
+            if (FAILED(hr) || !path || path[0] == L'\0') {
+                failureReason = FileSystemFailureReason::kPathResolutionFailed;
+                failureHr = hr;
+            } else {
+                value.assign(path);
+            }
+            if (path) {
+                CoTaskMemFree(path);
+            }
         }
-        LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to resolve filesystem path (hr=0x%08lX)", hr);
-        return false;
     }
-
-    std::wstring value(path);
-    CoTaskMemFree(path);
 
     if (value.empty()) {
+        if (auto translated = TranslateVirtualLocation(pidl)) {
+            value = std::move(*translated);
+        }
+    }
+
+    if (value.empty()) {
+        switch (failureReason) {
+            case FileSystemFailureReason::kBindFailed:
+                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to bind to parent (hr=0x%08lX)", failureHr);
+                break;
+            case FileSystemFailureReason::kAttributeMismatch:
+                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: attributes=0x%08lX (hr=0x%08lX)", failureAttributes,
+                           failureHr);
+                break;
+            case FileSystemFailureReason::kPathResolutionFailed:
+                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to resolve filesystem path (hr=0x%08lX)",
+                           failureHr);
+                break;
+            case FileSystemFailureReason::kNone:
+                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unsupported namespace");
+                break;
+        }
         return false;
     }
 
