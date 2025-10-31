@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <deque>
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -60,17 +61,20 @@ private:
     struct Entry {
         HBITMAP bitmap = nullptr;
         SIZE size{};
-        ULONGLONG lastAccess = 0;
+        std::list<std::wstring>::iterator lruPosition{};
+        bool inLruList = false;
     };
 
     void EnsureWorkerThread();
     void ProcessRequests();
     void StoreBitmapForKey(const std::wstring& key, HBITMAP bitmap, const SIZE& size);
+    void TouchEntryLocked(Entry& entry, const std::wstring& key);
     void TrimCacheLocked();
     static std::wstring BuildCacheKey(PCIDLIST_ABSOLUTE pidl);
 
     std::mutex m_mutex;
     std::unordered_map<std::wstring, Entry> m_entries;
+    std::list<std::wstring> m_lruList;
     static constexpr size_t kMaxEntries = 64;
 
     std::mutex m_requestMutex;
