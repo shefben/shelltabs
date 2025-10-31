@@ -2,14 +2,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string_view>
 #include <utility>
-#include <vector>
 
+#include "Logging.h"
 #include "Utilities.h"
 
 namespace shelltabs {
@@ -349,7 +350,7 @@ std::optional<PreviewImage> PreviewCache::GetPreview(PCIDLIST_ABSOLUTE pidl, con
         return std::nullopt;
     }
 
-    it->second.lastAccess = GetTickCount64();
+    TouchEntryLocked(it->second, it->first);
     return PreviewImage{it->second.bitmap, it->second.size};
 }
 
@@ -558,34 +559,31 @@ void PreviewCache::Clear() {
         }
     }
     m_entries.clear();
+    m_lruList.clear();
 }
 
 void PreviewCache::TrimCacheLocked() {
-    if (m_entries.size() <= kMaxEntries) {
-        return;
-    }
+    while (m_entries.size() > kMaxEntries && !m_lruList.empty()) {
+        std::wstring victimKey = std::move(m_lruList.back());
+        m_lruList.pop_back();
 
-    std::vector<std::pair<std::wstring, Entry*>> ordered;
-    ordered.reserve(m_entries.size());
-    for (auto& [key, entry] : m_entries) {
-        ordered.emplace_back(key, &entry);
-    }
-
-    std::sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
-        return left.second->lastAccess < right.second->lastAccess;
-    });
-
-    while (m_entries.size() > kMaxEntries && !ordered.empty()) {
-        const auto& victim = ordered.front();
-        auto it = m_entries.find(victim.first);
-        if (it != m_entries.end()) {
-            if (it->second.bitmap) {
-                DeleteObject(it->second.bitmap);
-            }
-            m_entries.erase(it);
+        auto it = m_entries.find(victimKey);
+        if (it == m_entries.end()) {
+            assert(false && "PreviewCache LRU list out of sync with entries");
+            LogMessage(LogLevel::Warning, L"PreviewCache lost track of %ls during eviction", victimKey.c_str());
+            continue;
         }
-        ordered.erase(ordered.begin());
+
+        Entry& entry = it->second;
+        entry.inLruList = false;
+        if (entry.bitmap) {
+            DeleteObject(entry.bitmap);
+        }
+        LogMessage(LogLevel::Info, L"PreviewCache evicted %ls", victimKey.c_str());
+        m_entries.erase(it);
     }
+
+    assert(m_lruList.size() == m_entries.size());
 }
 
 std::wstring PreviewCache::BuildCacheKey(PCIDLIST_ABSOLUTE pidl) {
@@ -676,14 +674,29 @@ void PreviewCache::StoreBitmapForKey(const std::wstring& key, HBITMAP bitmap, co
         return;
     }
     std::scoped_lock lock(m_mutex);
-    Entry& entry = m_entries[key];
-    if (entry.bitmap) {
+    auto [it, inserted] = m_entries.try_emplace(key);
+    Entry& entry = it->second;
+    if (!inserted && entry.bitmap) {
         DeleteObject(entry.bitmap);
     }
     entry.bitmap = bitmap;
     entry.size = size;
-    entry.lastAccess = GetTickCount64();
+    TouchEntryLocked(entry, it->first);
     TrimCacheLocked();
+}
+
+void PreviewCache::TouchEntryLocked(Entry& entry, const std::wstring& key) {
+    if (entry.inLruList) {
+        assert(entry.lruPosition != m_lruList.end());
+        if (entry.lruPosition != m_lruList.begin()) {
+            m_lruList.splice(m_lruList.begin(), m_lruList, entry.lruPosition);
+        }
+        return;
+    }
+
+    m_lruList.emplace_front(key);
+    entry.lruPosition = m_lruList.begin();
+    entry.inLruList = true;
 }
 
 }  // namespace shelltabs
