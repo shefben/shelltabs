@@ -192,11 +192,15 @@ private:
     void EnsureVisibleSelection();
     void NotifyProgressListeners();
     TabLocation FindByPath(const std::wstring& path) const;
+    TabLocation ResolveFromIndex(const std::wstring& key, PCIDLIST_ABSOLUTE pidl, bool requireVisible) const;
+    TabLocation ScanForPidl(PCIDLIST_ABSOLUTE pidl) const;
+    TabLocation ScanForPath(const std::wstring& path) const;
     bool ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now);
     bool ClearProgress(TabInfo* tab);
     void UpdateSelectionActivation(TabLocation previousSelection);
     void RecalculateNextActivationOrdinal();
     void NormalizePinnedOrder(TabGroup& group);
+    void RebuildIndices();
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
@@ -205,6 +209,7 @@ private:
     std::vector<HWND> m_progressListeners;
     uint64_t m_nextActivationOrdinal = 1;
     ExplorerWindowId m_windowId{};
+    std::unordered_map<std::wstring, std::vector<TabLocation>> m_locationIndex;
 
     static std::mutex s_windowMutex;
     static std::unordered_map<ExplorerWindowId, TabManager*, ExplorerWindowIdHash> s_windowMap;
