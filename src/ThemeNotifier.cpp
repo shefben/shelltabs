@@ -24,7 +24,6 @@ using Microsoft::WRL::Wrappers::HStringReference;
 using ABI::Windows::Foundation::ITypedEventHandler;
 using ABI::Windows::UI::Color;
 using ABI::Windows::UI::ViewManagement::IUISettings3;
-using ABI::Windows::UI::ViewManagement::UISettings;
 
 namespace shelltabs {
 
@@ -32,7 +31,7 @@ namespace {
 
 class UiSettingsEventHandler
     : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-                                          ITypedEventHandler<UISettings*, ::IInspectable*>> {
+                                          ITypedEventHandler<IUISettings3*, ::IInspectable*>> {
 public:
     using CallbackType = std::function<void()>;
 
@@ -43,7 +42,7 @@ public:
         return S_OK;
     }
 
-    IFACEMETHODIMP Invoke(UISettings*, ::IInspectable*) override {
+    IFACEMETHODIMP Invoke(IUISettings3*, ::IInspectable*) override {
         if (m_callback) {
             m_callback();
         }
