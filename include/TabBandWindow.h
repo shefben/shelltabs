@@ -107,6 +107,18 @@ private:
         int row = 0;
     };
 
+    struct TabPaintMetrics {
+        RECT itemBounds{};
+        RECT tabBounds{};
+        RECT closeButton{};
+        int textLeft = 0;
+        int textRight = 0;
+        int iconLeft = 0;
+        int iconWidth = 0;
+        int iconHeight = 0;
+        int islandIndicator = 0;
+    };
+
     struct GroupOutline {
         int groupIndex = -1;
         int row = 0;
@@ -196,6 +208,8 @@ private:
     RECT m_clientRect{};
     std::vector<TabViewItem> m_tabData;
     std::vector<VisualItem> m_items;
+    std::vector<RECT> m_progressRects;
+    std::vector<size_t> m_activeProgressIndices;
     DragState m_drag;
     HitInfo m_contextHit;
     std::vector<std::pair<UINT, TabLocation>> m_hiddenTabCommands;
@@ -279,7 +293,7 @@ private:
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
-    void DrawTabProgress(HDC dc, const VisualItem& item, int left, int right, const RECT& tabRect,
+    void DrawTabProgress(HDC dc, const VisualItem& item, const TabPaintMetrics& metrics,
                          COLORREF background) const;
     void DrawDropIndicator(HDC dc) const;
     void DrawDragVisual(HDC dc) const;
@@ -296,6 +310,7 @@ private:
     void HandlePreviewReady(uint64_t requestId);
     void CancelPreviewRequest();
     void RefreshProgressState();
+    void RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs);
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
@@ -342,6 +357,13 @@ private:
     int GroupCount() const;
     const VisualItem* FindLastGroupHeader() const;
     const VisualItem* FindVisualForHit(const HitInfo& hit) const;
+    size_t FindTabDataIndex(TabLocation location) const;
+    TabPaintMetrics ComputeTabPaintMetrics(const VisualItem& item) const;
+    bool ComputeProgressBounds(const VisualItem& item, const TabPaintMetrics& metrics, RECT* out) const;
+    void EnsureProgressRectCache();
+    void RebuildProgressRectCache();
+    void InvalidateProgressForIndices(const std::vector<size_t>& indices);
+    void InvalidateActiveProgress();
     COLORREF ResolveTabBackground(const TabViewItem& item) const;
     COLORREF ResolveGroupBackground(const TabViewItem& item) const;
     COLORREF ResolveTextColor(COLORREF background) const;
