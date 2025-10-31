@@ -254,23 +254,26 @@ IFACEMETHODIMP TabBand::ResizeBorderDW(const RECT* prcBorder, IUnknown* punkTool
     return GuardExplorerCall(
         L"TabBand::ResizeBorderDW",
         [&]() -> HRESULT {
-            Microsoft::WRL::ComPtr<IDockingWindowFrame> dockingFrame = m_dockingFrame;
-            if (!dockingFrame && punkToolbarSite) {
-                punkToolbarSite->QueryInterface(IID_PPV_ARGS(&dockingFrame));
+            Microsoft::WRL::ComPtr<IDockingWindow> dockingWindow;
+            if (m_dockingFrame) {
+                m_dockingFrame.As(&dockingWindow);
             }
-            if (!dockingFrame && m_dockingSite) {
-                m_dockingSite.As(&dockingFrame);
+            if (!dockingWindow && punkToolbarSite) {
+                punkToolbarSite->QueryInterface(IID_PPV_ARGS(&dockingWindow));
             }
-            if (!dockingFrame && m_site) {
-                m_site.As(&dockingFrame);
+            if (!dockingWindow && m_dockingSite) {
+                m_dockingSite.As(&dockingWindow);
+            }
+            if (!dockingWindow && m_site) {
+                m_site.As(&dockingWindow);
             }
 
-            if (dockingFrame) {
+            if (dockingWindow) {
                 IUnknown* siteForCall = punkToolbarSite;
                 if (!siteForCall && m_site) {
                     siteForCall = m_site.Get();
                 }
-                const HRESULT hr = dockingFrame->ResizeBorderDW(prcBorder, siteForCall, fReserved);
+                const HRESULT hr = dockingWindow->ResizeBorderDW(prcBorder, siteForCall, fReserved);
                 if (FAILED(hr) && hr != E_NOTIMPL) {
                     return hr;
                 }
