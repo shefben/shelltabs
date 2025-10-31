@@ -305,7 +305,7 @@ struct ShellTabsOptions;
                 bool m_folderBackgroundsEnabled = false;
                 std::unordered_map<std::wstring, FolderBackgroundEntryData> m_folderBackgroundEntries;
                 mutable std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
-                std::wstring m_universalBackgroundImagePath;
+                mutable std::wstring m_universalBackgroundImagePath;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
