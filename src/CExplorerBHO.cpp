@@ -3274,7 +3274,12 @@ bool CExplorerBHO::ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighligh
         return false;
     }
 
-    return TryGetPaneHighlight(paths.front(), highlight);
+    const std::wstring normalizedPath = NormalizePaneHighlightKey(paths.front());
+    if (normalizedPath.empty()) {
+        return false;
+    }
+
+    return TryGetPaneHighlight(normalizedPath, highlight);
 }
 
 bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const {
