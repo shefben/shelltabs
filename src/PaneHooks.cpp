@@ -4,6 +4,8 @@
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 #include <algorithm>
 #include <cwctype>
 
@@ -23,7 +25,7 @@ void CollectSubscribers(std::vector<HWND>& listViews, std::vector<HWND>& treeVie
     auto pruneAndCollect = [&](std::unordered_set<HWND>& subscribers, std::vector<HWND>& collected) {
         for (auto it = subscribers.begin(); it != subscribers.end();) {
             HWND hwnd = *it;
-            if (!callback && !IsWindow(hwnd)) {
+            if (!IsWindow(hwnd)) {
                 it = subscribers.erase(it);
                 continue;
             }
@@ -267,7 +269,7 @@ void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highli
 
     {
         std::scoped_lock lock(g_highlightMutex);
-        g_highlights[path] = highlight;
+        g_highlights[normalized] = highlight;
         CollectSubscribers(listViews, treeViews);
     }
 
@@ -285,7 +287,7 @@ void UnregisterPaneHighlight(const std::wstring& path) {
 
     {
         std::scoped_lock lock(g_highlightMutex);
-        if (g_highlights.erase(path) == 0) {
+        if (g_highlights.erase(normalized) == 0) {
             return;
         }
         CollectSubscribers(listViews, treeViews);
