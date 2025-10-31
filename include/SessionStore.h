@@ -71,6 +71,7 @@ public:
 private:
     std::wstring m_storagePath;
     mutable std::optional<std::wstring> m_lastSerializedSnapshot;
+    mutable bool m_pendingCheckpointCleanup = false;
 };
 
 }  // namespace shelltabs
