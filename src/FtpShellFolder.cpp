@@ -1184,10 +1184,13 @@ IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
     }
     if (SUCCEEDED(hr) && ppv && *ppv) {
         auto* shellView = static_cast<IShellView*>(*ppv);
-        Microsoft::WRL::ComPtr<IFolderView2> folderView;
-        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&folderView)))) {
-            folderView->SetViewMode(settings.ViewMode);
-            folderView->SetCurrentFolderFlags(settings.fFlags, settings.fFlags);
+        Microsoft::WRL::ComPtr<IFolderView2> folderView2;
+        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&folderView2)))) {
+            Microsoft::WRL::ComPtr<IFolderView> folderView;
+            if (SUCCEEDED(folderView2.As(&folderView))) {
+                folderView->SetCurrentViewMode(settings.ViewMode);
+            }
+            folderView2->SetCurrentFolderFlags(settings.fFlags, settings.fFlags);
         }
     }
     return hr;
