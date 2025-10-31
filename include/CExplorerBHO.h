@@ -28,6 +28,7 @@
 #include <wrl/client.h>
 
 #include "PaneHooks.h"
+#include "Utilities.h"
 
 namespace Gdiplus {
 class Bitmap;
@@ -98,6 +99,13 @@ struct ShellTabsOptions;
                         HPEN focusPen = nullptr;
                 };
 
+                struct TreeItemPidlResolution {
+                        UniquePidl owned;
+                        PCIDLIST_ABSOLUTE raw = nullptr;
+
+                        [[nodiscard]] bool empty() const noexcept { return raw == nullptr; }
+                };
+
                 void Disconnect();
                 HRESULT EnsureBandVisible();
                 HRESULT ConnectEvents();
@@ -155,6 +163,7 @@ struct ShellTabsOptions;
                 bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
                 bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
                 bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
+                TreeItemPidlResolution ResolveTreeViewItemPidl(HWND treeView, const TVITEMEXW& item) const;
                 bool ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const;
                 bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
                 void DispatchOpenInNewTab(const std::vector<std::wstring>& paths);

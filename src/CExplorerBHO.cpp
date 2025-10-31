@@ -1360,7 +1360,46 @@ bool CExplorerBHO::TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHi
         return false;
     }
 
-    return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(treeItem.lParam), highlight);
+    TreeItemPidlResolution resolved = ResolveTreeViewItemPidl(treeView, treeItem);
+    if (resolved.empty()) {
+        return false;
+    }
+
+    return ResolveHighlightFromPidl(resolved.raw, highlight);
+}
+
+CExplorerBHO::TreeItemPidlResolution CExplorerBHO::ResolveTreeViewItemPidl(HWND treeView,
+                                                                           const TVITEMEXW& item) const {
+    TreeItemPidlResolution resolved;
+
+    if (!item.hItem) {
+        return resolved;
+    }
+
+    if (treeView && m_namespaceTreeControl) {
+        RECT itemBounds{};
+        HTREEITEM handle = item.hItem;
+        if (TreeView_GetItemRect(treeView, handle, &itemBounds, TRUE)) {
+            const LONG centerX = static_cast<LONG>(itemBounds.left + (itemBounds.right - itemBounds.left) / 2);
+            const LONG centerY = static_cast<LONG>(itemBounds.top + (itemBounds.bottom - itemBounds.top) / 2);
+            POINT queryPoint{centerX, centerY};
+
+            Microsoft::WRL::ComPtr<IShellItem> shellItem;
+            HRESULT hr = m_namespaceTreeControl->HitTest(&queryPoint, &shellItem);
+            if (SUCCEEDED(hr) && shellItem) {
+                PIDLIST_ABSOLUTE pidl = nullptr;
+                hr = SHGetIDListFromObject(shellItem.Get(), &pidl);
+                if (SUCCEEDED(hr) && pidl) {
+                    resolved.owned.reset(reinterpret_cast<ITEMIDLIST*>(pidl));
+                    resolved.raw = resolved.owned.get();
+                    return resolved;
+                }
+            }
+        }
+    }
+
+    resolved.raw = reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam);
+    return resolved;
 }
 
 HRESULT CExplorerBHO::ConnectEvents() {
@@ -3256,7 +3295,8 @@ bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) co
     }
 
     const size_t before = paths.size();
-    if (!AppendPathFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), paths)) {
+    TreeItemPidlResolution resolved = ResolveTreeViewItemPidl(m_treeView, item);
+    if (resolved.empty() || !AppendPathFromPidl(resolved.raw, paths)) {
         LogMessage(LogLevel::Info, L"CollectPathsFromTreeView skipped: selection not a filesystem folder");
         return false;
     }
