@@ -1,0 +1,53 @@
+{
+  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved": [],
+  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions": [
+    "Approved",
+    "Blocked",
+    "Cached"
+  ],
+  "SOFTWARE\\Classes\\*\\shellex": [
+    "-ContextMenuHandlers",
+    "ContextMenuHandlers",
+    "PropertySheetHandlers"
+  ],
+  "SOFTWARE\\Classes\\Folder\\shellex": [
+    "ColumnHandlers",
+    "ContextMenuHandlers",
+    "DragDropHandlers",
+    "PropertySheetHandlers"
+  ],
+  "SOFTWARE\\Classes\\Directory\\shellex": [
+    "ContextMenuHandlers",
+    "CopyHookHandlers",
+    "DragDropHandlers",
+    "PropertySheetHandlers"
+  ],
+  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ShellIconOverlayIdentifiers": [
+    "\u0001 MEGA (NotFound)",
+    "\u0001 MEGA (Pending)",
+    "\u0001 MEGA (Synced)",
+    "\u0001 MEGA (Syncing)",
+    "  Tortoise1Normal",
+    "  Tortoise2Modified",
+    "  Tortoise3Conflict",
+    "  Tortoise4Locked",
+    "  Tortoise5ReadOnly",
+    "  Tortoise6Deleted",
+    "  Tortoise7Added",
+    "  Tortoise8Ignored",
+    "  Tortoise9Unversioned",
+    " @nilesoft.shell",
+    " OneDrive1",
+    " OneDrive2",
+    " OneDrive3",
+    " OneDrive4",
+    " OneDrive5",
+    " OneDrive6",
+    " OneDrive7",
+    "EnhancedStorageShell",
+    "IconOverlayHardLink",
+    "IconOverlayJunction",
+    "IconOverlaySymbolicLink",
+    "ShareOverlay"
+  ]
+}

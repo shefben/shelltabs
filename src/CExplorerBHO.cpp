@@ -70,6 +70,7 @@ using shelltabs::UniquePidl;
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
 constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
+constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_background";
 
 std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
@@ -1980,6 +1981,7 @@ void CExplorerBHO::DetachListView() {
     if (m_listView) {
         ClearListViewAccentResources(m_listView);
     }
+    ClearListViewBackgroundImage();
     m_listView = nullptr;
     m_listViewSubclassInstalled = false;
     m_paneHooks.SetListView(nullptr);
@@ -2014,6 +2016,7 @@ bool CExplorerBHO::AttachListView(HWND listView) {
 
     m_paneHooks.SetListView(m_listView);
     LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
+    EnsureListViewBackgroundImage(listView);
     return true;
 }
 
@@ -2501,6 +2504,7 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_universalBackgroundBitmap.reset();
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
+    ClearListViewBackgroundImage();
 }
 
 std::wstring CExplorerBHO::NormalizeBackgroundKey(const std::wstring& path) const {
@@ -2555,6 +2559,7 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     }
 
     InvalidateFolderBackgroundTargets();
+    EnsureListViewBackgroundImage(m_listView);
 }
 
 bool CExplorerBHO::EnsureFolderBackgroundBitmap(const std::wstring& key) const {
@@ -2632,8 +2637,16 @@ Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
     return nullptr;
 }
 
-bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
-    if (!hwnd || !dc || !m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) {
+    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+        return false;
+    }
+
+    if (hwnd == m_listView) {
+        return EnsureListViewBackgroundImage(hwnd);
+    }
+
+    if (!hwnd || !dc) {
         return false;
     }
 
@@ -2672,6 +2685,133 @@ bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) const {
         graphics.DrawImage(background, destRect, 0, 0, static_cast<INT>(width),
                            static_cast<INT>(height), Gdiplus::UnitPixel);
     return status == Gdiplus::Ok;
+}
+
+std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
+    if (!m_currentFolderKey.empty()) {
+        return m_currentFolderKey;
+    }
+
+    if (m_universalBackgroundBitmap) {
+        return std::wstring(kUniversalBackgroundCacheKey);
+    }
+
+    return {};
+}
+
+HBITMAP CExplorerBHO::CreateListViewBackgroundBitmap(const SIZE& targetSize,
+                                                     Gdiplus::Bitmap* background) const {
+    if (!background || targetSize.cx <= 0 || targetSize.cy <= 0) {
+        return nullptr;
+    }
+
+    Gdiplus::Bitmap surface(targetSize.cx, targetSize.cy, PixelFormat32bppARGB);
+    if (surface.GetLastStatus() != Gdiplus::Ok) {
+        return nullptr;
+    }
+
+    Gdiplus::Graphics graphics(&surface);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        return nullptr;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const UINT width = background->GetWidth();
+    const UINT height = background->GetHeight();
+    if (width == 0 || height == 0) {
+        return nullptr;
+    }
+
+    const Gdiplus::Status drawStatus =
+        graphics.DrawImage(background, Gdiplus::Rect(0, 0, targetSize.cx, targetSize.cy), 0, 0,
+                           static_cast<INT>(width), static_cast<INT>(height), Gdiplus::UnitPixel);
+    if (drawStatus != Gdiplus::Ok) {
+        return nullptr;
+    }
+
+    HBITMAP bitmap = nullptr;
+    const Gdiplus::Status bitmapStatus = surface.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &bitmap);
+    if (bitmapStatus != Gdiplus::Ok) {
+        return nullptr;
+    }
+
+    return bitmap;
+}
+
+bool CExplorerBHO::EnsureListViewBackgroundImage(HWND listView) {
+    if (!listView || listView != m_listView || !IsWindow(listView)) {
+        return false;
+    }
+
+    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+        ClearListViewBackgroundImage();
+        return false;
+    }
+
+    Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
+    if (!background) {
+        ClearListViewBackgroundImage();
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(listView, &client) || client.right <= client.left || client.bottom <= client.top) {
+        return false;
+    }
+
+    SIZE size{client.right - client.left, client.bottom - client.top};
+    std::wstring cacheKey = ResolveBackgroundCacheKey();
+    if (cacheKey.empty()) {
+        ClearListViewBackgroundImage();
+        return false;
+    }
+
+    if (m_listViewBackgroundImage.bitmap && m_listViewBackgroundImage.size.cx == size.cx &&
+        m_listViewBackgroundImage.size.cy == size.cy && m_listViewBackgroundImage.cacheKey == cacheKey) {
+        return true;
+    }
+
+    HBITMAP newBitmap = CreateListViewBackgroundBitmap(size, background);
+    if (!newBitmap) {
+        return false;
+    }
+
+    LVBKIMAGEW image{};
+    image.ulFlags = LVBKIF_SOURCE_HBITMAP | LVBKIF_STYLE_NORMAL;
+    image.hbm = newBitmap;
+
+    if (!ListView_SetBkImage(listView, &image)) {
+        DeleteObject(newBitmap);
+        return false;
+    }
+
+    HBITMAP oldBitmap = m_listViewBackgroundImage.bitmap;
+    m_listViewBackgroundImage.bitmap = newBitmap;
+    m_listViewBackgroundImage.size = size;
+    m_listViewBackgroundImage.cacheKey = std::move(cacheKey);
+
+    if (oldBitmap) {
+        DeleteObject(oldBitmap);
+    }
+
+    return true;
+}
+
+void CExplorerBHO::ClearListViewBackgroundImage() {
+    if (m_listView && IsWindow(m_listView)) {
+        ListView_SetBkImage(m_listView, nullptr);
+    }
+
+    if (m_listViewBackgroundImage.bitmap) {
+        DeleteObject(m_listViewBackgroundImage.bitmap);
+    }
+
+    m_listViewBackgroundImage.bitmap = nullptr;
+    m_listViewBackgroundImage.size = {0, 0};
+    m_listViewBackgroundImage.cacheKey.clear();
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -2718,6 +2858,8 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
     }
 
     InvalidateFolderBackgroundTargets();
+    ClearListViewBackgroundImage();
+    EnsureListViewBackgroundImage(m_listView);
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
@@ -3037,12 +3179,16 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             if (isListView) {
                 RefreshListViewAccentState();
+                EnsureListViewBackgroundImage(hwnd);
             }
             break;
         }
         case WM_SIZE: {
             if (handlesBackground) {
                 InvalidateRect(hwnd, nullptr, TRUE);
+            }
+            if (isListView) {
+                EnsureListViewBackgroundImage(hwnd);
             }
             break;
         }

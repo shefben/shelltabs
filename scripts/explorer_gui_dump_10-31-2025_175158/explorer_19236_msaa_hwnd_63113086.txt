@@ -1,0 +1,1 @@
+MSAA IAccessible pointer: 0x26700046300

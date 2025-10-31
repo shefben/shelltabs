@@ -1,0 +1,1873 @@
+[
+  {
+    "hwnd": 10168968,
+    "hwnd_hex": "0x9b2a88",
+    "class": "Shell_TrayWnd",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 28872,
+    "rect": [
+      0,
+      1400,
+      2560,
+      1440
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "hinstance": "0x7ff619980000",
+    "menu_items": [],
+    "children": [
+      {
+        "hwnd": 11937328,
+        "hwnd_hex": "0xb62630",
+        "class": "Start",
+        "text": "Start",
+        "process_id": 19236,
+        "thread_id": 28872,
+        "rect": [
+          0,
+          1400,
+          48,
+          1440
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ff6199fc020",
+        "hinstance": "0x7ff619980000",
+        "menu_items": [],
+        "children": []
+      },
+      {
+        "hwnd": 145163930,
+        "hwnd_hex": "0x8a7069a",
+        "class": "TrayDummySearchControl",
+        "text": "",
+        "process_id": 19236,
+        "thread_id": 28872,
+        "rect": [
+          0,
+          1400,
+          0,
+          1400
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ff6199cac00",
+        "hinstance": "0x7ff619980000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 36702256,
+            "hwnd_hex": "0x2300830",
+            "class": "Button",
+            "text": "Type here to search",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              0,
+              1400,
+              0,
+              1400
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b718e0",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 87492178,
+            "hwnd_hex": "0x5370652",
+            "class": "Static",
+            "text": "Type here to search",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              40,
+              1390,
+              40,
+              1410
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b92590",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 1575320,
+            "hwnd_hex": "0x180998",
+            "class": "ToolbarWindow32",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              0,
+              1400,
+              0,
+              1400
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b77240",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 18686142,
+            "hwnd_hex": "0x11d20be",
+            "class": "DynamicContent1",
+            "text": "Search highlights icon opens search home window",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              0,
+              1400,
+              0,
+              1400
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ff619aa6b10",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          }
+        ]
+      },
+      [],
+      [],
+      [],
+      [],
+      {
+        "hwnd": 31721194,
+        "hwnd_hex": "0x1e406ea",
+        "class": "ReBarWindow32",
+        "text": "",
+        "process_id": 19236,
+        "thread_id": 28872,
+        "rect": [
+          46,
+          1400,
+          2419,
+          1440
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffca6b80f90",
+        "hinstance": "0x7ffc95230000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 95551690,
+            "hwnd_hex": "0x5b200ca",
+            "class": "MSTaskSwWClass",
+            "text": "Running applications",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              48,
+              1400,
+              2419,
+              1440
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ff6199f7470",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 34144922,
+                "hwnd_hex": "0x209029a",
+                "class": "MSTaskListWClass",
+                "text": "Running applications",
+                "process_id": 19236,
+                "thread_id": 28872,
+                "rect": [
+                  48,
+                  1400,
+                  2419,
+                  1440
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ff6199f7470",
+                "hinstance": "0x7ff619980000",
+                "menu_items": [],
+                "children": []
+              }
+            ]
+          },
+          []
+        ]
+      },
+      [],
+      [],
+      {
+        "hwnd": 75434052,
+        "hwnd_hex": "0x47f0844",
+        "class": "DynamicContent2",
+        "text": "News and interests",
+        "process_id": 19236,
+        "thread_id": 28872,
+        "rect": [
+          2315,
+          1400,
+          2411,
+          1440
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ff619aa6b10",
+        "hinstance": "0x7ff619980000",
+        "menu_items": [],
+        "children": []
+      },
+      {
+        "hwnd": 35390818,
+        "hwnd_hex": "0x21c0562",
+        "class": "TrayNotifyWnd",
+        "text": "",
+        "process_id": 19236,
+        "thread_id": 28872,
+        "rect": [
+          2419,
+          1400,
+          2560,
+          1440
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ff6199f7470",
+        "hinstance": "0x7ff619980000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 39195132,
+            "hwnd_hex": "0x25611fc",
+            "class": "Button",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2419,
+              1400,
+              2443,
+              1440
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b718e0",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 751643222,
+                "hwnd_hex": "0x2ccd2a56",
+                "class": "Button",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 28872,
+                "rect": [
+                  2419,
+                  1400,
+                  2419,
+                  1400
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffca6b718e0",
+                "hinstance": "0x7ff619980000",
+                "menu_items": [],
+                "children": []
+              }
+            ]
+          },
+          [],
+          {
+            "hwnd": 26150266,
+            "hwnd_hex": "0x18f057a",
+            "class": "ToolbarWindow32",
+            "text": "System Promoted Notification Area",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2443,
+              1400,
+              2443,
+              1400
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b77240",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 225976548,
+            "hwnd_hex": "0xd7820e4",
+            "class": "SysPager",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2443,
+              1400,
+              2443,
+              1400
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6ba0150",
+            "hinstance": null,
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 304229586,
+                "hwnd_hex": "0x12222cd2",
+                "class": "ToolbarWindow32",
+                "text": "User Promoted Notification Area",
+                "process_id": 19236,
+                "thread_id": 28872,
+                "rect": [
+                  2443,
+                  1400,
+                  2443,
+                  1400
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffca6b77240",
+                "hinstance": "0x7ff619980000",
+                "menu_items": [],
+                "children": []
+              }
+            ]
+          },
+          [],
+          {
+            "hwnd": 20514416,
+            "hwnd_hex": "0x1390670",
+            "class": "TrayInputIndicatorWClass",
+            "text": "Tray Input Indicator",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2443,
+              1400,
+              2443,
+              1440
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ff6199f7470",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 225052346,
+                "hwnd_hex": "0xd6a06ba",
+                "class": "IMEModeButton",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 28872,
+                "rect": [
+                  2443,
+                  1400,
+                  2443,
+                  1440
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffcc0f4d230",
+                "hinstance": "0x7ff619980000",
+                "menu_items": [],
+                "children": []
+              },
+              {
+                "hwnd": 33228152,
+                "hwnd_hex": "0x1fb0578",
+                "class": "InputIndicatorButton",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 28872,
+                "rect": [
+                  2443,
+                  1400,
+                  2479,
+                  1440
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffcc0f4d230",
+                "hinstance": "0x7ff619980000",
+                "menu_items": [],
+                "children": []
+              }
+            ]
+          },
+          [],
+          [],
+          {
+            "hwnd": 4852038,
+            "hwnd_hex": "0x4a0946",
+            "class": "TrayClockWClass",
+            "text": "System Clock, 5:51 PM, ?10/?31/?2025",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2443,
+              1400,
+              2507,
+              1440
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ff6199f7470",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 61867454,
+            "hwnd_hex": "0x3b005be",
+            "class": "TrayButton",
+            "text": "Action Center, 2 new notifications",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2507,
+              1400,
+              2555,
+              1440
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ff6199f7470",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 202647140,
+            "hwnd_hex": "0xc142664",
+            "class": "TrayShowDesktopButtonWClass",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 28872,
+            "rect": [
+              2555,
+              1400,
+              2560,
+              1440
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ff6199fbde0",
+            "hinstance": "0x7ff619980000",
+            "menu_items": [],
+            "children": []
+          }
+        ]
+      },
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "hwnd": 7997664,
+    "hwnd_hex": "0x7a08e0",
+    "class": "CabinetWClass",
+    "text": "shelltabs",
+    "process_id": 19236,
+    "thread_id": 37792,
+    "rect": [
+      1045,
+      381,
+      2139,
+      1342
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952511b0",
+    "hinstance": "0x7ffc95230000",
+    "menu_items": [],
+    "children": [
+      {
+        "hwnd": 50594670,
+        "hwnd_hex": "0x304036e",
+        "class": "UIRibbonCommandBarDock",
+        "text": "UIRibbonDockLeft",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          1053,
+          553,
+          1053,
+          1334
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffc050f9360",
+        "hinstance": "0x7ffc05050000",
+        "menu_items": [],
+        "children": []
+      },
+      {
+        "hwnd": 253035342,
+        "hwnd_hex": "0xf15034e",
+        "class": "UIRibbonCommandBarDock",
+        "text": "UIRibbonDockRight",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          2131,
+          553,
+          2131,
+          1334
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffc050f9360",
+        "hinstance": "0x7ffc05050000",
+        "menu_items": [],
+        "children": []
+      },
+      {
+        "hwnd": 10158884,
+        "hwnd_hex": "0x9b0324",
+        "class": "UIRibbonCommandBarDock",
+        "text": "UIRibbonDockTop",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          1053,
+          412,
+          2131,
+          553
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffc050f9360",
+        "hinstance": "0x7ffc05050000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 17367916,
+            "hwnd_hex": "0x109036c",
+            "class": "UIRibbonCommandBar",
+            "text": "Ribbon",
+            "process_id": 19236,
+            "thread_id": 37792,
+            "rect": [
+              1053,
+              412,
+              2131,
+              553
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffc05115af0",
+            "hinstance": "0x7ffc05050000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 211091696,
+                "hwnd_hex": "0xc9500f0",
+                "class": "UIRibbonWorkPane",
+                "text": "Ribbon",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1053,
+                  412,
+                  2131,
+                  553
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc050ce2c0",
+                "hinstance": "0x7ffc05050000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 72299984,
+                    "hwnd_hex": "0x44f35d0",
+                    "class": "NUIPane",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1053,
+                      412,
+                      2131,
+                      584
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffcc0f4d230",
+                    "hinstance": "0x7ffc05050000",
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 74725538,
+                        "hwnd_hex": "0x47438a2",
+                        "class": "NetUIHWND",
+                        "text": "",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1053,
+                          381,
+                          2131,
+                          553
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffcc0f4d230",
+                        "hinstance": "0x7ffc05050000",
+                        "menu_items": [],
+                        "children": []
+                      }
+                    ]
+                  },
+                  []
+                ]
+              },
+              [],
+              []
+            ]
+          },
+          [],
+          [],
+          []
+        ]
+      },
+      [],
+      [],
+      [],
+      [],
+      {
+        "hwnd": 32637250,
+        "hwnd_hex": "0x1f20142",
+        "class": "UIRibbonCommandBarDock",
+        "text": "UIRibbonDockBottom",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          1053,
+          1334,
+          2131,
+          1334
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffc050f9360",
+        "hinstance": "0x7ffc05050000",
+        "menu_items": [],
+        "children": []
+      },
+      {
+        "hwnd": 409930044,
+        "hwnd_hex": "0x186f093c",
+        "class": "WorkerW",
+        "text": "",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          1053,
+          553,
+          2131,
+          588
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffcc0cac000",
+        "hinstance": "0x7ffcc0c70000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 110825466,
+            "hwnd_hex": "0x69b0ffa",
+            "class": "ReBarWindow32",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 37792,
+            "rect": [
+              1053,
+              553,
+              2131,
+              588
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b80f90",
+            "hinstance": "0x7ffc95230000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 23204098,
+                "hwnd_hex": "0x1621102",
+                "class": "TravelBand",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1053,
+                  553,
+                  1134,
+                  585
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc95295b10",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 53613248,
+                    "hwnd_hex": "0x33212c0",
+                    "class": "ToolbarWindow32",
+                    "text": "Navigation buttons",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1057,
+                      555,
+                      1134,
+                      585
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffca6b77240",
+                    "hinstance": "0x7ffc95230000",
+                    "menu_items": [],
+                    "children": []
+                  }
+                ]
+              },
+              [],
+              {
+                "hwnd": 31201396,
+                "hwnd_hex": "0x1dc1874",
+                "class": "UpBand",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1134,
+                  554,
+                  1158,
+                  583
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc95252220",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 358947078,
+                    "hwnd_hex": "0x15651906",
+                    "class": "ToolbarWindow32",
+                    "text": "Up band toolbar",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1134,
+                      558,
+                      1158,
+                      587
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffca6b77240",
+                    "hinstance": "0x7ffc95230000",
+                    "menu_items": [],
+                    "children": []
+                  }
+                ]
+              },
+              [],
+              {
+                "hwnd": 45425010,
+                "hwnd_hex": "0x2b52172",
+                "class": "Address Band Root",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1158,
+                  555,
+                  1905,
+                  583
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc9527b1d0",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 57876872,
+                    "hwnd_hex": "0x3732188",
+                    "class": "msctls_progress32",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1160,
+                      559,
+                      1903,
+                      581
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffca6b41e80",
+                    "hinstance": "0x7ffc95230000",
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 8004354,
+                        "hwnd_hex": "0x7a2302",
+                        "class": "Breadcrumb Parent",
+                        "text": "",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1160,
+                          559,
+                          1869,
+                          581
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffc9527da20",
+                        "hinstance": "0x7ffc95230000",
+                        "menu_items": [],
+                        "children": [
+                          {
+                            "hwnd": 11346706,
+                            "hwnd_hex": "0xad2312",
+                            "class": "ToolbarWindow32",
+                            "text": "Address: F:\\development\\steam\\emulator_bot\\shelltabs",
+                            "process_id": 19236,
+                            "thread_id": 37792,
+                            "rect": [
+                              1160,
+                              559,
+                              1869,
+                              581
+                            ],
+                            "wndproc": null,
+                            "class_wndproc": "0x7ffca6b77240",
+                            "hinstance": "0x7ffc95230000",
+                            "menu_items": [],
+                            "children": []
+                          }
+                        ]
+                      },
+                      [],
+                      {
+                        "hwnd": 27599486,
+                        "hwnd_hex": "0x1a5227e",
+                        "class": "ToolbarWindow32",
+                        "text": "Address band toolbar",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1869,
+                          559,
+                          1903,
+                          581
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffca6b77240",
+                        "hinstance": "0x7ffc95230000",
+                        "menu_items": [],
+                        "children": []
+                      }
+                    ]
+                  },
+                  [],
+                  [],
+                  []
+                ]
+              },
+              [],
+              [],
+              [],
+              [],
+              {
+                "hwnd": 5251862,
+                "hwnd_hex": "0x502316",
+                "class": "SeparatorBand",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1909,
+                  568,
+                  1915,
+                  569
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc95251370",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": []
+              },
+              {
+                "hwnd": 12395310,
+                "hwnd_hex": "0xbd232e",
+                "class": "UniversalSearchBand",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1915,
+                  555,
+                  2120,
+                  583
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc952509a0",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 20718394,
+                    "hwnd_hex": "0x13c233a",
+                    "class": "Search Box",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1915,
+                      558,
+                      2120,
+                      582
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffc952bdef0",
+                    "hinstance": "0x7ffc95230000",
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 19342160,
+                        "hwnd_hex": "0x1272350",
+                        "class": "SearchEditBoxWrapperClass",
+                        "text": "",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1920,
+                          558,
+                          2115,
+                          582
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffc952bf110",
+                        "hinstance": "0x7ffc95230000",
+                        "menu_items": [],
+                        "children": [
+                          {
+                            "hwnd": 66659176,
+                            "hwnd_hex": "0x3f92368",
+                            "class": "DirectUIHWND",
+                            "text": "",
+                            "process_id": 19236,
+                            "thread_id": 37792,
+                            "rect": [
+                              1920,
+                              558,
+                              2115,
+                              582
+                            ],
+                            "wndproc": null,
+                            "class_wndproc": "0x7ffcc0f4d230",
+                            "hinstance": "0x7ff619980000",
+                            "menu_items": [],
+                            "children": []
+                          }
+                        ]
+                      },
+                      []
+                    ]
+                  },
+                  [],
+                  []
+                ]
+              },
+              [],
+              [],
+              [],
+              {
+                "hwnd": 18621518,
+                "hwnd_hex": "0x11c244e",
+                "class": "SeparatorBand",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  2124,
+                  568,
+                  2131,
+                  569
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffc95251370",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": []
+              }
+            ]
+          },
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ]
+      },
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      {
+        "hwnd": 56364622,
+        "hwnd_hex": "0x35c0e4e",
+        "class": "ShellTabWindowClass",
+        "text": "shelltabs",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          1053,
+          588,
+          2131,
+          1334
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffc952809e0",
+        "hinstance": "0x7ffc95230000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 18556996,
+            "hwnd_hex": "0x11b2844",
+            "class": "DUIViewWndClassName",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 37792,
+            "rect": [
+              1053,
+              619,
+              2131,
+              1311
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffcbf0cf9b0",
+            "hinstance": "0x7ffcbf070000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 33436234,
+                "hwnd_hex": "0x1fe324a",
+                "class": "DirectUIHWND",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1053,
+                  619,
+                  2131,
+                  1311
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffcc0f4d230",
+                "hinstance": "0x7ff619980000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 23398424,
+                    "hwnd_hex": "0x1650818",
+                    "class": "CtrlNotifySink",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1053,
+                      619,
+                      1053,
+                      619
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffcc0f4d230",
+                    "hinstance": null,
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 21301324,
+                        "hwnd_hex": "0x145084c",
+                        "class": "Shell Preview Extension Host",
+                        "text": "Shell Preview Extension Host",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1053,
+                          619,
+                          1053,
+                          619
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffcbf08a060",
+                        "hinstance": "0x7ffcbf070000",
+                        "menu_items": [],
+                        "children": []
+                      }
+                    ]
+                  },
+                  [],
+                  {
+                    "hwnd": 375522670,
+                    "hwnd_hex": "0x1662056e",
+                    "class": "CtrlNotifySink",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1320,
+                      631,
+                      1320,
+                      631
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffcc0f4d230",
+                    "hinstance": null,
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 27657666,
+                        "hwnd_hex": "0x1a605c2",
+                        "class": "Button",
+                        "text": "",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1320,
+                          631,
+                          1320,
+                          631
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffca6b718e0",
+                        "hinstance": null,
+                        "menu_items": [],
+                        "children": []
+                      }
+                    ]
+                  },
+                  [],
+                  {
+                    "hwnd": 76153136,
+                    "hwnd_hex": "0x48a0130",
+                    "class": "CtrlNotifySink",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1320,
+                      631,
+                      1320,
+                      631
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffcc0f4d230",
+                    "hinstance": null,
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 137823434,
+                        "hwnd_hex": "0x83704ca",
+                        "class": "Button",
+                        "text": "",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1320,
+                          631,
+                          1320,
+                          631
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffca6b718e0",
+                        "hinstance": null,
+                        "menu_items": [],
+                        "children": []
+                      }
+                    ]
+                  },
+                  [],
+                  {
+                    "hwnd": 49822024,
+                    "hwnd_hex": "0x2f83948",
+                    "class": "CtrlNotifySink",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1053,
+                      619,
+                      1304,
+                      1288
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffcc0f4d230",
+                    "hinstance": null,
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 102892574,
+                        "hwnd_hex": "0x622041e",
+                        "class": "NamespaceTreeControl",
+                        "text": "Namespace Tree Control",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1053,
+                          619,
+                          1304,
+                          1288
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffc952511b0",
+                        "hinstance": "0x7ffc95230000",
+                        "menu_items": [],
+                        "children": [
+                          {
+                            "hwnd": 38798602,
+                            "hwnd_hex": "0x250050a",
+                            "class": "Static",
+                            "text": "Namespace Tree Control",
+                            "process_id": 19236,
+                            "thread_id": 37792,
+                            "rect": [
+                              1053,
+                              619,
+                              1053,
+                              619
+                            ],
+                            "wndproc": null,
+                            "class_wndproc": "0x7ffca6b92590",
+                            "hinstance": "0x7ffc95230000",
+                            "menu_items": [],
+                            "children": []
+                          },
+                          {
+                            "hwnd": 24445108,
+                            "hwnd_hex": "0x17500b4",
+                            "class": "SysTreeView32",
+                            "text": "Tree View",
+                            "process_id": 19236,
+                            "thread_id": 37792,
+                            "rect": [
+                              1053,
+                              619,
+                              1304,
+                              1288
+                            ],
+                            "wndproc": null,
+                            "class_wndproc": "0x7ffca6b26d30",
+                            "hinstance": "0x7ffc95230000",
+                            "menu_items": [],
+                            "children": []
+                          }
+                        ]
+                      },
+                      [],
+                      []
+                    ]
+                  },
+                  [],
+                  [],
+                  [],
+                  {
+                    "hwnd": 140453532,
+                    "hwnd_hex": "0x85f269c",
+                    "class": "CtrlNotifySink",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1308,
+                      619,
+                      2131,
+                      1288
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffcc0f4d230",
+                    "hinstance": null,
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 20850592,
+                        "hwnd_hex": "0x13e27a0",
+                        "class": "SHELLDLL_DefView",
+                        "text": "ShellView",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          1308,
+                          619,
+                          2131,
+                          1288
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffcbf137c40",
+                        "hinstance": "0x7ffcbf070000",
+                        "menu_items": [],
+                        "children": [
+                          {
+                            "hwnd": 23732606,
+                            "hwnd_hex": "0x16a217e",
+                            "class": "DirectUIHWND",
+                            "text": "",
+                            "process_id": 19236,
+                            "thread_id": 37792,
+                            "rect": [
+                              1308,
+                              619,
+                              2131,
+                              1288
+                            ],
+                            "wndproc": null,
+                            "class_wndproc": "0x7ffcc0f4d230",
+                            "hinstance": "0x7ff619980000",
+                            "menu_items": [],
+                            "children": [
+                              {
+                                "hwnd": 84083738,
+                                "hwnd_hex": "0x503041a",
+                                "class": "CtrlNotifySink",
+                                "text": "",
+                                "process_id": 19236,
+                                "thread_id": 37792,
+                                "rect": [
+                                  1308,
+                                  1271,
+                                  2114,
+                                  1288
+                                ],
+                                "wndproc": null,
+                                "class_wndproc": "0x7ffcc0f4d230",
+                                "hinstance": null,
+                                "menu_items": [],
+                                "children": [
+                                  {
+                                    "hwnd": 20324836,
+                                    "hwnd_hex": "0x13621e4",
+                                    "class": "ScrollBar",
+                                    "text": "",
+                                    "process_id": 19236,
+                                    "thread_id": 37792,
+                                    "rect": [
+                                      1308,
+                                      1271,
+                                      2114,
+                                      1288
+                                    ],
+                                    "wndproc": null,
+                                    "class_wndproc": "0x7ffca6b11bf0",
+                                    "hinstance": null,
+                                    "menu_items": [],
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              [],
+                              {
+                                "hwnd": 167715394,
+                                "hwnd_hex": "0x9ff2242",
+                                "class": "CtrlNotifySink",
+                                "text": "",
+                                "process_id": 19236,
+                                "thread_id": 37792,
+                                "rect": [
+                                  2114,
+                                  619,
+                                  2131,
+                                  1271
+                                ],
+                                "wndproc": null,
+                                "class_wndproc": "0x7ffcc0f4d230",
+                                "hinstance": null,
+                                "menu_items": [],
+                                "children": [
+                                  {
+                                    "hwnd": 125055002,
+                                    "hwnd_hex": "0x774301a",
+                                    "class": "ScrollBar",
+                                    "text": "",
+                                    "process_id": 19236,
+                                    "thread_id": 37792,
+                                    "rect": [
+                                      2114,
+                                      619,
+                                      2131,
+                                      1271
+                                    ],
+                                    "wndproc": null,
+                                    "class_wndproc": "0x7ffca6b11bf0",
+                                    "hinstance": null,
+                                    "menu_items": [],
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              []
+                            ]
+                          },
+                          [],
+                          [],
+                          [],
+                          []
+                        ]
+                      },
+                      [],
+                      [],
+                      [],
+                      [],
+                      []
+                    ]
+                  },
+                  [],
+                  [],
+                  [],
+                  [],
+                  [],
+                  []
+                ]
+              },
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              [],
+              []
+            ]
+          },
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          {
+            "hwnd": 45295426,
+            "hwnd_hex": "0x2b32742",
+            "class": "WorkerW",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 37792,
+            "rect": [
+              1053,
+              588,
+              2131,
+              619
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffcc0cac000",
+            "hinstance": "0x7ffcc0c70000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 61351768,
+                "hwnd_hex": "0x3a82758",
+                "class": "ReBarWindow32",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 37792,
+                "rect": [
+                  1053,
+                  588,
+                  2131,
+                  619
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffca6b80f90",
+                "hinstance": "0x7ffc95230000",
+                "menu_items": [],
+                "children": [
+                  {
+                    "hwnd": 16983926,
+                    "hwnd_hex": "0x1032776",
+                    "class": "ToolbarWindow32",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1064,
+                      588,
+                      2131,
+                      588
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffca6b77240",
+                    "hinstance": "0x7ffcbf070000",
+                    "menu_items": [],
+                    "children": []
+                  },
+                  {
+                    "hwnd": 68495302,
+                    "hwnd_hex": "0x41527c6",
+                    "class": "ShellTabsBandWindow",
+                    "text": "",
+                    "process_id": 19236,
+                    "thread_id": 37792,
+                    "rect": [
+                      1064,
+                      588,
+                      2131,
+                      616
+                    ],
+                    "wndproc": null,
+                    "class_wndproc": "0x7ffc89a6a270",
+                    "hinstance": "0x7ffc89a20000",
+                    "menu_items": [],
+                    "children": [
+                      {
+                        "hwnd": 63645736,
+                        "hwnd_hex": "0x3cb2828",
+                        "class": "Button",
+                        "text": "+",
+                        "process_id": 19236,
+                        "thread_id": 37792,
+                        "rect": [
+                          2110,
+                          592,
+                          2129,
+                          611
+                        ],
+                        "wndproc": null,
+                        "class_wndproc": "0x7ffca6b718e0",
+                        "hinstance": "0x7ffc89a20000",
+                        "menu_items": [],
+                        "children": []
+                      }
+                    ]
+                  },
+                  []
+                ]
+              },
+              [],
+              [],
+              []
+            ]
+          },
+          [],
+          [],
+          [],
+          [],
+          {
+            "hwnd": 19605692,
+            "hwnd_hex": "0x12b28bc",
+            "class": "msctls_statusbar32",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 37792,
+            "rect": [
+              1053,
+              565,
+              1053,
+              588
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b49130",
+            "hinstance": "0x7ffc95230000",
+            "menu_items": [],
+            "children": []
+          },
+          {
+            "hwnd": 11741494,
+            "hwnd_hex": "0xb32936",
+            "class": "msctls_statusbar32",
+            "text": "",
+            "process_id": 19236,
+            "thread_id": 37792,
+            "rect": [
+              1053,
+              1311,
+              2131,
+              1334
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b49130",
+            "hinstance": "0x7ffc85e10000",
+            "menu_items": [],
+            "children": []
+          }
+        ]
+      },
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      {
+        "hwnd": 43069632,
+        "hwnd_hex": "0x29130c0",
+        "class": "UIRibbonWorkPane",
+        "text": "UIRibbonWorkPane",
+        "process_id": 19236,
+        "thread_id": 37792,
+        "rect": [
+          1053,
+          381,
+          1153,
+          481
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffc050ce2c0",
+        "hinstance": "0x7ffc05050000",
+        "menu_items": [],
+        "children": []
+      }
+    ]
+  },
+  {
+    "hwnd": 5973768,
+    "hwnd_hex": "0x5b2708",
+    "class": "DummyDWMListenerWindow",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 33884,
+    "rect": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffc62ff5d00",
+    "hinstance": "0x7ffc62f70000",
+    "menu_items": [],
+    "children": []
+  },
+  {
+    "hwnd": 4327664,
+    "hwnd_hex": "0x4208f0",
+    "class": "EdgeUiInputTopWndClass",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 33884,
+    "rect": [
+      15,
+      0,
+      2560,
+      4
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffc5126cc10",
+    "hinstance": "0x7ffc51200000",
+    "menu_items": [],
+    "children": []
+  },
+  {
+    "hwnd": 273026750,
+    "hwnd_hex": "0x10460ebe",
+    "class": "DummyDWMListenerWindow",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 33884,
+    "rect": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffc62ff5d00",
+    "hinstance": "0x7ffc62f70000",
+    "menu_items": [],
+    "children": []
+  },
+  {
+    "hwnd": 30082884,
+    "hwnd_hex": "0x1cb0744",
+    "class": "DummyDWMListenerWindow",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 33884,
+    "rect": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffc62ff5d00",
+    "hinstance": "0x7ffc62f70000",
+    "menu_items": [],
+    "children": []
+  },
+  {
+    "hwnd": 1378574,
+    "hwnd_hex": "0x15090e",
+    "class": "WorkerW",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 17964,
+    "rect": [
+      0,
+      -189,
+      3640,
+      1731
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0cac000",
+    "hinstance": "0x7ffcc0c70000",
+    "menu_items": [],
+    "children": [
+      {
+        "hwnd": 45222066,
+        "hwnd_hex": "0x2b208b2",
+        "class": "SHELLDLL_DefView",
+        "text": "",
+        "process_id": 19236,
+        "thread_id": 17964,
+        "rect": [
+          0,
+          -189,
+          3640,
+          1731
+        ],
+        "wndproc": null,
+        "class_wndproc": "0x7ffcbf137c40",
+        "hinstance": "0x7ffcbf070000",
+        "menu_items": [],
+        "children": [
+          {
+            "hwnd": 11020256,
+            "hwnd_hex": "0xa827e0",
+            "class": "SysListView32",
+            "text": "FolderView",
+            "process_id": 19236,
+            "thread_id": 17964,
+            "rect": [
+              0,
+              -189,
+              3640,
+              1731
+            ],
+            "wndproc": null,
+            "class_wndproc": "0x7ffca6b79090",
+            "hinstance": "0x7ffcbf070000",
+            "menu_items": [],
+            "children": [
+              {
+                "hwnd": 3868916,
+                "hwnd_hex": "0x3b08f4",
+                "class": "SysHeader32",
+                "text": "",
+                "process_id": 19236,
+                "thread_id": 17964,
+                "rect": [
+                  0,
+                  -189,
+                  0,
+                  -189
+                ],
+                "wndproc": null,
+                "class_wndproc": "0x7ffca6b78860",
+                "hinstance": "0x7ffcbf070000",
+                "menu_items": [],
+                "children": []
+              }
+            ]
+          },
+          []
+        ]
+      },
+      [],
+      []
+    ]
+  },
+  {
+    "hwnd": 5835146,
+    "hwnd_hex": "0x59098a",
+    "class": "WorkerW",
+    "text": "",
+    "process_id": 19236,
+    "thread_id": 17964,
+    "rect": [
+      0,
+      -189,
+      3640,
+      1731
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0cac000",
+    "hinstance": "0x7ffcc0c70000",
+    "menu_items": [],
+    "children": []
+  },
+  {
+    "hwnd": 63113086,
+    "hwnd_hex": "0x3c3077e",
+    "class": "Progman",
+    "text": "Program Manager",
+    "process_id": 19236,
+    "thread_id": 17964,
+    "rect": [
+      0,
+      -189,
+      3640,
+      1731
+    ],
+    "wndproc": null,
+    "class_wndproc": "0x7ffcbf121bc0",
+    "hinstance": "0x7ffcbf070000",
+    "menu_items": [],
+    "children": []
+  }
+]

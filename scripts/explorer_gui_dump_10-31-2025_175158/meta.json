@@ -1,0 +1,15 @@
+{
+  "generated_at": "10/31/2025 17:51:58",
+  "python": "3.9.13 (tags/v3.9.13:6de2ca5, May 17 2022, 16:36:42) [MSC v.1929 64 bit (AMD64)]",
+  "platform": "win32",
+  "legacy_mode": false,
+  "os_version": {
+    "major": 10,
+    "minor": 0,
+    "build": 19045
+  },
+  "options": {
+    "uia": false,
+    "resolve": false
+  }
+}
