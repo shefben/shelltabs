@@ -148,6 +148,8 @@ struct OptionsDialogData {
     int initialTab = 0;
     std::vector<SavedGroup> originalGroups;
     std::vector<SavedGroup> workingGroups;
+    std::vector<std::wstring> workingGroupIds;
+    std::vector<std::wstring> removedGroupIds;
     HBRUSH breadcrumbBgStartBrush = nullptr;
     HBRUSH breadcrumbBgEndBrush = nullptr;
     HBRUSH breadcrumbFontStartBrush = nullptr;
@@ -166,6 +168,9 @@ struct OptionsDialogData {
     int customizationScrollPos = 0;
     int customizationContentHeight = 0;
     int customizationScrollMax = 0;
+    std::wstring focusSavedGroupId;
+    bool focusShouldEdit = false;
+    bool focusHandled = false;
 };
 
 std::wstring GetWindowTextString(HWND control) {
@@ -2379,40 +2384,21 @@ void HandleNewGroup(HWND page, OptionsDialogData* data) {
     if (!data) {
         return;
     }
-    HWND hwndParent = GetAncestor(page, GA_ROOT);
-    std::wstring name = L"New Group";
-    COLORREF color = RGB(0, 120, 215);
-    if (!PromptForTextInput(hwndParent, L"Create Tab Group", L"Group name:", &name, &color)) {
+    SavedGroup group;
+    if (!RunGroupEditor(GetAncestor(page, GA_ROOT), nullptr, &group, &data->workingGroups)) {
         return;
-    }
-    if (name.empty()) {
-        MessageBoxW(hwndParent, L"Group name cannot be empty.", L"ShellTabs", MB_OK | MB_ICONWARNING);
-        return;
-    }
-    for (const auto& group : data->workingGroups) {
-        if (_wcsicmp(group.name.c_str(), name.c_str()) == 0) {
-            MessageBoxW(hwndParent, L"A saved group with that name already exists.", L"ShellTabs",
-                        MB_OK | MB_ICONWARNING);
-            return;
-        }
     }
 
-    SavedGroup group;
-    group.name = name;
-    group.color = color;
-    group.tabPaths = {L"C:\\"};
-    data->workingGroups.push_back(std::move(group));
+    data->workingGroups.push_back(group);
+    data->workingGroupIds.push_back(L"");
     data->groupsChanged = true;
     HWND list = GetDlgItem(page, IDC_GROUP_LIST);
     RefreshGroupList(list, data);
     const int count = static_cast<int>(SendMessageW(list, LB_GETCOUNT, 0, 0));
-    for (int i = 0; i < count; ++i) {
-        SendMessageW(list, LB_SETCURSEL, i, 0);
-        std::wstring current = GetSelectedGroupName(list);
-        if (_wcsicmp(current.c_str(), name.c_str()) == 0) {
-            break;
-        }
+    if (count > 0) {
+        SendMessageW(list, LB_SETCURSEL, count - 1, 0);
     }
+    SendMessageW(GetParent(page), PSM_CHANGED, reinterpret_cast<WPARAM>(page), 0);
     UpdateGroupButtons(page);
 }
 
@@ -2438,6 +2424,7 @@ void HandleEditGroup(HWND page, OptionsDialogData* data) {
     data->groupsChanged = true;
     RefreshGroupList(list, data);
     SendMessageW(list, LB_SETCURSEL, index, 0);
+    SendMessageW(GetParent(page), PSM_CHANGED, reinterpret_cast<WPARAM>(page), 0);
     UpdateGroupButtons(page);
 }
 
@@ -2457,6 +2444,13 @@ void HandleRemoveGroup(HWND page, OptionsDialogData* data) {
     if (index < 0 || static_cast<size_t>(index) >= data->workingGroups.size()) {
         return;
     }
+    if (static_cast<size_t>(index) < data->workingGroupIds.size()) {
+        std::wstring removedId = data->workingGroupIds[static_cast<size_t>(index)];
+        if (!removedId.empty()) {
+            data->removedGroupIds.push_back(std::move(removedId));
+        }
+        data->workingGroupIds.erase(data->workingGroupIds.begin() + static_cast<size_t>(index));
+    }
     data->workingGroups.erase(data->workingGroups.begin() + static_cast<size_t>(index));
     data->groupsChanged = true;
     RefreshGroupList(list, data);
@@ -2468,7 +2462,44 @@ void HandleRemoveGroup(HWND page, OptionsDialogData* data) {
         }
         SendMessageW(list, LB_SETCURSEL, newIndex, 0);
     }
+    SendMessageW(GetParent(page), PSM_CHANGED, reinterpret_cast<WPARAM>(page), 0);
     UpdateGroupButtons(page);
+}
+
+void ApplyFocusedGroupSelection(HWND page, OptionsDialogData* data) {
+    if (!data || data->focusHandled || data->focusSavedGroupId.empty()) {
+        return;
+    }
+
+    HWND list = GetDlgItem(page, IDC_GROUP_LIST);
+    if (!list) {
+        data->focusHandled = true;
+        return;
+    }
+
+    int targetIndex = -1;
+    for (size_t i = 0; i < data->workingGroups.size(); ++i) {
+        if (CaseInsensitiveEquals(data->workingGroups[i].name, data->focusSavedGroupId)) {
+            targetIndex = static_cast<int>(i);
+            break;
+        }
+        if (i < data->workingGroupIds.size() &&
+            CaseInsensitiveEquals(data->workingGroupIds[i], data->focusSavedGroupId)) {
+            targetIndex = static_cast<int>(i);
+            break;
+        }
+    }
+
+    data->focusHandled = true;
+    if (targetIndex < 0) {
+        return;
+    }
+
+    SendMessageW(list, LB_SETCURSEL, targetIndex, 0);
+    UpdateGroupButtons(page);
+    if (data->focusShouldEdit) {
+        HandleEditGroup(page, data);
+    }
 }
 
 INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -3207,6 +3238,7 @@ INT_PTR CALLBACK GroupManagementPageProc(HWND hwnd, UINT message, WPARAM wParam,
             SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(data));
             RefreshGroupList(GetDlgItem(hwnd, IDC_GROUP_LIST), data);
             UpdateGroupButtons(hwnd);
+            ApplyFocusedGroupSelection(hwnd, data);
             return TRUE;
         }
         case WM_COMMAND: {
@@ -3257,7 +3289,8 @@ int CALLBACK OptionsSheetCallback(HWND hwnd, UINT message, LPARAM) {
 
 }  // namespace
 
-OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
+OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t* focusSavedGroupId,
+                                     bool editFocusedGroup) {
     INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&icc);
 
@@ -3272,6 +3305,21 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
     groupStore.Load();
     data.originalGroups = groupStore.Groups();
     data.workingGroups = data.originalGroups;
+    data.workingGroupIds.clear();
+    data.workingGroupIds.reserve(data.workingGroups.size());
+    for (const auto& group : data.workingGroups) {
+        data.workingGroupIds.push_back(group.name);
+    }
+    data.removedGroupIds.clear();
+    if (focusSavedGroupId && *focusSavedGroupId) {
+        data.focusSavedGroupId = focusSavedGroupId;
+        data.focusShouldEdit = editFocusedGroup;
+        data.focusHandled = false;
+    } else {
+        data.focusSavedGroupId.clear();
+        data.focusShouldEdit = false;
+        data.focusHandled = true;
+    }
 
     std::vector<BYTE> mainTemplate = BuildMainPageTemplate();
     std::vector<BYTE> customizationTemplate = BuildCustomizationPageTemplate();
@@ -3329,6 +3377,19 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
         result.optionsChanged = data.workingOptions != data.originalOptions;
         const bool groupsChanged = !AreSavedGroupsEqual(data.originalGroups, data.workingGroups);
         result.groupsChanged = groupsChanged;
+        result.savedGroups = data.workingGroups;
+        result.removedGroupIds = data.removedGroupIds;
+        result.renamedGroups.clear();
+        for (size_t i = 0; i < data.workingGroups.size() && i < data.workingGroupIds.size(); ++i) {
+            const std::wstring& originalId = data.workingGroupIds[i];
+            const std::wstring& updatedName = data.workingGroups[i].name;
+            if (originalId.empty()) {
+                continue;
+            }
+            if (!CaseInsensitiveEquals(originalId, updatedName)) {
+                result.renamedGroups.emplace_back(originalId, updatedName);
+            }
+        }
         store.Set(data.workingOptions);
         store.Save();
         if (result.optionsChanged) {
@@ -3353,6 +3414,24 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab) {
             for (const auto& group : data.workingGroups) {
                 groupStoreToUpdate.Upsert(group);
             }
+            result.savedGroups = groupStoreToUpdate.Groups();
+        }
+        if (!result.removedGroupIds.empty()) {
+            std::vector<std::wstring> filtered;
+            filtered.reserve(result.removedGroupIds.size());
+            for (const auto& removedId : result.removedGroupIds) {
+                bool stillRemoved = true;
+                for (const auto& group : result.savedGroups) {
+                    if (CaseInsensitiveEquals(group.name, removedId)) {
+                        stillRemoved = false;
+                        break;
+                    }
+                }
+                if (stillRemoved) {
+                    filtered.push_back(removedId);
+                }
+            }
+            result.removedGroupIds.swap(filtered);
         }
         for (const auto& path : data.pendingCachedImageRemovals) {
             if (!path.empty()) {

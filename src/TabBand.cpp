@@ -5,6 +5,7 @@
 #include <deque>
 #include <memory>
 #include <cstring>
+#include <cwchar>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -1158,6 +1159,11 @@ void TabBand::OnCloseIslandRequested(int groupIndex) {
 void TabBand::OnEditGroupProperties(int groupIndex) {
     auto* group = m_tabs.GetGroup(groupIndex);
     if (!group) {
+        return;
+    }
+
+    if (!group->savedGroupId.empty()) {
+        OnShowOptionsDialog(2, group->savedGroupId, true);
         return;
     }
 
@@ -2417,6 +2423,14 @@ std::vector<std::wstring> TabBand::GetSavedGroupNames() const {
     return store.GroupNames();
 }
 
+std::wstring TabBand::GetSavedGroupId(int groupIndex) const {
+    const TabGroup* group = m_tabs.GetGroup(groupIndex);
+    if (!group) {
+        return {};
+    }
+    return group->savedGroupId;
+}
+
 void TabBand::OnCreateSavedGroup(int afterGroup) {
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
     std::wstring name = L"New Group";
@@ -2508,7 +2522,7 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     }
 }
 
-void TabBand::OnShowOptionsDialog(int initialTab) {
+void TabBand::OnShowOptionsDialog(int initialTab, const std::wstring& focusGroupId, bool editFocusedGroup) {
     EnsureOptionsLoaded();
     ShellTabsOptions previousOptions = m_options;
 
@@ -2520,7 +2534,9 @@ void TabBand::OnShowOptionsDialog(int initialTab) {
         }
     }
 
-    OptionsDialogResult dialog = ShowOptionsDialog(owner, initialTab);
+    OptionsDialogResult dialog =
+        ShowOptionsDialog(owner, initialTab, focusGroupId.empty() ? nullptr : focusGroupId.c_str(),
+                          editFocusedGroup);
     if (!dialog.saved) {
         return;
     }
@@ -2542,9 +2558,73 @@ void TabBand::OnShowOptionsDialog(int initialTab) {
         }
     }
     if (dialog.groupsChanged) {
-        GroupStore::Instance().Load();
+        auto& store = GroupStore::Instance();
+        store.Load();
+        std::vector<SavedGroup> updatedGroups = dialog.savedGroups;
+        if (updatedGroups.empty()) {
+            updatedGroups = store.Groups();
+        }
+
+        const auto caseEquals = [](const std::wstring& left, const std::wstring& right) {
+            return _wcsicmp(left.c_str(), right.c_str()) == 0;
+        };
+
+        const int groupCount = m_tabs.GroupCount();
+        for (int i = 0; i < groupCount; ++i) {
+            TabGroup* group = m_tabs.GetGroup(i);
+            if (!group) {
+                continue;
+            }
+
+            bool cleared = false;
+            for (const auto& removedId : dialog.removedGroupIds) {
+                if (caseEquals(group->savedGroupId, removedId)) {
+                    group->savedGroupId.clear();
+                    cleared = true;
+                    break;
+                }
+            }
+            if (cleared) {
+                continue;
+            }
+
+            for (const auto& rename : dialog.renamedGroups) {
+                if (caseEquals(group->savedGroupId, rename.first)) {
+                    group->savedGroupId = rename.second;
+                    if (group->name.empty() || caseEquals(group->name, rename.first)) {
+                        group->name = rename.second;
+                    }
+                    break;
+                }
+            }
+
+            if (group->savedGroupId.empty()) {
+                continue;
+            }
+
+            const SavedGroup* savedMatch = nullptr;
+            for (const auto& saved : updatedGroups) {
+                if (caseEquals(saved.name, group->savedGroupId)) {
+                    savedMatch = &saved;
+                    break;
+                }
+            }
+            if (!savedMatch) {
+                continue;
+            }
+
+            group->hasCustomOutline = true;
+            group->outlineColor = savedMatch->color;
+            group->outlineStyle = savedMatch->outlineStyle;
+            if (group->name.empty() || caseEquals(group->name, savedMatch->name)) {
+                group->name = savedMatch->name;
+            }
+        }
+
+        m_skipSavedGroupSync = true;
         SyncAllSavedGroups();
         UpdateTabsUI();
+        SaveSession();
     }
 }
 
@@ -2613,6 +2693,10 @@ void TabBand::SyncSavedGroup(int groupIndex) const {
 }
 
 void TabBand::SyncAllSavedGroups() const {
+    if (m_skipSavedGroupSync) {
+        m_skipSavedGroupSync = false;
+        return;
+    }
     const int groupCount = m_tabs.GroupCount();
     for (int i = 0; i < groupCount; ++i) {
         SyncSavedGroup(i);
