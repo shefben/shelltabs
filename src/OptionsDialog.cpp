@@ -33,6 +33,7 @@
 
 #include "BackgroundCache.h"
 #include "GroupStore.h"
+#include "Logging.h"
 #include "Module.h"
 #include "OptionsStore.h"
 #include "StringUtils.h"
@@ -1703,7 +1704,15 @@ std::wstring FormatCacheMaintenanceSummary(const CacheMaintenanceResult& result)
 
 void HandleBackgroundCacheMaintenance(HWND hwnd, OptionsDialogData* data) {
     auto& store = OptionsStore::Instance();
-    store.Load();
+    std::wstring optionsLoadError;
+    if (!store.Load(&optionsLoadError)) {
+        if (!optionsLoadError.empty()) {
+            LogMessage(LogLevel::Warning, L"HandleBackgroundCacheMaintenance failed to load options: %ls",
+                       optionsLoadError.c_str());
+        } else {
+            LogMessage(LogLevel::Warning, L"HandleBackgroundCacheMaintenance failed to load options");
+        }
+    }
     ShellTabsOptions persisted = store.Get();
 
     std::vector<std::wstring> protectedPaths;
@@ -3925,13 +3934,28 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     OptionsDialogResult result;
     OptionsDialogData data;
     auto& store = OptionsStore::Instance();
-    store.Load();
+    std::wstring optionsLoadError;
+    if (!store.Load(&optionsLoadError)) {
+        if (!optionsLoadError.empty()) {
+            LogMessage(LogLevel::Warning, L"ShowOptionsDialog failed to load options: %ls", optionsLoadError.c_str());
+        } else {
+            LogMessage(LogLevel::Warning, L"ShowOptionsDialog failed to load options");
+        }
+    }
     data.originalOptions = store.Get();
     data.workingOptions = data.originalOptions;
     const int initialTabIndex = static_cast<int>(initialPage);
     data.initialTab = initialTabIndex;
     auto& groupStore = GroupStore::Instance();
-    groupStore.Load();
+    std::wstring groupLoadError;
+    if (!groupStore.Load(&groupLoadError)) {
+        if (!groupLoadError.empty()) {
+            LogMessage(LogLevel::Warning, L"ShowOptionsDialog failed to load saved groups: %ls",
+                       groupLoadError.c_str());
+        } else {
+            LogMessage(LogLevel::Warning, L"ShowOptionsDialog failed to load saved groups");
+        }
+    }
     data.originalGroups = groupStore.Groups();
     data.workingGroups = data.originalGroups;
     data.workingGroupIds.clear();
@@ -4036,7 +4060,14 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
             ForceExplorerUIRefresh(parent);
         }
         if (groupsChanged) {
-            groupStore.Load();
+            if (!groupStore.Load(&groupLoadError)) {
+                if (!groupLoadError.empty()) {
+                    LogMessage(LogLevel::Warning, L"ShowOptionsDialog failed to reload saved groups: %ls",
+                               groupLoadError.c_str());
+                } else {
+                    LogMessage(LogLevel::Warning, L"ShowOptionsDialog failed to reload saved groups");
+                }
+            }
             std::vector<SavedGroup> existingGroups = groupStore.Groups();
             for (const auto& existing : existingGroups) {
                 bool found = false;

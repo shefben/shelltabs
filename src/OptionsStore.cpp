@@ -49,6 +49,15 @@ constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
 constexpr wchar_t kCommentChar = L'#';
 
+std::wstring FormatLoadError(std::wstring message, DWORD error) {
+    if (error != ERROR_SUCCESS) {
+        message += L" (error=";
+        message += std::to_wstring(static_cast<unsigned long long>(error));
+        message += L")";
+    }
+    return message;
+}
+
 int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fallback) {
     if (token.empty()) {
         return fallback;
@@ -241,11 +250,14 @@ OptionsStore& OptionsStore::Instance() {
     return store;
 }
 
-bool OptionsStore::EnsureLoaded() const {
+bool OptionsStore::EnsureLoaded(std::wstring* errorContext) const {
     if (m_loaded) {
+        if (errorContext) {
+            errorContext->clear();
+        }
         return true;
     }
-    return const_cast<OptionsStore*>(this)->Load();
+    return const_cast<OptionsStore*>(this)->Load(errorContext);
 }
 
 std::wstring OptionsStore::ResolveStoragePath() const {
@@ -265,12 +277,15 @@ std::wstring OptionsStore::ResolveStoragePath() const {
     return directory;
 }
 
-bool OptionsStore::Load() {
+bool OptionsStore::Load(std::wstring* errorContext) {
     m_options = {};
 
     m_storagePath = ResolveStoragePath();
     if (m_storagePath.empty()) {
         m_loaded = false;
+        if (errorContext) {
+            *errorContext = L"Options store path unavailable";
+        }
         return false;
     }
 
@@ -278,6 +293,12 @@ bool OptionsStore::Load() {
     bool fileExists = false;
     if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
         m_loaded = false;
+        const DWORD readError = GetLastError();
+        if (errorContext) {
+            std::wstring message = L"Failed to read ";
+            message += m_storagePath;
+            *errorContext = FormatLoadError(std::move(message), readError);
+        }
         return false;
     }
 
@@ -285,6 +306,9 @@ bool OptionsStore::Load() {
 
     if (!fileExists || content.empty()) {
         m_loaded = true;
+        if (errorContext) {
+            errorContext->clear();
+        }
         return true;
     }
 
@@ -602,6 +626,9 @@ bool OptionsStore::Load() {
     }
 
     m_loaded = true;
+    if (errorContext) {
+        errorContext->clear();
+    }
     return true;
 }
 

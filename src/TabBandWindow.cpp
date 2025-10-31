@@ -2235,7 +2235,23 @@ void TabBandWindow::ApplyOptionColorOverrides() {
         return;
     }
     auto& store = OptionsStore::Instance();
-    store.Load();
+    static bool loggedOptionsLoadFailure = false;
+    std::wstring errorContext;
+    if (!store.Load(&errorContext)) {
+        if (!loggedOptionsLoadFailure) {
+            if (!errorContext.empty()) {
+                LogMessage(LogLevel::Warning,
+                           L"TabBandWindow::ApplyOptionColorOverrides failed to load options: %ls",
+                           errorContext.c_str());
+            } else {
+                LogMessage(LogLevel::Warning,
+                           L"TabBandWindow::ApplyOptionColorOverrides failed to load options");
+            }
+            loggedOptionsLoadFailure = true;
+        }
+    } else if (loggedOptionsLoadFailure) {
+        loggedOptionsLoadFailure = false;
+    }
     const ShellTabsOptions options = store.Get();
 
     auto pickTextColor = [](COLORREF background) -> COLORREF {

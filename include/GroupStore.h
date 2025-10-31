@@ -26,7 +26,7 @@ public:
     std::vector<std::wstring> GroupNames() const;
     const SavedGroup* Find(const std::wstring& name) const;
 
-    bool Load();
+    bool Load(std::wstring* errorContext = nullptr);
     bool Save() const;
 
     bool Upsert(SavedGroup group);
@@ -46,7 +46,7 @@ private:
     GroupStore() = default;
 
     std::wstring ResolveStoragePath() const;
-    bool EnsureLoaded() const;
+    bool EnsureLoaded(std::wstring* errorContext = nullptr) const;
 
     mutable bool m_loaded = false;
     mutable std::wstring m_storagePath;
