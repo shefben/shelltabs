@@ -2,26 +2,31 @@
 
 #include <windows.ui.viewmanagement.h>
 #include <windows.foundation.h>
+#include <windows.foundation.collections.h>
+#include <eventtoken.h>
+#include <inspectable.h>
+#include <roapi.h>
+#include <roerrorapi.h>
 #include <wrl/client.h>
 #include <wrl/event.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <wtsapi32.h>
-#include <roapi.h>
+#include <utility>
 
 #include "Logging.h"
 
 #pragma comment(lib, "runtimeobject.lib")
 #pragma comment(lib, "wtsapi32.lib")
 
-using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Wrappers::HStringReference;
 
+using ABI::Windows::Foundation::IInspectable;
 using ABI::Windows::Foundation::ITypedEventHandler;
 using ABI::Windows::UI::Color;
-using ABI::Windows::UI::ViewManagement::IUISettings;
 using ABI::Windows::UI::ViewManagement::IUISettings3;
 using ABI::Windows::UI::ViewManagement::UIColorType;
+using ABI::Windows::UI::ViewManagement::UISettings;
 
 namespace shelltabs {
 
@@ -29,7 +34,7 @@ namespace {
 
 class UiSettingsEventHandler
     : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-                                          ITypedEventHandler<IUISettings*, IInspectable*>> {
+                                          ITypedEventHandler<UISettings*, IInspectable*>> {
 public:
     using CallbackType = std::function<void()>;
 
@@ -40,7 +45,7 @@ public:
         return S_OK;
     }
 
-    IFACEMETHODIMP Invoke(IUISettings*, IInspectable*) override {
+    IFACEMETHODIMP Invoke(UISettings*, IInspectable*) override {
         if (m_callback) {
             m_callback();
         }
@@ -56,8 +61,12 @@ bool ShouldHandleSessionEvent(DWORD sessionEvent) {
         case WTS_SESSION_LOGON:
         case WTS_SESSION_UNLOCK:
         case WTS_SESSION_REMOTE_CONTROL:
+#ifdef WTS_SESSION_REMOTE_CONNECT
         case WTS_SESSION_REMOTE_CONNECT:
+#endif
+#ifdef WTS_SESSION_REMOTE_DISCONNECT
         case WTS_SESSION_REMOTE_DISCONNECT:
+#endif
         case WTS_CONSOLE_CONNECT:
         case WTS_CONSOLE_DISCONNECT:
             return true;
@@ -69,10 +78,9 @@ bool ShouldHandleSessionEvent(DWORD sessionEvent) {
 }  // namespace
 
 struct ThemeNotifier::UiSettingsState {
-    ComPtr<IUISettings> uiSettings;
     ComPtr<IUISettings3> uiSettings3;
     ComPtr<UiSettingsEventHandler> handler;
-    ABI::Windows::Foundation::EventRegistrationToken colorToken{};
+    EventRegistrationToken colorToken{};
     bool winrtInitialized = false;
 };
 
@@ -109,8 +117,11 @@ bool ThemeNotifier::Initialize(HWND window, std::function<void()> callback) {
         if (SUCCEEDED(hr)) {
             hr = inspectable.As(&state->uiSettings3);
             if (FAILED(hr)) {
-                inspectable.As(&state->uiSettings);
+                LogMessage(LogLevel::Warning,
+                           L"ThemeNotifier: UISettings3 not available (hr=0x%08X)", hr);
             }
+        } else {
+            LogMessage(LogLevel::Warning, L"ThemeNotifier: failed to activate UISettings (hr=0x%08X)", hr);
         }
 
         if (state->uiSettings3) {
@@ -122,22 +133,7 @@ bool ThemeNotifier::Initialize(HWND window, std::function<void()> callback) {
                 hr = state->uiSettings3->add_ColorValuesChanged(state->handler.Get(), &state->colorToken);
                 if (FAILED(hr)) {
                     LogMessage(LogLevel::Warning,
-                               L"ThemeNotifier: failed to subscribe to UISettings::ColorValuesChanged (hr=0x%08X)",
-                               hr);
-                    state->handler.Reset();
-                }
-            }
-            UpdateColorSnapshot();
-        } else if (state->uiSettings) {
-            state->handler = Microsoft::WRL::Make<UiSettingsEventHandler>([this]() {
-                UpdateColorSnapshot();
-                NotifyThemeChanged();
-            });
-            if (state->handler) {
-                hr = state->uiSettings->add_ColorValuesChanged(state->handler.Get(), &state->colorToken);
-                if (FAILED(hr)) {
-                    LogMessage(LogLevel::Warning,
-                               L"ThemeNotifier: failed to subscribe via legacy UISettings (hr=0x%08X)", hr);
+                               L"ThemeNotifier: failed to subscribe to UISettings3 (hr=0x%08X)", hr);
                     state->handler.Reset();
                 }
             }
@@ -169,12 +165,9 @@ void ThemeNotifier::Shutdown() {
     if (m_uiSettings) {
         if (m_uiSettings->uiSettings3 && m_uiSettings->handler) {
             m_uiSettings->uiSettings3->remove_ColorValuesChanged(m_uiSettings->colorToken);
-        } else if (m_uiSettings->uiSettings && m_uiSettings->handler) {
-            m_uiSettings->uiSettings->remove_ColorValuesChanged(m_uiSettings->colorToken);
         }
         m_uiSettings->handler.Reset();
         m_uiSettings->uiSettings3.Reset();
-        m_uiSettings->uiSettings.Reset();
         if (m_uiSettings->winrtInitialized) {
             RoUninitialize();
         }
@@ -218,16 +211,6 @@ void ThemeNotifier::UpdateColorSnapshot() {
             snapshot.valid = true;
         }
         if (SUCCEEDED(m_uiSettings->uiSettings3->GetColorValue(UIColorType_Foreground, &color))) {
-            snapshot.foreground = RGB(color.R, color.G, color.B);
-            snapshot.valid = true;
-        }
-    } else if (m_uiSettings && m_uiSettings->uiSettings) {
-        Color color{};
-        if (SUCCEEDED(m_uiSettings->uiSettings->GetColorValue(UIColorType_Background, &color))) {
-            snapshot.background = RGB(color.R, color.G, color.B);
-            snapshot.valid = true;
-        }
-        if (SUCCEEDED(m_uiSettings->uiSettings->GetColorValue(UIColorType_Foreground, &color))) {
             snapshot.foreground = RGB(color.R, color.G, color.B);
             snapshot.valid = true;
         }
