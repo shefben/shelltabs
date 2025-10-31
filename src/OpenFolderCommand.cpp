@@ -13,11 +13,13 @@
 #endif
 
 #include <windows.h>
+#include <shlobj.h>
 
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
 #include "TabBandWindow.h"
@@ -27,6 +29,7 @@ namespace shelltabs {
 
 namespace {
 constexpr wchar_t kCommandLabel[] = L"Open in new tab";
+constexpr wchar_t kCommandTooltip[] = L"Open the selected folder in a new ShellTabs tab.";
 constexpr wchar_t kBandWindowClassName[] = L"ShellTabsBandWindow";
 }
 
@@ -69,24 +72,43 @@ IFACEMETHODIMP OpenFolderCommand::GetTitle(IShellItemArray*, LPWSTR* name) {
 }
 
 IFACEMETHODIMP OpenFolderCommand::GetIcon(IShellItemArray*, LPWSTR* icon) {
-    if (icon) {
-        *icon = nullptr;
+    if (!icon) {
+        return E_POINTER;
     }
-    return E_NOTIMPL;
+    *icon = nullptr;
+
+    // Use the stock "New Folder" icon so Explorer can display a consistent glyph without
+    // shipping an additional icon resource alongside the command implementation.
+    SHSTOCKICONINFO iconInfo = {};
+    iconInfo.cbSize = sizeof(iconInfo);
+    HRESULT hr = SHGetStockIconInfo(SIID_NEWFOLDER, SHGSI_ICONLOCATION, &iconInfo);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    std::wstring iconLocation = iconInfo.szIconFile;
+    if (iconLocation.empty()) {
+        return E_FAIL;
+    }
+    iconLocation.push_back(L',');
+    iconLocation.append(std::to_wstring(iconInfo.iIcon));
+    return SHStrDupW(iconLocation.c_str(), icon);
 }
 
 IFACEMETHODIMP OpenFolderCommand::GetToolTip(IShellItemArray*, LPWSTR* infoTip) {
-    if (infoTip) {
-        *infoTip = nullptr;
+    if (!infoTip) {
+        return E_POINTER;
     }
-    return E_NOTIMPL;
+    *infoTip = nullptr;
+    return SHStrDupW(kCommandTooltip, infoTip);
 }
 
 IFACEMETHODIMP OpenFolderCommand::GetCanonicalName(GUID* guidCommandName) {
-    if (guidCommandName) {
-        *guidCommandName = GUID_NULL;
+    if (!guidCommandName) {
+        return E_POINTER;
     }
-    return E_NOTIMPL;
+    *guidCommandName = CLSID_ShellTabsOpenFolderCommand;
+    return S_OK;
 }
 
 IFACEMETHODIMP OpenFolderCommand::GetState(IShellItemArray* itemArray, BOOL, EXPCMDSTATE* state) {
@@ -128,7 +150,15 @@ IFACEMETHODIMP OpenFolderCommand::GetFlags(EXPCMDFLAGS* flags) {
     return S_OK;
 }
 
-IFACEMETHODIMP OpenFolderCommand::EnumSubCommands(IEnumExplorerCommand**) { return E_NOTIMPL; }
+IFACEMETHODIMP OpenFolderCommand::EnumSubCommands(IEnumExplorerCommand** commands) {
+    if (!commands) {
+        return E_POINTER;
+    }
+    *commands = nullptr;
+    // This verb does not expose any subcommands; returning S_FALSE communicates that the
+    // enumeration is intentionally absent while keeping the API contract explicit.
+    return S_FALSE;
+}
 
 IFACEMETHODIMP OpenFolderCommand::SetSite(IUnknown* site) {
     m_site.Reset();
