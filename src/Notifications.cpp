@@ -9,6 +9,7 @@
 #include <wrl/wrappers/corewrappers.h>
 #include <roapi.h>
 #include <roerrorapi.h>
+#include <winerror.h>
 #include <shobjidl_core.h>
 
 #include <atomic>
@@ -23,6 +24,12 @@ using Microsoft::WRL::Wrappers::RoInitializeWrapper;
 constexpr wchar_t kShellTabsToastAppId[] = L"ShellTabs.Automation";
 constexpr wchar_t kToastTitle[] = L"ShellTabs activation blocked";
 
+#ifdef RO_E_INITIALIZED
+constexpr HRESULT kRoAlreadyInitialized = RO_E_INITIALIZED;
+#else
+constexpr HRESULT kRoAlreadyInitialized = HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
+#endif
+
 std::atomic<bool> g_toastIssued{false};
 
 HRESULT CreateToastDocument(const std::wstring& body,
@@ -35,7 +42,7 @@ HRESULT CreateToastDocument(const std::wstring& body,
 
     RoInitializeWrapper initializer(RO_INIT_MULTITHREADED);
     const HRESULT initHr = initializer;
-    if (FAILED(initHr) && initHr != RO_E_INITIALIZED) {
+    if (FAILED(initHr) && initHr != kRoAlreadyInitialized) {
         return initHr;
     }
 
@@ -110,7 +117,7 @@ bool NotifyAutomationDisabledByPolicy(HRESULT hr) noexcept {
 
         RoInitializeWrapper initializer(RO_INIT_MULTITHREADED);
         const HRESULT initHr = initializer;
-        if (FAILED(initHr) && initHr != RO_E_INITIALIZED) {
+        if (FAILED(initHr) && initHr != kRoAlreadyInitialized) {
             LogMessage(LogLevel::Warning,
                        L"NotifyAutomationDisabledByPolicy: RoInitialize failed (hr=0x%08X)", initHr);
             return false;
