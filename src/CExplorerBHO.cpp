@@ -2646,23 +2646,20 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
-    if (m_listView && IsWindow(m_listView)) {
-        InvalidateRect(m_listView, nullptr, TRUE);
-    }
-    if (m_directUiView && IsWindow(m_directUiView)) {
-        InvalidateRect(m_directUiView, nullptr, TRUE);
-    }
-    for (HWND host : m_listViewHostSubclassed) {
-        if (host && IsWindow(host)) {
-            InvalidateRect(host, nullptr, TRUE);
+    auto requestRedraw = [](HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) {
+            return;
         }
+        RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE | RDW_INTERNALPAINT);
+    };
+
+    requestRedraw(m_listView);
+    requestRedraw(m_directUiView);
+    for (HWND host : m_listViewHostSubclassed) {
+        requestRedraw(host);
     }
-    if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
-        InvalidateRect(m_shellViewWindow, nullptr, TRUE);
-    }
-    if (m_frameWindow && IsWindow(m_frameWindow)) {
-        InvalidateRect(m_frameWindow, nullptr, TRUE);
-    }
+    requestRedraw(m_shellViewWindow);
+    requestRedraw(m_frameWindow);
 }
 
 void CExplorerBHO::ClearListViewAccentResources(HWND listView) {
@@ -4373,7 +4370,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
         } else {
             RECT sampleRect = buttonRect;
-            const COLORREF averageBackground = SampleAverageColor(drawDc, sampleRect);
+            const COLORREF averageBackground =
+                SampleAverageColor(drawDc, sampleRect).value_or(GetSysColor(COLOR_WINDOW));
             backgroundSolidColor = Gdiplus::Color(255, GetRValue(averageBackground), GetGValue(averageBackground),
                                                   GetBValue(averageBackground));
             hasBackgroundSolidColor = true;

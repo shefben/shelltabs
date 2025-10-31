@@ -2,12 +2,13 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 
 namespace shelltabs {
 
-COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
+std::optional<COLORREF> SampleAverageColor(HDC dc, const RECT& rect) {
     if (!dc || rect.left >= rect.right || rect.top >= rect.bottom) {
-        return GetSysColor(COLOR_WINDOW);
+        return std::nullopt;
     }
 
     const LONG left = std::max(rect.left, static_cast<LONG>(0));
@@ -37,7 +38,7 @@ COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
     }
 
     if (count == 0) {
-        return GetSysColor(COLOR_WINDOW);
+        return std::nullopt;
     }
 
     return RGB(totalRed / count, totalGreen / count, totalBlue / count);
