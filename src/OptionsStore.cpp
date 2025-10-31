@@ -37,6 +37,7 @@ constexpr wchar_t kBreadcrumbFontGradientColorsToken[] = L"breadcrumb_font_gradi
 constexpr wchar_t kProgressGradientColorsToken[] = L"progress_gradient_colors";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
+constexpr wchar_t kExplorerAccentColorsToken[] = L"explorer_listview_accents";
 constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enabled";
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
@@ -344,6 +345,13 @@ bool OptionsStore::Load() {
             return true;
         }
 
+        if (header == kExplorerAccentColorsToken) {
+            if (tokens.size() >= 2) {
+                m_options.useExplorerAccentColors = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
         if (header == kFolderBackgroundsEnabledToken) {
             if (tokens.size() >= 2) {
                 m_options.enableFolderBackgrounds = ParseBool(tokens[1]);
@@ -500,6 +508,11 @@ bool OptionsStore::Save() const {
     content += ColorToHexString(m_options.customTabUnselectedColor);
     content += L"\n";
 
+    content += kExplorerAccentColorsToken;
+    content += L"|";
+    content += m_options.useExplorerAccentColors ? L"1" : L"0";
+    content += L"\n";
+
     content += kFolderBackgroundsEnabledToken;
     content += L"|";
     content += m_options.enableFolderBackgrounds ? L"1" : L"0";
@@ -583,6 +596,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
            left.customTabUnselectedColor == right.customTabUnselectedColor &&
+           left.useExplorerAccentColors == right.useExplorerAccentColors &&
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
