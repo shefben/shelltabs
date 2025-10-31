@@ -34,6 +34,7 @@
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"
+#include "ExplorerThemeUtils.h"
 
 #ifndef TBSTATE_HOT
 #define TBSTATE_HOT 0x80
@@ -177,44 +178,6 @@ private:
     DPI_AWARENESS_CONTEXT m_previousContext{};
     bool m_applied{false};
 };
-
-COLORREF SampleAverageColor(HDC dc, const RECT& rect) {
-    if (!dc || rect.left >= rect.right || rect.top >= rect.bottom) {
-        return GetSysColor(COLOR_WINDOW);
-    }
-
-    const LONG left = std::max(rect.left, static_cast<LONG>(0));
-    const LONG top = std::max(rect.top, static_cast<LONG>(0));
-    const LONG right = std::max(rect.right - 1, left);
-    const LONG bottom = std::max(rect.bottom - 1, top);
-
-    const std::array<POINT, 4> samplePoints = {{{left, top},
-                                               {right, top},
-                                               {left, bottom},
-                                               {right, bottom}}};
-
-    int totalRed = 0;
-    int totalGreen = 0;
-    int totalBlue = 0;
-    int count = 0;
-
-    for (const auto& point : samplePoints) {
-        const COLORREF pixel = GetPixel(dc, point.x, point.y);
-        if (pixel == CLR_INVALID) {
-            continue;
-        }
-        totalRed += GetRValue(pixel);
-        totalGreen += GetGValue(pixel);
-        totalBlue += GetBValue(pixel);
-        ++count;
-    }
-
-    if (count == 0) {
-        return GetSysColor(COLOR_WINDOW);
-    }
-
-    return RGB(totalRed / count, totalGreen / count, totalBlue / count);
-}
 
 bool TryGetMenuItemText(HMENU menu, UINT position, std::wstring& text) {
     text.clear();
