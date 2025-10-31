@@ -48,7 +48,9 @@ void TouchCachedImage(const std::wstring& path) noexcept;
 
 std::vector<std::wstring> CollectCachedImageReferences(const ShellTabsOptions& options);
 
-void UpdateCachedImageUsage(const ShellTabsOptions& options);
+void UpdateCachedImageUsage(const ShellTabsOptions& options, bool forceMaintenance = false);
+
+void ForceBackgroundCacheMaintenance(const ShellTabsOptions& options);
 
 CacheMaintenanceResult RemoveOrphanedCacheEntries(const ShellTabsOptions& options,
                                                   const std::vector<std::wstring>& protectedPaths = {});

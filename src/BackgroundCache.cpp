@@ -7,18 +7,100 @@
 #include <objbase.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cwctype>
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <unordered_set>
+#include <thread>
 #include <vector>
 
 namespace shelltabs {
 namespace {
 
 constexpr auto kUnusedCacheExpiration = std::chrono::hours(24 * 30);
+constexpr auto kCacheMaintenanceThrottle = std::chrono::minutes(5);
+
+std::atomic<ULONGLONG> g_lastCachePurgeTick{0};
+std::atomic<bool> g_cachePurgeInFlight{false};
+std::mutex g_cachePurgeMutex;
+
+struct CacheMaintenanceTask {
+    std::unordered_set<std::wstring> referenced;
+    ULONGLONG expirationTicks = 0;
+};
+
+void PurgeUnusedCacheEntries(const std::unordered_set<std::wstring>& referenced,
+                             ULONGLONG expirationTicks);
+
+ULONGLONG ThrottleIntervalInMilliseconds() {
+    return static_cast<ULONGLONG>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(kCacheMaintenanceThrottle).count());
+}
+
+void RunCacheMaintenanceNow(const std::unordered_set<std::wstring>& referenced, ULONGLONG expirationTicks) {
+    std::lock_guard<std::mutex> lock(g_cachePurgeMutex);
+    PurgeUnusedCacheEntries(referenced, expirationTicks);
+    g_lastCachePurgeTick.store(GetTickCount64(), std::memory_order_relaxed);
+}
+
+void DispatchCacheMaintenance(std::unordered_set<std::wstring> referenced,
+                              ULONGLONG expirationTicks,
+                              bool forceMaintenance) {
+    if (forceMaintenance) {
+        RunCacheMaintenanceNow(referenced, expirationTicks);
+        return;
+    }
+
+    const ULONGLONG throttleMillis = ThrottleIntervalInMilliseconds();
+    if (throttleMillis > 0) {
+        const ULONGLONG now = GetTickCount64();
+        const ULONGLONG last = g_lastCachePurgeTick.load(std::memory_order_relaxed);
+        if (last != 0) {
+            const ULONGLONG elapsed = now >= last ? (now - last) : std::numeric_limits<ULONGLONG>::max();
+            if (elapsed < throttleMillis) {
+                return;
+            }
+        }
+    }
+
+    bool expected = false;
+    if (!g_cachePurgeInFlight.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    auto task = std::make_shared<CacheMaintenanceTask>();
+    task->referenced = std::move(referenced);
+    task->expirationTicks = expirationTicks;
+
+    struct FlagResetter {
+        ~FlagResetter() { g_cachePurgeInFlight.store(false, std::memory_order_release); }
+    };
+
+    auto worker = [task]() {
+        FlagResetter flagResetter;
+
+        RunCacheMaintenanceNow(task->referenced, task->expirationTicks);
+    };
+
+    try {
+        std::thread(worker).detach();
+    } catch (const std::system_error& ex) {
+        LogMessage(LogLevel::Warning,
+                   L"Failed to queue background cache purge (%ls); running synchronously.",
+                   Utf8ToWide(ex.what()).c_str());
+
+        FlagResetter flagResetter;
+
+        RunCacheMaintenanceNow(task->referenced, task->expirationTicks);
+    }
+}
+
 std::wstring NormalizeAndEnsureTrailingSlash(const std::wstring& path) {
     if (path.empty()) {
         return {};
@@ -325,11 +407,11 @@ std::vector<std::wstring> CollectCachedImageReferences(const ShellTabsOptions& o
     return CollectReferencedPaths(options);
 }
 
-void UpdateCachedImageUsage(const ShellTabsOptions& options) {
+void UpdateCachedImageUsage(const ShellTabsOptions& options, bool forceMaintenance) {
     const std::vector<std::wstring> references = CollectReferencedPaths(options);
     if (references.empty()) {
         // Still perform an expiration sweep so abandoned files disappear eventually.
-        PurgeUnusedCacheEntries({}, ExpirationToTicks(kUnusedCacheExpiration));
+        DispatchCacheMaintenance({}, ExpirationToTicks(kUnusedCacheExpiration), forceMaintenance);
         return;
     }
 
@@ -343,7 +425,12 @@ void UpdateCachedImageUsage(const ShellTabsOptions& options) {
         }
     }
 
-    PurgeUnusedCacheEntries(referencedKeys, ExpirationToTicks(kUnusedCacheExpiration));
+    DispatchCacheMaintenance(std::move(referencedKeys), ExpirationToTicks(kUnusedCacheExpiration),
+                             forceMaintenance);
+}
+
+void ForceBackgroundCacheMaintenance(const ShellTabsOptions& options) {
+    UpdateCachedImageUsage(options, true);
 }
 
 CacheMaintenanceResult RemoveOrphanedCacheEntries(const ShellTabsOptions& options,
