@@ -24,6 +24,10 @@ GroupStore& GroupStore::Instance() {
 }
 
 std::vector<std::wstring> GroupStore::GroupNames() const {
+    if (!EnsureLoaded()) {
+        return {};
+    }
+
     std::vector<std::wstring> names;
     names.reserve(m_groups.size());
     for (const auto& group : m_groups) {
