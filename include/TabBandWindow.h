@@ -85,6 +85,8 @@ private:
         bool firstInGroup = false;
         int badgeWidth = 0;
         HICON icon = nullptr;
+        bool iconFromCache = false;
+        std::wstring iconCacheKey;
         int iconWidth = 0;
         int iconHeight = 0;
         bool hasGroupHeader = false;
@@ -189,6 +191,7 @@ private:
     COLORREF m_progressStartColor = RGB(0, 120, 215);
     COLORREF m_progressEndColor = RGB(0, 153, 255);
     PreviewOverlay m_previewOverlay;
+    mutable std::unique_ptr<IconCache> m_iconCache;
     size_t m_previewItemIndex = std::numeric_limits<size_t>::max();
     bool m_previewVisible = false;
     uint64_t m_previewRequestId = 0;
@@ -237,7 +240,8 @@ private:
     void DrawDragVisual(HDC dc) const;
     void ClearVisualItems();
     void ClearExplorerContext();
-    HICON LoadItemIcon(const TabViewItem& item, UINT iconFlags) const;
+    HICON LoadItemIcon(const TabViewItem& item, UINT iconFlags, std::wstring* cacheKey,
+                       bool* fromCache) const;
     bool HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result);
     void EnsureMouseTracking(const POINT& pt);
     void UpdateHoverPreview(const POINT& pt);
@@ -311,6 +315,14 @@ private:
     void ResetThemePalette();
     void UpdateThemePalette();
     void UpdateToolbarMetrics();
+
+    class IconCache;
+    IconCache& GetIconCache() const;
+    std::wstring GetIconCacheIdentifier(const TabViewItem& item) const;
+    std::wstring BuildIconCacheKey(const TabViewItem& item, UINT iconFlags) const;
+    std::wstring BuildIconCacheKey(const std::wstring& identifier, UINT iconFlags) const;
+    void InvalidateIconCacheEntries(const std::vector<TabViewItem>& previous,
+                                    const std::vector<TabViewItem>& current);
 
     void UpdateDropHoverState(const HitInfo& hit, bool hasFileData);
     void ClearDropHoverState();

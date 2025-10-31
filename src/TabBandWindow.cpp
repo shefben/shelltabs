@@ -6,12 +6,16 @@
 #include <algorithm>  // for 2-arg std::max/std::min
 
 #include <cmath>
+#include <functional>
+#include <iterator>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <atomic>
 
@@ -29,6 +33,7 @@
 #include <dwmapi.h>
 #include <cwchar>
 
+#include "Logging.h"
 #include "Module.h"
 #include "OptionsStore.h"
 #include "ShellTabsMessages.h"
@@ -57,6 +62,207 @@ TabBandDockMode DockModeFromRebarStyle(DWORD style) {
         return TabBandDockMode::kBottom;
     }
     return TabBandDockMode::kTop;
+}
+
+class TabBandWindow::IconCache {
+public:
+    using Loader = std::function<HICON()>;
+
+    IconCache() = default;
+    ~IconCache() { Clear(); }
+
+    HICON Acquire(const std::wstring& key, const Loader& loader, bool* fromCache);
+    void Release(const std::wstring& key);
+    void Invalidate(const std::wstring& key);
+    void Clear();
+    void LogStatistics() const;
+
+private:
+    struct Entry {
+        HICON icon = nullptr;
+        size_t refCount = 0;
+        std::list<std::wstring>::iterator lruIt{};
+        bool stale = false;
+    };
+
+    void Touch(Entry& entry);
+    std::unordered_map<std::wstring, Entry>::iterator DestroyEntry(
+        std::unordered_map<std::wstring, Entry>::iterator it);
+    void Prune();
+
+    static constexpr size_t kDefaultCapacity = 128;
+
+    std::unordered_map<std::wstring, Entry> m_entries;
+    std::list<std::wstring> m_lru;
+    size_t m_hits = 0;
+    size_t m_misses = 0;
+    size_t m_evictions = 0;
+    size_t m_uncacheableRequests = 0;
+    size_t m_failedLoads = 0;
+    mutable size_t m_lastLoggedHits = std::numeric_limits<size_t>::max();
+    mutable size_t m_lastLoggedMisses = std::numeric_limits<size_t>::max();
+    mutable size_t m_lastLoggedEvictions = std::numeric_limits<size_t>::max();
+    mutable size_t m_lastLoggedUncacheable = std::numeric_limits<size_t>::max();
+    mutable size_t m_lastLoggedFailedLoads = std::numeric_limits<size_t>::max();
+};
+
+HICON TabBandWindow::IconCache::Acquire(const std::wstring& key, const Loader& loader, bool* fromCache) {
+    if (fromCache) {
+        *fromCache = false;
+    }
+    if (key.empty()) {
+        ++m_uncacheableRequests;
+        return loader ? loader() : nullptr;
+    }
+    auto it = m_entries.find(key);
+    if (it != m_entries.end()) {
+        ++m_hits;
+        Entry& entry = it->second;
+        ++entry.refCount;
+        entry.stale = false;
+        Touch(entry);
+        if (fromCache) {
+            *fromCache = true;
+        }
+        return entry.icon;
+    }
+
+    ++m_misses;
+    HICON icon = loader ? loader() : nullptr;
+    if (!icon) {
+        ++m_failedLoads;
+        return nullptr;
+    }
+
+    m_lru.push_front(key);
+    Entry entry{};
+    entry.icon = icon;
+    entry.refCount = 1;
+    entry.lruIt = m_lru.begin();
+    entry.stale = false;
+    m_entries.emplace(key, std::move(entry));
+    Prune();
+    return icon;
+}
+
+void TabBandWindow::IconCache::Release(const std::wstring& key) {
+    if (key.empty()) {
+        return;
+    }
+    auto it = m_entries.find(key);
+    if (it == m_entries.end()) {
+        return;
+    }
+    Entry& entry = it->second;
+    if (entry.refCount == 0) {
+        return;
+    }
+    --entry.refCount;
+    if (entry.refCount == 0) {
+        if (entry.stale) {
+            DestroyEntry(it);
+        } else {
+            m_lru.splice(m_lru.end(), m_lru, entry.lruIt);
+            entry.lruIt = std::prev(m_lru.end());
+        }
+    }
+    Prune();
+}
+
+void TabBandWindow::IconCache::Invalidate(const std::wstring& key) {
+    if (key.empty()) {
+        return;
+    }
+    auto it = m_entries.find(key);
+    if (it == m_entries.end()) {
+        return;
+    }
+    Entry& entry = it->second;
+    if (entry.refCount == 0) {
+        DestroyEntry(it);
+    } else {
+        entry.stale = true;
+    }
+    Prune();
+}
+
+void TabBandWindow::IconCache::Clear() {
+    for (auto& pair : m_entries) {
+        if (pair.second.icon) {
+            DestroyIcon(pair.second.icon);
+        }
+    }
+    m_entries.clear();
+    m_lru.clear();
+}
+
+void TabBandWindow::IconCache::LogStatistics() const {
+    if (m_hits == 0 && m_misses == 0 && m_uncacheableRequests == 0) {
+        return;
+    }
+    if (m_hits == m_lastLoggedHits && m_misses == m_lastLoggedMisses &&
+        m_evictions == m_lastLoggedEvictions && m_uncacheableRequests == m_lastLoggedUncacheable &&
+        m_failedLoads == m_lastLoggedFailedLoads) {
+        return;
+    }
+    const double total = static_cast<double>(m_hits + m_misses);
+    const double hitRate = total > 0.0 ? (static_cast<double>(m_hits) / total) * 100.0 : 0.0;
+    LogMessage(LogLevel::Info,
+               L"Tab icon cache stats: size=%zu capacity=%zu hits=%zu misses=%zu hitRate=%.2f%% evictions=%zu "
+               L"uncacheable=%zu failed=%zu",
+               m_entries.size(), kDefaultCapacity, m_hits, m_misses, hitRate, m_evictions, m_uncacheableRequests,
+               m_failedLoads);
+    m_lastLoggedHits = m_hits;
+    m_lastLoggedMisses = m_misses;
+    m_lastLoggedEvictions = m_evictions;
+    m_lastLoggedUncacheable = m_uncacheableRequests;
+    m_lastLoggedFailedLoads = m_failedLoads;
+}
+
+void TabBandWindow::IconCache::Touch(Entry& entry) {
+    if (entry.lruIt != m_lru.begin()) {
+        m_lru.splice(m_lru.begin(), m_lru, entry.lruIt);
+        entry.lruIt = m_lru.begin();
+    }
+}
+
+std::unordered_map<std::wstring, TabBandWindow::IconCache::Entry>::iterator
+TabBandWindow::IconCache::DestroyEntry(std::unordered_map<std::wstring, Entry>::iterator it) {
+    if (it == m_entries.end()) {
+        return it;
+    }
+    Entry& entry = it->second;
+    if (entry.icon) {
+        DestroyIcon(entry.icon);
+    }
+    if (!m_lru.empty() && entry.lruIt != m_lru.end()) {
+        m_lru.erase(entry.lruIt);
+    }
+    ++m_evictions;
+    return m_entries.erase(it);
+}
+
+void TabBandWindow::IconCache::Prune() {
+    for (auto it = m_entries.begin(); it != m_entries.end();) {
+        if (it->second.refCount == 0 && it->second.stale) {
+            it = DestroyEntry(it);
+        } else {
+            ++it;
+        }
+    }
+
+    while (m_entries.size() > kDefaultCapacity && !m_lru.empty()) {
+        auto listIt = std::prev(m_lru.end());
+        auto mapIt = m_entries.find(*listIt);
+        if (mapIt == m_entries.end()) {
+            m_lru.erase(listIt);
+            continue;
+        }
+        if (mapIt->second.refCount > 0) {
+            break;
+        }
+        DestroyEntry(mapIt);
+    }
 }
 
 uint32_t DockModeToMask(TabBandDockMode mode) {
@@ -536,6 +742,10 @@ void TabBandWindow::Destroy() {
     m_parentRebar = nullptr;
     m_rebarBandIndex = -1;
     m_tabData.clear();
+    if (m_iconCache) {
+        m_iconCache->Clear();
+        m_iconCache.reset();
+    }
 }
 
 void TabBandWindow::Show(bool show) {
@@ -546,6 +756,7 @@ void TabBandWindow::Show(bool show) {
 }
 
 void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
+    const std::vector<TabViewItem> previous = m_tabData;
     m_tabData = items;
     m_contextHit = {};
     ClearExplorerContext();
@@ -554,6 +765,12 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     UpdateProgressAnimationState();
     if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+    if (!previous.empty() || !m_tabData.empty()) {
+        InvalidateIconCacheEntries(previous, m_tabData);
+    }
+    if (m_iconCache) {
+        m_iconCache->LogStatistics();
     }
 }
 
@@ -635,10 +852,14 @@ void TabBandWindow::ClearVisualItems() {
     HidePreviewWindow(false);
 
     for (auto& item : m_items) {
-        if (item.icon) {
+        if (item.iconFromCache && !item.iconCacheKey.empty()) {
+            GetIconCache().Release(item.iconCacheKey);
+        } else if (item.icon) {
             DestroyIcon(item.icon);
-            item.icon = nullptr;
         }
+        item.icon = nullptr;
+        item.iconFromCache = false;
+        item.iconCacheKey.clear();
     }
 
     m_items.clear();
@@ -836,8 +1057,12 @@ void TabBandWindow::RebuildLayout() {
 
                 visual.badgeWidth = 0;
 
-                visual.icon = LoadItemIcon(item, SHGFI_SMALLICON);
-		if (visual.icon) {
+                std::wstring iconCacheKey;
+                bool iconFromCache = false;
+                visual.icon = LoadItemIcon(item, SHGFI_SMALLICON, &iconCacheKey, &iconFromCache);
+                visual.iconFromCache = iconFromCache;
+                visual.iconCacheKey = std::move(iconCacheKey);
+                if (visual.icon) {
 			visual.iconWidth = baseIconWidth;
 			visual.iconHeight = baseIconHeight;
 			ICONINFO iconInfo{};
@@ -2514,24 +2739,126 @@ void TabBandWindow::ClearExplorerContext() {
     m_explorerContext = {};
 }
 
-HICON TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT iconFlags) const {
+TabBandWindow::IconCache& TabBandWindow::GetIconCache() const {
+    if (!m_iconCache) {
+        m_iconCache = std::make_unique<IconCache>();
+    }
+    return *m_iconCache;
+}
+
+std::wstring TabBandWindow::GetIconCacheIdentifier(const TabViewItem& item) const {
+    if (item.type != TabViewItemType::kTab) {
+        return {};
+    }
+    if (item.pidl) {
+        std::wstring canonical = GetCanonicalParsingName(item.pidl);
+        if (!canonical.empty()) {
+            return canonical;
+        }
+        canonical = GetParsingName(item.pidl);
+        if (!canonical.empty()) {
+            return canonical;
+        }
+    }
+    if (!item.path.empty()) {
+        std::wstring normalized = NormalizeFileSystemPath(item.path);
+        if (!normalized.empty()) {
+            return normalized;
+        }
+        return item.path;
+    }
+    return {};
+}
+
+std::wstring TabBandWindow::BuildIconCacheKey(const TabViewItem& item, UINT iconFlags) const {
+    return BuildIconCacheKey(GetIconCacheIdentifier(item), iconFlags);
+}
+
+std::wstring TabBandWindow::BuildIconCacheKey(const std::wstring& identifier, UINT iconFlags) const {
+    if (identifier.empty()) {
+        return {};
+    }
+    std::wstring key = identifier;
+    key.push_back(L'|');
+    key.append(std::to_wstring(iconFlags));
+    return key;
+}
+
+void TabBandWindow::InvalidateIconCacheEntries(const std::vector<TabViewItem>& previous,
+                                               const std::vector<TabViewItem>& current) {
+    if (!m_iconCache) {
+        return;
+    }
+    std::unordered_set<std::wstring> activeIdentifiers;
+    activeIdentifiers.reserve(current.size());
+    for (const auto& item : current) {
+        if (item.type != TabViewItemType::kTab) {
+            continue;
+        }
+        std::wstring identifier = GetIconCacheIdentifier(item);
+        if (!identifier.empty()) {
+            activeIdentifiers.emplace(std::move(identifier));
+        }
+    }
+
+    for (const auto& item : previous) {
+        if (item.type != TabViewItemType::kTab) {
+            continue;
+        }
+        std::wstring identifier = GetIconCacheIdentifier(item);
+        if (identifier.empty()) {
+            continue;
+        }
+        if (activeIdentifiers.find(identifier) != activeIdentifiers.end()) {
+            continue;
+        }
+        const std::wstring smallKey = BuildIconCacheKey(identifier, SHGFI_SMALLICON);
+        const std::wstring largeKey = BuildIconCacheKey(identifier, SHGFI_LARGEICON);
+        m_iconCache->Invalidate(smallKey);
+        m_iconCache->Invalidate(largeKey);
+    }
+}
+
+HICON TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT iconFlags, std::wstring* cacheKey,
+                                   bool* fromCache) const {
+    if (cacheKey) {
+        cacheKey->clear();
+    }
+    if (fromCache) {
+        *fromCache = false;
+    }
     if (item.type != TabViewItemType::kTab) {
         return nullptr;
     }
 
-    SHFILEINFOW info{};
-    const UINT flags = SHGFI_ICON | SHGFI_ADDOVERLAYS | iconFlags;
-    if (item.pidl) {
-        if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(item.pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
-            return info.hIcon;
+    const std::wstring key = BuildIconCacheKey(item, iconFlags);
+    auto loader = [&]() -> HICON {
+        SHFILEINFOW info{};
+        const UINT flags = SHGFI_ICON | SHGFI_ADDOVERLAYS | iconFlags;
+        if (item.pidl) {
+            if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(item.pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
+                return info.hIcon;
+            }
         }
-    }
-    if (!item.path.empty()) {
-        if (SHGetFileInfoW(item.path.c_str(), 0, &info, sizeof(info), flags)) {
-            return info.hIcon;
+        if (!item.path.empty()) {
+            if (SHGetFileInfoW(item.path.c_str(), 0, &info, sizeof(info), flags)) {
+                return info.hIcon;
+            }
         }
+        return nullptr;
+    };
+
+    HICON icon = nullptr;
+    if (!key.empty()) {
+        icon = GetIconCache().Acquire(key, loader, fromCache);
+    } else {
+        icon = loader();
     }
-    return nullptr;
+
+    if (icon && cacheKey && !key.empty()) {
+        *cacheKey = key;
+    }
+    return icon;
 }
 
 bool TabBandWindow::HandleExplorerMenuMessage(UINT message, WPARAM wParam, LPARAM lParam, LRESULT* result) {
@@ -2624,10 +2951,16 @@ void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
         if (placeholderText.empty()) {
             placeholderText = !visual.data.path.empty() ? visual.data.path : L"Generating preview…";
         }
-        HICON icon = LoadItemIcon(visual.data, SHGFI_LARGEICON);
+        std::wstring previewCacheKey;
+        bool previewFromCache = false;
+        HICON icon = LoadItemIcon(visual.data, SHGFI_LARGEICON, &previewCacheKey, &previewFromCache);
         overlayShown = m_previewOverlay.Show(m_hwnd, nullptr, kPreviewImageSize, screenPt, placeholderText.c_str(), icon);
         if (icon) {
-            DestroyIcon(icon);
+            if (previewFromCache && !previewCacheKey.empty()) {
+                GetIconCache().Release(previewCacheKey);
+            } else {
+                DestroyIcon(icon);
+            }
         }
         if (overlayShown) {
             m_previewRequestId = PreviewCache::Instance().RequestPreviewAsync(visual.data.pidl, kPreviewImageSize, m_hwnd,
