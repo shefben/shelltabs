@@ -18,6 +18,13 @@ struct PaneHighlight {
     COLORREF backgroundColor = 0;
 };
 
+enum class HighlightPaneType {
+    ListView,
+    TreeView,
+};
+
+using PaneHighlightInvalidationCallback = void (*)(HWND hwnd, HighlightPaneType paneType);
+
 class PaneHighlightProvider {
 public:
     virtual ~PaneHighlightProvider() = default;
@@ -28,6 +35,7 @@ public:
 class PaneHookRouter {
 public:
     explicit PaneHookRouter(PaneHighlightProvider* provider = nullptr);
+    ~PaneHookRouter();
 
     void SetHighlightProvider(PaneHighlightProvider* provider);
     void SetListView(HWND listView);
@@ -49,5 +57,10 @@ void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highli
 void UnregisterPaneHighlight(const std::wstring& path);
 void ClearPaneHighlights();
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight);
+void SubscribeListViewForHighlights(HWND listView);
+void SubscribeTreeViewForHighlights(HWND treeView);
+void UnsubscribeListViewForHighlights(HWND listView);
+void UnsubscribeTreeViewForHighlights(HWND treeView);
+void SetPaneHighlightInvalidationCallback(PaneHighlightInvalidationCallback callback);
 
 }  // namespace shelltabs

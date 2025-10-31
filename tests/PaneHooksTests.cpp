@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -55,6 +56,16 @@ private:
     std::unordered_map<int, shelltabs::PaneHighlight> m_listHighlights;
     std::unordered_map<HTREEITEM, shelltabs::PaneHighlight> m_treeHighlights;
 };
+
+std::vector<std::pair<HWND, shelltabs::HighlightPaneType>> g_invalidationEvents;
+
+void ResetInvalidationTracking() {
+    g_invalidationEvents.clear();
+}
+
+void TestInvalidationCallback(HWND hwnd, shelltabs::HighlightPaneType pane) {
+    g_invalidationEvents.emplace_back(hwnd, pane);
+}
 
 bool TestListViewPrepaintRequestsCallbacks() {
     MockHighlightProvider provider;
@@ -153,6 +164,60 @@ bool TestTreeViewHighlightApplied() {
     return true;
 }
 
+bool TestHighlightRegistryInvalidatesSubscribers() {
+    ResetInvalidationTracking();
+    shelltabs::SetPaneHighlightInvalidationCallback(&TestInvalidationCallback);
+
+    HWND listView = reinterpret_cast<HWND>(0x4567);
+    HWND treeView = reinterpret_cast<HWND>(0x5678);
+    shelltabs::SubscribeListViewForHighlights(listView);
+    shelltabs::SubscribeTreeViewForHighlights(treeView);
+
+    shelltabs::PaneHighlight highlight{};
+    highlight.hasTextColor = true;
+    highlight.textColor = RGB(1, 2, 3);
+    shelltabs::RegisterPaneHighlight(L"C:\\Temp\\file.txt", highlight);
+
+    if (g_invalidationEvents.size() != 2) {
+        PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"Expected two invalidation events");
+        return false;
+    }
+
+    if (g_invalidationEvents[0].first != listView ||
+        g_invalidationEvents[0].second != shelltabs::HighlightPaneType::ListView) {
+        PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"List view invalidation missing");
+        return false;
+    }
+
+    if (g_invalidationEvents[1].first != treeView ||
+        g_invalidationEvents[1].second != shelltabs::HighlightPaneType::TreeView) {
+        PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"Tree view invalidation missing");
+        return false;
+    }
+
+    ResetInvalidationTracking();
+    shelltabs::UnsubscribeTreeViewForHighlights(treeView);
+    shelltabs::RegisterPaneHighlight(L"C:\\Temp\\file.txt", highlight);
+
+    if (g_invalidationEvents.size() != 1) {
+        PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers",
+                     L"Expected only list view to be invalidated after tree unsubscribe");
+        return false;
+    }
+
+    if (g_invalidationEvents[0].first != listView ||
+        g_invalidationEvents[0].second != shelltabs::HighlightPaneType::ListView) {
+        PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"Unexpected invalidation target");
+        return false;
+    }
+
+    shelltabs::UnsubscribeListViewForHighlights(listView);
+    shelltabs::SetPaneHighlightInvalidationCallback(nullptr);
+    shelltabs::ClearPaneHighlights();
+    ResetInvalidationTracking();
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -160,6 +225,7 @@ int wmain() {
         {L"TestListViewPrepaintRequestsCallbacks", &TestListViewPrepaintRequestsCallbacks},
         {L"TestListViewHighlightApplied", &TestListViewHighlightApplied},
         {L"TestTreeViewHighlightApplied", &TestTreeViewHighlightApplied},
+        {L"TestHighlightRegistryInvalidatesSubscribers", &TestHighlightRegistryInvalidatesSubscribers},
     };
 
     bool success = true;
