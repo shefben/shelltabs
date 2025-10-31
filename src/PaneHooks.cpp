@@ -1,13 +1,29 @@
 #include "PaneHooks.h"
 
+#include "Utilities.h"
+
 #include <mutex>
 #include <unordered_map>
+#include <algorithm>
+#include <cwctype>
 
 namespace shelltabs {
 
 namespace {
 std::mutex g_highlightMutex;
 std::unordered_map<std::wstring, PaneHighlight> g_highlights;
+
+std::wstring NormalizeHighlightKey(const std::wstring& path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return normalized;
+}
 
 }  // namespace
 
@@ -164,21 +180,23 @@ bool PaneHookRouter::HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result)
 }
 
 void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight) {
-    if (path.empty()) {
+    std::wstring normalized = NormalizeHighlightKey(path);
+    if (normalized.empty()) {
         return;
     }
 
     std::scoped_lock lock(g_highlightMutex);
-    g_highlights[path] = highlight;
+    g_highlights[normalized] = highlight;
 }
 
 void UnregisterPaneHighlight(const std::wstring& path) {
-    if (path.empty()) {
+    std::wstring normalized = NormalizeHighlightKey(path);
+    if (normalized.empty()) {
         return;
     }
 
     std::scoped_lock lock(g_highlightMutex);
-    g_highlights.erase(path);
+    g_highlights.erase(normalized);
 }
 
 void ClearPaneHighlights() {
@@ -187,12 +205,13 @@ void ClearPaneHighlights() {
 }
 
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight) {
-    if (path.empty()) {
+    std::wstring normalized = NormalizeHighlightKey(path);
+    if (normalized.empty()) {
         return false;
     }
 
     std::scoped_lock lock(g_highlightMutex);
-    auto it = g_highlights.find(path);
+    auto it = g_highlights.find(normalized);
     if (it == g_highlights.end()) {
         return false;
     }
