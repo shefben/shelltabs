@@ -11,6 +11,7 @@
 #include <uxtheme.h>
 #include <OleIdl.h>
 #include <gdiplus.h>
+#include <memoryapi.h>
 #include <new>
 
 #include <algorithm>
@@ -61,6 +62,77 @@ using shelltabs::LogMessageV;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
+
+bool IsReadableMemoryRange(const BYTE* address, SIZE_T size) {
+    if (!address || size == 0) {
+        return false;
+    }
+
+    SIZE_T remaining = size;
+    const BYTE* current = address;
+    while (remaining > 0) {
+        MEMORY_BASIC_INFORMATION info{};
+        if (VirtualQuery(current, &info, sizeof(info)) == 0) {
+            return false;
+        }
+
+        if (info.State != MEM_COMMIT || (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0) {
+            return false;
+        }
+
+        const auto* base = static_cast<const BYTE*>(info.BaseAddress);
+        SIZE_T offset = static_cast<SIZE_T>(current - base);
+        if (offset >= info.RegionSize) {
+            return false;
+        }
+
+        SIZE_T available = info.RegionSize - offset;
+        if (available >= remaining) {
+            return true;
+        }
+
+        current += available;
+        remaining -= available;
+    }
+
+    return true;
+}
+
+bool IsValidPidlPointer(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return false;
+    }
+
+    constexpr SIZE_T kMaxPidlSize = 64 * 1024;
+    const BYTE* cursor = reinterpret_cast<const BYTE*>(pidl);
+    SIZE_T totalSize = 0;
+
+    while (true) {
+        if (!IsReadableMemoryRange(cursor, sizeof(USHORT))) {
+            return false;
+        }
+
+        USHORT segmentSize = *reinterpret_cast<const USHORT*>(cursor);
+        if (segmentSize == 0) {
+            return totalSize > 0;
+        }
+
+        if (segmentSize < sizeof(USHORT)) {
+            return false;
+        }
+
+        if (totalSize + segmentSize > kMaxPidlSize) {
+            return false;
+        }
+
+        if (!IsReadableMemoryRange(cursor, segmentSize)) {
+            return false;
+        }
+
+        cursor += segmentSize;
+        totalSize += segmentSize;
+    }
+}
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
     static std::once_flag once;
@@ -1148,8 +1220,17 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
     LVITEMW item{};
     item.mask = LVIF_PARAM;
     item.iItem = itemIndex;
+
     if (ListView_GetItemW(listView, &item)) {
-        return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), highlight);
+        PCIDLIST_ABSOLUTE listViewPidl = reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam);
+        if (IsValidPidlPointer(listViewPidl)) {
+            if (ResolveHighlightFromPidl(listViewPidl, highlight)) {
+                return true;
+            }
+        } else if (listViewPidl) {
+            LogMessage(LogLevel::Info,
+                    L"TryGetListViewHighlight detected invalid PIDL pointer; re-querying item");
+        }
     }
 
     if (!m_shellView) {
@@ -1190,6 +1271,10 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
     }
 
     UniquePidl absolute(combined);
+    if (!absolute) {
+        return false;
+    }
+
     return ResolveHighlightFromPidl(absolute.get(), highlight);
 }
 
