@@ -1845,7 +1845,7 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
 
     if (!InstallExplorerViewSubclass(viewWindow)) {
         LogMessage(LogLevel::Warning, L"Explorer view subclass installation failed (view=%p)", viewWindow);
-    HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
+   /* HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
     HWND directUiHost = FindDescendantWindow(viewWindow, L"UIItemsView");
     if (!directUiHost) {
         directUiHost = FindDescendantWindow(viewWindow, L"ItemsViewWnd");
@@ -1859,12 +1859,12 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
         TryAttachNamespaceTreeControl(shellView.Get());
     }
 
-    if (!InstallExplorerViewSubclass(viewWindow, listView, treeView, directUiHost)) {
+    /f (!InstallExplorerViewSubclass(viewWindow, listView, treeView, directUiHost)) {
         LogMessage(LogLevel::Warning,
                    L"Explorer view subclass installation failed (view=%p list=%p tree=%p direct=%p)", viewWindow,
                    listView, treeView, directUiHost);
         return;
-    }
+    }*/
 
     m_shellView = shellView;
     m_shellViewWindow = viewWindow;
