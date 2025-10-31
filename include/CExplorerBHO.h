@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <exdisp.h>
@@ -182,8 +183,10 @@ struct ShellTabsOptions;
                 bool HandleListViewAccentCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
                 void RefreshListViewAccentState();
                 void EnsureListViewSubclass();
+                void EnsureListViewHostSubclass(HWND hostWindow);
                 bool AttachListView(HWND listView);
                 void DetachListView();
+                void DetachListViewHosts();
 		enum class BreadcrumbDiscoveryStage {
 			None,
 			ServiceUnavailable,
@@ -264,6 +267,7 @@ struct ShellTabsOptions;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
+                std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
                 bool m_explorerPaneRetryPending = false;
                 UINT_PTR m_explorerPaneRetryTimerId = 0;
                 bool m_loggedExplorerPanesReady = false;

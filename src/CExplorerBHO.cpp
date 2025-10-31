@@ -25,6 +25,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <wrl/client.h>
 #include <shobjidl_core.h>
@@ -1977,6 +1978,37 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     return true;
 }
 
+void CExplorerBHO::EnsureListViewHostSubclass(HWND hostWindow) {
+    if (!hostWindow || !IsWindow(hostWindow)) {
+        return;
+    }
+
+    if (hostWindow == m_listView || hostWindow == m_shellViewWindow || hostWindow == m_frameWindow ||
+        hostWindow == m_directUiView) {
+        return;
+    }
+
+    if (m_listViewHostSubclassed.find(hostWindow) != m_listViewHostSubclassed.end()) {
+        return;
+    }
+
+    if (SetWindowSubclass(hostWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_listViewHostSubclassed.insert(hostWindow);
+        LogMessage(LogLevel::Info, L"Installed explorer list host subclass (host=%p)", hostWindow);
+    } else {
+        LogLastError(L"SetWindowSubclass(list host)", GetLastError());
+    }
+}
+
+void CExplorerBHO::DetachListViewHosts() {
+    for (HWND hostWindow : m_listViewHostSubclassed) {
+        if (hostWindow && IsWindow(hostWindow)) {
+            RemoveWindowSubclass(hostWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        }
+    }
+    m_listViewHostSubclassed.clear();
+}
+
 void CExplorerBHO::EnsureListViewSubclass() {
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
         return;
@@ -1986,12 +2018,64 @@ void CExplorerBHO::EnsureListViewSubclass() {
         DetachListView();
     }
 
-    const HWND candidates[] = {m_directUiView, m_shellViewWindow};
-    for (HWND candidate : candidates) {
+    const HWND baseScopes[] = {m_directUiView, m_shellViewWindow, m_frameWindow};
+    std::vector<HWND> hostCandidates;
+    std::unordered_set<HWND, HandleHasher> visited;
+
+    auto addCandidate = [&](HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) {
+            return;
+        }
+        if (visited.insert(hwnd).second) {
+            hostCandidates.push_back(hwnd);
+        }
+    };
+
+    for (HWND scope : baseScopes) {
+        addCandidate(scope);
+    }
+
+    constexpr const wchar_t* kHostClasses[] = {
+        L"UIItemsView",
+        L"ItemsViewWnd",
+        L"DirectUIHWND",
+        L"DUIViewWndClassName",
+        L"ShellTabWindowClass",
+    };
+
+    for (HWND scope : baseScopes) {
+        if (!scope || !IsWindow(scope)) {
+            continue;
+        }
+
+        for (const wchar_t* className : kHostClasses) {
+            for (HWND ancestor = scope; ancestor && IsWindow(ancestor); ancestor = GetParent(ancestor)) {
+                if (MatchesClass(ancestor, className)) {
+                    addCandidate(ancestor);
+                }
+            }
+
+            HWND descendant = FindDescendantWindow(scope, className);
+            if (descendant) {
+                addCandidate(descendant);
+            }
+        }
+    }
+
+    for (HWND candidate : hostCandidates) {
         if (!candidate || !IsWindow(candidate)) {
             continue;
         }
-        HWND listView = FindDescendantWindow(candidate, L"SysListView32");
+
+        EnsureListViewHostSubclass(candidate);
+
+        HWND listView = nullptr;
+        if (MatchesClass(candidate, L"SysListView32")) {
+            listView = candidate;
+        } else {
+            listView = FindDescendantWindow(candidate, L"SysListView32");
+        }
+
         if (listView && AttachListView(listView)) {
             return;
         }
@@ -2245,6 +2329,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
                              reinterpret_cast<UINT_PTR>(this));
     }
     DetachListView();
+    DetachListViewHosts();
     if (m_directUiView && m_directUiSubclassInstalled && IsWindow(m_directUiView)) {
         RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
@@ -2528,6 +2613,11 @@ void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     if (m_directUiView && IsWindow(m_directUiView)) {
         InvalidateRect(m_directUiView, nullptr, TRUE);
     }
+    for (HWND host : m_listViewHostSubclassed) {
+        if (host && IsWindow(host)) {
+            InvalidateRect(host, nullptr, TRUE);
+        }
+    }
     if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
         InvalidateRect(m_shellViewWindow, nullptr, TRUE);
     }
@@ -2742,8 +2832,9 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     const bool isListView = (hwnd == m_listView);
     const bool isDirectUiHost = (hwnd == m_directUiView);
     const bool isDirectUiClass = MatchesClass(hwnd, L"DirectUIHWND");
+    const bool isListViewHost = (m_listViewHostSubclassed.find(hwnd) != m_listViewHostSubclassed.end());
     const bool isDirectUi = isDirectUiHost || isDirectUiClass;
-    const bool handlesBackground = isListView || isDirectUi;
+    const bool handlesBackground = isListView || isDirectUi || isListViewHost;
     const bool isShellViewWindow = (hwnd == m_shellViewWindow);
 
     if (msg == WM_TIMER && m_explorerPaneRetryPending && wParam == m_explorerPaneRetryTimerId) {
@@ -2771,7 +2862,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         return true;
     }
 
-    if ((isShellViewWindow || isDirectUiHost) &&
+    if ((isShellViewWindow || isDirectUiHost || isListViewHost) &&
         (msg == WM_WINDOWPOSCHANGED || msg == WM_SHOWWINDOW || msg == WM_SIZE || msg == WM_PAINT)) {
         EnsureListViewSubclass();
     }
@@ -5073,6 +5164,8 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         } else if (hwnd == self->m_shellViewWindow) {
             self->m_shellViewWindowSubclassInstalled = false;
             self->m_shellViewWindow = nullptr;
+        } else {
+            self->m_listViewHostSubclassed.erase(hwnd);
         }
 
         if (!self->m_listView && !self->m_treeView && !self->m_shellViewWindow) {
