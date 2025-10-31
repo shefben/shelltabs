@@ -11,6 +11,18 @@
 
 namespace shelltabs {
 
+std::wstring NormalizePaneHighlightKey(const std::wstring& path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return normalized;
+}
+
 namespace {
 std::mutex g_highlightMutex;
 std::unordered_map<std::wstring, PaneHighlight> g_highlights;
@@ -135,18 +147,6 @@ void InvalidateTreeItemBranch(HWND treeView, HTREEITEM item) {
     }
 
     InvalidateTreeRegion(treeView, nullptr);
-}
-
-std::wstring NormalizeHighlightKey(const std::wstring& path) {
-    if (path.empty()) {
-        return {};
-    }
-
-    std::wstring normalized = NormalizeFileSystemPath(path);
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t ch) {
-        return static_cast<wchar_t>(std::towlower(ch));
-    });
-    return normalized;
 }
 
 }  // namespace
@@ -347,7 +347,7 @@ bool PaneHookRouter::HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result)
 }
 
 void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight) {
-    std::wstring normalized = NormalizeHighlightKey(path);
+    std::wstring normalized = NormalizePaneHighlightKey(path);
     if (normalized.empty()) {
         return;
     }
@@ -365,7 +365,7 @@ void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highli
 }
 
 void UnregisterPaneHighlight(const std::wstring& path) {
-    std::wstring normalized = NormalizeHighlightKey(path);
+    std::wstring normalized = NormalizePaneHighlightKey(path);
     if (normalized.empty()) {
         return;
     }
@@ -402,7 +402,7 @@ void ClearPaneHighlights() {
 }
 
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight) {
-    std::wstring normalized = NormalizeHighlightKey(path);
+    std::wstring normalized = NormalizePaneHighlightKey(path);
     if (normalized.empty()) {
         return false;
     }

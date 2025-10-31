@@ -57,6 +57,7 @@ void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highli
 void UnregisterPaneHighlight(const std::wstring& path);
 void ClearPaneHighlights();
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight);
+std::wstring NormalizePaneHighlightKey(const std::wstring& path);
 void SubscribeListViewForHighlights(HWND listView);
 void SubscribeTreeViewForHighlights(HWND treeView);
 void UnsubscribeListViewForHighlights(HWND listView);
