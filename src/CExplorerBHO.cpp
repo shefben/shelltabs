@@ -5,6 +5,7 @@
 #include <oleauto.h>
 #include <shlobj.h>
 #include <shlguid.h>
+#include <shellapi.h>
 #include <CommCtrl.h>
 #include <windowsx.h>
 #include <uxtheme.h>
@@ -149,6 +150,48 @@ UINT GetWindowDpi(HWND hwnd) {
     }
 
     return dpi > 0 ? static_cast<UINT>(dpi) : 96u;
+}
+
+constexpr UINT kEnsureRetryInitialDelayMs = 200;
+constexpr UINT kEnsureRetryMaxDelayMs = 5000;
+constexpr UINT kEnsureRetryMaxExponent = 6;
+
+bool IsAutomationThrottled(HRESULT hr) {
+    switch (hr) {
+        case RPC_E_CALL_REJECTED:
+        case RPC_E_SERVERCALL_RETRYLATER:
+        case HRESULT_FROM_WIN32(ERROR_RETRY):
+        case HRESULT_FROM_WIN32(ERROR_TIMEOUT):
+        case HRESULT_FROM_WIN32(ERROR_BUSY):
+            return true;
+        default:
+            break;
+    }
+    return false;
+}
+
+bool IsAutomationDisabledByPolicy(HRESULT hr) {
+    if (hr == E_ACCESSDENIED) {
+        return true;
+    }
+    const DWORD code = HRESULT_CODE(hr);
+    switch (code) {
+        case ERROR_ACCESS_DENIED:
+        case ERROR_ACCESS_DISABLED_BY_POLICY:
+#ifdef ERROR_ACCESS_DISABLED_WEBBLADE
+        case ERROR_ACCESS_DISABLED_WEBBLADE:
+#endif
+#ifdef ERROR_ACCESS_DISABLED_WEBBLADE_TAMPER
+        case ERROR_ACCESS_DISABLED_WEBBLADE_TAMPER:
+#endif
+#ifdef ERROR_POLICY_DISABLED
+        case ERROR_POLICY_DISABLED:
+#endif
+            return true;
+        default:
+            break;
+    }
+    return false;
 }
 
 class ScopedThreadDpiAwarenessContext {
@@ -453,8 +496,11 @@ void CExplorerBHO::Disconnect() {
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
     m_site.Reset();
+    CancelEnsureRetryTimer();
+    m_ensureRetryAttempt = 0;
     m_bandVisible = false;
     m_shouldRetryEnsure = true;
+    m_automationPolicyToastShown = false;
     m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     m_loggedBreadcrumbToolbarMissing = false;
     m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
@@ -470,6 +516,8 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             if (!m_webBrowser || !m_shouldRetryEnsure) {
                 return S_OK;
             }
+
+            CancelEnsureRetryTimer();
 
             Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
             HRESULT hr = m_webBrowser.As(&serviceProvider);
@@ -516,9 +564,15 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
             if (SUCCEEDED(hr)) {
                 m_bandVisible = true;
                 m_shouldRetryEnsure = false;
+                m_ensureRetryAttempt = 0;
                 UpdateBreadcrumbSubclass();
-            } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
+            } else if (IsAutomationDisabledByPolicy(hr)) {
                 m_shouldRetryEnsure = false;
+                MaybeShowAutomationDisabledToast(hr);
+            } else if (IsAutomationThrottled(hr)) {
+                ScheduleEnsureRetry(hr);
+            } else {
+                LogMessage(LogLevel::Warning, L"ShowBrowserBar failed (hr=0x%08X)", hr);
             }
 
             return hr;
@@ -526,6 +580,87 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
         []() -> HRESULT { return E_FAIL; });
 }
 
+
+void CExplorerBHO::ScheduleEnsureRetry(HRESULT lastError) {
+    if (!m_shouldRetryEnsure) {
+        return;
+    }
+
+    CancelEnsureRetryTimer();
+
+    const UINT attemptNumber = m_ensureRetryAttempt + 1;
+    const UINT exponent = (m_ensureRetryAttempt < kEnsureRetryMaxExponent) ? m_ensureRetryAttempt : kEnsureRetryMaxExponent;
+    unsigned long long delay = static_cast<unsigned long long>(kEnsureRetryInitialDelayMs) << exponent;
+    if (delay > kEnsureRetryMaxDelayMs) {
+        delay = kEnsureRetryMaxDelayMs;
+    }
+
+    ++m_ensureRetryAttempt;
+
+    const UINT_PTR timerId = reinterpret_cast<UINT_PTR>(this);
+    if (SetTimer(nullptr, timerId, static_cast<UINT>(delay), &CExplorerBHO::EnsureRetryTimerProc)) {
+        m_ensureRetryTimerId = timerId;
+        LogMessage(LogLevel::Info, L"ShowBrowserBar throttled (hr=0x%08X); retry %u scheduled in %llu ms", lastError,
+                   attemptNumber, delay);
+    } else {
+        const DWORD timerError = GetLastError();
+        LogMessage(LogLevel::Warning,
+                   L"Failed to schedule EnsureBandVisible retry (delay=%llu ms, gle=%lu, hr=0x%08X)", delay, timerError,
+                   lastError);
+    }
+}
+
+void CExplorerBHO::CancelEnsureRetryTimer() {
+    if (m_ensureRetryTimerId != 0) {
+        KillTimer(nullptr, m_ensureRetryTimerId);
+        m_ensureRetryTimerId = 0;
+    }
+}
+
+void CExplorerBHO::OnEnsureRetryTimer() {
+    CancelEnsureRetryTimer();
+    if (!m_shouldRetryEnsure) {
+        return;
+    }
+    EnsureBandVisible();
+}
+
+void CALLBACK CExplorerBHO::EnsureRetryTimerProc(HWND, UINT, UINT_PTR id, DWORD) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(id);
+    if (!self) {
+        return;
+    }
+    self->OnEnsureRetryTimer();
+}
+
+void CExplorerBHO::MaybeShowAutomationDisabledToast(HRESULT hr) {
+    if (m_automationPolicyToastShown) {
+        return;
+    }
+
+    m_automationPolicyToastShown = true;
+
+    LogMessage(LogLevel::Error, L"ShowBrowserBar denied by automation policy (hr=0x%08X)", hr);
+
+    Microsoft::WRL::ComPtr<IUserNotification2> notification;
+    HRESULT notifyHr = CoCreateInstance(CLSID_UserNotification, nullptr, CLSCTX_INPROC_SERVER,
+                                        IID_PPV_ARGS(&notification));
+    if (FAILED(notifyHr) || !notification) {
+        LogMessage(LogLevel::Warning, L"Failed to create user notification for automation policy warning (hr=0x%08X)",
+                   notifyHr);
+        return;
+    }
+
+    HICON icon = LoadIconW(nullptr, IDI_WARNING);
+    notification->SetIconInfo(icon, L"ShellTabs");
+    notification->SetBalloonInfo(L"ShellTabs",
+                                 L"Explorer automation is disabled by policy. Update your policy settings to enable ShellTabs.",
+                                 NIIF_WARNING);
+    notifyHr = notification->Show(nullptr, 0);
+    if (FAILED(notifyHr)) {
+        LogMessage(LogLevel::Warning, L"Failed to display automation policy notification (hr=0x%08X)", notifyHr);
+    }
+}
 IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
     return GuardExplorerCall(
         L"CExplorerBHO::SetSite",
@@ -829,6 +964,21 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
         return toolbar;
     };
 
+    auto queryToolbarFromWindow = [&](HWND window, const wchar_t* source) -> HWND {
+        if (!window) {
+            return nullptr;
+        }
+        Microsoft::WRL::ComPtr<IUnknown> windowObject;
+        if (FAILED(SHGetWindowObject(window, IID_PPV_ARGS(&windowObject))) || !windowObject) {
+            return nullptr;
+        }
+        Microsoft::WRL::ComPtr<IServiceProvider> provider;
+        if (FAILED(windowObject.As(&provider)) || !provider) {
+            return nullptr;
+        }
+        return queryBreadcrumbToolbar(provider, source);
+    };
+
     if (m_shellBrowser) {
         Microsoft::WRL::ComPtr<IServiceProvider> provider;
         if (SUCCEEDED(m_shellBrowser.As(&provider))) {
@@ -847,11 +997,38 @@ HWND CExplorerBHO::FindBreadcrumbToolbar() const {
         }
     }
 
+    if (m_site) {
+        Microsoft::WRL::ComPtr<IServiceProvider> provider;
+        if (SUCCEEDED(m_site.As(&provider)) && provider) {
+            if (HWND fromService = queryBreadcrumbToolbar(provider, L"Site")) {
+                return fromService;
+            }
+        }
+    }
+
+    if (m_frameWindow) {
+        if (HWND fromFrame = queryToolbarFromWindow(m_frameWindow, L"Frame window")) {
+            return fromFrame;
+        }
+    }
+
     HWND frame = GetTopLevelExplorerWindow();
     if (!frame) {
         LogBreadcrumbStage(BreadcrumbDiscoveryStage::FrameMissing,
                            L"Top-level Explorer window unavailable during breadcrumb search");
         return nullptr;
+    }
+
+    if (HWND fromFrameProvider = queryToolbarFromWindow(frame, L"Top-level window")) {
+        return fromFrameProvider;
+    }
+
+    HWND ribbonDock = FindWindowExW(frame, nullptr, L"UIRibbonCommandBarDock", nullptr);
+    if (!ribbonDock) {
+        ribbonDock = FindDescendantWindow(frame, L"UIRibbonCommandBarDock");
+    }
+    if (HWND fromRibbon = queryToolbarFromWindow(ribbonDock, L"Ribbon dock")) {
+        return fromRibbon;
     }
 
     HWND travelBand = FindDescendantWindow(frame, L"TravelBand");

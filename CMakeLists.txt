@@ -142,4 +142,19 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         _UNICODE
         _WIN32_WINNT=0x0A00
     )
+
+    add_executable(ShellTabsUtilitiesTests
+        tests/GuardExplorerCallTests.cpp
+    )
+
+    target_include_directories(ShellTabsUtilitiesTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsUtilitiesTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
 endif()
