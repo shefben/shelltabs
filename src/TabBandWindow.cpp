@@ -2600,47 +2600,92 @@ void TabBandWindow::EnsureRebarIntegration() {
 void TabBandWindow::UpdateToolbarMetrics() {
     m_toolbarGripWidth = kToolbarGripWidth;
     EnsureRebarIntegration();
+
+    bool gripWidthResolved = false;
     if (m_parentRebar && m_rebarBandIndex >= 0) {
         RECT borders{0, 0, 0, 0};
         if (SendMessageW(m_parentRebar, RB_GETBANDBORDERS, m_rebarBandIndex, reinterpret_cast<LPARAM>(&borders))) {
             const LONG candidate = std::max<LONG>(borders.left, 8L);
             if (candidate > 0) {
                 m_toolbarGripWidth = candidate;
-                return;
+                gripWidthResolved = true;
             }
         }
     }
 
-    if (!m_hwnd || !m_rebarTheme) {
+    if (!m_hwnd) {
+        ResetCloseButtonMetrics();
         return;
     }
 
-    HDC dc = GetDC(m_hwnd);
-    if (!dc) {
-        return;
-    }
+    const UINT currentDpi = GetDpiForWindow(m_hwnd);
+    const bool shouldUpdateCloseButton =
+        m_windowTheme && (!m_closeButtonSizeCached || m_cachedCloseButtonDpi != currentDpi);
 
-    int part = RP_GRIPPER;
-    SIZE gripSize{0, 0};
-    HRESULT hr = GetThemePartSize(m_rebarTheme, dc, part, 0, nullptr, TS_TRUE, &gripSize);
-    if (FAILED(hr) || gripSize.cx <= 0) {
-        part = RP_GRIPPERVERT;
-        gripSize = {0, 0};
-        hr = GetThemePartSize(m_rebarTheme, dc, part, 0, nullptr, TS_TRUE, &gripSize);
-    }
-
-    if (SUCCEEDED(hr) && gripSize.cx > 0) {
-        int width = gripSize.cx;
-        MARGINS margins{0, 0, 0, 0};
-        if (SUCCEEDED(GetThemeMargins(m_rebarTheme, dc, part, 0, TMT_CONTENTMARGINS, nullptr, &margins))) {
-            width += margins.cxLeftWidth + margins.cxRightWidth;
+    HDC dc = nullptr;
+    auto ensureDc = [&]() -> HDC {
+        if (!dc) {
+            dc = GetDC(m_hwnd);
         }
-        if (width > 0) {
-            m_toolbarGripWidth = std::max(width, 8);
+        return dc;
+    };
+
+    if (!gripWidthResolved && m_rebarTheme) {
+        if (HDC themeDc = ensureDc()) {
+            int part = RP_GRIPPER;
+            SIZE gripSize{0, 0};
+            HRESULT hr = GetThemePartSize(m_rebarTheme, themeDc, part, 0, nullptr, TS_TRUE, &gripSize);
+            if (FAILED(hr) || gripSize.cx <= 0) {
+                part = RP_GRIPPERVERT;
+                gripSize = {0, 0};
+                hr = GetThemePartSize(m_rebarTheme, themeDc, part, 0, nullptr, TS_TRUE, &gripSize);
+            }
+
+            if (SUCCEEDED(hr) && gripSize.cx > 0) {
+                int width = gripSize.cx;
+                MARGINS margins{0, 0, 0, 0};
+                if (SUCCEEDED(GetThemeMargins(m_rebarTheme, themeDc, part, 0, TMT_CONTENTMARGINS, nullptr, &margins))) {
+                    width += margins.cxLeftWidth + margins.cxRightWidth;
+                }
+                if (width > 0) {
+                    m_toolbarGripWidth = std::max(width, 8);
+                }
+                gripWidthResolved = true;
+            }
         }
     }
 
-    ReleaseDC(m_hwnd, dc);
+    if (!m_windowTheme) {
+        ResetCloseButtonMetrics();
+    } else if (shouldUpdateCloseButton) {
+        bool updated = false;
+        if (HDC themeDc = ensureDc()) {
+            SIZE themeSize{0, 0};
+            int candidate = kCloseButtonSize;
+            const HRESULT hr =
+                GetThemePartSize(m_windowTheme, themeDc, WP_SMALLCLOSEBUTTON, 0, nullptr, TS_TRUE, &themeSize);
+            if (SUCCEEDED(hr) && themeSize.cx > 0 && themeSize.cy > 0) {
+                candidate = std::max(themeSize.cx, themeSize.cy);
+            }
+            m_cachedCloseButtonSize = candidate;
+            m_cachedCloseButtonDpi = currentDpi;
+            m_closeButtonSizeCached = true;
+            updated = true;
+        }
+        if (!updated) {
+            m_closeButtonSizeCached = false;
+        }
+    }
+
+    if (dc) {
+        ReleaseDC(m_hwnd, dc);
+    }
+}
+
+void TabBandWindow::ResetCloseButtonMetrics() {
+    m_closeButtonSizeCached = false;
+    m_cachedCloseButtonSize = 0;
+    m_cachedCloseButtonDpi = 0;
 }
 
 void TabBandWindow::CloseThemeHandles() {
@@ -2656,6 +2701,24 @@ void TabBandWindow::CloseThemeHandles() {
         CloseThemeData(m_windowTheme);
         m_windowTheme = nullptr;
     }
+    ResetCloseButtonMetrics();
+}
+
+void TabBandWindow::HandleDpiChanged(UINT dpiX, UINT dpiY, const RECT* suggestedRect) {
+    UNREFERENCED_PARAMETER(dpiX);
+    UNREFERENCED_PARAMETER(dpiY);
+    if (!m_hwnd) {
+        return;
+    }
+    if (suggestedRect) {
+        const int width = suggestedRect->right - suggestedRect->left;
+        const int height = suggestedRect->bottom - suggestedRect->top;
+        SetWindowPos(m_hwnd, nullptr, suggestedRect->left, suggestedRect->top, width, height,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    m_closeButtonSizeCached = false;
+    UpdateToolbarMetrics();
+    RebuildLayout();
 }
 
 void TabBandWindow::UpdateNewTabButtonTheme() {
@@ -2740,27 +2803,20 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
     if (height <= kCloseButtonVerticalPadding * 2) {
         return rect;
     }
-    const int badgeWidth = std::max(0, item.badgeWidth);
-    const int availableWidth = item.bounds.right - item.bounds.left;
-    const int minimumWidth = kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing + badgeWidth + kPaddingX + 8;
-    if (availableWidth < minimumWidth) {
+    const int paddedHeight = height - kCloseButtonVerticalPadding * 2;
+    if (paddedHeight <= 0) {
         return rect;
     }
-    int size = std::min(kCloseButtonSize, height - kCloseButtonVerticalPadding * 2);
-    if (m_windowTheme && m_hwnd) {
-        HDC dc = GetDC(m_hwnd);
-        if (dc) {
-            SIZE themeSize{0, 0};
-            if (SUCCEEDED(GetThemePartSize(m_windowTheme, dc, WP_SMALLCLOSEBUTTON, 0, nullptr, TS_TRUE, &themeSize))) {
-                const int candidate = std::max(themeSize.cx, themeSize.cy);
-                if (candidate > 0) {
-                    size = std::min(candidate, height - kCloseButtonVerticalPadding * 2);
-                }
-            }
-            ReleaseDC(m_hwnd, dc);
-        }
-    }
+    const int badgeWidth = std::max(0, item.badgeWidth);
+    const int availableWidth = item.bounds.right - item.bounds.left;
+    const int targetSize =
+        (m_closeButtonSizeCached && m_cachedCloseButtonSize > 0) ? m_cachedCloseButtonSize : kCloseButtonSize;
+    const int size = std::min(targetSize, paddedHeight);
     if (size <= 0) {
+        return rect;
+    }
+    const int minimumWidth = size + kCloseButtonEdgePadding + kCloseButtonSpacing + badgeWidth + kPaddingX + 8;
+    if (availableWidth < minimumWidth) {
         return rect;
     }
     const int right = item.bounds.right - kCloseButtonEdgePadding;
@@ -5601,6 +5657,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 const int height = HIWORD(lParam);
                 self->EnsureRebarIntegration();
                 self->Layout(width, height);
+                return 0;
+            }
+
+            case WM_DPICHANGED: {
+                auto* suggested = reinterpret_cast<RECT*>(lParam);
+                self->HandleDpiChanged(LOWORD(wParam), HIWORD(wParam), suggested);
                 return 0;
             }
 

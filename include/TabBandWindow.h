@@ -285,6 +285,9 @@ private:
         bool m_nextRedrawIncremental = false;
         RedrawMetrics m_redrawMetrics{};
         int m_lastAppliedRowCount = 0;
+        bool m_closeButtonSizeCached = false;
+        int m_cachedCloseButtonSize = 0;
+        UINT m_cachedCloseButtonDpi = 0;
 
         mutable CachedGroupOutlines m_groupOutlineCache;
 
@@ -401,6 +404,7 @@ private:
     void UpdateDragOverlay(const POINT& clientPt, const POINT& screenPt);
     void HideDragOverlay(bool destroy);
     void CloseThemeHandles();
+    void ResetCloseButtonMetrics();
     void UpdateNewTabButtonTheme();
     bool IsSystemDarkMode() const;
     void UpdateAccentColor();
@@ -408,6 +412,7 @@ private:
     void DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF color) const;
     void UpdateThemePalette();
     void UpdateToolbarMetrics();
+    void HandleDpiChanged(UINT dpiX, UINT dpiY, const RECT* suggestedRect);
 
     void UpdateDropHoverState(const HitInfo& hit, bool hasFileData);
     void ClearDropHoverState();
