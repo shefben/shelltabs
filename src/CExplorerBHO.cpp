@@ -6,6 +6,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shlguid.h>
+#include <shlwapi.h>
 #include <CommCtrl.h>
 #include <windowsx.h>
 #include <uxtheme.h>
@@ -1145,11 +1146,39 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
+    auto isPidlPointerValid = [](PCIDLIST_ABSOLUTE pidl) noexcept {
+        if (!pidl) {
+            return false;
+        }
+
+        __try {
+            constexpr UINT kMaxListViewPidlSize = 64 * 1024;
+            const UINT size = ILGetSize(pidl);
+            if (size < sizeof(USHORT) || size > kMaxListViewPidlSize) {
+                return false;
+            }
+
+            const auto* tail = reinterpret_cast<const USHORT*>(
+                reinterpret_cast<const BYTE*>(pidl) + size - sizeof(USHORT));
+            return *tail == 0;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    };
+
     LVITEMW item{};
     item.mask = LVIF_PARAM;
     item.iItem = itemIndex;
     if (ListView_GetItemW(listView, &item)) {
-        return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), highlight);
+        PIDLIST_ABSOLUTE pidl = reinterpret_cast<PIDLIST_ABSOLUTE>(item.lParam);
+        if (isPidlPointerValid(pidl)) {
+            if (ResolveHighlightFromPidl(pidl, highlight)) {
+                return true;
+            }
+        } else if (pidl) {
+            LogMessage(LogLevel::Info,
+                L"ListView PIDL pointer invalid for item %d; retrying via IFolderView2::GetItem", itemIndex);
+        }
     }
 
     if (!m_shellView) {
