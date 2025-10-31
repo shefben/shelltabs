@@ -3698,7 +3698,14 @@ void TabBandWindow::RefreshProgressState() {
 
 void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs) {
     auto* manager = ResolveManager();
-    const auto snapshot = manager ? manager->BuildView() : std::vector<TabViewItem>{};
+    if (!manager) {
+        if (!m_tabData.empty()) {
+            SetTabs({});
+        }
+        return;
+    }
+
+    const auto snapshot = manager->CollectProgressStates();
     bool layoutMismatch = snapshot.size() != m_tabData.size();
     if (!layoutMismatch) {
         for (size_t i = 0; i < snapshot.size(); ++i) {
@@ -3708,10 +3715,17 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
                 layoutMismatch = true;
                 break;
             }
+            if (snapshot[i].type == TabViewItemType::kTab) {
+                const auto* tab = manager->Get(snapshot[i].location);
+                if (!tab || !ArePidlsEqual(tab->pidl.get(), m_tabData[i].pidl)) {
+                    layoutMismatch = true;
+                    break;
+                }
+            }
         }
     }
     if (layoutMismatch) {
-        SetTabs(snapshot);
+        SetTabs(manager->BuildView());
         return;
     }
 

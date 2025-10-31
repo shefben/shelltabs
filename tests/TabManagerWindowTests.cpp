@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -79,6 +80,68 @@ bool TestStressOpenCloseWindows() {
     return true;
 }
 
+bool TestCollectProgressSnapshot() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    auto first = manager.Add({}, L"First", L"First", false);
+    auto second = manager.Add({}, L"Second", L"Second", false);
+
+    auto* firstTab = manager.Get(first);
+    auto* secondTab = manager.Get(second);
+    if (!firstTab || !secondTab) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Failed to retrieve inserted tabs");
+        return false;
+    }
+
+    firstTab->progress.active = true;
+    firstTab->progress.indeterminate = false;
+    firstTab->progress.fraction = 0.5;
+    firstTab->lastActivatedTick = 1234;
+    firstTab->activationOrdinal = 42;
+
+    secondTab->hidden = true;
+    secondTab->lastActivatedTick = 1000;
+    secondTab->activationOrdinal = 21;
+
+    const auto snapshot = manager.CollectProgressStates();
+    if (snapshot.size() != 2) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Unexpected snapshot size");
+        return false;
+    }
+
+    const auto& header = snapshot[0];
+    if (header.type != shelltabs::TabViewItemType::kGroupHeader || header.location.groupIndex != 0 ||
+        header.location.tabIndex != -1) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Header entry mismatch");
+        return false;
+    }
+    if (header.lastActivatedTick != firstTab->lastActivatedTick ||
+        header.activationOrdinal != firstTab->activationOrdinal) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Header activation data mismatch");
+        return false;
+    }
+
+    const auto& tabEntry = snapshot[1];
+    if (tabEntry.type != shelltabs::TabViewItemType::kTab || tabEntry.location.groupIndex != first.groupIndex ||
+        tabEntry.location.tabIndex != first.tabIndex) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Tab entry location mismatch");
+        return false;
+    }
+    if (!tabEntry.progress.visible || tabEntry.progress.indeterminate ||
+        std::abs(tabEntry.progress.fraction - 0.5) > 1e-4) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Tab progress mismatch");
+        return false;
+    }
+    if (tabEntry.lastActivatedTick != firstTab->lastActivatedTick ||
+        tabEntry.activationOrdinal != firstTab->activationOrdinal) {
+        PrintFailure(L"TestCollectProgressSnapshot", L"Tab activation data mismatch");
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -86,6 +149,7 @@ int wmain() {
         {L"TestRegistrationLifecycle", &TestRegistrationLifecycle},
         {L"TestDestructorClearsRegistration", &TestDestructorClearsRegistration},
         {L"TestStressOpenCloseWindows", &TestStressOpenCloseWindows},
+        {L"TestCollectProgressSnapshot", &TestCollectProgressSnapshot},
     };
 
     bool success = true;
