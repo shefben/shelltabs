@@ -2,7 +2,9 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "TabManager.h"
@@ -32,6 +34,14 @@ public:
     bool UpdateColor(const std::wstring& name, COLORREF color);
     bool Remove(const std::wstring& name);
 
+    void RecordChanges(const std::vector<std::pair<std::wstring, std::wstring>>& renamedGroups,
+                       const std::vector<std::wstring>& removedGroupIds);
+    uint64_t ChangeGeneration() const noexcept { return m_changeGeneration; }
+    const std::vector<std::pair<std::wstring, std::wstring>>& LastRenamedGroups() const noexcept {
+        return m_lastRenamedGroups;
+    }
+    const std::vector<std::wstring>& LastRemovedGroups() const noexcept { return m_lastRemovedGroups; }
+
 private:
     GroupStore() = default;
 
@@ -41,6 +51,9 @@ private:
     mutable bool m_loaded = false;
     mutable std::wstring m_storagePath;
     std::vector<SavedGroup> m_groups;
+    uint64_t m_changeGeneration = 0;
+    std::vector<std::pair<std::wstring, std::wstring>> m_lastRenamedGroups;
+    std::vector<std::wstring> m_lastRemovedGroups;
 };
 
 }  // namespace shelltabs

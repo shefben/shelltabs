@@ -54,6 +54,7 @@ public:
     bool HasFocus() const;
     void FocusTab();
     void RefreshTheme();
+    void OnSavedGroupsChanged();
 
     void SetPreferredDockMode(TabBandDockMode mode);
     TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }

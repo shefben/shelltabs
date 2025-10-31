@@ -2022,6 +2022,15 @@ void TabBandWindow::RefreshTheme() {
 
 }
 
+void TabBandWindow::OnSavedGroupsChanged() {
+    if (m_owner) {
+        m_owner->OnSavedGroupsChanged();
+    }
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+    }
+}
+
 
 
 void TabBandWindow::UpdateAccentColor() {
@@ -5091,6 +5100,11 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         if (optionsChangedMessage != 0 && message == optionsChangedMessage) {
             self->RefreshTheme();
             InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
+        const UINT savedGroupsMessage = GetSavedGroupsChangedMessage();
+        if (savedGroupsMessage != 0 && message == savedGroupsMessage) {
+            self->OnSavedGroupsChanged();
             return 0;
         }
         const UINT progressMessage = GetProgressUpdateMessage();

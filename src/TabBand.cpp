@@ -132,7 +132,7 @@ bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
 }
 }
 
-TabBand::TabBand() : m_refCount(1) {
+TabBand::TabBand() : m_refCount(1), m_processedGroupStoreGeneration(0) {
     ModuleAddRef();
     LogMessage(LogLevel::Info, L"TabBand constructed (this=%p)", this);
 }
@@ -2644,66 +2644,16 @@ void TabBand::OnShowOptionsDialog(int initialTab, const std::wstring& focusGroup
             updatedGroups = store.Groups();
         }
 
-        const auto caseEquals = [](const std::wstring& left, const std::wstring& right) {
-            return _wcsicmp(left.c_str(), right.c_str()) == 0;
-        };
-
-        const int groupCount = m_tabs.GroupCount();
-        for (int i = 0; i < groupCount; ++i) {
-            TabGroup* group = m_tabs.GetGroup(i);
-            if (!group) {
-                continue;
-            }
-
-            bool cleared = false;
-            for (const auto& removedId : dialog.removedGroupIds) {
-                if (caseEquals(group->savedGroupId, removedId)) {
-                    group->savedGroupId.clear();
-                    cleared = true;
-                    break;
-                }
-            }
-            if (cleared) {
-                continue;
-            }
-
-            for (const auto& rename : dialog.renamedGroups) {
-                if (caseEquals(group->savedGroupId, rename.first)) {
-                    group->savedGroupId = rename.second;
-                    if (group->name.empty() || caseEquals(group->name, rename.first)) {
-                        group->name = rename.second;
-                    }
-                    break;
-                }
-            }
-
-            if (group->savedGroupId.empty()) {
-                continue;
-            }
-
-            const SavedGroup* savedMatch = nullptr;
-            for (const auto& saved : updatedGroups) {
-                if (caseEquals(saved.name, group->savedGroupId)) {
-                    savedMatch = &saved;
-                    break;
-                }
-            }
-            if (!savedMatch) {
-                continue;
-            }
-
-            group->hasCustomOutline = true;
-            group->outlineColor = savedMatch->color;
-            group->outlineStyle = savedMatch->outlineStyle;
-            if (group->name.empty() || caseEquals(group->name, savedMatch->name)) {
-                group->name = savedMatch->name;
-            }
-        }
+        const bool metadataUpdated =
+            ApplySavedGroupMetadata(updatedGroups, dialog.renamedGroups, dialog.removedGroupIds);
 
         m_skipSavedGroupSync = true;
         SyncAllSavedGroups();
-        UpdateTabsUI();
-        SaveSession();
+        if (metadataUpdated) {
+            UpdateTabsUI();
+            SaveSession();
+        }
+        m_processedGroupStoreGeneration = store.ChangeGeneration();
     }
 }
 
@@ -2743,6 +2693,107 @@ void TabBand::QueueNavigateTo(TabLocation location) {
     if (PostMessageW(hwnd, WM_SHELLTABS_DEFER_NAVIGATE, 0, 0)) {
         m_deferredNavigationPosted = true;
     }
+}
+
+bool TabBand::ApplySavedGroupMetadata(const std::vector<SavedGroup>& savedGroups,
+                                      const std::vector<std::pair<std::wstring, std::wstring>>& renamedGroups,
+                                      const std::vector<std::wstring>& removedGroupIds) {
+    const auto caseEquals = [](const std::wstring& left, const std::wstring& right) {
+        return _wcsicmp(left.c_str(), right.c_str()) == 0;
+    };
+
+    bool changed = false;
+    const int groupCount = m_tabs.GroupCount();
+    for (int i = 0; i < groupCount; ++i) {
+        TabGroup* group = m_tabs.GetGroup(i);
+        if (!group) {
+            continue;
+        }
+
+        bool removed = false;
+        for (const auto& removedId : removedGroupIds) {
+            if (caseEquals(group->savedGroupId, removedId)) {
+                if (!group->savedGroupId.empty()) {
+                    group->savedGroupId.clear();
+                    changed = true;
+                }
+                removed = true;
+                break;
+            }
+        }
+        if (removed) {
+            continue;
+        }
+
+        for (const auto& rename : renamedGroups) {
+            if (caseEquals(group->savedGroupId, rename.first)) {
+                if (!caseEquals(group->savedGroupId, rename.second)) {
+                    group->savedGroupId = rename.second;
+                    changed = true;
+                }
+                if (group->name.empty() || caseEquals(group->name, rename.first)) {
+                    if (!caseEquals(group->name, rename.second)) {
+                        group->name = rename.second;
+                        changed = true;
+                    }
+                }
+                break;
+            }
+        }
+
+        if (group->savedGroupId.empty()) {
+            continue;
+        }
+
+        const SavedGroup* savedMatch = nullptr;
+        for (const auto& saved : savedGroups) {
+            if (caseEquals(saved.name, group->savedGroupId)) {
+                savedMatch = &saved;
+                break;
+            }
+        }
+        if (!savedMatch) {
+            continue;
+        }
+
+        if (!group->hasCustomOutline || group->outlineColor != savedMatch->color) {
+            group->hasCustomOutline = true;
+            group->outlineColor = savedMatch->color;
+            changed = true;
+        }
+        if (group->outlineStyle != savedMatch->outlineStyle) {
+            group->outlineStyle = savedMatch->outlineStyle;
+            changed = true;
+        }
+        if (group->name.empty() || caseEquals(group->name, savedMatch->name)) {
+            if (!caseEquals(group->name, savedMatch->name)) {
+                group->name = savedMatch->name;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
+void TabBand::OnSavedGroupsChanged() {
+    auto& store = GroupStore::Instance();
+    store.Load();
+
+    const uint64_t generation = store.ChangeGeneration();
+    if (generation != 0 && generation == m_processedGroupStoreGeneration) {
+        return;
+    }
+
+    const auto& savedGroups = store.Groups();
+    const auto& renamedGroups = store.LastRenamedGroups();
+    const auto& removedGroupIds = store.LastRemovedGroups();
+    const bool updated = ApplySavedGroupMetadata(savedGroups, renamedGroups, removedGroupIds);
+    if (updated) {
+        UpdateTabsUI();
+        SaveSession();
+    }
+    m_processedGroupStoreGeneration = generation;
 }
 
 void TabBand::SyncSavedGroup(int groupIndex) const {

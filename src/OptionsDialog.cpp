@@ -3650,6 +3650,14 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
             }
             result.removedGroupIds.swap(filtered);
         }
+        groupStoreToUpdate.RecordChanges(result.renamedGroups, result.removedGroupIds);
+        const UINT savedGroupsMessage = GetSavedGroupsChangedMessage();
+        if (savedGroupsMessage != 0) {
+            SendNotifyMessageW(HWND_BROADCAST, savedGroupsMessage, 0, 0);
+            if (parent) {
+                SendNotifyMessageW(parent, savedGroupsMessage, 0, 0);
+            }
+        }
         for (const auto& path : data.pendingCachedImageRemovals) {
             if (!path.empty()) {
                 DeleteFileW(path.c_str());
