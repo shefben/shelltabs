@@ -4,10 +4,13 @@
 
 #include "ColorSerialization.h"
 
+#include "Logging.h"
+
 #include <Shlwapi.h>
 
 #include <algorithm>
-#include <atomic>
+#include <mutex>
+#include <unordered_map>
 #include <cwctype>
 #include <cwchar>
 #include <string>
@@ -27,6 +30,18 @@ constexpr wchar_t kUndoToken[] = L"undo";
 constexpr wchar_t kUndoTabToken[] = L"undotab";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
+constexpr wchar_t kMarkerSuffix[] = L".lock";
+constexpr wchar_t kJournalSuffix[] = L".journal";
+
+struct SessionMarkerState {
+    std::mutex mutex;
+    std::unordered_map<std::wstring, long> counts;
+};
+
+SessionMarkerState& GetSessionMarkerState() {
+    static SessionMarkerState state;
+    return state;
+}
 
 std::wstring ResolveStoragePath() {
     std::wstring base = GetShellTabsDataDirectory();
@@ -39,10 +54,56 @@ std::wstring ResolveStoragePath() {
     base += kStorageFile;
     return base;
 }
- 
-}  // namespace
 
-std::atomic<long> g_activeSessionCount{0};
+std::wstring BuildLegacyMarkerPath() {
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return {};
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    directory += kCrashMarkerFile;
+    return directory;
+}
+
+std::wstring BuildMarkerPath(const std::wstring& storagePath) {
+    if (storagePath.empty()) {
+        return BuildLegacyMarkerPath();
+    }
+    return storagePath + kMarkerSuffix;
+}
+
+std::wstring BuildJournalPath(const std::wstring& storagePath) {
+    if (storagePath.empty()) {
+        return {};
+    }
+    return storagePath + kJournalSuffix;
+}
+
+bool CleanupStaleJournal(const std::wstring& storagePath) {
+    const std::wstring journalPath = BuildJournalPath(storagePath);
+    if (journalPath.empty()) {
+        return false;
+    }
+
+    const DWORD attributes = GetFileAttributesW(journalPath.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+
+    LogMessage(LogLevel::Warning,
+               L"SessionStore detected stale journal %ls; rolling back to previous snapshot",
+               journalPath.c_str());
+    if (!DeleteFileW(journalPath.c_str())) {
+        LogMessage(LogLevel::Warning,
+                   L"SessionStore failed to delete stale journal %ls (error=%lu)",
+                   journalPath.c_str(), GetLastError());
+    }
+    return true;
+}
+
+}  // namespace
 
 SessionStore::SessionStore() : SessionStore(ResolveStoragePath()) {}
 
@@ -80,55 +141,101 @@ std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
     return directory;
 }
 
-bool SessionStore::WasPreviousSessionUnclean() {
-    if (g_activeSessionCount.load(std::memory_order_acquire) > 0) {
-        return false;
+bool SessionStore::WasPreviousSessionUnclean() const {
+    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
+    if (!markerPath.empty()) {
+        auto& state = GetSessionMarkerState();
+        {
+            std::scoped_lock lock(state.mutex);
+            const auto it = state.counts.find(markerPath);
+            if (it != state.counts.end() && it->second > 0) {
+                return false;
+            }
+        }
     }
-    std::wstring directory = GetShellTabsDataDirectory();
-    if (directory.empty()) {
-        return false;
+
+    const bool staleJournalDetected = CleanupStaleJournal(m_storagePath);
+
+    if (!markerPath.empty() && GetFileAttributesW(markerPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return true;
     }
-    if (!directory.empty() && directory.back() != L'\\') {
-        directory.push_back(L'\\');
+
+    const std::wstring legacyMarker = BuildLegacyMarkerPath();
+    if (!legacyMarker.empty() && legacyMarker != markerPath &&
+        GetFileAttributesW(legacyMarker.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return true;
     }
-    directory += kCrashMarkerFile;
-    return GetFileAttributesW(directory.c_str()) != INVALID_FILE_ATTRIBUTES;
+
+    return staleJournalDetected;
 }
 
-void SessionStore::MarkSessionActive() {
-    std::wstring directory = GetShellTabsDataDirectory();
-    if (directory.empty()) {
+void SessionStore::MarkSessionActive() const {
+    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
+    if (markerPath.empty()) {
         return;
     }
-    if (!directory.empty() && directory.back() != L'\\') {
-        directory.push_back(L'\\');
+
+    auto& state = GetSessionMarkerState();
+    bool shouldCreateMarker = false;
+    {
+        std::scoped_lock lock(state.mutex);
+        long& count = state.counts[markerPath];
+        if (count == 0) {
+            shouldCreateMarker = true;
+        }
+        ++count;
     }
-    const std::wstring path = directory + kCrashMarkerFile;
-    const long previous = g_activeSessionCount.fetch_add(1, std::memory_order_acq_rel);
-    if (previous > 0) {
+
+    if (!shouldCreateMarker) {
         return;
     }
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+
+    HANDLE file = CreateFileW(markerPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
                               FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
     if (file != INVALID_HANDLE_VALUE) {
         CloseHandle(file);
+    } else {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to create crash marker %ls (error=%lu)",
+                   markerPath.c_str(), GetLastError());
+    }
+
+    const std::wstring legacyMarker = BuildLegacyMarkerPath();
+    if (!legacyMarker.empty() && legacyMarker != markerPath) {
+        DeleteFileW(legacyMarker.c_str());
     }
 }
 
-void SessionStore::ClearSessionMarker() {
-    std::wstring directory = GetShellTabsDataDirectory();
-    if (directory.empty()) {
-        g_activeSessionCount.store(0, std::memory_order_release);
+void SessionStore::ClearSessionMarker() const {
+    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
+    if (markerPath.empty()) {
         return;
     }
-    if (!directory.empty() && directory.back() != L'\\') {
-        directory.push_back(L'\\');
+
+    auto& state = GetSessionMarkerState();
+    bool shouldDeleteMarker = false;
+    {
+        std::scoped_lock lock(state.mutex);
+        auto it = state.counts.find(markerPath);
+        if (it == state.counts.end()) {
+            return;
+        }
+        long& count = it->second;
+        if (count > 0) {
+            --count;
+        }
+        if (count <= 0) {
+            state.counts.erase(it);
+            shouldDeleteMarker = true;
+        }
     }
-    const std::wstring path = directory + kCrashMarkerFile;
-    long previous = g_activeSessionCount.fetch_sub(1, std::memory_order_acq_rel);
-    if (previous <= 1) {
-        g_activeSessionCount.store(0, std::memory_order_release);
-        DeleteFileW(path.c_str());
+
+    if (!shouldDeleteMarker) {
+        return;
+    }
+
+    if (!DeleteFileW(markerPath.c_str())) {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to delete crash marker %ls (error=%lu)",
+                   markerPath.c_str(), GetLastError());
     }
 }
 
@@ -137,6 +244,8 @@ bool SessionStore::Load(SessionData& data) const {
     if (m_storagePath.empty()) {
         return false;
     }
+
+    CleanupStaleJournal(m_storagePath);
 
     std::wstring content;
     bool fileExists = false;
@@ -158,10 +267,12 @@ bool SessionStore::Load(SessionData& data) const {
         if (created != INVALID_HANDLE_VALUE) {
             CloseHandle(created);
         }
+        m_lastSerializedSnapshot = std::wstring();
         return true;
     }
 
     if (content.empty()) {
+        m_lastSerializedSnapshot = std::wstring();
         return true;
     }
 
@@ -334,6 +445,10 @@ bool SessionStore::Load(SessionData& data) const {
         return false;
     }
 
+    if (versionSeen) {
+        m_lastSerializedSnapshot = content;
+    }
+
     return versionSeen && !data.groups.empty();
 }
 
@@ -350,51 +465,110 @@ bool SessionStore::Save(const SessionData& data) const {
         }
     }
 
-    std::wstring content;
-    content += kVersionToken;
-    content += L"|5\n";
-    content += kSelectedToken;
-    content += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
-    content += kSequenceToken;
-    content += L"|" + std::to_wstring(std::max(data.groupSequence, 1)) + L"\n";
-    content += kDockToken;
-    content += L"|" + DockModeToString(data.dockMode) + L"\n";
+    std::wstring serialized;
+    serialized += kVersionToken;
+    serialized += L"|5\n";
+    serialized += kSelectedToken;
+    serialized += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
+    serialized += kSequenceToken;
+    serialized += L"|" + std::to_wstring(std::max(data.groupSequence, 1)) + L"\n";
+    serialized += kDockToken;
+    serialized += L"|" + DockModeToString(data.dockMode) + L"\n";
 
     for (const auto& group : data.groups) {
-        content += kGroupToken;
-        content += L"|" + group.name + L"|" + (group.collapsed ? L"1" : L"0") + L"|" +
-                   (group.headerVisible ? L"1" : L"0") + L"|" + (group.hasOutline ? L"1" : L"0") + L"|" +
-                   ColorToString(group.outlineColor) + L"|" + OutlineStyleToString(group.outlineStyle) + L"|" +
-                   group.savedGroupId + L"\n";
+        serialized += kGroupToken;
+        serialized += L"|" + group.name + L"|" + (group.collapsed ? L"1" : L"0") + L"|" +
+                      (group.headerVisible ? L"1" : L"0") + L"|" + (group.hasOutline ? L"1" : L"0") + L"|" +
+                      ColorToString(group.outlineColor) + L"|" + OutlineStyleToString(group.outlineStyle) + L"|" +
+                      group.savedGroupId + L"\n";
         for (const auto& tab : group.tabs) {
-            content += kTabToken;
-            content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path +
-                       L"|" + std::to_wstring(static_cast<unsigned long long>(tab.lastActivatedTick)) + L"|" +
-                       std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"\n";
+            serialized += kTabToken;
+            serialized += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path +
+                          L"|" + std::to_wstring(static_cast<unsigned long long>(tab.lastActivatedTick)) + L"|" +
+                          std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"\n";
         }
     }
 
     if (data.lastClosed && !data.lastClosed->tabs.empty()) {
         const auto& undo = *data.lastClosed;
-        content += kUndoToken;
-        content += L"|" + std::to_wstring(undo.groupIndex) + L"|" + (undo.groupRemoved ? L"1" : L"0") + L"|" +
-                   std::to_wstring(undo.selectionIndex) + L"|" + (undo.hasGroupInfo ? L"1" : L"0");
+        serialized += kUndoToken;
+        serialized += L"|" + std::to_wstring(undo.groupIndex) + L"|" + (undo.groupRemoved ? L"1" : L"0") + L"|" +
+                       std::to_wstring(undo.selectionIndex) + L"|" + (undo.hasGroupInfo ? L"1" : L"0");
         if (undo.hasGroupInfo) {
-            content += L"|" + undo.groupInfo.name + L"|" + (undo.groupInfo.collapsed ? L"1" : L"0") + L"|" +
-                       (undo.groupInfo.headerVisible ? L"1" : L"0") + L"|" +
-                       (undo.groupInfo.hasOutline ? L"1" : L"0") + L"|" +
-                       ColorToString(undo.groupInfo.outlineColor) + L"|" +
-                       OutlineStyleToString(undo.groupInfo.outlineStyle) + L"|" + undo.groupInfo.savedGroupId;
+            serialized += L"|" + undo.groupInfo.name + L"|" + (undo.groupInfo.collapsed ? L"1" : L"0") + L"|" +
+                           (undo.groupInfo.headerVisible ? L"1" : L"0") + L"|" +
+                           (undo.groupInfo.hasOutline ? L"1" : L"0") + L"|" +
+                           ColorToString(undo.groupInfo.outlineColor) + L"|" +
+                           OutlineStyleToString(undo.groupInfo.outlineStyle) + L"|" + undo.groupInfo.savedGroupId;
         }
-        content += L"\n";
+        serialized += L"\n";
         for (const auto& entry : undo.tabs) {
-            content += kUndoTabToken;
-            content += L"|" + std::to_wstring(entry.index) + L"|" + entry.tab.name + L"|" + entry.tab.tooltip +
-                       L"|" + (entry.tab.hidden ? L"1" : L"0") + L"|" + entry.tab.path + L"\n";
+            serialized += kUndoTabToken;
+            serialized += L"|" + std::to_wstring(entry.index) + L"|" + entry.tab.name + L"|" + entry.tab.tooltip +
+                           L"|" + (entry.tab.hidden ? L"1" : L"0") + L"|" + entry.tab.path + L"\n";
         }
     }
 
-    return WriteUtf8File(m_storagePath, content);
+    if (m_lastSerializedSnapshot && *m_lastSerializedSnapshot == serialized) {
+        return true;
+    }
+
+    const std::string utf8 = WideToUtf8(serialized);
+    if (!serialized.empty() && utf8.empty()) {
+        return false;
+    }
+
+    const std::wstring journalPath = BuildJournalPath(m_storagePath);
+    if (journalPath.empty()) {
+        return false;
+    }
+
+    DeleteFileW(journalPath.c_str());
+    HANDLE journal = CreateFileW(journalPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                 FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    if (journal == INVALID_HANDLE_VALUE) {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to create journal %ls (error=%lu)",
+                   journalPath.c_str(), GetLastError());
+        return false;
+    }
+
+    bool writeSucceeded = true;
+    DWORD writeError = ERROR_SUCCESS;
+    if (!utf8.empty()) {
+        DWORD bytesWritten = 0;
+        if (!WriteFile(journal, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr) ||
+            bytesWritten != utf8.size()) {
+            writeSucceeded = false;
+            if (writeError == ERROR_SUCCESS) {
+                writeError = GetLastError();
+            }
+        }
+    }
+    if (writeSucceeded && !FlushFileBuffers(journal)) {
+        writeSucceeded = false;
+        if (writeError == ERROR_SUCCESS) {
+            writeError = GetLastError();
+        }
+    }
+    CloseHandle(journal);
+
+    if (!writeSucceeded) {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to serialize journal %ls (error=%lu)",
+                   journalPath.c_str(), writeError);
+        DeleteFileW(journalPath.c_str());
+        return false;
+    }
+
+    if (!MoveFileExW(journalPath.c_str(), m_storagePath.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to promote journal %ls -> %ls (error=%lu)",
+                   journalPath.c_str(), m_storagePath.c_str(), GetLastError());
+        DeleteFileW(journalPath.c_str());
+        return false;
+    }
+
+    m_lastSerializedSnapshot = std::move(serialized);
+    return true;
 }
 
 }  // namespace shelltabs

@@ -155,6 +155,16 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
     )
 
     target_include_directories(ShellTabsThemeTransitionTests PRIVATE
+    add_executable(ShellTabsTabManagerTests
+        tests/TabManagerWindowTests.cpp
+        src/TabManager.cpp
+        src/Utilities.cpp
+        src/Logging.cpp
+        src/ShellTabsMessages.cpp
+        src/StringUtils.cpp
+    )
+
+    target_include_directories(ShellTabsTabManagerTests PRIVATE
         include
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
@@ -169,5 +179,10 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
     target_link_libraries(ShellTabsThemeTransitionTests PRIVATE
         runtimeobject
         wtsapi32
+        shlwapi
+        shell32
+        ole32
+        oleaut32
+        uuid
     )
 endif()

@@ -258,6 +258,7 @@ private:
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
+    TabManager* ResolveManager() const noexcept;
     void RegisterShellNotifications();
     void UnregisterShellNotifications();
     void OnShellNotify(WPARAM wParam, LPARAM lParam);
@@ -338,6 +339,7 @@ private:
     friend class BandDropTarget;
 
     static constexpr UINT_PTR kDropHoverTimerId = 0x5348;  // 'SH'
+    static constexpr UINT_PTR kSessionFlushTimerId = 0x5346;  // 'SF'
     static constexpr UINT_PTR kProgressTimerId = 0x5349;   // 'SI'
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
