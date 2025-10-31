@@ -6,7 +6,7 @@
 #include <eventtoken.h>
 #include <inspectable.h>
 #include <roapi.h>
-#include <roerrorapi.h>
+#include <winerror.h>
 #include <wrl/client.h>
 #include <wrl/event.h>
 #include <wrl/wrappers/corewrappers.h>
@@ -21,11 +21,9 @@
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Wrappers::HStringReference;
 
-using ABI::Windows::Foundation::IInspectable;
 using ABI::Windows::Foundation::ITypedEventHandler;
 using ABI::Windows::UI::Color;
 using ABI::Windows::UI::ViewManagement::IUISettings3;
-using ABI::Windows::UI::ViewManagement::UIColorType;
 using ABI::Windows::UI::ViewManagement::UISettings;
 
 namespace shelltabs {
@@ -34,7 +32,7 @@ namespace {
 
 class UiSettingsEventHandler
     : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-                                          ITypedEventHandler<UISettings*, IInspectable*>> {
+                                          ITypedEventHandler<UISettings*, ::IInspectable*>> {
 public:
     using CallbackType = std::function<void()>;
 
@@ -45,7 +43,7 @@ public:
         return S_OK;
     }
 
-    IFACEMETHODIMP Invoke(UISettings*, IInspectable*) override {
+    IFACEMETHODIMP Invoke(UISettings*, ::IInspectable*) override {
         if (m_callback) {
             m_callback();
         }
@@ -108,11 +106,11 @@ bool ThemeNotifier::Initialize(HWND window, std::function<void()> callback) {
 
     auto state = std::make_unique<UiSettingsState>();
     const HRESULT initResult = RoInitialize(RO_INIT_MULTITHREADED);
-    if (SUCCEEDED(initResult) || initResult == S_FALSE || initResult == RO_E_ALREADYINITIALIZED) {
+    if (SUCCEEDED(initResult) || initResult == S_FALSE || initResult == HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED)) {
         state->winrtInitialized = SUCCEEDED(initResult) || initResult == S_FALSE;
 
         HStringReference classId(RuntimeClass_Windows_UI_ViewManagement_UISettings);
-        ComPtr<IInspectable> inspectable;
+        ComPtr<::IInspectable> inspectable;
         HRESULT hr = RoActivateInstance(classId.Get(), &inspectable);
         if (SUCCEEDED(hr)) {
             hr = inspectable.As(&state->uiSettings3);
@@ -206,11 +204,14 @@ void ThemeNotifier::UpdateColorSnapshot() {
 
     if (m_uiSettings && m_uiSettings->uiSettings3) {
         Color color{};
-        if (SUCCEEDED(m_uiSettings->uiSettings3->GetColorValue(UIColorType_Background, &color))) {
+        constexpr auto kBackgroundColorType = ABI::Windows::UI::ViewManagement::UIColorType_Background;
+        constexpr auto kForegroundColorType = ABI::Windows::UI::ViewManagement::UIColorType_Foreground;
+
+        if (SUCCEEDED(m_uiSettings->uiSettings3->GetColorValue(kBackgroundColorType, &color))) {
             snapshot.background = RGB(color.R, color.G, color.B);
             snapshot.valid = true;
         }
-        if (SUCCEEDED(m_uiSettings->uiSettings3->GetColorValue(UIColorType_Foreground, &color))) {
+        if (SUCCEEDED(m_uiSettings->uiSettings3->GetColorValue(kForegroundColorType, &color))) {
             snapshot.foreground = RGB(color.R, color.G, color.B);
             snapshot.valid = true;
         }
