@@ -2498,8 +2498,11 @@ void CExplorerBHO::InvalidateNamespaceTreeControl() const {
 }
 
 void CExplorerBHO::ClearFolderBackgrounds() {
+    m_folderBackgroundEntries.clear();
     m_folderBackgroundBitmaps.clear();
+    m_universalBackgroundImagePath.clear();
     m_universalBackgroundBitmap.reset();
+    m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
     ClearListViewBackgroundImage();
 }
@@ -2530,13 +2533,8 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     m_folderBackgroundsEnabled = true;
 
     if (!options.universalFolderBackgroundImage.cachedImagePath.empty()) {
-        auto bitmap = LoadBackgroundBitmap(options.universalFolderBackgroundImage.cachedImagePath);
-        if (bitmap) {
-            m_universalBackgroundBitmap = std::move(bitmap);
-        } else {
-            LogMessage(LogLevel::Warning, L"Failed to load universal folder background from %ls",
-                       options.universalFolderBackgroundImage.cachedImagePath.c_str());
-        }
+        m_universalBackgroundImagePath = options.universalFolderBackgroundImage.cachedImagePath;
+        m_universalBackgroundBitmap.reset();
     }
 
     for (const auto& entry : options.folderBackgroundEntries) {
@@ -2549,22 +2547,75 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
             continue;
         }
 
-        if (m_folderBackgroundBitmaps.find(key) != m_folderBackgroundBitmaps.end()) {
-            continue;
-        }
+        FolderBackgroundEntryData data{};
+        data.imagePath = entry.image.cachedImagePath;
+        data.folderDisplayPath = entry.folderPath;
 
-        auto bitmap = LoadBackgroundBitmap(entry.image.cachedImagePath);
-        if (!bitmap) {
-            LogMessage(LogLevel::Warning, L"Failed to load background for %ls from %ls", entry.folderPath.c_str(),
-                       entry.image.cachedImagePath.c_str());
-            continue;
+        auto [it, inserted] = m_folderBackgroundEntries.try_emplace(std::move(key), std::move(data));
+        if (!inserted) {
+            it->second.imagePath = entry.image.cachedImagePath;
+            it->second.folderDisplayPath = entry.folderPath;
         }
-
-        m_folderBackgroundBitmaps.emplace(std::move(key), std::move(bitmap));
     }
 
     InvalidateFolderBackgroundTargets();
     EnsureListViewBackgroundImage(m_listView);
+}
+
+bool CExplorerBHO::EnsureFolderBackgroundBitmap(const std::wstring& key) const {
+    if (key.empty() || !m_gdiplusInitialized || !m_folderBackgroundsEnabled) {
+        return false;
+    }
+
+    auto existing = m_folderBackgroundBitmaps.find(key);
+    if (existing != m_folderBackgroundBitmaps.end()) {
+        return existing->second != nullptr;
+    }
+
+    if (m_failedBackgroundKeys.find(key) != m_failedBackgroundKeys.end()) {
+        return false;
+    }
+
+    auto entryIt = m_folderBackgroundEntries.find(key);
+    if (entryIt == m_folderBackgroundEntries.end() || entryIt->second.imagePath.empty()) {
+        return false;
+    }
+
+    auto bitmap = LoadBackgroundBitmap(entryIt->second.imagePath);
+    if (!bitmap) {
+        m_failedBackgroundKeys.insert(key);
+        LogMessage(LogLevel::Warning, L"Failed to load background for %ls from %ls",
+                   entryIt->second.folderDisplayPath.c_str(), entryIt->second.imagePath.c_str());
+        return false;
+    }
+
+    m_folderBackgroundBitmaps.emplace(key, std::move(bitmap));
+    return true;
+}
+
+bool CExplorerBHO::EnsureUniversalBackgroundBitmap() const {
+    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+        return false;
+    }
+
+    if (m_universalBackgroundBitmap) {
+        return true;
+    }
+
+    if (m_universalBackgroundImagePath.empty()) {
+        return false;
+    }
+
+    auto bitmap = LoadBackgroundBitmap(m_universalBackgroundImagePath);
+    if (!bitmap) {
+        LogMessage(LogLevel::Warning, L"Failed to load universal folder background from %ls",
+                   m_universalBackgroundImagePath.c_str());
+        m_universalBackgroundImagePath.clear();
+        return false;
+    }
+
+    m_universalBackgroundBitmap = std::move(bitmap);
+    return true;
 }
 
 Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
@@ -2572,14 +2623,14 @@ Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
         return nullptr;
     }
 
-    if (!m_currentFolderKey.empty()) {
+    if (EnsureFolderBackgroundBitmap(m_currentFolderKey)) {
         auto it = m_folderBackgroundBitmaps.find(m_currentFolderKey);
-        if (it != m_folderBackgroundBitmaps.end() && it->second) {
+        if (it != m_folderBackgroundBitmaps.end()) {
             return it->second.get();
         }
     }
 
-    if (m_universalBackgroundBitmap) {
+    if (EnsureUniversalBackgroundBitmap()) {
         return m_universalBackgroundBitmap.get();
     }
 
@@ -2764,11 +2815,21 @@ void CExplorerBHO::ClearListViewBackgroundImage() {
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
+    if (!m_folderBackgroundsEnabled) {
+        if (!m_currentFolderKey.empty()) {
+            m_currentFolderKey.clear();
+            InvalidateFolderBackgroundTargets();
+        }
+        return;
+    }
+
+    bool resolvedKey = false;
     std::wstring newKey;
 
-    if (m_folderBackgroundsEnabled && m_shellBrowser) {
+    if (m_shellBrowser) {
         UniquePidl current = GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
         if (current) {
+            resolvedKey = true;
             PWSTR path = nullptr;
             if (SUCCEEDED(SHGetNameFromIDList(current.get(), SIGDN_FILESYSPATH, &path)) && path && path[0] != L'\0') {
                 newKey = NormalizeBackgroundKey(path);
@@ -2779,11 +2840,23 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
         }
     }
 
+    if (!resolvedKey) {
+        return;
+    }
+
     if (newKey == m_currentFolderKey) {
+        if (!EnsureFolderBackgroundBitmap(m_currentFolderKey)) {
+            EnsureUniversalBackgroundBitmap();
+        }
         return;
     }
 
     m_currentFolderKey = std::move(newKey);
+
+    if (!EnsureFolderBackgroundBitmap(m_currentFolderKey)) {
+        EnsureUniversalBackgroundBitmap();
+    }
+
     InvalidateFolderBackgroundTargets();
     ClearListViewBackgroundImage();
     EnsureListViewBackgroundImage(m_listView);
