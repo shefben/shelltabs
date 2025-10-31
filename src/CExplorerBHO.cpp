@@ -2052,7 +2052,9 @@ bool CExplorerBHO::AttachListView(HWND listView) {
         RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
     }
     LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
-    EnsureListViewBackgroundImage(listView);
+    ClearListViewBackgroundImage();
+    EnsureListViewBackgroundSurface(listView);
+    InvalidateRect(listView, nullptr, FALSE);
     return true;
 }
 
@@ -2766,7 +2768,7 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     }
 
     InvalidateFolderBackgroundTargets();
-    EnsureListViewBackgroundImage(m_listView);
+    EnsureListViewBackgroundSurface(m_listView);
 }
 
 bool CExplorerBHO::EnsureFolderBackgroundBitmap(const std::wstring& key) const {
@@ -2850,7 +2852,10 @@ bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) {
     }
 
     if (hwnd == m_listView) {
-        return EnsureListViewBackgroundImage(hwnd);
+        if (PaintListViewBackground(hwnd, dc)) {
+            return true;
+        }
+        // Fall back to immediate drawing if the cached surface could not be used.
     }
 
     if (!hwnd || !dc) {
@@ -2906,49 +2911,7 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
     return {};
 }
 
-HBITMAP CExplorerBHO::CreateListViewBackgroundBitmap(const SIZE& targetSize,
-                                                     Gdiplus::Bitmap* background) const {
-    if (!background || targetSize.cx <= 0 || targetSize.cy <= 0) {
-        return nullptr;
-    }
-
-    Gdiplus::Bitmap surface(targetSize.cx, targetSize.cy, PixelFormat32bppARGB);
-    if (surface.GetLastStatus() != Gdiplus::Ok) {
-        return nullptr;
-    }
-
-    Gdiplus::Graphics graphics(&surface);
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        return nullptr;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const UINT width = background->GetWidth();
-    const UINT height = background->GetHeight();
-    if (width == 0 || height == 0) {
-        return nullptr;
-    }
-
-    const Gdiplus::Status drawStatus =
-        graphics.DrawImage(background, Gdiplus::Rect(0, 0, targetSize.cx, targetSize.cy), 0, 0,
-                           static_cast<INT>(width), static_cast<INT>(height), Gdiplus::UnitPixel);
-    if (drawStatus != Gdiplus::Ok) {
-        return nullptr;
-    }
-
-    HBITMAP bitmap = nullptr;
-    const Gdiplus::Status bitmapStatus = surface.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &bitmap);
-    if (bitmapStatus != Gdiplus::Ok) {
-        return nullptr;
-    }
-
-    return bitmap;
-}
-
-bool CExplorerBHO::EnsureListViewBackgroundImage(HWND listView) {
+bool CExplorerBHO::EnsureListViewBackgroundSurface(HWND listView) {
     if (!listView || listView != m_listView || !IsWindow(listView)) {
         return false;
     }
@@ -2976,49 +2939,84 @@ bool CExplorerBHO::EnsureListViewBackgroundImage(HWND listView) {
         return false;
     }
 
-    if (m_listViewBackgroundImage.bitmap && m_listViewBackgroundImage.size.cx == size.cx &&
-        m_listViewBackgroundImage.size.cy == size.cy && m_listViewBackgroundImage.cacheKey == cacheKey) {
+    if (m_listViewBackgroundSurface.bitmap && m_listViewBackgroundSurface.size.cx == size.cx &&
+        m_listViewBackgroundSurface.size.cy == size.cy && m_listViewBackgroundSurface.cacheKey == cacheKey) {
         return true;
     }
 
-    HBITMAP newBitmap = CreateListViewBackgroundBitmap(size, background);
-    if (!newBitmap) {
+    auto surface = std::make_unique<Gdiplus::Bitmap>(size.cx, size.cy, PixelFormat32bppARGB);
+    if (!surface || surface->GetLastStatus() != Gdiplus::Ok) {
+        ClearListViewBackgroundImage();
         return false;
     }
 
-    LVBKIMAGEW image{};
-    image.ulFlags = LVBKIF_SOURCE_HBITMAP | LVBKIF_STYLE_NORMAL;
-    image.hbm = newBitmap;
-
-    if (!ListView_SetBkImage(listView, &image)) {
-        DeleteObject(newBitmap);
+    Gdiplus::Graphics graphics(surface.get());
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        ClearListViewBackgroundImage();
         return false;
     }
 
-    HBITMAP oldBitmap = m_listViewBackgroundImage.bitmap;
-    m_listViewBackgroundImage.bitmap = newBitmap;
-    m_listViewBackgroundImage.size = size;
-    m_listViewBackgroundImage.cacheKey = std::move(cacheKey);
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
 
-    if (oldBitmap) {
-        DeleteObject(oldBitmap);
+    const UINT width = background->GetWidth();
+    const UINT height = background->GetHeight();
+    if (width == 0 || height == 0) {
+        ClearListViewBackgroundImage();
+        return false;
     }
 
+    const Gdiplus::Status drawStatus =
+        graphics.DrawImage(background, Gdiplus::Rect(0, 0, size.cx, size.cy), 0, 0, static_cast<INT>(width),
+                           static_cast<INT>(height), Gdiplus::UnitPixel);
+    if (drawStatus != Gdiplus::Ok) {
+        ClearListViewBackgroundImage();
+        return false;
+    }
+
+    m_listViewBackgroundSurface.bitmap = std::move(surface);
+    m_listViewBackgroundSurface.size = size;
+    m_listViewBackgroundSurface.cacheKey = std::move(cacheKey);
     return true;
 }
 
+bool CExplorerBHO::PaintListViewBackground(HWND hwnd, HDC dc) {
+    if (!dc || hwnd != m_listView) {
+        return false;
+    }
+
+    if (!EnsureListViewBackgroundSurface(hwnd)) {
+        return false;
+    }
+
+    if (!m_listViewBackgroundSurface.bitmap) {
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        return false;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const SIZE size = m_listViewBackgroundSurface.size;
+    if (size.cx <= 0 || size.cy <= 0) {
+        return false;
+    }
+    const Gdiplus::Status status = graphics.DrawImage(
+        m_listViewBackgroundSurface.bitmap.get(), Gdiplus::Rect(0, 0, size.cx, size.cy), 0, 0, size.cx, size.cy,
+        Gdiplus::UnitPixel);
+    return status == Gdiplus::Ok;
+}
+
 void CExplorerBHO::ClearListViewBackgroundImage() {
-    if (m_listView && IsWindow(m_listView)) {
-        ListView_SetBkImage(m_listView, nullptr);
-    }
-
-    if (m_listViewBackgroundImage.bitmap) {
-        DeleteObject(m_listViewBackgroundImage.bitmap);
-    }
-
-    m_listViewBackgroundImage.bitmap = nullptr;
-    m_listViewBackgroundImage.size = {0, 0};
-    m_listViewBackgroundImage.cacheKey.clear();
+    m_listViewBackgroundSurface.bitmap.reset();
+    m_listViewBackgroundSurface.size = {0, 0};
+    m_listViewBackgroundSurface.cacheKey.clear();
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -3066,7 +3064,7 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 
     InvalidateFolderBackgroundTargets();
     ClearListViewBackgroundImage();
-    EnsureListViewBackgroundImage(m_listView);
+    EnsureListViewBackgroundSurface(m_listView);
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
@@ -3390,7 +3388,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             if (isListView) {
                 RefreshListViewAccentState();
-                EnsureListViewBackgroundImage(hwnd);
+                ClearListViewBackgroundImage();
             }
             if (isGlowSurface) {
                 if (msg == WM_THEMECHANGED) {
@@ -3412,7 +3410,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 InvalidateRect(hwnd, nullptr, TRUE);
             }
             if (isListView) {
-                EnsureListViewBackgroundImage(hwnd);
+                ClearListViewBackgroundImage();
             }
             break;
         }

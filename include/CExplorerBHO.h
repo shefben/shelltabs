@@ -101,8 +101,8 @@ struct ShellTabsOptions;
                         HPEN focusPen = nullptr;
                 };
 
-                struct ListViewBackgroundImage {
-                        HBITMAP bitmap = nullptr;
+                struct ListViewBackgroundSurface {
+                        std::unique_ptr<Gdiplus::Bitmap> bitmap;
                         SIZE size{0, 0};
                         std::wstring cacheKey;
                 };
@@ -163,10 +163,10 @@ struct ShellTabsOptions;
                 bool DrawFolderBackground(HWND hwnd, HDC dc);
                 void UpdateCurrentFolderBackground();
                 void InvalidateFolderBackgroundTargets() const;
-                bool EnsureListViewBackgroundImage(HWND listView);
+                bool EnsureListViewBackgroundSurface(HWND listView);
+                bool PaintListViewBackground(HWND hwnd, HDC dc);
                 void ClearListViewBackgroundImage();
                 std::wstring ResolveBackgroundCacheKey() const;
-                HBITMAP CreateListViewBackgroundBitmap(const SIZE& targetSize, Gdiplus::Bitmap* background) const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
@@ -318,7 +318,7 @@ struct ShellTabsOptions;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
-                ListViewBackgroundImage m_listViewBackgroundImage;
+                ListViewBackgroundSurface m_listViewBackgroundSurface;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;
