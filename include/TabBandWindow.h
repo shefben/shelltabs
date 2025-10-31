@@ -190,6 +190,8 @@ private:
     PreviewOverlay m_previewOverlay;
     size_t m_previewItemIndex = std::numeric_limits<size_t>::max();
     bool m_previewVisible = false;
+    uint64_t m_previewRequestId = 0;
+    POINT m_previewAnchorPoint{};
     UINT m_shellNotifyMessage = 0;
     ULONG m_shellNotifyId = 0;
     bool m_progressTimerActive = false;
@@ -242,6 +244,8 @@ private:
     void ShowPreviewForItem(size_t index, const POINT& screenPt);
     void HidePreviewWindow(bool destroy);
     void PositionPreviewWindow(const VisualItem& item, const POINT& screenPt);
+    void HandlePreviewReady(uint64_t requestId);
+    void CancelPreviewRequest();
     void RefreshProgressState();
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
@@ -333,6 +337,7 @@ private:
 
 constexpr UINT WM_SHELLTABS_CLOSETAB = WM_APP + 42;
 constexpr UINT WM_SHELLTABS_DEFER_NAVIGATE = WM_APP + 43;
+constexpr UINT WM_SHELLTABS_PREVIEW_READY = WM_APP + 64;
 constexpr ULONG_PTR SHELLTABS_COPYDATA_OPEN_FOLDER = 'STNT';
 enum : UINT_PTR {
     IDC_NEW_TAB = 1001,

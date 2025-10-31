@@ -13,7 +13,8 @@ public:
     PreviewOverlay& operator=(const PreviewOverlay&) = delete;
 
     void SetOwner(HWND owner) noexcept { m_owner = owner; }
-    bool Show(HWND owner, HBITMAP bitmap, const SIZE& size, const POINT& screenPt);
+    bool Show(HWND owner, HBITMAP bitmap, const SIZE& size, const POINT& screenPt,
+              const wchar_t* placeholderText = nullptr, HICON placeholderIcon = nullptr);
     void Hide(bool destroyWindow);
     void Destroy();
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <string>
 
 #include <CommCtrl.h>
 
@@ -159,6 +160,123 @@ HBITMAP CreateFramedPreviewBitmap(HBITMAP sourceBitmap, const SIZE& sourceSize, 
     return framedBitmap;
 }
 
+HBITMAP CreatePlaceholderContentBitmap(const SIZE& desiredSize, const wchar_t* text, HICON icon, SIZE* outSize) {
+    if (!EnsureGdiplusInitialized()) {
+        return nullptr;
+    }
+
+    const wchar_t* fallback = L"Generating preview…";
+    std::wstring label = (text && *text) ? text : fallback;
+
+    const int minWidth = std::max(desiredSize.cx, 128);
+    const int minHeight = std::max(desiredSize.cy, 96);
+    const int width = minWidth > 0 ? minWidth : 192;
+    const int height = minHeight > 0 ? minHeight : 128;
+
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) {
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+        return nullptr;
+    }
+
+    Gdiplus::Bitmap surface(width, height, width * 4, Gdiplus::PixelFormat32bppPARGB, static_cast<BYTE*>(bits));
+    if (surface.GetLastStatus() != Gdiplus::Ok) {
+        DeleteObject(bitmap);
+        return nullptr;
+    }
+
+    Gdiplus::Graphics graphics(&surface);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        DeleteObject(bitmap);
+        return nullptr;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+    graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+
+    graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+
+    const COLORREF windowRgb = GetSysColor(COLOR_WINDOW);
+    const COLORREF highlightRgb = GetSysColor(COLOR_HIGHLIGHT);
+    const Gdiplus::Color topColor(230, GetRValue(windowRgb), GetGValue(windowRgb), GetBValue(windowRgb));
+    const Gdiplus::Color bottomColor(255, std::min(255, GetRValue(windowRgb) + 10),
+                                     std::min(255, GetGValue(windowRgb) + 10),
+                                     std::min(255, GetBValue(windowRgb) + 10));
+
+    Gdiplus::RectF backgroundRect(0.0f, 0.0f, static_cast<Gdiplus::REAL>(width), static_cast<Gdiplus::REAL>(height));
+    Gdiplus::LinearGradientBrush backgroundBrush(backgroundRect, topColor, bottomColor, 90.0f);
+    graphics.FillRectangle(&backgroundBrush, backgroundRect);
+
+    const Gdiplus::Color accentColor(70, GetRValue(highlightRgb), GetGValue(highlightRgb), GetBValue(highlightRgb));
+    Gdiplus::Pen accentPen(accentColor, 1.0f);
+    graphics.DrawRectangle(&accentPen, backgroundRect);
+
+    Gdiplus::REAL currentY = 16.0f;
+    const Gdiplus::REAL horizontalPadding = 16.0f;
+    const Gdiplus::REAL availableWidth = static_cast<Gdiplus::REAL>(width) - horizontalPadding * 2.0f;
+
+    if (icon) {
+        Gdiplus::Bitmap iconBitmap(icon);
+        if (iconBitmap.GetLastStatus() == Gdiplus::Ok && iconBitmap.GetWidth() > 0 && iconBitmap.GetHeight() > 0) {
+            const Gdiplus::REAL maxIconWidth = availableWidth;
+            const Gdiplus::REAL maxIconHeight = static_cast<Gdiplus::REAL>(height) * 0.5f;
+            const Gdiplus::REAL scale = std::min({maxIconWidth / static_cast<Gdiplus::REAL>(iconBitmap.GetWidth()),
+                                                  maxIconHeight / static_cast<Gdiplus::REAL>(iconBitmap.GetHeight()),
+                                                  1.0f});
+            const Gdiplus::REAL iconWidth = std::max<Gdiplus::REAL>(24.0f, iconBitmap.GetWidth() * scale);
+            const Gdiplus::REAL iconHeight = std::max<Gdiplus::REAL>(24.0f, iconBitmap.GetHeight() * scale);
+            const Gdiplus::REAL iconX = (static_cast<Gdiplus::REAL>(width) - iconWidth) / 2.0f;
+            Gdiplus::RectF iconRect(iconX, currentY, iconWidth, iconHeight);
+            graphics.DrawImage(&iconBitmap, iconRect);
+            currentY += iconHeight + 12.0f;
+        }
+    }
+
+    if (!label.empty()) {
+        Gdiplus::FontFamily family(L"Segoe UI");
+        Gdiplus::Font primary(&family, 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+        Gdiplus::Font fallback(L"Segoe UI", 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+        Gdiplus::Font* font = nullptr;
+        if (primary.GetLastStatus() == Gdiplus::Ok) {
+            font = &primary;
+        } else if (fallback.GetLastStatus() == Gdiplus::Ok) {
+            font = &fallback;
+        }
+        if (font) {
+            const COLORREF textRgb = GetSysColor(COLOR_WINDOWTEXT);
+            Gdiplus::Color textColor(255, GetRValue(textRgb), GetGValue(textRgb), GetBValue(textRgb));
+            Gdiplus::RectF textRect(horizontalPadding, currentY,
+                                    availableWidth, static_cast<Gdiplus::REAL>(height) - currentY - 12.0f);
+            Gdiplus::StringFormat format;
+            format.SetAlignment(Gdiplus::StringAlignmentCenter);
+            format.SetLineAlignment(Gdiplus::StringAlignmentNear);
+            Gdiplus::SolidBrush labelBrush(textColor);
+            graphics.DrawString(label.c_str(), static_cast<INT>(label.size()), font, textRect, &format, &labelBrush);
+        }
+    }
+
+    if (outSize) {
+        outSize->cx = width;
+        outSize->cy = height;
+    }
+    return bitmap;
+}
+
 }  // namespace
 
 PreviewOverlay::~PreviewOverlay() { Destroy(); }
@@ -207,11 +325,8 @@ HWND PreviewOverlay::EnsureWindow(HWND owner) {
     return m_window;
 }
 
-bool PreviewOverlay::Show(HWND owner, HBITMAP bitmap, const SIZE& size, const POINT& screenPt) {
-    if (!bitmap) {
-        return false;
-    }
-
+bool PreviewOverlay::Show(HWND owner, HBITMAP bitmap, const SIZE& size, const POINT& screenPt,
+                          const wchar_t* placeholderText, HICON placeholderIcon) {
     HWND window = EnsureWindow(owner);
     if (!window) {
         return false;
@@ -229,13 +344,28 @@ bool PreviewOverlay::Show(HWND owner, HBITMAP bitmap, const SIZE& size, const PO
     }
 
     SIZE finalSize = size;
-    HBITMAP framedBitmap = CreateFramedPreviewBitmap(bitmap, size, &finalSize);
-    HBITMAP bitmapToDraw = framedBitmap ? framedBitmap : bitmap;
+    HBITMAP placeholderBitmap = nullptr;
+    HBITMAP sourceBitmap = bitmap;
+    if (!sourceBitmap) {
+        placeholderBitmap = CreatePlaceholderContentBitmap(size, placeholderText, placeholderIcon, &finalSize);
+        sourceBitmap = placeholderBitmap;
+    }
+    if (!sourceBitmap) {
+        DeleteDC(memDC);
+        ReleaseDC(nullptr, screenDC);
+        return false;
+    }
+
+    HBITMAP framedBitmap = CreateFramedPreviewBitmap(sourceBitmap, finalSize, &finalSize);
+    HBITMAP bitmapToDraw = framedBitmap ? framedBitmap : sourceBitmap;
 
     HGDIOBJ oldBitmap = SelectObject(memDC, bitmapToDraw);
     if (!oldBitmap) {
         if (framedBitmap) {
             DeleteObject(framedBitmap);
+        }
+        if (placeholderBitmap) {
+            DeleteObject(placeholderBitmap);
         }
         DeleteDC(memDC);
         ReleaseDC(nullptr, screenDC);
@@ -259,6 +389,9 @@ bool PreviewOverlay::Show(HWND owner, HBITMAP bitmap, const SIZE& size, const PO
 
     if (framedBitmap) {
         DeleteObject(framedBitmap);
+    }
+    if (placeholderBitmap) {
+        DeleteObject(placeholderBitmap);
     }
 
     if (!updated) {
