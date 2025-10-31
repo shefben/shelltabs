@@ -3,6 +3,8 @@
 #include <exdispid.h>
 #include <OleAuto.h>
 
+#include <mutex>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -42,6 +44,48 @@ VARIANT_BOOL* ExtractCancelPointer(VARIANT& var) {
     }
     return nullptr;
 }
+
+HRESULT LoadBrowserEventTypeInfo(ITypeInfo** typeInfo) {
+    if (!typeInfo) {
+        return E_POINTER;
+    }
+
+    static std::once_flag onceFlag;
+    static Microsoft::WRL::ComPtr<ITypeInfo> cachedTypeInfo;
+    static HRESULT cachedResult = E_FAIL;
+
+    std::call_once(onceFlag, []() {
+        Microsoft::WRL::ComPtr<ITypeLib> typeLib;
+        HRESULT hr = LoadRegTypeLib(LIBID_SHDocVw, 1, 1, LOCALE_SYSTEM_DEFAULT, &typeLib);
+        if (FAILED(hr)) {
+            constexpr const wchar_t* kTypeLibs[] = {L"ieframe.dll", L"shdocvw.dll"};
+            for (const auto* path : kTypeLibs) {
+                Microsoft::WRL::ComPtr<ITypeLib> fallbackLib;
+                hr = LoadTypeLibEx(path, REGKIND_NONE, &fallbackLib);
+                if (SUCCEEDED(hr)) {
+                    typeLib = fallbackLib;
+                    break;
+                }
+            }
+        }
+
+        if (SUCCEEDED(hr)) {
+            Microsoft::WRL::ComPtr<ITypeInfo> info;
+            hr = typeLib->GetTypeInfoOfGuid(DIID_DWebBrowserEvents2, &info);
+            if (SUCCEEDED(hr)) {
+                cachedTypeInfo = info;
+            }
+        }
+
+        cachedResult = hr;
+    });
+
+    if (FAILED(cachedResult)) {
+        return cachedResult;
+    }
+
+    return cachedTypeInfo.CopyTo(typeInfo);
+}
 }  // namespace
 
 BrowserEvents::BrowserEvents(TabBand* owner)
@@ -73,18 +117,39 @@ IFACEMETHODIMP_(ULONG) BrowserEvents::Release() {
 }
 
 IFACEMETHODIMP BrowserEvents::GetTypeInfoCount(UINT* pctinfo) {
-    if (pctinfo) {
-        *pctinfo = 0;
+    if (!pctinfo) {
+        return E_POINTER;
     }
+
+    Microsoft::WRL::ComPtr<ITypeInfo> typeInfo;
+    const HRESULT hr = LoadBrowserEventTypeInfo(&typeInfo);
+    *pctinfo = SUCCEEDED(hr) ? 1u : 0u;
     return S_OK;
 }
 
-IFACEMETHODIMP BrowserEvents::GetTypeInfo(UINT, LCID, ITypeInfo**) {
-    return E_NOTIMPL;
+IFACEMETHODIMP BrowserEvents::GetTypeInfo(UINT iTInfo, LCID, ITypeInfo** ppTInfo) {
+    if (!ppTInfo) {
+        return E_POINTER;
+    }
+    if (iTInfo != 0) {
+        return DISP_E_BADINDEX;
+    }
+
+    return LoadBrowserEventTypeInfo(ppTInfo);
 }
 
-IFACEMETHODIMP BrowserEvents::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID*) {
-    return E_NOTIMPL;
+IFACEMETHODIMP BrowserEvents::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT cNames, LCID, DISPID* rgDispId) {
+    if (!rgszNames || !rgDispId) {
+        return E_POINTER;
+    }
+
+    Microsoft::WRL::ComPtr<ITypeInfo> typeInfo;
+    HRESULT hr = LoadBrowserEventTypeInfo(&typeInfo);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return typeInfo->GetIDsOfNames(rgszNames, cNames, rgDispId);
 }
 
 IFACEMETHODIMP BrowserEvents::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS* pDispParams, VARIANT*,
