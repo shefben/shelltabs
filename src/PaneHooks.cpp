@@ -19,9 +19,6 @@ std::unordered_set<HWND> g_treeViewSubscribers;
 std::atomic<PaneHighlightInvalidationCallback> g_invalidationCallback = nullptr;
 
 void CollectSubscribers(std::vector<HWND>& listViews, std::vector<HWND>& treeViews) {
-    const PaneHighlightInvalidationCallback callback =
-        g_invalidationCallback.load(std::memory_order_acquire);
-
     auto pruneAndCollect = [&](std::unordered_set<HWND>& subscribers, std::vector<HWND>& collected) {
         for (auto it = subscribers.begin(); it != subscribers.end();) {
             HWND hwnd = *it;
