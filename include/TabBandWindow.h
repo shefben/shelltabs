@@ -184,6 +184,11 @@ private:
         TabBandWindow* source = nullptr;
     };
 
+    struct CachedGroupOutlines {
+        std::vector<GroupOutline> outlines;
+        bool valid = false;
+    };
+
     struct ThemePalette {
         COLORREF rebarGradientTop = 0;
         COLORREF rebarGradientBottom = 0;
@@ -275,6 +280,8 @@ private:
         bool m_nextRedrawIncremental = false;
         RedrawMetrics m_redrawMetrics{};
         int m_lastAppliedRowCount = 0;
+
+        mutable CachedGroupOutlines m_groupOutlineCache;
 
         // Utilities
         // Helpers
@@ -377,7 +384,12 @@ private:
     COLORREF ResolveTabTextColor(bool selected, COLORREF background) const;
     void ApplyOptionColorOverrides();
     COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
-    std::vector<GroupOutline> BuildGroupOutlines() const;
+    const std::vector<GroupOutline>& BuildGroupOutlines() const;
+    void InvalidateGroupOutlineCache();
+    void RebuildGroupOutlineCache() const;
+    std::vector<GroupOutline> ComputeGroupOutlines() const;
+    bool DropPreviewAffectsIndicators(const DropTarget& target) const;
+    void OnDropPreviewTargetChanged(const DropTarget& previous, const DropTarget& current);
     RECT ComputeCloseButtonRect(const VisualItem& item) const;
     HBITMAP CreateDragVisualBitmap(const VisualItem& item, SIZE* size) const;
     void UpdateDragOverlay(const POINT& clientPt, const POINT& screenPt);
