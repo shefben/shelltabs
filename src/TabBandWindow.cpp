@@ -3112,7 +3112,7 @@ void TabBandWindow::UpdateHoverPreview(const POINT& pt) {
         return;
     }
     HitInfo hit = HitTest(pt);
-    if (!hit.hit || hit.itemIndex != m_previewItemIndex) {
+    if (!hit.hit || hit.type != HitType::kTab || hit.itemIndex != m_previewItemIndex) {
         HidePreviewWindow(false);
         return;
     }
@@ -3130,7 +3130,7 @@ void TabBandWindow::HandleMouseHover(const POINT& pt) {
         return;
     }
     HitInfo hit = HitTest(pt);
-    if (!hit.hit || hit.type != TabViewItemType::kTab || hit.itemIndex >= m_items.size()) {
+    if (!hit.hit || hit.type != HitType::kTab || hit.itemIndex >= m_items.size()) {
         HidePreviewWindow(false);
         return;
     }
@@ -3405,7 +3405,7 @@ void TabBandWindow::UpdateCloseButtonHover(const POINT& pt) {
     size_t newIndex = kInvalidIndex;
     if (PtInRect(&m_clientRect, pt)) {
         HitInfo hit = HitTest(pt);
-        if (hit.hit && hit.type == TabViewItemType::kTab && hit.itemIndex < m_items.size()) {
+        if (hit.hit && hit.type == HitType::kTab && hit.itemIndex < m_items.size()) {
             const auto& item = m_items[hit.itemIndex];
             RECT closeRect = ComputeCloseButtonRect(item);
             if (closeRect.right > closeRect.left && PtInRect(&closeRect, pt)) {
@@ -3648,14 +3648,14 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     UpdateCloseButtonHover(pt);
     HitInfo hit = HitTest(pt);
-    if (!hit.hit) {
+    if (!hit.hit || hit.type == HitType::kWhitespace) {
         return false;
     }
 
     SetFocus(m_hwnd);
     HideDragOverlay(true);
     m_drag = {};
-    if (hit.closeButton && hit.type == TabViewItemType::kTab) {
+    if (hit.closeButton && hit.type == HitType::kTab) {
         m_drag.closeClick = true;
         m_drag.closeItemIndex = hit.itemIndex;
         m_drag.closeLocation = hit.location;
@@ -3741,9 +3741,9 @@ bool TabBandWindow::HandleMouseUp(const POINT& pt) {
 	else if (m_drag.tracking) {
 		handled = true;
 		const HitInfo hit = HitTest(pt);
-		if (hit.hit) {
-			RequestSelection(hit);
-		}
+                if (hit.hit && hit.type != HitType::kWhitespace) {
+                        RequestSelection(hit);
+                }
 	}
 
 	CancelDrag();
@@ -3807,7 +3807,7 @@ bool TabBandWindow::HandleDoubleClick(const POINT& pt) {
     }
 
     HitInfo hit = HitTest(pt);
-    if (!hit.hit) {
+    if (!hit.hit || hit.type == HitType::kWhitespace) {
         return false;
     }
 
@@ -3815,11 +3815,11 @@ bool TabBandWindow::HandleDoubleClick(const POINT& pt) {
         return false;
     }
 
-    if (hit.type == TabViewItemType::kGroupHeader) {
+    if (hit.type == HitType::kGroupHeader) {
         m_owner->OnToggleGroupCollapsed(hit.location.groupIndex);
         return true;
     }
-    if (hit.location.IsValid()) {
+    if (hit.type == HitType::kTab && hit.location.IsValid()) {
         m_owner->OnDetachTabRequested(hit.location);
         return true;
     }
@@ -3867,15 +3867,114 @@ void TabBandWindow::HandleFileDrop(HDROP drop, bool ownsHandle) {
     }
 
     HitInfo hit = HitTest(pt);
-    const bool dropOnTab = hit.hit && hit.type == TabViewItemType::kTab && hit.location.IsValid();
+    const bool dropOnTab = hit.hit && hit.type == HitType::kTab && hit.location.IsValid();
+    const bool dropOnWhitespace = hit.hit && hit.type == HitType::kWhitespace;
+    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     bool handled = false;
+
     if (dropOnTab && !paths.empty()) {
-        const bool move = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool move = shift;
+        LogMessage(LogLevel::Info, L"HDROP delegated to tab (%d,%d); move=%d, items=%u", hit.location.groupIndex,
+                   hit.location.tabIndex, move ? 1 : 0, static_cast<unsigned>(paths.size()));
         m_owner->OnFilesDropped(hit.location, paths, move);
         handled = true;
     }
 
-    if (!handled && !dropOnTab && !HasAnyTabs() && m_owner) {
+    if (!handled && dropOnWhitespace && !paths.empty()) {
+        std::vector<std::wstring> directoryPaths;
+        directoryPaths.reserve(paths.size());
+        for (const auto& path : paths) {
+            const DWORD attributes = GetFileAttributesW(path.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                directoryPaths.push_back(path);
+            }
+        }
+
+        TabManager* manager = ResolveManager();
+        auto resolveFallbackLocation = [&]() -> std::optional<TabLocation> {
+            if (!manager) {
+                return std::nullopt;
+            }
+            TabLocation selected = manager->SelectedLocation();
+            if (selected.IsValid()) {
+                return selected;
+            }
+            const VisualItem* nearest = nullptr;
+            int bestDistance = std::numeric_limits<int>::max();
+            for (const auto& item : m_items) {
+                if (item.data.type != TabViewItemType::kTab || !item.data.location.IsValid()) {
+                    continue;
+                }
+                int distance = 0;
+                if (pt.x < item.bounds.left) {
+                    distance = item.bounds.left - pt.x;
+                } else if (pt.x > item.bounds.right) {
+                    distance = pt.x - item.bounds.right;
+                }
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    nearest = &item;
+                }
+            }
+            if (nearest) {
+                return nearest->data.location;
+            }
+            return std::nullopt;
+        };
+
+        auto openDirectoryTabs = [&](bool foreground) -> size_t {
+            if (!m_owner) {
+                return 0;
+            }
+            size_t opened = 0;
+            bool openForeground = foreground;
+            for (const auto& directory : directoryPaths) {
+                const bool selectTab = openForeground && opened == 0;
+                m_owner->OnOpenFolderInNewTab(directory, selectTab);
+                ++opened;
+                if (selectTab) {
+                    openForeground = false;
+                }
+            }
+            return opened;
+        };
+
+        const bool preferTabs = !shift && !directoryPaths.empty();
+        if (preferTabs) {
+            size_t opened = openDirectoryTabs(ctrl);
+            if (opened > 0) {
+                LogMessage(LogLevel::Info, L"HDROP opened %Iu tab(s) from whitespace drop (foreground=%d)", opened,
+                           ctrl ? 1 : 0);
+                handled = true;
+            }
+        }
+
+        if (!handled) {
+            std::optional<TabLocation> fallback = resolveFallbackLocation();
+            if (fallback && fallback->IsValid()) {
+                const bool move = shift;
+                LogMessage(LogLevel::Info, L"HDROP whitespace fallback to tab (%d,%d); move=%d, items=%u",
+                           fallback->groupIndex, fallback->tabIndex, move ? 1 : 0,
+                           static_cast<unsigned>(paths.size()));
+                m_owner->OnFilesDropped(*fallback, paths, move);
+                handled = true;
+            } else if (!directoryPaths.empty()) {
+                size_t opened = openDirectoryTabs(false);
+                if (opened > 0) {
+                    LogMessage(LogLevel::Info,
+                               L"HDROP opened %Iu tab(s) from whitespace drop without fallback (shift=%d)", opened,
+                               shift ? 1 : 0);
+                    handled = true;
+                }
+            } else {
+                LogMessage(LogLevel::Warning,
+                           L"HDROP whitespace drop ignored (no directories and no fallback target)");
+            }
+        }
+    }
+
+    if (!handled && !dropOnTab && !dropOnWhitespace && !HasAnyTabs() && m_owner) {
         for (const auto& path : paths) {
             const DWORD attributes = GetFileAttributesW(path.c_str());
             if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
@@ -3939,7 +4038,7 @@ bool TabBandWindow::IsSameHit(const HitInfo& a, const HitInfo& b) const {
 }
 
 bool TabBandWindow::IsSelectedTabHit(const HitInfo& hit) const {
-    if (!hit.hit || hit.type != TabViewItemType::kTab || !hit.location.IsValid()) {
+    if (!hit.hit || hit.type != HitType::kTab || !hit.location.IsValid()) {
         return false;
     }
     if (hit.itemIndex >= m_items.size()) {
@@ -3973,7 +4072,7 @@ void TabBandWindow::UpdateDropHoverState(const HitInfo& hit, bool hasFileData) {
     m_dropHoverHit = hit;
     m_dropHoverHasFileData = hasFileData;
 
-    const bool eligible = hasFileData && hit.hit && hit.type == TabViewItemType::kTab && hit.location.IsValid() &&
+    const bool eligible = hasFileData && hit.hit && hit.type == HitType::kTab && hit.location.IsValid() &&
                           !IsSelectedTabHit(hit);
     if (!eligible) {
         CancelDropHoverTimer();
@@ -3996,7 +4095,7 @@ void TabBandWindow::OnDropHoverTimer() {
     if (!m_dropHoverHasFileData || !m_owner) {
         return;
     }
-    if (!m_dropHoverHit.hit || m_dropHoverHit.type != TabViewItemType::kTab || !m_dropHoverHit.location.IsValid()) {
+    if (!m_dropHoverHit.hit || m_dropHoverHit.type != HitType::kTab || !m_dropHoverHit.location.IsValid()) {
         return;
     }
     if (IsSelectedTabHit(m_dropHoverHit)) {
@@ -4113,8 +4212,8 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
     }
 
     HitInfo hit = HitTest(pt);
-    if (!hit.hit) {
-        if (origin.type == TabViewItemType::kTab && m_owner) {
+    if (!hit.hit || hit.type == HitType::kWhitespace) {
+        if (origin.type == HitType::kTab && m_owner) {
             target.group = false;
             target.newGroup = true;
             target.floating = true;
@@ -4124,7 +4223,7 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
         } else if (!m_items.empty()) {
             const VisualItem* lastHeader = FindLastGroupHeader();
             if (lastHeader) {
-                if (origin.type == TabViewItemType::kGroupHeader) {
+                if (origin.type == HitType::kGroupHeader) {
                     target.group = true;
                     target.groupIndex = lastHeader->data.location.groupIndex + 1;
                     target.indicatorX = lastHeader->bounds.right;
@@ -4149,7 +4248,7 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
     const int midX = (visual.bounds.left + visual.bounds.right) / 2;
     const bool leftSide = pt.x < midX;
 
-    if (origin.type == TabViewItemType::kGroupHeader) {
+    if (origin.type == HitType::kGroupHeader) {
         target.group = true;
         target.groupIndex = visual.data.location.groupIndex + (leftSide ? 0 : 1);
         target.indicatorX = leftSide ? visual.bounds.left : visual.bounds.right;
@@ -4237,7 +4336,7 @@ bool TabBandWindow::TryCompleteExternalDrop() {
     payload->source = m_owner;
     bool closeSourceWindow = false;
 
-    if (m_drag.origin.type == TabViewItemType::kGroupHeader) {
+    if (m_drag.origin.type == HitType::kGroupHeader) {
         auto detachedGroup = m_owner->DetachGroupForTransfer(m_drag.origin.location.groupIndex, nullptr);
         if (!detachedGroup) {
             return false;
@@ -4372,7 +4471,7 @@ void TabBandWindow::CompleteDrop() {
     }
 
     if (target.outside) {
-        if (origin.type == TabViewItemType::kGroupHeader) {
+        if (origin.type == HitType::kGroupHeader) {
             m_owner->OnDetachGroupRequested(origin.location.groupIndex);
         } else if (origin.location.IsValid()) {
             m_owner->OnDetachTabRequested(origin.location);
@@ -4385,7 +4484,7 @@ void TabBandWindow::CompleteDrop() {
         return;
     }
 
-    if (origin.type == TabViewItemType::kGroupHeader) {
+    if (origin.type == HitType::kGroupHeader) {
         int fromGroup = origin.location.groupIndex;
         int toGroup = target.groupIndex;
         const int groupCount = GroupCount();
@@ -4428,9 +4527,9 @@ void TabBandWindow::RequestSelection(const HitInfo& hit) {
         return;
     }
 
-    if (hit.type == TabViewItemType::kTab && hit.location.IsValid()) {
+    if (hit.type == HitType::kTab && hit.location.IsValid()) {
         m_owner->OnTabSelected(hit.location);
-    } else if (hit.type == TabViewItemType::kGroupHeader) {
+    } else if (hit.type == HitType::kGroupHeader) {
         m_owner->OnToggleGroupCollapsed(hit.location.groupIndex);
     }
 }
@@ -4446,7 +4545,7 @@ TabBandWindow::HitInfo TabBandWindow::HitTest(const POINT& pt) const {
         if (PtInRect(&item.bounds, pt)) {
             info.hit = true;
             info.itemIndex = i;
-            info.type = item.data.type;
+            info.type = (item.data.type == TabViewItemType::kTab) ? HitType::kTab : HitType::kGroupHeader;
             info.location = item.data.location;
             const int midX = (item.bounds.left + item.bounds.right) / 2;
             info.before = pt.x < midX;
@@ -4459,6 +4558,13 @@ TabBandWindow::HitInfo TabBandWindow::HitTest(const POINT& pt) const {
         }
     }
 
+    info.hit = true;
+    info.type = HitType::kWhitespace;
+    info.itemIndex = std::numeric_limits<size_t>::max();
+    info.location = {};
+    info.before = false;
+    info.after = false;
+    info.closeButton = false;
     return info;
 }
 
@@ -4492,8 +4598,8 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
     bool hasItemCommands = false;
 
-    if (hit.hit) {
-        if (hit.type == TabViewItemType::kTab) {
+    if (hit.hit && hit.type != HitType::kWhitespace) {
+        if (hit.type == HitType::kTab) {
             AppendMenuW(menu, MF_STRING, IDM_CLOSE_TAB, L"Close Tab");
             AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
@@ -4553,7 +4659,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             }
 
             hasItemCommands = true;
-        } else if (hit.type == TabViewItemType::kGroupHeader && hit.itemIndex >= 0) {
+        } else if (hit.type == HitType::kGroupHeader && hit.itemIndex >= 0) {
             const auto& item = m_items[hit.itemIndex];
             const bool collapsed = item.data.collapsed;
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND, collapsed ? L"Show Island" : L"Hide Island");
@@ -4578,7 +4684,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_NEW_ISLAND, L"New Island After");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
             hasItemCommands = true;
-        } else if (hit.type == TabViewItemType::kGroupHeader && hit.location.groupIndex >= 0) {
+        } else if (hit.type == HitType::kGroupHeader && hit.location.groupIndex >= 0) {
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_ISLAND_HEADER,
                         headerVisible ? L"Hide Island Indicator" : L"Show Island Indicator");
@@ -4737,27 +4843,28 @@ const TabBandWindow::VisualItem* TabBandWindow::FindLastGroupHeader() const {
 }
 
 const TabBandWindow::VisualItem* TabBandWindow::FindVisualForHit(const HitInfo& hit) const {
-    if (!hit.hit) {
+    if (!hit.hit || hit.type == HitType::kWhitespace) {
         return nullptr;
     }
 
-    for (const auto& item : m_items) {
-        if (item.data.type != hit.type) {
-            continue;
-        }
-        if (hit.type == TabViewItemType::kGroupHeader) {
-            if (item.data.location.groupIndex == hit.location.groupIndex) {
+    if (hit.type == HitType::kGroupHeader) {
+        for (const auto& item : m_items) {
+            if (item.data.type == TabViewItemType::kGroupHeader &&
+                item.data.location.groupIndex == hit.location.groupIndex) {
                 return &item;
             }
-        } else if (hit.location.IsValid() && item.data.location.IsValid()) {
-            if (item.data.location.groupIndex == hit.location.groupIndex &&
+        }
+    } else if (hit.type == HitType::kTab && hit.location.IsValid()) {
+        for (const auto& item : m_items) {
+            if (item.data.type == TabViewItemType::kTab && item.data.location.IsValid() &&
+                item.data.location.groupIndex == hit.location.groupIndex &&
                 item.data.location.tabIndex == hit.location.tabIndex) {
                 return &item;
             }
         }
     }
 
-    if (hit.type == TabViewItemType::kGroupHeader) {
+    if (hit.type == HitType::kGroupHeader) {
         for (const auto& item : m_items) {
             if (item.data.type == TabViewItemType::kTab && item.indicatorHandle &&
                 item.data.location.groupIndex == hit.location.groupIndex) {

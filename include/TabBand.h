@@ -105,7 +105,7 @@ public:
     void OnOpenVSCode(TabLocation location);
     void OnCopyPath(TabLocation location);
     void OnFilesDropped(TabLocation location, const std::vector<std::wstring>& paths, bool move);
-    void OnOpenFolderInNewTab(const std::wstring& path);
+    void OnOpenFolderInNewTab(const std::wstring& path, bool select = true);
     void CloseFrameWindowAsync();
     void EnsureTabPreview(TabLocation location);
 
