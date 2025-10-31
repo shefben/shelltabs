@@ -53,6 +53,10 @@
 
 namespace {
 
+using shelltabs::LogLevel;
+using shelltabs::LogMessage;
+using shelltabs::LogMessageV;
+
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
 
