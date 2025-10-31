@@ -1167,27 +1167,32 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
                 if (visual.icon) {
                         visual.iconWidth = baseIconWidth;
                         visual.iconHeight = baseIconHeight;
-                        ICONINFO iconInfo{};
-                        HICON iconHandle = visual.icon.Get();
-                        if (iconHandle && GetIconInfo(iconHandle, &iconInfo)) {
-                                BITMAP bitmap{};
-                                if (iconInfo.hbmColor &&
-                                        GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-					visual.iconWidth = bitmap.bmWidth;
-					visual.iconHeight = bitmap.bmHeight;
-				}
-				else if (iconInfo.hbmMask &&
-					GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-					visual.iconWidth = bitmap.bmWidth;
-					visual.iconHeight = bitmap.bmHeight / 2;
-				}
-                                if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-                                if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
+                        if (auto metrics = visual.icon.GetMetrics()) {
+                                visual.iconWidth = metrics->cx;
+                                visual.iconHeight = metrics->cy;
+                        } else {
+                                ICONINFO iconInfo{};
+                                HICON iconHandle = visual.icon.Get();
+                                if (iconHandle && GetIconInfo(iconHandle, &iconInfo)) {
+                                        BITMAP bitmap{};
+                                        if (iconInfo.hbmColor &&
+                                                GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                                                visual.iconWidth = bitmap.bmWidth;
+                                                visual.iconHeight = bitmap.bmHeight;
+                                        }
+                                        else if (iconInfo.hbmMask &&
+                                                GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                                                visual.iconWidth = bitmap.bmWidth;
+                                                visual.iconHeight = bitmap.bmHeight / 2;
+                                        }
+                                        if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
+                                        if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
+                                }
                         }
                         if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
                         if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
-			width += visual.iconWidth + kIconGap;
-		}
+                        width += visual.iconWidth + kIconGap;
+                }
 
                 width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
                 if (item.pinned) {

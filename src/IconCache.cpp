@@ -12,6 +12,49 @@ namespace shelltabs {
 namespace {
 constexpr uint64_t kLogInterval = 50;
 
+std::optional<SIZE> ExtractIconMetrics(HICON icon) {
+    if (!icon) {
+        return std::nullopt;
+    }
+
+    ICONINFO iconInfo{};
+    if (!GetIconInfo(icon, &iconInfo)) {
+        return std::nullopt;
+    }
+
+    SIZE metrics{0, 0};
+    bool haveMetrics = false;
+    BITMAP bitmap{};
+    if (iconInfo.hbmColor &&
+        GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+        metrics.cx = bitmap.bmWidth;
+        metrics.cy = bitmap.bmHeight;
+        haveMetrics = true;
+    } else if (iconInfo.hbmMask &&
+               GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+        metrics.cx = bitmap.bmWidth;
+        metrics.cy = bitmap.bmHeight / 2;
+        haveMetrics = true;
+    }
+
+    if (iconInfo.hbmColor) {
+        DeleteObject(iconInfo.hbmColor);
+    }
+    if (iconInfo.hbmMask) {
+        DeleteObject(iconInfo.hbmMask);
+    }
+
+    if (!haveMetrics) {
+        return std::nullopt;
+    }
+
+    if (metrics.cx <= 0 || metrics.cy <= 0) {
+        return std::nullopt;
+    }
+
+    return metrics;
+}
+
 size_t HashPidlBytes(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
         return 0;
@@ -113,6 +156,13 @@ IconCache::Reference::~Reference() { ReleaseCurrent(); }
 
 void IconCache::Reference::Reset() noexcept { ReleaseCurrent(); }
 
+std::optional<SIZE> IconCache::Reference::GetMetrics() const noexcept {
+    if (!m_entry || !m_entry->hasMetrics) {
+        return std::nullopt;
+    }
+    return m_entry->metrics;
+}
+
 IconCache::Reference::Reference(IconCache* cache, IconCache::Entry* entry, HICON icon,
                                 bool addRef) noexcept {
     Attach(cache, entry, icon, addRef);
@@ -180,6 +230,7 @@ IconCache::Reference IconCache::Acquire(const std::wstring& familyKey, UINT icon
             if (!icon) {
                 return {};
             }
+            std::optional<SIZE> metrics = ExtractIconMetrics(icon);
             lock.lock();
             auto retry = m_entries.find(variantKey);
             if (retry != m_entries.end()) {
@@ -192,6 +243,10 @@ IconCache::Reference IconCache::Acquire(const std::wstring& familyKey, UINT icon
                 newEntry->key = variantKey;
                 newEntry->family = familyKey;
                 newEntry->icon = icon;
+                if (metrics.has_value()) {
+                    newEntry->metrics = *metrics;
+                    newEntry->hasMetrics = true;
+                }
                 newEntry->refCount = 1;
                 newEntry->lruIt = m_lru.insert(m_lru.begin(), variantKey);
                 entry = newEntry.get();

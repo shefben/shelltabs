@@ -34,6 +34,7 @@ public:
         HICON Get() const noexcept { return m_icon; }
         explicit operator bool() const noexcept { return m_icon != nullptr; }
         void Reset() noexcept;
+        std::optional<SIZE> GetMetrics() const noexcept;
 
     private:
         friend class IconCache;
@@ -63,9 +64,11 @@ private:
         std::wstring key;
         std::wstring family;
         HICON icon = nullptr;
+        SIZE metrics{0, 0};
         size_t refCount = 0;
         std::list<std::wstring>::iterator lruIt;
         bool stale = false;
+        bool hasMetrics = false;
     };
 
     struct StatsSnapshot {
