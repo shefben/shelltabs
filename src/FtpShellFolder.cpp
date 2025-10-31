@@ -37,6 +37,25 @@ constexpr SHCONTF kShcontfAllFolders = SHCONTF_ALLFOLDERS;
 constexpr SHCONTF kShcontfAllFolders = static_cast<SHCONTF>(0x00000080);
 #endif
 
+template <typename>
+inline constexpr bool kDependentFalse = false;
+
+template <typename SFVCreate>
+void AssignFolderSettings(SFVCreate& create, const FOLDERSETTINGS& settings) {
+    // Windows 10/11 SDKs expose the FOLDERSETTINGS pointer as pViewSettings,
+    // while older headers still publish pfs or pfolderSettings. Detect the
+    // available alias at compile time so the view gets initialized correctly.
+    if constexpr (requires(SFVCreate& candidate) { candidate.pfs = &settings; }) {
+        create.pfs = &settings;
+    } else if constexpr (requires(SFVCreate& candidate) { candidate.pfolderSettings = &settings; }) {
+        create.pfolderSettings = &settings;
+    } else if constexpr (requires(SFVCreate& candidate) { candidate.pViewSettings = &settings; }) {
+        create.pViewSettings = &settings;
+    } else {
+        static_assert(kDependentFalse<SFVCreate>, "SFV_CREATE is missing a folder settings member");
+    }
+}
+
 std::wstring BuildCanonicalUrl(const FtpUrlParts& parts) {
     std::wstring url = L"ftp://";
     if (!parts.userName.empty()) {
@@ -966,12 +985,7 @@ IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
     FOLDERSETTINGS settings{};
     settings.ViewMode = FVM_DETAILS;
     settings.fFlags = FWF_SHOWSELALWAYS | FWF_AUTOARRANGE;
-    // Try different possible member names for FOLDERSETTINGS
-    // create.pfs = &settings;  // Original, doesn't work on newer SDK
-    // create.pfolderSettings = &settings;  // Doesn't work
-    // create.pViewSettings = &settings;  // Doesn't work
-    // Let's comment this out for now and see if we can compile without it
-    // create.pViewSettings = &settings;
+    AssignFolderSettings(create, settings);
     HRESULT hr = QueryInterface(IID_PPV_ARGS(&create.pshf));
     if (FAILED(hr)) {
         return hr;
