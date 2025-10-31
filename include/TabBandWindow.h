@@ -106,6 +106,28 @@ private:
         TabGroupOutlineStyle style = TabGroupOutlineStyle::kSolid;
     };
 
+    struct LayoutResult {
+        std::vector<VisualItem> items;
+        int rowCount = 0;
+    };
+
+    struct LayoutDiffStats {
+        size_t inserted = 0;
+        size_t removed = 0;
+        size_t moved = 0;
+        size_t updated = 0;
+        std::vector<RECT> invalidRects;
+    };
+
+    struct RedrawMetrics {
+        double incrementalTotalMs = 0.0;
+        uint64_t incrementalCount = 0;
+        double fullTotalMs = 0.0;
+        uint64_t fullCount = 0;
+        double lastDurationMs = 0.0;
+        bool lastWasIncremental = false;
+    };
+
     struct ExplorerContext {
         Microsoft::WRL::ComPtr<IContextMenu> menu;
         Microsoft::WRL::ComPtr<IContextMenu2> menu2;
@@ -220,11 +242,19 @@ private:
 
         TabBandDockMode m_preferredDockMode = TabBandDockMode::kAutomatic;
         TabBandDockMode m_currentDockMode = TabBandDockMode::kAutomatic;
+        bool m_nextRedrawIncremental = false;
+        RedrawMetrics m_redrawMetrics{};
+        int m_lastAppliedRowCount = 0;
 
         // Utilities
         // Helpers
-	bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
-	void DrawEmptyIslandPluses(HDC dc) const;
+        bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
+        void DrawEmptyIslandPluses(HDC dc) const;
+        LayoutResult BuildLayoutItems(const std::vector<TabViewItem>& items);
+        LayoutDiffStats ComputeLayoutDiff(const std::vector<VisualItem>& oldItems,
+                                          const std::vector<VisualItem>& newItems) const;
+        void DestroyVisualItemResources(std::vector<VisualItem>& items);
+        void RecordRedrawDuration(double milliseconds, bool incremental);
 
 	// Rebar background control
 	void InstallRebarDarkSubclass();
