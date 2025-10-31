@@ -19,6 +19,9 @@ constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
 constexpr wchar_t kPersistToken[] = L"persist_group_paths";
+constexpr wchar_t kNewTabTemplateToken[] = L"new_tab_template";
+constexpr wchar_t kNewTabCustomPathToken[] = L"new_tab_custom_path";
+constexpr wchar_t kNewTabSavedGroupToken[] = L"new_tab_saved_group";
 constexpr wchar_t kBreadcrumbGradientToken[] = L"breadcrumb_gradient";
 constexpr wchar_t kBreadcrumbFontGradientToken[] = L"breadcrumb_font_gradient";
 constexpr wchar_t kBreadcrumbGradientTransparencyToken[] = L"breadcrumb_gradient_transparency";
@@ -190,6 +193,27 @@ bool OptionsStore::Load() {
         if (header == kPersistToken) {
             if (tokens.size() >= 2) {
                 m_options.persistGroupPaths = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
+        if (header == kNewTabTemplateToken) {
+            if (tokens.size() >= 2) {
+                m_options.newTabTemplate = ParseNewTabTemplate(tokens[1]);
+            }
+            return true;
+        }
+
+        if (header == kNewTabCustomPathToken) {
+            if (tokens.size() >= 2) {
+                m_options.newTabCustomPath = Trim(tokens[1]);
+            }
+            return true;
+        }
+
+        if (header == kNewTabSavedGroupToken) {
+            if (tokens.size() >= 2) {
+                m_options.newTabSavedGroup = Trim(tokens[1]);
             }
             return true;
         }
@@ -402,6 +426,18 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += m_options.persistGroupPaths ? L"1" : L"0";
     content += L"\n";
+    content += kNewTabTemplateToken;
+    content += L"|";
+    content += NewTabTemplateToString(m_options.newTabTemplate);
+    content += L"\n";
+    content += kNewTabCustomPathToken;
+    content += L"|";
+    content += Trim(m_options.newTabCustomPath);
+    content += L"\n";
+    content += kNewTabSavedGroupToken;
+    content += L"|";
+    content += Trim(m_options.newTabSavedGroup);
+    content += L"\n";
     content += kBreadcrumbGradientToken;
     content += L"|";
     content += m_options.enableBreadcrumbGradient ? L"1" : L"0";
@@ -544,7 +580,10 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
-           left.tabDockMode == right.tabDockMode;
+           left.tabDockMode == right.tabDockMode &&
+           left.newTabTemplate == right.newTabTemplate &&
+           left.newTabCustomPath == right.newTabCustomPath &&
+           left.newTabSavedGroup == right.newTabSavedGroup;
 }
 
 }  // namespace shelltabs

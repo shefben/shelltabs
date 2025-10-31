@@ -102,6 +102,19 @@ std::wstring TrimWhitespace(const std::wstring& value) {
     return value.substr(first, last - first + 1);
 }
 
+UniquePidl CreateThisPcPidl() {
+    UniquePidl pidl = ParseExplorerUrl(L"shell:MyComputerFolder");
+    if (pidl) {
+        return pidl;
+    }
+
+    LPITEMIDLIST raw = nullptr;
+    if (SUCCEEDED(SHGetSpecialFolderLocation(nullptr, CSIDL_DRIVES, &raw)) && raw) {
+        return UniquePidl(raw);
+    }
+    return nullptr;
+}
+
 bool EnsureFtpNamespaceBinding(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
         return false;
@@ -457,33 +470,6 @@ IFACEMETHODIMP TabBand::GetSizeMax(ULARGE_INTEGER* pcbSize) {
     return S_OK;
 }
 
-void TabBand::OnNewThisPCInGroupRequested(int groupIndex) {
-	// Parse the shell namespace path for "This PC"
-	UniquePidl pidl = ParseExplorerUrl(L"shell:MyComputerFolder");
-	if (!pidl) {
-		// Fallback for older systems
-		LPITEMIDLIST raw = nullptr;
-		if (SUCCEEDED(SHGetSpecialFolderLocation(nullptr, CSIDL_DRIVES, &raw)) && raw) {
-			pidl.reset(raw);
-		}
-	}
-	if (!pidl) return;
-
-	std::wstring name = GetDisplayName(pidl.get());
-	if (name.empty()) name = L"This PC";
-	std::wstring tooltip = GetParsingName(pidl.get());
-	if (tooltip.empty()) tooltip = name;
-
-	if (groupIndex < 0) groupIndex = 0;
-
-	TabLocation loc = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
-	UpdateTabsUI();
-	SyncAllSavedGroups();
-	if (loc.IsValid()) {
-		NavigateToTab(loc);
-	}
-}
-
 void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
@@ -537,35 +523,133 @@ void TabBand::OnTabSelected(TabLocation location) {
     NavigateToTab(location);
 }
 
-void TabBand::OnNewTabRequested() {
-    UniquePidl pidl;
-    std::wstring name;
+void TabBand::OnNewTabRequested(int targetGroup) {
+    EnsureOptionsLoaded();
 
     const TabLocation current = m_tabs.SelectedLocation();
-    if (const auto* tab = m_tabs.Get(current)) {
-        pidl = ClonePidl(tab->pidl.get());
-        name = tab->name;
+    if (targetGroup < 0) {
+        targetGroup = current.groupIndex >= 0 ? current.groupIndex : 0;
     }
 
-    if (!pidl) {
-        pidl = QueryCurrentFolder();
-        name = GetDisplayName(pidl.get());
-    }
+    auto finalize = [&](UniquePidl pidl, std::wstring name, std::wstring tooltip) {
+        if (!pidl) {
+            return;
+        }
+        if (name.empty()) {
+            name = GetDisplayName(pidl.get());
+        }
+        if (name.empty()) {
+            name = L"Tab";
+        }
+        if (tooltip.empty()) {
+            tooltip = GetParsingName(pidl.get());
+        }
+        if (tooltip.empty()) {
+            tooltip = name;
+        }
 
-    if (!pidl) {
-        return;
-    }
+        TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, targetGroup);
+        UpdateTabsUI();
+        SyncAllSavedGroups();
+        if (location.IsValid()) {
+            NavigateToTab(location);
+        }
+    };
 
-    if (name.empty()) {
-        name = L"Tab";
-    }
-
-    const int targetGroup = current.groupIndex >= 0 ? current.groupIndex : 0;
-    TabLocation location = m_tabs.Add(std::move(pidl), name, name, true, targetGroup);
-    UpdateTabsUI();
-    SyncAllSavedGroups();
-    if (location.IsValid()) {
-        NavigateToTab(location);
+    switch (m_options.newTabTemplate) {
+        case NewTabTemplate::kDuplicateCurrent: {
+            UniquePidl pidl;
+            std::wstring name;
+            std::wstring tooltip;
+            if (const auto* tab = m_tabs.Get(current)) {
+                if (tab->pidl) {
+                    pidl = ClonePidl(tab->pidl.get());
+                }
+                name = tab->name;
+                tooltip = tab->tooltip;
+            }
+            if (!pidl) {
+                pidl = QueryCurrentFolder();
+                if (pidl) {
+                    name = GetDisplayName(pidl.get());
+                    tooltip = GetParsingName(pidl.get());
+                }
+            }
+            finalize(std::move(pidl), std::move(name), std::move(tooltip));
+            return;
+        }
+        case NewTabTemplate::kThisPc: {
+            UniquePidl pidl = CreateThisPcPidl();
+            if (!pidl) {
+                return;
+            }
+            std::wstring name = GetDisplayName(pidl.get());
+            if (name.empty()) {
+                name = L"This PC";
+            }
+            std::wstring tooltip = GetParsingName(pidl.get());
+            finalize(std::move(pidl), std::move(name), std::move(tooltip));
+            return;
+        }
+        case NewTabTemplate::kCustomPath: {
+            const std::wstring rawPath = TrimWhitespace(m_options.newTabCustomPath);
+            if (rawPath.empty()) {
+                return;
+            }
+            UniquePidl pidl = ParseExplorerUrl(rawPath);
+            if (!pidl) {
+                pidl = ParseDisplayName(rawPath);
+            }
+            if (!pidl) {
+                return;
+            }
+            std::wstring name = GetDisplayName(pidl.get());
+            if (name.empty()) {
+                name = rawPath;
+            }
+            std::wstring tooltip = GetParsingName(pidl.get());
+            finalize(std::move(pidl), std::move(name), std::move(tooltip));
+            return;
+        }
+        case NewTabTemplate::kSavedGroup: {
+            const std::wstring target = TrimWhitespace(m_options.newTabSavedGroup);
+            if (target.empty()) {
+                return;
+            }
+            auto& store = GroupStore::Instance();
+            store.Load();
+            const SavedGroup* saved = store.Find(target);
+            if (!saved) {
+                return;
+            }
+            UniquePidl pidl;
+            std::wstring name;
+            std::wstring tooltip;
+            for (const auto& path : saved->tabPaths) {
+                const std::wstring trimmedPath = TrimWhitespace(path);
+                if (trimmedPath.empty()) {
+                    continue;
+                }
+                UniquePidl candidate = ParseDisplayName(trimmedPath);
+                if (!candidate) {
+                    candidate = ParseExplorerUrl(trimmedPath);
+                }
+                if (!candidate) {
+                    continue;
+                }
+                tooltip = GetParsingName(candidate.get());
+                name = GetDisplayName(candidate.get());
+                if (name.empty()) {
+                    name = trimmedPath;
+                }
+                pidl = std::move(candidate);
+                break;
+            }
+            finalize(std::move(pidl), std::move(name), std::move(tooltip));
+            return;
+        }
+        default:
+            break;
     }
 }
 

@@ -91,4 +91,35 @@ std::wstring DockModeToString(TabBandDockMode mode) {
     }
 }
 
+NewTabTemplate ParseNewTabTemplate(const std::wstring& token) {
+    if (token.empty()) {
+        return NewTabTemplate::kDuplicateCurrent;
+    }
+
+    if (_wcsicmp(token.c_str(), L"this_pc") == 0 || _wcsicmp(token.c_str(), L"thispc") == 0) {
+        return NewTabTemplate::kThisPc;
+    }
+    if (_wcsicmp(token.c_str(), L"custom_path") == 0 || _wcsicmp(token.c_str(), L"custom") == 0) {
+        return NewTabTemplate::kCustomPath;
+    }
+    if (_wcsicmp(token.c_str(), L"saved_group") == 0 || _wcsicmp(token.c_str(), L"group") == 0) {
+        return NewTabTemplate::kSavedGroup;
+    }
+
+    return NewTabTemplate::kDuplicateCurrent;
+}
+
+std::wstring NewTabTemplateToString(NewTabTemplate value) {
+    switch (value) {
+        case NewTabTemplate::kThisPc:
+            return L"this_pc";
+        case NewTabTemplate::kCustomPath:
+            return L"custom_path";
+        case NewTabTemplate::kSavedGroup:
+            return L"saved_group";
+        default:
+            return L"duplicate_current";
+    }
+}
+
 }  // namespace shelltabs
