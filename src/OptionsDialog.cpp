@@ -3634,10 +3634,10 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
         if (result.optionsChanged) {
             ForceExplorerUIRefresh(parent);
         }
+        auto& groupStore = GroupStore::Instance();
         if (groupsChanged) {
-            auto& groupStoreToUpdate = GroupStore::Instance();
-            groupStoreToUpdate.Load();
-            std::vector<SavedGroup> existingGroups = groupStoreToUpdate.Groups();
+            groupStore.Load();
+            std::vector<SavedGroup> existingGroups = groupStore.Groups();
             for (const auto& existing : existingGroups) {
                 bool found = false;
                 for (const auto& updated : data.workingGroups) {
@@ -3647,13 +3647,13 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
                     }
                 }
                 if (!found) {
-                    groupStoreToUpdate.Remove(existing.name);
+                    groupStore.Remove(existing.name);
                 }
             }
             for (const auto& group : data.workingGroups) {
-                groupStoreToUpdate.Upsert(group);
+                groupStore.Upsert(group);
             }
-            result.savedGroups = groupStoreToUpdate.Groups();
+            result.savedGroups = groupStore.Groups();
         }
         if (!result.removedGroupIds.empty()) {
             std::vector<std::wstring> filtered;
@@ -3672,7 +3672,7 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, int initialTab, const wchar_t
             }
             result.removedGroupIds.swap(filtered);
         }
-        groupStoreToUpdate.RecordChanges(result.renamedGroups, result.removedGroupIds);
+        groupStore.RecordChanges(result.renamedGroups, result.removedGroupIds);
         const UINT savedGroupsMessage = GetSavedGroupsChangedMessage();
         if (savedGroupsMessage != 0) {
             SendNotifyMessageW(HWND_BROADCAST, savedGroupsMessage, 0, 0);
