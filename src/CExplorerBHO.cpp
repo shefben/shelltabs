@@ -55,6 +55,45 @@ namespace {
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
 
+Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
+    static std::once_flag once;
+    static Microsoft::WRL::ComPtr<ITypeInfo> cachedTypeInfo;
+    static HRESULT cachedResult = E_FAIL;
+
+    std::call_once(once, []() {
+        Microsoft::WRL::ComPtr<ITypeLib> typeLibrary;
+        HRESULT hr = LoadRegTypeLib(LIBID_SHDocVw, 1, 1, LOCALE_USER_DEFAULT, &typeLibrary);
+        if (FAILED(hr)) {
+            hr = LoadRegTypeLib(LIBID_SHDocVw, 1, 1, LOCALE_SYSTEM_DEFAULT, &typeLibrary);
+        }
+        if (FAILED(hr)) {
+            hr = LoadTypeLibEx(L"shdocvw.dll", REGKIND_NONE, &typeLibrary);
+        }
+
+        if (SUCCEEDED(hr)) {
+            Microsoft::WRL::ComPtr<ITypeInfo> typeInfo;
+            hr = typeLibrary->GetTypeInfoOfGuid(DIID_DWebBrowserEvents2, &typeInfo);
+            if (SUCCEEDED(hr)) {
+                cachedTypeInfo = typeInfo;
+            }
+        }
+
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning,
+                       L"CExplorerBHO failed to load DWebBrowserEvents2 type information hr=0x%08X", hr);
+        }
+
+        cachedResult = hr;
+    });
+
+    if (SUCCEEDED(cachedResult) && cachedTypeInfo) {
+        Microsoft::WRL::ComPtr<ITypeInfo> result = cachedTypeInfo;
+        return result;
+    }
+
+    return nullptr;
+}
+
 #ifndef ERROR_AUTOMATION_DISABLED
 #define ERROR_AUTOMATION_DISABLED 430L
 #endif
@@ -591,18 +630,47 @@ IFACEMETHODIMP_(ULONG) CExplorerBHO::Release() {
 }
 
 IFACEMETHODIMP CExplorerBHO::GetTypeInfoCount(UINT* pctinfo) {
-    if (pctinfo) {
-        *pctinfo = 0;
+    if (!pctinfo) {
+        return E_POINTER;
     }
+
+    const auto typeInfo = LoadBrowserEventsTypeInfo();
+    *pctinfo = typeInfo ? 1 : 0;
     return S_OK;
 }
 
-IFACEMETHODIMP CExplorerBHO::GetTypeInfo(UINT, LCID, ITypeInfo**) {
-    return E_NOTIMPL;
+IFACEMETHODIMP CExplorerBHO::GetTypeInfo(UINT iTInfo, LCID, ITypeInfo** ppTInfo) {
+    if (!ppTInfo) {
+        return E_POINTER;
+    }
+
+    if (iTInfo != 0) {
+        return DISP_E_BADINDEX;
+    }
+
+    const auto typeInfo = LoadBrowserEventsTypeInfo();
+    if (!typeInfo) {
+        *ppTInfo = nullptr;
+        return TYPE_E_ELEMENTNOTFOUND;
+    }
+
+    return typeInfo.CopyTo(ppTInfo);
 }
 
-IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID*) {
-    return E_NOTIMPL;
+IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID riid, LPOLESTR* rgszNames, UINT cNames, LCID, DISPID* rgDispId) {
+    if (riid != IID_NULL) {
+        return DISP_E_UNKNOWNINTERFACE;
+    }
+    if (!rgszNames || !rgDispId) {
+        return E_POINTER;
+    }
+
+    const auto typeInfo = LoadBrowserEventsTypeInfo();
+    if (!typeInfo) {
+        return TYPE_E_ELEMENTNOTFOUND;
+    }
+
+    return typeInfo->GetIDsOfNames(rgszNames, cNames, reinterpret_cast<MEMBERID*>(rgDispId));
 }
 
 void CExplorerBHO::Disconnect() {
