@@ -218,6 +218,60 @@ bool TestHighlightRegistryInvalidatesSubscribers() {
     return true;
 }
 
+bool TestHighlightRegistryLookupIsCaseInsensitive() {
+    shelltabs::ClearPaneHighlights();
+
+    shelltabs::PaneHighlight highlight{};
+    highlight.hasTextColor = true;
+    highlight.textColor = RGB(11, 22, 33);
+    shelltabs::RegisterPaneHighlight(L"C:\\Temp\\Folder", highlight);
+
+    shelltabs::PaneHighlight fetched{};
+    if (!shelltabs::TryGetPaneHighlight(L"c:/temp/folder", &fetched)) {
+        PrintFailure(L"TestHighlightRegistryLookupIsCaseInsensitive",
+                     L"Lower-case lookup did not resolve registered highlight");
+        shelltabs::ClearPaneHighlights();
+        return false;
+    }
+
+    if (!fetched.hasTextColor || fetched.textColor != highlight.textColor) {
+        PrintFailure(L"TestHighlightRegistryLookupIsCaseInsensitive",
+                     L"Retrieved highlight did not match registered value");
+        shelltabs::ClearPaneHighlights();
+        return false;
+    }
+
+    shelltabs::ClearPaneHighlights();
+    return true;
+}
+
+bool TestHighlightRegistryLookupIgnoresTrailingSlash() {
+    shelltabs::ClearPaneHighlights();
+
+    shelltabs::PaneHighlight highlight{};
+    highlight.hasBackgroundColor = true;
+    highlight.backgroundColor = RGB(44, 55, 66);
+    shelltabs::RegisterPaneHighlight(L"D:/Projects/Sample", highlight);
+
+    shelltabs::PaneHighlight fetched{};
+    if (!shelltabs::TryGetPaneHighlight(L"D:\\Projects\\Sample\\", &fetched)) {
+        PrintFailure(L"TestHighlightRegistryLookupIgnoresTrailingSlash",
+                     L"Lookup with trailing separator failed");
+        shelltabs::ClearPaneHighlights();
+        return false;
+    }
+
+    if (!fetched.hasBackgroundColor || fetched.backgroundColor != highlight.backgroundColor) {
+        PrintFailure(L"TestHighlightRegistryLookupIgnoresTrailingSlash",
+                     L"Trailing-slash lookup returned incorrect highlight");
+        shelltabs::ClearPaneHighlights();
+        return false;
+    }
+
+    shelltabs::ClearPaneHighlights();
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -226,6 +280,8 @@ int wmain() {
         {L"TestListViewHighlightApplied", &TestListViewHighlightApplied},
         {L"TestTreeViewHighlightApplied", &TestTreeViewHighlightApplied},
         {L"TestHighlightRegistryInvalidatesSubscribers", &TestHighlightRegistryInvalidatesSubscribers},
+        {L"TestHighlightRegistryLookupIsCaseInsensitive", &TestHighlightRegistryLookupIsCaseInsensitive},
+        {L"TestHighlightRegistryLookupIgnoresTrailingSlash", &TestHighlightRegistryLookupIgnoresTrailingSlash},
     };
 
     bool success = true;

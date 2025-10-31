@@ -65,6 +65,7 @@ using shelltabs::ArePidlsEqual;
 using shelltabs::GetCanonicalParsingName;
 using shelltabs::GetParsingName;
 using shelltabs::UniquePidl;
+using shelltabs::NormalizeFileSystemPath;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
@@ -128,6 +129,22 @@ std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     }
 
     return std::nullopt;
+}
+
+std::wstring NormalizeHighlightLookupKey(const std::wstring& path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    if (normalized.empty()) {
+        return {};
+    }
+
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return normalized;
 }
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
@@ -3274,7 +3291,20 @@ bool CExplorerBHO::ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighligh
         return false;
     }
 
-    return TryGetPaneHighlight(paths.front(), highlight);
+    const std::wstring normalized = NormalizeHighlightLookupKey(paths.front());
+    if (normalized.empty()) {
+        return false;
+    }
+
+    if (TryGetPaneHighlight(normalized, highlight)) {
+        return true;
+    }
+
+    if (paths.front() != normalized) {
+        return TryGetPaneHighlight(paths.front(), highlight);
+    }
+
+    return false;
 }
 
 bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const {
