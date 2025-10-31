@@ -64,12 +64,13 @@ public:
     bool Save(const SessionData& data) const;
 
     static std::wstring BuildPathForToken(const std::wstring& token);
-    static bool WasPreviousSessionUnclean();
-    static void MarkSessionActive();
-    static void ClearSessionMarker();
+    bool WasPreviousSessionUnclean() const;
+    void MarkSessionActive() const;
+    void ClearSessionMarker() const;
 
 private:
     std::wstring m_storagePath;
+    mutable std::optional<std::wstring> m_lastSerializedSnapshot;
 };
 
 }  // namespace shelltabs
