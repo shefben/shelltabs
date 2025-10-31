@@ -2664,6 +2664,16 @@ void TabBandWindow::RefreshProgressState() {
 
     bool changed = false;
     for (size_t i = 0; i < snapshot.size(); ++i) {
+        if (m_tabData[i].lastActivatedTick != snapshot[i].lastActivatedTick ||
+            m_tabData[i].activationOrdinal != snapshot[i].activationOrdinal) {
+            m_tabData[i].lastActivatedTick = snapshot[i].lastActivatedTick;
+            m_tabData[i].activationOrdinal = snapshot[i].activationOrdinal;
+            if (i < m_items.size()) {
+                m_items[i].data.lastActivatedTick = snapshot[i].lastActivatedTick;
+                m_items[i].data.activationOrdinal = snapshot[i].activationOrdinal;
+            }
+            changed = true;
+        }
         if (m_tabData[i].progress != snapshot[i].progress) {
             m_tabData[i].progress = snapshot[i].progress;
             if (i < m_items.size()) {

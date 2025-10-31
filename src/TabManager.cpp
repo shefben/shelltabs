@@ -3,10 +3,11 @@
 #include "ShellTabsMessages.h"
 
 #include <algorithm>
-#include <numeric>
-#include <optional>
 #include <cmath>
 #include <cwchar>
+#include <limits>
+#include <numeric>
+#include <optional>
 
 
 namespace shelltabs {
@@ -43,6 +44,7 @@ int TabManager::TotalTabCount() const noexcept {
 }
 
 void TabManager::SetSelectedLocation(TabLocation location) {
+    const TabLocation previous = SelectedLocation();
     if (!location.IsValid()) {
         m_selectedGroup = -1;
         m_selectedTab = -1;
@@ -58,6 +60,7 @@ void TabManager::SetSelectedLocation(TabLocation location) {
     m_selectedGroup = location.groupIndex;
     m_selectedTab = location.tabIndex;
     EnsureVisibleSelection();
+    UpdateSelectionActivation(previous);
 }
 
 const TabGroup* TabManager::GetGroup(int index) const noexcept {
@@ -117,12 +120,94 @@ TabLocation TabManager::Find(PCIDLIST_ABSOLUTE pidl) const {
     return {};
 }
 
+TabLocation TabManager::GetLastActivatedTab(bool includeHidden) const {
+    const TabLocation current = SelectedLocation();
+    TabLocation best;
+    uint64_t bestOrdinal = 0;
+    ULONGLONG bestTick = 0;
+    bool hasBest = false;
+
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const auto& tab = group.tabs[t];
+            if (!includeHidden && tab.hidden) {
+                continue;
+            }
+            if (current.groupIndex == static_cast<int>(g) && current.tabIndex == static_cast<int>(t)) {
+                continue;
+            }
+            const uint64_t ordinal = tab.activationOrdinal;
+            const ULONGLONG tick = tab.lastActivatedTick;
+            if (!hasBest || ordinal > bestOrdinal ||
+                (ordinal == bestOrdinal && tick > bestTick) ||
+                (ordinal == bestOrdinal && tick == bestTick &&
+                 (static_cast<int>(g) < best.groupIndex ||
+                  (static_cast<int>(g) == best.groupIndex && static_cast<int>(t) < best.tabIndex)))) {
+                best = {static_cast<int>(g), static_cast<int>(t)};
+                bestOrdinal = ordinal;
+                bestTick = tick;
+                hasBest = true;
+            }
+        }
+    }
+
+    if (!hasBest) {
+        return {};
+    }
+    return best;
+}
+
+std::vector<TabLocation> TabManager::GetTabsByActivationOrder(bool includeHidden) const {
+    struct Candidate {
+        TabLocation location;
+        uint64_t ordinal;
+        ULONGLONG tick;
+    };
+
+    std::vector<Candidate> candidates;
+    candidates.reserve(static_cast<size_t>(TotalTabCount()));
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const auto& tab = group.tabs[t];
+            if (!includeHidden && tab.hidden) {
+                continue;
+            }
+            candidates.push_back({{static_cast<int>(g), static_cast<int>(t)}, tab.activationOrdinal,
+                                  tab.lastActivatedTick});
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& lhs, const Candidate& rhs) {
+        if (lhs.ordinal != rhs.ordinal) {
+            return lhs.ordinal > rhs.ordinal;
+        }
+        if (lhs.tick != rhs.tick) {
+            return lhs.tick > rhs.tick;
+        }
+        if (lhs.location.groupIndex != rhs.location.groupIndex) {
+            return lhs.location.groupIndex < rhs.location.groupIndex;
+        }
+        return lhs.location.tabIndex < rhs.location.tabIndex;
+    });
+
+    std::vector<TabLocation> order;
+    order.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        order.emplace_back(candidate.location);
+    }
+    return order;
+}
+
 TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex) {
     if (!pidl) {
         return {};
     }
 
     EnsureDefaultGroup();
+
+    const TabLocation previousSelection = SelectedLocation();
 
     if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = (m_selectedGroup >= 0) ? m_selectedGroup : 0;
@@ -147,6 +232,7 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
     }
 
     EnsureVisibleSelection();
+    UpdateSelectionActivation(previousSelection);
     return location;
 }
 
@@ -158,6 +244,7 @@ void TabManager::Remove(TabLocation location) {
         return;
     }
 
+    const TabLocation previousSelection = SelectedLocation();
     auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
     if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
         return;
@@ -197,6 +284,7 @@ void TabManager::Remove(TabLocation location) {
     }
 
     EnsureVisibleSelection();
+    UpdateSelectionActivation(previousSelection);
 }
 
 std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
@@ -207,6 +295,7 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
         return std::nullopt;
     }
 
+    const TabLocation previousSelection = SelectedLocation();
     auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
     if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
         return std::nullopt;
@@ -251,11 +340,14 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
 
     EnsureVisibleSelection();
 
+    UpdateSelectionActivation(previousSelection);
     return removed;
 }
 
 TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, bool select) {
     EnsureDefaultGroup();
+
+    const TabLocation previousSelection = SelectedLocation();
 
     if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = std::clamp(groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
@@ -279,6 +371,7 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
 
     EnsureVisibleSelection();
 
+    UpdateSelectionActivation(previousSelection);
     return {groupIndex, insertIndex};
 }
 
@@ -331,6 +424,7 @@ void TabManager::Clear() {
     m_selectedGroup = -1;
     m_selectedTab = -1;
     m_groupSequence = 1;
+    m_nextActivationOrdinal = 1;
     EnsureDefaultGroup();
 }
 
@@ -340,6 +434,7 @@ void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int se
     m_selectedTab = selectedTab;
     m_groupSequence = std::max(groupSequence, 1);
     EnsureDefaultGroup();
+    RecalculateNextActivationOrdinal();
     EnsureVisibleSelection();
 }
 
@@ -352,8 +447,15 @@ std::vector<TabViewItem> TabManager::BuildView() const {
         const size_t total = group.tabs.size();
         size_t visible = 0;
         size_t hidden = 0;
+        ULONGLONG groupLastTick = 0;
+        uint64_t groupLastOrdinal = 0;
 
         for (const auto& tab : group.tabs) {
+            if (tab.activationOrdinal > groupLastOrdinal ||
+                (tab.activationOrdinal == groupLastOrdinal && tab.lastActivatedTick > groupLastTick)) {
+                groupLastOrdinal = tab.activationOrdinal;
+                groupLastTick = tab.lastActivatedTick;
+            }
             if (tab.hidden) {
                 ++hidden;
                 continue;
@@ -385,6 +487,8 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.savedGroupId = group.savedGroupId;
             header.isSavedGroup = !group.savedGroupId.empty();
             header.headerVisible = group.headerVisible;
+            header.lastActivatedTick = groupLastTick;
+            header.activationOrdinal = groupLastOrdinal;
             items.emplace_back(std::move(header));
         }
 
@@ -412,6 +516,8 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();
             item.headerVisible = group.headerVisible;
+            item.lastActivatedTick = tab.lastActivatedTick;
+            item.activationOrdinal = tab.activationOrdinal;
             if (tab.progress.active) {
                 item.progress.visible = true;
                 item.progress.indeterminate = tab.progress.indeterminate;
@@ -530,6 +636,54 @@ bool TabManager::ClearProgress(TabInfo* tab) {
     return true;
 }
 
+void TabManager::UpdateSelectionActivation(TabLocation previousSelection) {
+    const TabLocation current = SelectedLocation();
+    if (!current.IsValid()) {
+        return;
+    }
+    if (previousSelection.IsValid() && previousSelection.groupIndex == current.groupIndex &&
+        previousSelection.tabIndex == current.tabIndex) {
+        return;
+    }
+
+    TabInfo* tab = Get(current);
+    if (!tab) {
+        return;
+    }
+
+    tab->lastActivatedTick = GetTickCount64();
+    if (m_nextActivationOrdinal == 0) {
+        m_nextActivationOrdinal = 1;
+    }
+    tab->activationOrdinal = m_nextActivationOrdinal;
+    if (m_nextActivationOrdinal < std::numeric_limits<uint64_t>::max()) {
+        ++m_nextActivationOrdinal;
+    }
+
+    NotifyProgressListeners();
+}
+
+void TabManager::RecalculateNextActivationOrdinal() {
+    uint64_t maxOrdinal = 0;
+    for (const auto& group : m_groups) {
+        for (const auto& tab : group.tabs) {
+            if (tab.activationOrdinal > maxOrdinal) {
+                maxOrdinal = tab.activationOrdinal;
+            }
+        }
+    }
+
+    if (maxOrdinal >= std::numeric_limits<uint64_t>::max()) {
+        m_nextActivationOrdinal = std::numeric_limits<uint64_t>::max();
+    } else {
+        m_nextActivationOrdinal = maxOrdinal + 1;
+    }
+
+    if (m_nextActivationOrdinal == 0) {
+        m_nextActivationOrdinal = 1;
+    }
+}
+
 void TabManager::TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<double> fraction) {
     ULONGLONG now = GetTickCount64();
     TabLocation location = Find(folder);
@@ -624,9 +778,11 @@ void TabManager::HideTab(TabLocation location) {
     if (!tab) {
         return;
     }
+    const TabLocation previousSelection = SelectedLocation();
     tab->hidden = true;
     if (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex) {
         EnsureVisibleSelection();
+        UpdateSelectionActivation(previousSelection);
     }
 }
 
@@ -635,12 +791,14 @@ void TabManager::UnhideTab(TabLocation location) {
     if (!tab) {
         return;
     }
+    const TabLocation previousSelection = SelectedLocation();
     tab->hidden = false;
     if (m_selectedGroup < 0 || m_selectedGroup >= static_cast<int>(m_groups.size())) {
         m_selectedGroup = location.groupIndex;
         m_selectedTab = location.tabIndex;
     }
     EnsureVisibleSelection();
+    UpdateSelectionActivation(previousSelection);
 }
 
 void TabManager::UnhideAllInGroup(int groupIndex) {
@@ -648,6 +806,7 @@ void TabManager::UnhideAllInGroup(int groupIndex) {
     if (!group) {
         return;
     }
+    const TabLocation previousSelection = SelectedLocation();
     for (auto& tab : group->tabs) {
         tab.hidden = false;
     }
@@ -656,6 +815,7 @@ void TabManager::UnhideAllInGroup(int groupIndex) {
         m_selectedTab = group->tabs.empty() ? -1 : 0;
     }
     EnsureVisibleSelection();
+    UpdateSelectionActivation(previousSelection);
 }
 
 std::vector<std::pair<TabLocation, std::wstring>> TabManager::GetHiddenTabs(int groupIndex) const {

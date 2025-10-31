@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,8 @@ struct SessionTab {
     std::wstring name;
     std::wstring tooltip;
     bool hidden = false;
+    ULONGLONG lastActivatedTick = 0;
+    uint64_t activationOrdinal = 0;
 };
 
 struct SessionGroup {
