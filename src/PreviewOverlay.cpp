@@ -4,6 +4,9 @@
 #include <mutex>
 #include <string>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <CommCtrl.h>
 
 #include "Module.h"
@@ -145,7 +148,7 @@ HBITMAP CreateFramedPreviewBitmap(HBITMAP sourceBitmap, const SIZE& sourceSize, 
 
     graphics.ResetClip();
 
-    if (kPreviewFrameHighlightThickness > 0) {
+    if constexpr (kPreviewFrameHighlightThickness > 0) {
         Gdiplus::Pen highlightPen(Gdiplus::Color(190, 255, 255, 255),
                                   static_cast<Gdiplus::REAL>(kPreviewFrameHighlightThickness));
         highlightPen.SetAlignment(Gdiplus::PenAlignmentInset);
@@ -165,13 +168,13 @@ HBITMAP CreatePlaceholderContentBitmap(const SIZE& desiredSize, const wchar_t* t
         return nullptr;
     }
 
-    const wchar_t* fallback = L"Generating preview…";
-    std::wstring label = (text && *text) ? text : fallback;
+    const wchar_t* fallbackText = L"Generating preview…";
+    std::wstring label = (text && *text) ? text : fallbackText;
 
-    const int minWidth = std::max(desiredSize.cx, 128);
-    const int minHeight = std::max(desiredSize.cy, 96);
-    const int width = minWidth > 0 ? minWidth : 192;
-    const int height = minHeight > 0 ? minHeight : 128;
+    const LONG minWidth = std::max<LONG>(desiredSize.cx, 128L);
+    const LONG minHeight = std::max<LONG>(desiredSize.cy, 96L);
+    const int width = minWidth > 0 ? static_cast<int>(minWidth) : 192;
+    const int height = minHeight > 0 ? static_cast<int>(minHeight) : 128;
 
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(info.bmiHeader);
@@ -213,10 +216,13 @@ HBITMAP CreatePlaceholderContentBitmap(const SIZE& desiredSize, const wchar_t* t
 
     const COLORREF windowRgb = GetSysColor(COLOR_WINDOW);
     const COLORREF highlightRgb = GetSysColor(COLOR_HIGHLIGHT);
-    const Gdiplus::Color topColor(230, GetRValue(windowRgb), GetGValue(windowRgb), GetBValue(windowRgb));
-    const Gdiplus::Color bottomColor(255, std::min(255, GetRValue(windowRgb) + 10),
-                                     std::min(255, GetGValue(windowRgb) + 10),
-                                     std::min(255, GetBValue(windowRgb) + 10));
+    const Gdiplus::Color topColor(230, static_cast<BYTE>(GetRValue(windowRgb)),
+                                  static_cast<BYTE>(GetGValue(windowRgb)),
+                                  static_cast<BYTE>(GetBValue(windowRgb)));
+    const Gdiplus::Color bottomColor(255,
+                                     static_cast<BYTE>(std::min(255, GetRValue(windowRgb) + 10)),
+                                     static_cast<BYTE>(std::min(255, GetGValue(windowRgb) + 10)),
+                                     static_cast<BYTE>(std::min(255, GetBValue(windowRgb) + 10)));
 
     Gdiplus::RectF backgroundRect(0.0f, 0.0f, static_cast<Gdiplus::REAL>(width), static_cast<Gdiplus::REAL>(height));
     Gdiplus::LinearGradientBrush backgroundBrush(backgroundRect, topColor, bottomColor, 90.0f);
@@ -250,12 +256,12 @@ HBITMAP CreatePlaceholderContentBitmap(const SIZE& desiredSize, const wchar_t* t
     if (!label.empty()) {
         Gdiplus::FontFamily family(L"Segoe UI");
         Gdiplus::Font primary(&family, 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
-        Gdiplus::Font fallback(L"Segoe UI", 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+        Gdiplus::Font fallbackFont(L"Segoe UI", 12.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
         Gdiplus::Font* font = nullptr;
         if (primary.GetLastStatus() == Gdiplus::Ok) {
             font = &primary;
-        } else if (fallback.GetLastStatus() == Gdiplus::Ok) {
-            font = &fallback;
+        } else if (fallbackFont.GetLastStatus() == Gdiplus::Ok) {
+            font = &fallbackFont;
         }
         if (font) {
             const COLORREF textRgb = GetSysColor(COLOR_WINDOWTEXT);
