@@ -28,6 +28,7 @@
 
 #include <wrl/client.h>
 
+#include "GlowRenderer.h"
 #include "PaneHooks.h"
 #include "Utilities.h"
 
@@ -205,6 +206,12 @@ struct ShellTabsOptions;
                 void RefreshListViewAccentState();
                 void EnsureListViewSubclass();
                 void EnsureListViewHostSubclass(HWND hostWindow);
+                void RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
+                void UnregisterGlowSurface(HWND hwnd);
+                void UpdateGlowSurfaceTargets();
+                void PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active);
+                void ResetGlowSurfaces();
+                void HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam);
                 bool AttachListView(HWND listView);
                 void DetachListView();
                 void DetachListViewHosts();
@@ -289,12 +296,14 @@ struct ShellTabsOptions;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
                 std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
+                std::unordered_map<HWND, ExplorerSurfaceKind, HandleHasher> m_glowSurfaceKinds;
                 bool m_explorerPaneRetryPending = false;
                 UINT_PTR m_explorerPaneRetryTimerId = 0;
                 bool m_loggedExplorerPanesReady = false;
                 bool m_loggedListViewMissing = false;
                 bool m_loggedTreeViewMissing = false;
                 PaneHookRouter m_paneHooks;
+                ExplorerGlowRenderer m_glowRenderer;
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
                 Microsoft::WRL::ComPtr<NamespaceTreeCustomDrawSink> m_namespaceTreeCustomDrawSink;
                 DWORD m_namespaceTreeCustomDrawCookie = 0;

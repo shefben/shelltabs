@@ -556,6 +556,26 @@ struct BreadcrumbHookEntry {
 std::mutex g_breadcrumbHookMutex;
 std::unordered_map<DWORD, BreadcrumbHookEntry> g_breadcrumbHooks;
 
+const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
+    using shelltabs::ExplorerSurfaceKind;
+    switch (kind) {
+        case ExplorerSurfaceKind::ListView:
+            return L"list view";
+        case ExplorerSurfaceKind::Header:
+            return L"header";
+        case ExplorerSurfaceKind::Rebar:
+            return L"rebar";
+        case ExplorerSurfaceKind::Toolbar:
+            return L"toolbar";
+        case ExplorerSurfaceKind::Edit:
+            return L"edit";
+        case ExplorerSurfaceKind::DirectUi:
+            return L"DirectUI host";
+        default:
+            return L"surface";
+    }
+}
+
 }  // namespace
 
 class shelltabs::CExplorerBHO::NamespaceTreeCustomDrawSink
@@ -654,6 +674,7 @@ std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks(this) {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
+    m_glowRenderer.Configure(OptionsStore::Instance().Get());
 
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
@@ -668,6 +689,7 @@ CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     ClearListViewAccentResources();
     DestroyProgressGradientResources();
+    m_glowRenderer.Reset();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
         m_bufferedPaintInitialized = false;
@@ -1975,11 +1997,21 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
 }
 
 void CExplorerBHO::DetachListView() {
+    if (m_listView) {
+        if (HWND header = ListView_GetHeader(m_listView)) {
+            if (IsWindow(header)) {
+                RemoveWindowSubclass(header, &CExplorerBHO::ExplorerViewSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+            }
+            UnregisterGlowSurface(header);
+        }
+    }
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
         RemoveWindowSubclass(m_listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
     if (m_listView) {
         ClearListViewAccentResources(m_listView);
+        UnregisterGlowSurface(m_listView);
     }
     ClearListViewBackgroundImage();
     m_listView = nullptr;
@@ -2015,6 +2047,10 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     ListView_SetExtendedListViewStyle(listView, exStyle);
 
     m_paneHooks.SetListView(m_listView);
+    RegisterGlowSurface(listView, ExplorerSurfaceKind::ListView, false);
+    if (HWND header = ListView_GetHeader(listView)) {
+        RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
+    }
     LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
     EnsureListViewBackgroundImage(listView);
     return true;
@@ -2049,6 +2085,170 @@ void CExplorerBHO::DetachListViewHosts() {
         }
     }
     m_listViewHostSubclassed.clear();
+}
+
+void CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+    if (!IsWindowOwnedByThisExplorer(hwnd)) {
+        return;
+    }
+
+    auto existing = m_glowSurfaceKinds.find(hwnd);
+    if (existing != m_glowSurfaceKinds.end()) {
+        existing->second = kind;
+        m_glowRenderer.RegisterSurface(hwnd, kind);
+        return;
+    }
+
+    if (ensureSubclass) {
+        if (!SetWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            const DWORD error = GetLastError();
+            std::wstring message = L"SetWindowSubclass(";
+            message += DescribeSurfaceKind(kind);
+            message += L")";
+            LogLastError(message.c_str(), error);
+            return;
+        }
+    }
+
+    m_glowSurfaceKinds.emplace(hwnd, kind);
+    m_glowRenderer.RegisterSurface(hwnd, kind);
+    LogMessage(LogLevel::Info, L"Registered glow surface %ls (hwnd=%p)", DescribeSurfaceKind(kind), hwnd);
+}
+
+void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+    if (m_glowSurfaceKinds.erase(hwnd) > 0) {
+        m_glowRenderer.UnregisterSurface(hwnd);
+    }
+}
+
+void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active) {
+    for (auto it = m_glowSurfaceKinds.begin(); it != m_glowSurfaceKinds.end();) {
+        HWND target = it->first;
+        const bool shouldKeep = target && IsWindow(target) && active.find(target) != active.end();
+        if (!shouldKeep) {
+            if (target && IsWindow(target)) {
+                RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+            }
+            m_glowRenderer.UnregisterSurface(target);
+            it = m_glowSurfaceKinds.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void CExplorerBHO::ResetGlowSurfaces() {
+    for (const auto& entry : m_glowSurfaceKinds) {
+        HWND target = entry.first;
+        if (!target) {
+            continue;
+        }
+        if (IsWindow(target)) {
+            RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        }
+        m_glowRenderer.UnregisterSurface(target);
+    }
+    m_glowSurfaceKinds.clear();
+}
+
+void CExplorerBHO::UpdateGlowSurfaceTargets() {
+    std::unordered_set<HWND, HandleHasher> active;
+
+    if (m_listView && IsWindow(m_listView)) {
+        RegisterGlowSurface(m_listView, ExplorerSurfaceKind::ListView, false);
+        active.insert(m_listView);
+        if (HWND header = ListView_GetHeader(m_listView)) {
+            RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
+            active.insert(header);
+        }
+    }
+
+    if (m_directUiView && IsWindow(m_directUiView)) {
+        RegisterGlowSurface(m_directUiView, ExplorerSurfaceKind::DirectUi, false);
+        active.insert(m_directUiView);
+    }
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (frame && IsWindow(frame)) {
+        HWND rebar = FindDescendantWindow(frame, L"ReBarWindow32");
+        if (rebar && IsWindow(rebar) && IsWindowOwnedByThisExplorer(rebar)) {
+            RegisterGlowSurface(rebar, ExplorerSurfaceKind::Rebar, true);
+            active.insert(rebar);
+
+            struct EnumContext {
+                CExplorerBHO* self = nullptr;
+                std::unordered_set<HWND, HandleHasher>* active = nullptr;
+            } context{this, &active};
+
+            EnumChildWindows(
+                rebar,
+                [](HWND child, LPARAM param) -> BOOL {
+                    auto* ctx = reinterpret_cast<EnumContext*>(param);
+                    if (!ctx || !ctx->self || !ctx->active) {
+                        return TRUE;
+                    }
+                    if (MatchesClass(child, TOOLBARCLASSNAMEW) && ctx->self->IsWindowOwnedByThisExplorer(child)) {
+                        if (HWND parent = GetParent(child); parent && MatchesClass(parent, L"ShellTabsBandWindow")) {
+                            return TRUE;
+                        }
+                        ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Toolbar, true);
+                        ctx->active->insert(child);
+                    }
+                    return TRUE;
+                },
+                reinterpret_cast<LPARAM>(&context));
+        }
+
+        if (HWND edit = FindAddressEditControl()) {
+            RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true);
+            active.insert(edit);
+        }
+    }
+
+    PruneGlowSurfaces(active);
+}
+
+void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
+    auto it = m_glowSurfaceKinds.find(hwnd);
+    if (it == m_glowSurfaceKinds.end()) {
+        return;
+    }
+    if (!m_glowRenderer.ShouldRender()) {
+        return;
+    }
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) {
+        return;
+    }
+
+    HDC targetDc = nullptr;
+    if (msg == WM_PAINT) {
+        if (wParam) {
+            targetDc = reinterpret_cast<HDC>(wParam);
+        } else {
+            targetDc = GetDC(hwnd);
+        }
+    } else if (msg == WM_PRINTCLIENT) {
+        targetDc = reinterpret_cast<HDC>(wParam);
+    }
+
+    if (!targetDc) {
+        return;
+    }
+
+    m_glowRenderer.PaintSurface(hwnd, it->second, targetDc, client);
+
+    if (msg == WM_PAINT && wParam == 0) {
+        ReleaseDC(hwnd, targetDc);
+    }
 }
 
 void CExplorerBHO::EnsureListViewSubclass() {
@@ -2214,6 +2414,7 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
             RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
                                  reinterpret_cast<UINT_PTR>(this));
         }
+        UnregisterGlowSurface(m_directUiView);
         m_directUiView = nullptr;
         m_directUiSubclassInstalled = false;
     }
@@ -2249,6 +2450,7 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
                                   reinterpret_cast<UINT_PTR>(this), 0)) {
                 m_directUiView = directUiHost;
                 m_directUiSubclassInstalled = true;
+                RegisterGlowSurface(directUiHost, ExplorerSurfaceKind::DirectUi, false);
                 LogMessage(LogLevel::Info, L"Installed explorer DirectUI host subclass (direct=%p)", directUiHost);
             } else {
                 LogLastError(L"SetWindowSubclass(DirectUI host)", GetLastError());
@@ -2290,6 +2492,8 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     }
 
     m_paneHooks.SetTreeView(m_treeViewSubclassInstalled ? m_treeView : nullptr);
+
+    UpdateGlowSurfaceTargets();
 
     if (listViewResolved && treeViewResolved) {
         if (!m_loggedExplorerPanesReady) {
@@ -2376,9 +2580,12 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
         RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
     }
+    UnregisterGlowSurface(m_directUiView);
     if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
         RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
+
+    ResetGlowSurfaces();
 
     m_shellViewWindowSubclassInstalled = false;
     m_frameWindow = nullptr;
@@ -3089,6 +3296,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     const bool isDirectUi = isDirectUiHost || isDirectUiClass;
     const bool handlesBackground = isListView || isDirectUi || isListViewHost;
     const bool isShellViewWindow = (hwnd == m_shellViewWindow);
+    const bool isGlowSurface = (m_glowSurfaceKinds.find(hwnd) != m_glowSurfaceKinds.end());
 
     if (msg == WM_TIMER && m_explorerPaneRetryPending && wParam == m_explorerPaneRetryTimerId) {
         CancelExplorerPaneRetry();
@@ -3111,6 +3319,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         UpdateCurrentFolderBackground();
         InvalidateFolderBackgroundTargets();
         RefreshListViewAccentState();
+        m_glowRenderer.InvalidateRegisteredSurfaces();
         *result = 0;
         return true;
     }
@@ -3118,6 +3327,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     if ((isShellViewWindow || isDirectUiHost || isListViewHost) &&
         (msg == WM_WINDOWPOSCHANGED || msg == WM_SHOWWINDOW || msg == WM_SIZE || msg == WM_PAINT)) {
         EnsureListViewSubclass();
+        UpdateGlowSurfaceTargets();
     }
 
     switch (msg) {
@@ -3166,6 +3376,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_PARENTNOTIFY: {
             if ((isShellViewWindow || isDirectUiHost) && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
                 EnsureListViewSubclass();
+                UpdateGlowSurfaceTargets();
                 if (!TryResolveExplorerPanes()) {
                     ScheduleExplorerPaneRetry();
                 }
@@ -3180,6 +3391,19 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (isListView) {
                 RefreshListViewAccentState();
                 EnsureListViewBackgroundImage(hwnd);
+            }
+            if (isGlowSurface) {
+                if (msg == WM_THEMECHANGED) {
+                    m_glowRenderer.HandleThemeChanged(hwnd);
+                } else {
+                    m_glowRenderer.HandleSettingChanged(hwnd);
+                }
+            }
+            break;
+        }
+        case WM_DPICHANGED: {
+            if (isGlowSurface) {
+                m_glowRenderer.HandleDpiChanged(hwnd, LOWORD(wParam), HIWORD(wParam));
             }
             break;
         }
@@ -4098,6 +4322,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         loggedOptionsLoadFailure = false;
     }
     const ShellTabsOptions options = store.Get();
+    m_glowRenderer.Configure(options);
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
     m_breadcrumbGradientTransparency = std::clamp(options.breadcrumbGradientTransparency, 0, 100);
@@ -5467,10 +5692,17 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
             self->ClearPendingOpenInNewTabState();
         }
 
+        self->UnregisterGlowSurface(hwnd);
         RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
     }
 
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
+    LRESULT defResult = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+    if (msg == WM_PAINT || msg == WM_PRINTCLIENT) {
+        self->HandleExplorerPostPaint(hwnd, msg, wParam);
+    }
+
+    return defResult;
 }
 
 }  // namespace shelltabs
