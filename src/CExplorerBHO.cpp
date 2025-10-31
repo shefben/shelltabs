@@ -2981,14 +2981,14 @@ bool CExplorerBHO::CollectPathsFromItemArray(IShellItemArray* items, std::vector
         return false;
     }
 
-    if (count > kMaxTrackedSelection) {
-        LogMessage(LogLevel::Info, L"CollectPathsFromItemArray limiting selection from %lu to %u entries", count,
-                   kMaxTrackedSelection);
-    }
-
     bool appended = false;
 
-    for (DWORD index = 0; index < count && paths.size() < kMaxTrackedSelection; ++index) {
+    const size_t additional = static_cast<size_t>(count);
+    if (additional > 0 && additional <= paths.max_size() - paths.size()) {
+        paths.reserve(paths.size() + additional);
+    }
+
+    for (DWORD index = 0; index < count; ++index) {
         Microsoft::WRL::ComPtr<IShellItem> item;
         if (FAILED(items->GetItemAt(index, &item)) || !item) {
             LogMessage(LogLevel::Warning, L"CollectPathsFromItemArray failed: unable to access item %lu", index);
@@ -3015,8 +3015,7 @@ bool CExplorerBHO::CollectPathsFromItemArray(IShellItemArray* items, std::vector
             if (value.empty()) {
                 continue;
             }
-            if (std::find(paths.begin(), paths.end(), value) == paths.end() &&
-                paths.size() < kMaxTrackedSelection) {
+            if (std::find(paths.begin(), paths.end(), value) == paths.end()) {
                 paths.push_back(std::move(value));
                 appended = true;
             }
@@ -3040,11 +3039,6 @@ bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) co
     int index = -1;
     bool appended = false;
     while ((index = ListView_GetNextItem(m_listView, index, LVNI_SELECTED)) != -1) {
-        if (paths.size() >= kMaxTrackedSelection) {
-            LogMessage(LogLevel::Info, L"CollectPathsFromListView truncated selection at %zu entries", paths.size());
-            break;
-        }
-
         LVITEMW item{};
         item.mask = LVIF_PARAM;
         item.iItem = index;
@@ -3067,10 +3061,6 @@ bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) co
 
 bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) const {
     if (!m_treeView || !IsWindow(m_treeView)) {
-        return false;
-    }
-
-    if (paths.size() >= kMaxTrackedSelection) {
         return false;
     }
 

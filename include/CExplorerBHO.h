@@ -281,7 +281,6 @@ struct ShellTabsOptions;
                 static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;
                 bool m_contextMenuInserted = false;
                 static constexpr UINT kOpenInNewTabCommandId = 0xE170;
-                static constexpr UINT kMaxTrackedSelection = 16;
         };
 
 }  // namespace shelltabs
