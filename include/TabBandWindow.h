@@ -251,6 +251,7 @@ private:
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
+    TabManager* ResolveManager() const noexcept;
     void RegisterShellNotifications();
     void UnregisterShellNotifications();
     void OnShellNotify(WPARAM wParam, LPARAM lParam);

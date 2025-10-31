@@ -142,4 +142,32 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         _UNICODE
         _WIN32_WINNT=0x0A00
     )
+
+    add_executable(ShellTabsTabManagerTests
+        tests/TabManagerWindowTests.cpp
+        src/TabManager.cpp
+        src/Utilities.cpp
+        src/Logging.cpp
+        src/ShellTabsMessages.cpp
+        src/StringUtils.cpp
+    )
+
+    target_include_directories(ShellTabsTabManagerTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsTabManagerTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
+
+    target_link_libraries(ShellTabsTabManagerTests PRIVATE
+        shlwapi
+        shell32
+        ole32
+        oleaut32
+        uuid
+    )
 endif()

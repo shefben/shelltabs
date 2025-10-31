@@ -29,11 +29,51 @@ inline double ClampProgress(double value) {
 }
 }  // namespace
 
+std::mutex TabManager::s_windowMutex;
+std::unordered_map<TabManager::ExplorerWindowId, TabManager*, TabManager::ExplorerWindowIdHash>
+    TabManager::s_windowMap;
+
 TabManager::TabManager() { EnsureDefaultGroup(); }
+
+TabManager::~TabManager() { ClearWindowId(); }
 
 TabManager& TabManager::Get() {
     static TabManager instance;
     return instance;
+}
+
+void TabManager::SetWindowId(ExplorerWindowId id) {
+    std::scoped_lock lock(s_windowMutex);
+    if (m_windowId == id) {
+        return;
+    }
+    if (m_windowId.IsValid()) {
+        auto existing = s_windowMap.find(m_windowId);
+        if (existing != s_windowMap.end() && existing->second == this) {
+            s_windowMap.erase(existing);
+        }
+    }
+    m_windowId = id;
+    if (m_windowId.IsValid()) {
+        s_windowMap[m_windowId] = this;
+    }
+}
+
+void TabManager::ClearWindowId() {
+    std::scoped_lock lock(s_windowMutex);
+    if (!m_windowId.IsValid()) {
+        return;
+    }
+    auto existing = s_windowMap.find(m_windowId);
+    if (existing != s_windowMap.end() && existing->second == this) {
+        s_windowMap.erase(existing);
+    }
+    m_windowId = {};
+}
+
+size_t TabManager::ActiveWindowCount() {
+    std::scoped_lock lock(s_windowMutex);
+    return s_windowMap.size();
 }
 
 int TabManager::TotalTabCount() const noexcept {

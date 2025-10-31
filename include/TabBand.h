@@ -109,6 +109,9 @@ public:
     void CloseFrameWindowAsync();
     void EnsureTabPreview(TabLocation location);
 
+    TabManager& GetTabManager() noexcept { return m_tabs; }
+    const TabManager& GetTabManager() const noexcept { return m_tabs; }
+
     bool CanCloseOtherTabs(TabLocation location) const;
     bool CanCloseTabsToRight(TabLocation location) const;
     bool CanCloseTabsToLeft(TabLocation location) const;
@@ -127,9 +130,11 @@ public:
     std::vector<std::wstring> GetSavedGroupNames() const;
     void OnCreateSavedGroup(int afterGroup);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
-    void OnShowOptionsDialog(int initialTab = 0);
+    void OnShowOptionsDialog(int initialTab = 0, const std::wstring& focusGroupId = std::wstring(),
+                             bool editFocusedGroup = false);
     void OnDeferredNavigate();
     void OnDockingModeChanged(TabBandDockMode mode);
+    std::wstring GetSavedGroupId(int groupIndex) const;
 
 private:
     std::atomic<long> m_refCount;
@@ -161,6 +166,7 @@ private:
     bool m_deferredNavigationPosted = false;
     TabBandDockMode m_dockMode = TabBandDockMode::kAutomatic;
     TabBandDockMode m_requestedDockMode = TabBandDockMode::kAutomatic;
+    mutable bool m_skipSavedGroupSync = false;
 
     struct ClosedGroupMetadata {
         std::wstring name;
@@ -218,6 +224,7 @@ private:
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
     HWND GetFrameWindow() const;
+    TabManager::ExplorerWindowId BuildWindowId() const;
     std::wstring ResolveWindowToken();
     void ReleaseWindowToken();
     void CaptureActiveTabPreview();

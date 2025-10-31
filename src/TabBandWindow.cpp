@@ -490,7 +490,9 @@ HWND TabBandWindow::Create(HWND parent) {
             }
         }
         RegisterShellNotifications();
-        TabManager::Get().RegisterProgressListener(m_hwnd);
+        if (auto* manager = ResolveManager()) {
+            manager->RegisterProgressListener(m_hwnd);
+        }
         UpdateProgressAnimationState();
     }
 
@@ -505,7 +507,9 @@ void TabBandWindow::Destroy() {
     ClearDropHoverState();
     HidePreviewWindow(true);
     if (m_hwnd) {
-        TabManager::Get().UnregisterProgressListener(m_hwnd);
+        if (auto* manager = ResolveManager()) {
+            manager->UnregisterProgressListener(m_hwnd);
+        }
     }
     UnregisterShellNotifications();
     if (m_hwnd && m_progressTimerActive) {
@@ -2689,7 +2693,8 @@ void TabBandWindow::CancelPreviewRequest() {
 }
 
 void TabBandWindow::RefreshProgressState() {
-    auto snapshot = TabManager::Get().BuildView();
+    auto* manager = ResolveManager();
+    const auto snapshot = manager ? manager->BuildView() : std::vector<TabViewItem>{};
     bool layoutMismatch = snapshot.size() != m_tabData.size();
     if (!layoutMismatch) {
         for (size_t i = 0; i < snapshot.size(); ++i) {
@@ -2763,7 +2768,8 @@ void TabBandWindow::HandleProgressTimer() {
         return;
     }
     const ULONGLONG now = GetTickCount64();
-    if (TabManager::Get().ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
+    if (auto* manager = ResolveManager(); manager &&
+        manager->ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
         RefreshProgressState();
         return;
     }
@@ -2772,6 +2778,10 @@ void TabBandWindow::HandleProgressTimer() {
         return;
     }
     InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+TabManager* TabBandWindow::ResolveManager() const noexcept {
+    return m_owner ? &m_owner->GetTabManager() : nullptr;
 }
 
 void TabBandWindow::RegisterShellNotifications() {
@@ -2811,25 +2821,29 @@ void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
     if (!notification) {
         return;
     }
+    auto* manager = ResolveManager();
+    if (!manager) {
+        return;
+    }
     const LONG eventId = static_cast<LONG>(wParam) & 0xFFFF;
-    auto touch = [](PCIDLIST_ABSOLUTE pidl) {
+    auto touch = [manager](PCIDLIST_ABSOLUTE pidl) {
         if (!pidl) {
             return;
         }
         if (auto parent = CloneParent(pidl)) {
-            TabManager::Get().TouchFolderOperation(parent.get());
+            manager->TouchFolderOperation(parent.get());
         } else {
-            TabManager::Get().TouchFolderOperation(pidl);
+            manager->TouchFolderOperation(pidl);
         }
     };
-    auto clear = [](PCIDLIST_ABSOLUTE pidl) {
+    auto clear = [manager](PCIDLIST_ABSOLUTE pidl) {
         if (!pidl) {
             return;
         }
         if (auto parent = CloneParent(pidl)) {
-            TabManager::Get().ClearFolderOperation(parent.get());
+            manager->ClearFolderOperation(parent.get());
         } else {
-            TabManager::Get().ClearFolderOperation(pidl);
+            manager->ClearFolderOperation(pidl);
         }
     };
 
@@ -2943,7 +2957,15 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 
         if (id == IDM_MANAGE_GROUPS) {
                 if (m_owner) {
-                        m_owner->OnShowOptionsDialog(2);
+                        std::wstring focusId;
+                        if (m_contextHit.location.groupIndex >= 0) {
+                                focusId = m_owner->GetSavedGroupId(m_contextHit.location.groupIndex);
+                        }
+                        if (!focusId.empty()) {
+                                m_owner->OnShowOptionsDialog(2, focusId);
+                        } else {
+                                m_owner->OnShowOptionsDialog(2);
+                        }
                 }
                 ClearExplorerContext();
                 return;
@@ -4474,7 +4496,9 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->ClearDropHoverState();
                 self->HidePreviewWindow(true);
                 self->UnregisterShellNotifications();
-                TabManager::Get().UnregisterProgressListener(hwnd);
+                if (auto* manager = self->ResolveManager()) {
+                    manager->UnregisterProgressListener(hwnd);
+                }
                 if (self->m_progressTimerActive) {
                     KillTimer(hwnd, TabBandWindow::kProgressTimerId);
                     self->m_progressTimerActive = false;
