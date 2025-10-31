@@ -10,6 +10,7 @@
 #endif
 
 #include <windows.h>
+#include <windowsx.h>
 #include <CommCtrl.h>
 #include <prsht.h>
 
@@ -54,6 +55,8 @@ constexpr int kEditorHeight = 220;
 constexpr int kGlowDialogWidth = 260;
 constexpr int kGlowDialogHeight = 180;
 constexpr int kGlowCheckboxWidth = 210;
+constexpr int kCustomizationScrollLineStep = 16;
+constexpr int kCustomizationScrollPageStep = 80;
 constexpr SIZE kUniversalPreviewSize = {96, 72};
 constexpr SIZE kFolderPreviewSize = {64, 64};
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
@@ -195,6 +198,7 @@ struct OptionsDialogData {
     int customizationScrollPos = 0;
     int customizationContentHeight = 0;
     int customizationScrollMax = 0;
+    int customizationWheelRemainder = 0;
     std::wstring focusSavedGroupId;
     bool focusShouldEdit = false;
     bool focusHandled = false;
@@ -1909,6 +1913,12 @@ BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     if (!IsWindow(child)) {
         return TRUE;
     }
+    wchar_t className[32];
+    if (GetClassNameW(child, className, ARRAYSIZE(className))) {
+        if (_wcsicmp(className, L"ScrollBar") == 0) {
+            return TRUE;
+        }
+    }
     RECT windowRect{};
     if (!GetWindowRect(child, &windowRect)) {
         return TRUE;
@@ -1937,6 +1947,30 @@ void CaptureCustomizationChildPlacements(HWND hwnd, OptionsDialogData* data) {
     data->customizationContentHeight = 0;
     PlacementCaptureContext context{hwnd, data};
     EnumChildWindows(hwnd, &CaptureChildPlacementProc, reinterpret_cast<LPARAM>(&context));
+}
+
+void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data);
+
+bool UpdateCustomizationScrollPosition(HWND hwnd, OptionsDialogData* data, int newPos) {
+    if (!data) {
+        return false;
+    }
+    const int clamped = std::clamp(newPos, 0, data->customizationScrollMax);
+    if (clamped == data->customizationScrollPos) {
+        return false;
+    }
+    data->customizationScrollPos = clamped;
+    SetScrollPos(hwnd, SB_VERT, clamped, TRUE);
+    RepositionCustomizationChildren(hwnd, data);
+    return true;
+}
+
+bool ApplyCustomizationScrollDelta(HWND hwnd, OptionsDialogData* data, int delta) {
+    if (!data || delta == 0) {
+        return false;
+    }
+    const int newPos = data->customizationScrollPos + delta;
+    return UpdateCustomizationScrollPosition(hwnd, data, newPos);
 }
 
 void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
@@ -3687,43 +3721,68 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             if (!data) {
                 return TRUE;
             }
-            int newPos = data->customizationScrollPos;
+            bool handled = false;
             switch (LOWORD(wParam)) {
                 case SB_LINEUP:
-                    newPos -= 16;
+                    handled = ApplyCustomizationScrollDelta(hwnd, data, -kCustomizationScrollLineStep);
                     break;
                 case SB_LINEDOWN:
-                    newPos += 16;
+                    handled = ApplyCustomizationScrollDelta(hwnd, data, kCustomizationScrollLineStep);
                     break;
                 case SB_PAGEUP:
-                    newPos -= 80;
+                    handled = ApplyCustomizationScrollDelta(hwnd, data, -kCustomizationScrollPageStep);
                     break;
                 case SB_PAGEDOWN:
-                    newPos += 80;
+                    handled = ApplyCustomizationScrollDelta(hwnd, data, kCustomizationScrollPageStep);
                     break;
                 case SB_TOP:
-                    newPos = 0;
+                    handled = UpdateCustomizationScrollPosition(hwnd, data, 0);
                     break;
                 case SB_BOTTOM:
-                    newPos = data->customizationScrollMax;
+                    handled = UpdateCustomizationScrollPosition(hwnd, data, data->customizationScrollMax);
                     break;
                 case SB_THUMBTRACK:
                 case SB_THUMBPOSITION: {
                     SCROLLINFO info{sizeof(info)};
                     info.fMask = SIF_TRACKPOS;
                     if (GetScrollInfo(hwnd, SB_VERT, &info)) {
-                        newPos = info.nTrackPos;
+                        handled = UpdateCustomizationScrollPosition(hwnd, data, info.nTrackPos);
                     }
                     break;
                 }
                 default:
                     break;
             }
-            newPos = std::clamp(newPos, 0, data->customizationScrollMax);
-            if (newPos != data->customizationScrollPos) {
-                data->customizationScrollPos = newPos;
-                SetScrollPos(hwnd, SB_VERT, newPos, TRUE);
-                RepositionCustomizationChildren(hwnd, data);
+            if (handled) {
+                data->customizationWheelRemainder = 0;
+            }
+            return TRUE;
+        }
+        case WM_MOUSEWHEEL: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                return TRUE;
+            }
+            data->customizationWheelRemainder += GET_WHEEL_DELTA_WPARAM(wParam);
+            const int increment = data->customizationWheelRemainder / WHEEL_DELTA;
+            if (increment != 0) {
+                data->customizationWheelRemainder -= increment * WHEEL_DELTA;
+                UINT wheelLines = 3;
+                if (!SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &wheelLines, 0)) {
+                    wheelLines = 3;
+                }
+                if (wheelLines == WHEEL_PAGESCROLL) {
+                    RECT client{};
+                    if (GetClientRect(hwnd, &client)) {
+                        const int page = std::max(1, (client.bottom - client.top) - kCustomizationScrollLineStep);
+                        ApplyCustomizationScrollDelta(hwnd, data, -increment * page);
+                    } else {
+                        ApplyCustomizationScrollDelta(hwnd, data, -increment * kCustomizationScrollPageStep);
+                    }
+                } else if (wheelLines > 0) {
+                    const int delta = static_cast<int>(wheelLines) * kCustomizationScrollLineStep;
+                    ApplyCustomizationScrollDelta(hwnd, data, -increment * delta);
+                }
             }
             return TRUE;
         }
