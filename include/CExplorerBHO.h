@@ -15,7 +15,6 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
-#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -26,6 +25,8 @@
 
 #include <wrl/client.h>
 
+#include "PaneHooks.h"
+
 namespace Gdiplus {
 class Bitmap;
 }
@@ -33,10 +34,12 @@ namespace shelltabs {
 
 struct ShellTabsOptions;
 
-        class CExplorerBHO : public IObjectWithSite, public IDispatch {
+        class CExplorerBHO : public IObjectWithSite,
+                             public IDispatch,
+                             public PaneHighlightProvider {
         public:
-		CExplorerBHO();
-		~CExplorerBHO();
+                CExplorerBHO();
+                ~CExplorerBHO();
 		// IUnknown
 		IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override;
 		IFACEMETHODIMP_(ULONG) AddRef() override;
@@ -51,9 +54,13 @@ struct ShellTabsOptions;
 			DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo,
 			UINT* puArgErr) override;
 
-		// IObjectWithSite
-		IFACEMETHODIMP SetSite(IUnknown* site) override;
-		IFACEMETHODIMP GetSite(REFIID riid, void** site) override;
+                // IObjectWithSite
+                IFACEMETHODIMP SetSite(IUnknown* site) override;
+                IFACEMETHODIMP GetSite(REFIID riid, void** site) override;
+
+                // PaneHighlightProvider
+                bool TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) override;
+                bool TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) override;
 
         private:
                 enum class BandEnsureOutcome {
@@ -125,10 +132,9 @@ struct ShellTabsOptions;
 		bool CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const;
 		bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
 		bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
-		bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
+                bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
                 bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
-                std::wstring ResolveTreeViewItemKey(HTREEITEM item) const;
-                COLORREF EnsureTreeViewItemColor(HTREEITEM item);
+                bool ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const;
                 bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
                 void DispatchOpenInNewTab(const std::vector<std::wstring>& paths) const;
 		void ClearPendingOpenInNewTabState();
@@ -215,12 +221,11 @@ struct ShellTabsOptions;
 		bool m_shellViewWindowSubclassInstalled = false;
 		HWND m_frameWindow = nullptr;
 		bool m_frameSubclassInstalled = false;
-		HWND m_listView = nullptr;
+                HWND m_listView = nullptr;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
-                std::unordered_map<std::wstring, COLORREF> m_treeViewHighlightColors;
-                std::mt19937 m_randomEngine;
+                PaneHookRouter m_paneHooks;
                 bool m_folderBackgroundsEnabled = false;
                 std::unordered_map<std::wstring, std::unique_ptr<Gdiplus::Bitmap>> m_folderBackgroundBitmaps;
                 std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;

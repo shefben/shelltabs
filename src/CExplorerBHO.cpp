@@ -19,7 +19,6 @@
 #include <cwctype>
 #include <mutex>
 #include <limits>
-#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -378,7 +377,7 @@ namespace shelltabs {
 std::mutex CExplorerBHO::s_ensureTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
 
-CExplorerBHO::CExplorerBHO() : m_refCount(1), m_randomEngine(std::random_device{}()) {
+CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks(this) {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
 
@@ -896,6 +895,36 @@ IFACEMETHODIMP CExplorerBHO::GetSite(REFIID riid, void** site) {
             return m_site->QueryInterface(riid, site);
         },
         []() -> HRESULT { return E_FAIL; });
+}
+
+bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) {
+    if (!listView || listView != m_listView || itemIndex < 0) {
+        return false;
+    }
+
+    LVITEMW item{};
+    item.mask = LVIF_PARAM;
+    item.iItem = itemIndex;
+    if (!ListView_GetItemW(listView, &item)) {
+        return false;
+    }
+
+    return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), highlight);
+}
+
+bool CExplorerBHO::TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) {
+    if (!treeView || treeView != m_treeView || !item) {
+        return false;
+    }
+
+    TVITEMEXW treeItem{};
+    treeItem.mask = TVIF_PARAM;
+    treeItem.hItem = item;
+    if (!TreeView_GetItemW(treeView, &treeItem)) {
+        return false;
+    }
+
+    return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(treeItem.lParam), highlight);
 }
 
 HRESULT CExplorerBHO::ConnectEvents() {
@@ -1496,6 +1525,9 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
         }
     }
 
+    m_paneHooks.SetListView(m_listViewSubclassInstalled ? m_listView : nullptr);
+    m_paneHooks.SetTreeView(m_treeViewSubclassInstalled ? m_treeView : nullptr);
+
     if (installed) {
         ClearPendingOpenInNewTabState();
         LogMessage(LogLevel::Info, L"Explorer view subclass ready (view=%p list=%p tree=%p)", viewWindow,
@@ -1532,7 +1564,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     m_treeView = nullptr;
     m_listViewSubclassInstalled = false;
     m_treeViewSubclassInstalled = false;
-    m_treeViewHighlightColors.clear();
+    m_paneHooks.Reset();
     m_shellViewWindow = nullptr;
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
@@ -1775,79 +1807,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (!header) {
                 break;
             }
-
-            if (header->hwndFrom == m_treeView && m_treeView && IsWindow(m_treeView)) {
-                switch (header->code) {
-                    case NM_CUSTOMDRAW: {
-                        auto* customDraw = reinterpret_cast<LPNMTVCUSTOMDRAW>(lParam);
-                        if (!customDraw) {
-                            break;
-                        }
-
-                        const DWORD stage = customDraw->nmcd.dwDrawStage;
-                        if (stage == CDDS_PREPAINT) {
-                            *result = CDRF_NOTIFYITEMDRAW;
-                            return true;
-                        }
-
-                        if ((stage & CDDS_ITEMPREPAINT) != 0) {
-                            const UINT state = customDraw->nmcd.uItemState;
-                            const bool isHot = (state & CDIS_HOT) != 0;
-                            const bool isSelected = (state & CDIS_SELECTED) != 0;
-                            if (isHot || isSelected) {
-                                HTREEITEM item = reinterpret_cast<HTREEITEM>(customDraw->nmcd.dwItemSpec);
-                                const COLORREF background = EnsureTreeViewItemColor(item);
-                                const double brightness =
-                                    0.299 * static_cast<double>(GetRValue(background)) +
-                                    0.587 * static_cast<double>(GetGValue(background)) +
-                                    0.114 * static_cast<double>(GetBValue(background));
-                                const COLORREF textColor = (brightness < 128.0) ? RGB(255, 255, 255) : RGB(0, 0, 0);
-
-                                customDraw->clrText = textColor;
-                                customDraw->clrTextBk = background;
-                                *result = CDRF_NEWFONT;
-                            } else {
-                                *result = CDRF_DODEFAULT;
-                            }
-                            return true;
-                        }
-
-                        *result = CDRF_DODEFAULT;
-                        return true;
-                    }
-                    case TVN_SELCHANGEDW: {
-                        auto* change = reinterpret_cast<LPNMTREEVIEWW>(lParam);
-                        if (!change) {
-                            break;
-                        }
-
-                        if (change->itemNew.hItem) {
-                            const std::wstring selectedKey = ResolveTreeViewItemKey(change->itemNew.hItem);
-                            if (!selectedKey.empty()) {
-                                EnsureTreeViewItemColor(change->itemNew.hItem);
-                                for (auto it = m_treeViewHighlightColors.begin();
-                                     it != m_treeViewHighlightColors.end();) {
-                                    if (it->first != selectedKey) {
-                                        it = m_treeViewHighlightColors.erase(it);
-                                    } else {
-                                        ++it;
-                                    }
-                                }
-                            } else {
-                                m_treeViewHighlightColors.clear();
-                            }
-                        } else {
-                            m_treeViewHighlightColors.clear();
-                        }
-
-                        if (m_treeView && IsWindow(m_treeView)) {
-                            InvalidateRect(m_treeView, nullptr, FALSE);
-                        }
-                        break;
-                    }
-                    default:
-                        break;
-                }
+            if (m_paneHooks.HandleNotify(header, result)) {
+                return true;
             }
             break;
         }
@@ -2259,72 +2220,17 @@ bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) co
     return !paths.empty();
 }
 
-std::wstring CExplorerBHO::ResolveTreeViewItemKey(HTREEITEM item) const {
-    if (!m_treeView || !IsWindow(m_treeView) || !item) {
-        return {};
-    }
-
-    TVITEMEXW treeItem{};
-    treeItem.mask = TVIF_PARAM;
-    treeItem.hItem = item;
-    if (!TreeView_GetItemW(m_treeView, &treeItem)) {
-        return {};
-    }
-
-    if (!treeItem.lParam) {
-        return {};
+bool CExplorerBHO::ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const {
+    if (!pidl) {
+        return false;
     }
 
     std::vector<std::wstring> paths;
-    if (!AppendPathFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(treeItem.lParam), paths) || paths.empty()) {
-        return {};
+    if (!AppendPathFromPidl(pidl, paths) || paths.empty()) {
+        return false;
     }
 
-    return paths.front();
-}
-
-COLORREF CExplorerBHO::EnsureTreeViewItemColor(HTREEITEM item) {
-    const std::wstring key = ResolveTreeViewItemKey(item);
-    if (key.empty()) {
-        return GetSysColor(COLOR_HIGHLIGHT);
-    }
-
-    auto it = m_treeViewHighlightColors.find(key);
-    if (it != m_treeViewHighlightColors.end()) {
-        return it->second;
-    }
-
-    std::uniform_int_distribution<int> component(0, 255);
-    COLORREF color = 0;
-    double brightness = 0.0;
-
-    for (int attempt = 0; attempt < 8; ++attempt) {
-        const BYTE red = static_cast<BYTE>(component(m_randomEngine));
-        const BYTE green = static_cast<BYTE>(component(m_randomEngine));
-        const BYTE blue = static_cast<BYTE>(component(m_randomEngine));
-        color = RGB(red, green, blue);
-        brightness = 0.299 * static_cast<double>(red) + 0.587 * static_cast<double>(green) +
-                     0.114 * static_cast<double>(blue);
-        if (brightness <= 105.0 || brightness >= 150.0) {
-            break;
-        }
-    }
-
-    it = m_treeViewHighlightColors.emplace(key, color).first;
-
-    if (m_treeViewHighlightColors.size() > 16) {
-        HTREEITEM selected = TreeView_GetSelection(m_treeView);
-        const std::wstring selectedKey = ResolveTreeViewItemKey(selected);
-        for (auto iter = m_treeViewHighlightColors.begin(); iter != m_treeViewHighlightColors.end();) {
-            if (iter->first != key && (selectedKey.empty() || iter->first != selectedKey)) {
-                iter = m_treeViewHighlightColors.erase(iter);
-            } else {
-                ++iter;
-            }
-        }
-    }
-
-    return it->second;
+    return TryGetPaneHighlight(paths.front(), highlight);
 }
 
 bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const {
@@ -4004,10 +3910,11 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         if (hwnd == self->m_listView) {
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
+            self->m_paneHooks.SetListView(nullptr);
         } else if (hwnd == self->m_treeView) {
             self->m_treeView = nullptr;
             self->m_treeViewSubclassInstalled = false;
-            self->m_treeViewHighlightColors.clear();
+            self->m_paneHooks.SetTreeView(nullptr);
         } else if (hwnd == self->m_frameWindow) {
             self->m_frameWindow = nullptr;
             self->m_frameSubclassInstalled = false;

@@ -40,6 +40,7 @@ add_library(ShellTabs SHARED
     src/StringUtils.cpp
     src/Utilities.cpp
     src/Logging.cpp
+    src/PaneHooks.cpp
     src/resource.rc
 )
 
@@ -141,5 +142,26 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         UNICODE
         _UNICODE
         _WIN32_WINNT=0x0A00
+    )
+
+    add_executable(ShellTabsPaneHooksTests
+        tests/PaneHooksTests.cpp
+        src/PaneHooks.cpp
+    )
+
+    target_include_directories(ShellTabsPaneHooksTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsPaneHooksTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
+
+    target_link_libraries(ShellTabsPaneHooksTests PRIVATE
+        user32
+        comctl32
     )
 endif()
