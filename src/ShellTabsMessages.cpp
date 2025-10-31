@@ -23,4 +23,9 @@ UINT GetProgressUpdateMessage() {
     return message;
 }
 
+UINT GetSavedGroupsChangedMessage() {
+    static const UINT message = RegisterWindowMessageW(L"ShellTabs.SavedGroupsChanged");
+    return message;
+}
+
 }  // namespace shelltabs

@@ -428,6 +428,10 @@ bool IsHighContrastActive() {
     return (info.dwFlags & HCF_HIGHCONTRASTON) != 0;
 }
 
+bool RectHasArea(const RECT& rect) {
+    return rect.right > rect.left && rect.bottom > rect.top;
+}
+
 struct HostChromeSample {
     COLORREF top = GetSysColor(COLOR_BTNFACE);
     COLORREF bottom = GetSysColor(COLOR_BTNFACE);
@@ -741,6 +745,8 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     if (!m_hwnd) {
         DestroyVisualItemResources(m_items);
         m_items.clear();
+        m_progressRects.clear();
+        m_activeProgressIndices.clear();
         m_emptyIslandPlusButtons.clear();
         m_nextRedrawIncremental = false;
         m_lastAppliedRowCount = 0;
@@ -763,6 +769,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     const bool rowCountChanged = normalizedRowCount != m_lastRowCount;
 
     m_items = std::move(layout.items);
+    RebuildProgressRectCache();
     m_lastRowCount = normalizedRowCount;
 
     bool topologyChanged = diff.inserted > 0 || diff.removed > 0 || rowCountChanged;
@@ -876,6 +883,8 @@ void TabBandWindow::ClearVisualItems() {
     DestroyVisualItemResources(m_items);
 
     m_items.clear();
+    m_progressRects.clear();
+    m_activeProgressIndices.clear();
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
@@ -1157,6 +1166,8 @@ void TabBandWindow::RebuildLayout() {
     if (!m_hwnd) {
         DestroyVisualItemResources(m_items);
         m_items.clear();
+        m_progressRects.clear();
+        m_activeProgressIndices.clear();
         m_emptyIslandPlusButtons.clear();
         m_nextRedrawIncremental = false;
         return;
@@ -1173,6 +1184,7 @@ void TabBandWindow::RebuildLayout() {
 
     LayoutResult layout = BuildLayoutItems(m_tabData);
     m_items = std::move(layout.items);
+    RebuildProgressRectCache();
 
     const int normalizedRowCount = layout.rowCount > 0 ? layout.rowCount : std::max(m_lastRowCount, 1);
     const bool rowChanged = normalizedRowCount != m_lastRowCount;
@@ -2019,6 +2031,15 @@ void TabBandWindow::RefreshTheme() {
 
 }
 
+void TabBandWindow::OnSavedGroupsChanged() {
+    if (m_owner) {
+        m_owner->OnSavedGroupsChanged();
+    }
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+    }
+}
+
 
 
 void TabBandWindow::UpdateAccentColor() {
@@ -2566,19 +2587,45 @@ void TabBandWindow::DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF
     SelectObject(dc, oldPen);
     DeleteObject(brush);
     DeleteObject(pen);
+TabBandWindow::TabPaintMetrics TabBandWindow::ComputeTabPaintMetrics(const VisualItem& item) const {
+    TabPaintMetrics metrics;
+    metrics.itemBounds = item.bounds;
+    metrics.tabBounds = item.bounds;
+    metrics.islandIndicator = item.indicatorHandle ? kIslandIndicatorWidth : 0;
+    metrics.tabBounds.left += metrics.islandIndicator;
+    metrics.closeButton = ComputeCloseButtonRect(item);
+    metrics.iconLeft = metrics.itemBounds.left + metrics.islandIndicator + kPaddingX;
+    metrics.textLeft = metrics.iconLeft;
+    metrics.textRight = metrics.itemBounds.right - kPaddingX;
+
+    if (metrics.closeButton.right > metrics.closeButton.left) {
+        const int closeLeft = static_cast<int>(metrics.closeButton.left);
+        metrics.textRight = std::min(metrics.textRight, closeLeft - kCloseButtonSpacing);
+    }
+
+    if (item.icon) {
+        const int availableHeight = metrics.itemBounds.bottom - metrics.itemBounds.top;
+        metrics.iconHeight = std::min(item.iconHeight, availableHeight - 4);
+        metrics.iconWidth = item.iconWidth;
+        metrics.textLeft += metrics.iconWidth + kIconGap;
+    }
+
+    if (metrics.textRight < metrics.textLeft) {
+        metrics.textRight = metrics.textLeft;
+    }
+
+    return metrics;
 }
 
 void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
-    RECT rect = item.bounds;
+    const TabPaintMetrics metrics = ComputeTabPaintMetrics(item);
+    RECT rect = metrics.itemBounds;
+    RECT tabRect = metrics.tabBounds;
     const bool selected = item.data.selected;
     const TabViewItem* indicatorSource = item.hasGroupHeader ? &item.groupHeader : nullptr;
     const bool hasAccent = item.data.hasCustomOutline ||
                            (indicatorSource && indicatorSource->hasCustomOutline);
     COLORREF accentColor = hasAccent ? ResolveIndicatorColor(indicatorSource, item.data) : m_accentColor;
-
-    const int islandIndicator = item.indicatorHandle ? kIslandIndicatorWidth : 0;
-    RECT tabRect = rect;
-    tabRect.left += islandIndicator;
 
     int state = selected ? TIS_SELECTED : TIS_NORMAL;
     COLORREF computedBackground = ResolveTabBackground(item.data);
@@ -2596,86 +2643,86 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-        if (!usedTheme) {
-                COLORREF backgroundColor = computedBackground;
-                textColor = ResolveTabTextColor(selected, backgroundColor);
-                if (m_highContrast) {
-                        RECT fillRect = tabRect;
-                        fillRect.bottom = std::min(fillRect.bottom, rect.bottom - 1);
-                        HBRUSH brush = CreateSolidBrush(backgroundColor);
-                        if (brush) {
-                                FillRect(dc, &fillRect, brush);
-                                DeleteObject(brush);
-                        }
-                        HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_WINDOWTEXT));
-                        if (pen) {
-                                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-                                MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
-                                LineTo(dc, fillRect.right, fillRect.top);
-                                LineTo(dc, fillRect.right, fillRect.bottom);
-                                LineTo(dc, fillRect.left, fillRect.bottom);
-                                LineTo(dc, fillRect.left, fillRect.top);
-                                SelectObject(dc, oldPen);
-                                DeleteObject(pen);
-                        }
-                } else {
-                        COLORREF baseBorder = m_darkMode
-                                ? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
-                                : BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
-                        COLORREF borderColor = hasAccent
-                                ? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
-                                : baseBorder;
+    if (!usedTheme) {
+        COLORREF backgroundColor = computedBackground;
+        textColor = ResolveTabTextColor(selected, backgroundColor);
+        if (m_highContrast) {
+            RECT fillRect = tabRect;
+            fillRect.bottom = std::min(fillRect.bottom, rect.bottom - 1);
+            HBRUSH brush = CreateSolidBrush(backgroundColor);
+            if (brush) {
+                FillRect(dc, &fillRect, brush);
+                DeleteObject(brush);
+            }
+            HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_WINDOWTEXT));
+            if (pen) {
+                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+                MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
+                LineTo(dc, fillRect.right, fillRect.top);
+                LineTo(dc, fillRect.right, fillRect.bottom);
+                LineTo(dc, fillRect.left, fillRect.bottom);
+                LineTo(dc, fillRect.left, fillRect.top);
+                SelectObject(dc, oldPen);
+                DeleteObject(pen);
+            }
+        } else {
+            COLORREF baseBorder = m_darkMode
+                                      ? BlendColors(backgroundColor, RGB(255, 255, 255), selected ? 0.1 : 0.05)
+                                      : BlendColors(backgroundColor, RGB(0, 0, 0), selected ? 0.15 : 0.1);
+            COLORREF borderColor = hasAccent
+                                       ? BlendColors(accentColor, RGB(0, 0, 0), selected ? 0.25 : 0.15)
+                                       : baseBorder;
 
-                        RECT shapeRect = tabRect;
-                        const LONG bottomLimit = rect.bottom - 1;
-                        if (shapeRect.bottom > bottomLimit) {
-                                shapeRect.bottom = bottomLimit;
-                        }
+            RECT shapeRect = tabRect;
+            const LONG bottomLimit = rect.bottom - 1;
+            if (shapeRect.bottom > bottomLimit) {
+                shapeRect.bottom = bottomLimit;
+            }
 
-                        const int radius = kTabCornerRadius;
-                        POINT points[] = {
-                                {shapeRect.left,        shapeRect.bottom},
-                                {shapeRect.left,        shapeRect.top + radius},
-                                {shapeRect.left + radius, shapeRect.top},
-                                {shapeRect.right - radius,shapeRect.top},
-                                {shapeRect.right,       shapeRect.top + radius},
-                                {shapeRect.right,       shapeRect.bottom}
-                        };
+            const int radius = kTabCornerRadius;
+            POINT points[] = {
+                {shapeRect.left, shapeRect.bottom},
+                {shapeRect.left, shapeRect.top + radius},
+                {shapeRect.left + radius, shapeRect.top},
+                {shapeRect.right - radius, shapeRect.top},
+                {shapeRect.right, shapeRect.top + radius},
+                {shapeRect.right, shapeRect.bottom},
+            };
 
-                        HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
-                        if (region) {
-                                HBRUSH brush = CreateSolidBrush(backgroundColor);
-                                if (brush) {
-                                        FillRgn(dc, region, brush);
-                                        DeleteObject(brush);
-                                }
-                                HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-                                if (pen) {
-                                        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-                                        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-                                        Polygon(dc, points, ARRAYSIZE(points));
-                                        SelectObject(dc, oldBrush);
-                                        SelectObject(dc, oldPen);
-                                        DeleteObject(pen);
-                                }
-                                DeleteObject(region);
-                        }
-
-                        COLORREF bottomLineColor = selected ? backgroundColor
-                                : (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
-                                        : GetSysColor(COLOR_3DLIGHT));
-                        HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
-                        if (bottomPen) {
-                                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
-                                MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
-                                LineTo(dc, rect.right - 1, rect.bottom - 1);
-                                SelectObject(dc, oldPen);
-                                DeleteObject(bottomPen);
-                        }
+            HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
+            if (region) {
+                HBRUSH brush = CreateSolidBrush(backgroundColor);
+                if (brush) {
+                    FillRgn(dc, region, brush);
+                    DeleteObject(brush);
                 }
+                HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
+                if (pen) {
+                    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+                    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+                    Polygon(dc, points, ARRAYSIZE(points));
+                    SelectObject(dc, oldBrush);
+                    SelectObject(dc, oldPen);
+                    DeleteObject(pen);
+                }
+                DeleteObject(region);
+            }
 
-                computedBackground = backgroundColor;
+            COLORREF bottomLineColor = selected ? backgroundColor
+                                                : (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
+                                                              : GetSysColor(COLOR_3DLIGHT));
+            HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
+            if (bottomPen) {
+                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
+                MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
+                LineTo(dc, rect.right - 1, rect.bottom - 1);
+                SelectObject(dc, oldPen);
+                DeleteObject(bottomPen);
+            }
         }
+
+        computedBackground = backgroundColor;
+    }
 
     if (item.indicatorHandle) {
         RECT indicatorRect = tabRect;
@@ -2698,33 +2745,28 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
     }
 
-    RECT closeRect = ComputeCloseButtonRect(item);
+    RECT closeRect = metrics.closeButton;
 
-    int trailingBoundary = rect.right - kPaddingX;
-    if (closeRect.right > closeRect.left) {
-        const int closeLeft = static_cast<int>(closeRect.left);
-        trailingBoundary = std::min(trailingBoundary, closeLeft - kCloseButtonSpacing);
-    }
-
-    int textRight = trailingBoundary;
+    const int textLeft = metrics.textLeft;
+    const int textRight = metrics.textRight;
 
     int textLeft = rect.left + islandIndicator + kPaddingX;
     if (item.data.pinned) {
         DrawPinnedGlyph(dc, tabRect, textLeft, textColor);
         textLeft += kPinnedGlyphWidth + kPinnedGlyphPadding;
     }
+  
     if (item.icon) {
         const int availableHeight = rect.bottom - rect.top;
         const int iconHeight = std::min(item.iconHeight, availableHeight - 4);
         const int iconWidth = item.iconWidth;
         const int iconY = rect.top + (availableHeight - iconHeight) / 2;
-        DrawIconEx(dc, textLeft, iconY, item.icon.Get(), iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
-        textLeft += iconWidth + kIconGap;
+        DrawIconEx(dc, metrics.iconLeft, iconY, item.icon.Get(), iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
     }
 
     const bool hasProgress = item.data.progress.visible;
     if (hasProgress) {
-        DrawTabProgress(dc, item, textLeft, textRight, tabRect, computedBackground);
+        DrawTabProgress(dc, item, metrics, computedBackground);
     }
 
     RECT textRect = rect;
@@ -2818,14 +2860,14 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 }
 
 
-void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, int left, int right,
-                                    const RECT& tabRect, COLORREF background) const {
-    if (!dc || left >= right) {
+void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, const TabPaintMetrics& metrics,
+                                    COLORREF background) const {
+    if (!dc) {
         return;
     }
 
-    RECT outer{left, std::max(tabRect.top + 4, tabRect.bottom - 6), right, tabRect.bottom - 2};
-    if (outer.bottom <= outer.top || outer.right <= outer.left) {
+    RECT outer{};
+    if (!ComputeProgressBounds(item, metrics, &outer)) {
         return;
     }
 
@@ -2903,6 +2945,112 @@ void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, int left, in
         SelectObject(dc, oldPen);
         DeleteObject(pen);
     }
+}
+
+bool TabBandWindow::ComputeProgressBounds(const VisualItem& item, const TabPaintMetrics& metrics, RECT* out) const {
+    if (!out) {
+        return false;
+    }
+    *out = {};
+    if (item.data.type != TabViewItemType::kTab || !item.data.progress.visible) {
+        return false;
+    }
+    RECT bounds{metrics.textLeft, std::max(metrics.tabBounds.top + 4, metrics.tabBounds.bottom - 6),
+                metrics.textRight, metrics.tabBounds.bottom - 2};
+    if (!RectHasArea(bounds)) {
+        return false;
+    }
+    *out = bounds;
+    return true;
+}
+
+void TabBandWindow::EnsureProgressRectCache() {
+    if (m_progressRects.size() != m_items.size()) {
+        m_progressRects.assign(m_items.size(), RECT{});
+    }
+}
+
+void TabBandWindow::RebuildProgressRectCache() {
+    EnsureProgressRectCache();
+    for (size_t i = 0; i < m_items.size(); ++i) {
+        RECT rect{};
+        const auto& item = m_items[i];
+        if (item.data.type == TabViewItemType::kTab) {
+            const TabPaintMetrics metrics = ComputeTabPaintMetrics(item);
+            if (ComputeProgressBounds(item, metrics, &rect)) {
+                m_progressRects[i] = rect;
+                continue;
+            }
+        }
+        m_progressRects[i] = RECT{};
+    }
+}
+
+void TabBandWindow::InvalidateProgressForIndices(const std::vector<size_t>& indices) {
+    if (!m_hwnd || indices.empty()) {
+        return;
+    }
+    EnsureProgressRectCache();
+    for (size_t index : indices) {
+        if (index >= m_items.size()) {
+            continue;
+        }
+        RECT previous = m_progressRects[index];
+        RECT current{};
+        const auto& item = m_items[index];
+        if (item.data.type == TabViewItemType::kTab) {
+            const TabPaintMetrics metrics = ComputeTabPaintMetrics(item);
+            if (!ComputeProgressBounds(item, metrics, &current)) {
+                current = RECT{};
+            }
+        }
+
+        RECT dirty{};
+        bool hasDirty = false;
+        if (RectHasArea(previous)) {
+            dirty = previous;
+            hasDirty = true;
+        }
+        if (RectHasArea(current)) {
+            if (hasDirty) {
+                RECT combined{};
+                if (UnionRect(&combined, &dirty, &current)) {
+                    dirty = combined;
+                } else {
+                    dirty.left = std::min(dirty.left, current.left);
+                    dirty.top = std::min(dirty.top, current.top);
+                    dirty.right = std::max(dirty.right, current.right);
+                    dirty.bottom = std::max(dirty.bottom, current.bottom);
+                }
+            } else {
+                dirty = current;
+                hasDirty = true;
+            }
+        }
+
+        if (hasDirty) {
+            InvalidateRect(m_hwnd, &dirty, FALSE);
+        }
+        m_progressRects[index] = current;
+    }
+}
+
+void TabBandWindow::InvalidateActiveProgress() {
+    if (!m_hwnd) {
+        return;
+    }
+    EnsureProgressRectCache();
+    m_activeProgressIndices.clear();
+    m_activeProgressIndices.reserve(m_items.size());
+    for (size_t i = 0; i < m_items.size(); ++i) {
+        if (m_items[i].data.type != TabViewItemType::kTab) {
+            continue;
+        }
+        if (m_items[i].data.progress.visible) {
+            m_activeProgressIndices.push_back(i);
+        }
+    }
+    InvalidateProgressForIndices(m_activeProgressIndices);
 }
 
 void TabBandWindow::DrawDropIndicator(HDC dc) const {
@@ -3305,6 +3453,10 @@ void TabBandWindow::CancelPreviewRequest() {
 }
 
 void TabBandWindow::RefreshProgressState() {
+    RefreshProgressState({});
+}
+
+void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs) {
     auto* manager = ResolveManager();
     const auto snapshot = manager ? manager->BuildView() : std::vector<TabViewItem>{};
     bool layoutMismatch = snapshot.size() != m_tabData.size();
@@ -3323,7 +3475,18 @@ void TabBandWindow::RefreshProgressState() {
         return;
     }
 
+    std::vector<size_t> priorityIndices;
+    priorityIndices.reserve(prioritizedTabs.size());
+    for (const auto& location : prioritizedTabs) {
+        const size_t index = FindTabDataIndex(location);
+        if (index != kInvalidIndex) {
+            priorityIndices.push_back(index);
+        }
+    }
+
     bool changed = false;
+    std::vector<size_t> progressChanged;
+    progressChanged.reserve(snapshot.size());
     for (size_t i = 0; i < snapshot.size(); ++i) {
         if (m_tabData[i].lastActivatedTick != snapshot[i].lastActivatedTick ||
             m_tabData[i].activationOrdinal != snapshot[i].activationOrdinal) {
@@ -3340,11 +3503,23 @@ void TabBandWindow::RefreshProgressState() {
             if (i < m_items.size()) {
                 m_items[i].data.progress = snapshot[i].progress;
             }
+            progressChanged.push_back(i);
             changed = true;
         }
     }
+
+    for (size_t index : priorityIndices) {
+        if (index < snapshot.size() &&
+            std::find(progressChanged.begin(), progressChanged.end(), index) == progressChanged.end()) {
+            progressChanged.push_back(index);
+        }
+    }
+
     UpdateProgressAnimationState();
-    if (changed && m_hwnd) {
+
+    if (!progressChanged.empty()) {
+        InvalidateProgressForIndices(progressChanged);
+    } else if (changed && m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
@@ -3380,16 +3555,18 @@ void TabBandWindow::HandleProgressTimer() {
         return;
     }
     const ULONGLONG now = GetTickCount64();
-    if (auto* manager = ResolveManager(); manager &&
-        manager->ExpireFolderOperations(now, kProgressStaleTimeoutMs)) {
-        RefreshProgressState();
-        return;
+    if (auto* manager = ResolveManager(); manager) {
+        const auto expired = manager->ExpireFolderOperations(now, kProgressStaleTimeoutMs);
+        if (!expired.empty()) {
+            RefreshProgressState(expired);
+            return;
+        }
     }
     if (!AnyProgressActive()) {
         UpdateProgressAnimationState();
         return;
     }
-    InvalidateRect(m_hwnd, nullptr, FALSE);
+    InvalidateActiveProgress();
 }
 
 TabManager* TabBandWindow::ResolveManager() const noexcept {
@@ -5014,6 +5191,23 @@ int TabBandWindow::GroupCount() const {
     return count;
 }
 
+size_t TabBandWindow::FindTabDataIndex(TabLocation location) const {
+    if (!location.IsValid()) {
+        return kInvalidIndex;
+    }
+    for (size_t i = 0; i < m_tabData.size(); ++i) {
+        const auto& item = m_tabData[i];
+        if (item.type != TabViewItemType::kTab) {
+            continue;
+        }
+        if (item.location.groupIndex == location.groupIndex &&
+            item.location.tabIndex == location.tabIndex) {
+            return i;
+        }
+    }
+    return kInvalidIndex;
+}
+
 const TabBandWindow::VisualItem* TabBandWindow::FindLastGroupHeader() const {
     for (auto it = m_items.rbegin(); it != m_items.rend(); ++it) {
         if (it->data.type == TabViewItemType::kGroupHeader) {
@@ -5078,6 +5272,11 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         if (optionsChangedMessage != 0 && message == optionsChangedMessage) {
             self->RefreshTheme();
             InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
+        const UINT savedGroupsMessage = GetSavedGroupsChangedMessage();
+        if (savedGroupsMessage != 0 && message == savedGroupsMessage) {
+            self->OnSavedGroupsChanged();
             return 0;
         }
         const UINT progressMessage = GetProgressUpdateMessage();

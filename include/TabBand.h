@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <ShObjIdl_core.h>
@@ -133,6 +134,7 @@ public:
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(int initialTab = 0, const std::wstring& focusGroupId = std::wstring(),
                              bool editFocusedGroup = false);
+    void OnSavedGroupsChanged();
     void OnDeferredNavigate();
     void OnDockingModeChanged(TabBandDockMode mode);
     std::wstring GetSavedGroupId(int groupIndex) const;
@@ -168,6 +170,7 @@ private:
     TabBandDockMode m_dockMode = TabBandDockMode::kAutomatic;
     TabBandDockMode m_requestedDockMode = TabBandDockMode::kAutomatic;
     mutable bool m_skipSavedGroupSync = false;
+    uint64_t m_processedGroupStoreGeneration = 0;
 
     struct ClosedGroupMetadata {
         std::wstring name;
@@ -224,6 +227,9 @@ private:
     void QueueNavigateTo(TabLocation location);
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
+    bool ApplySavedGroupMetadata(const std::vector<SavedGroup>& savedGroups,
+                                 const std::vector<std::pair<std::wstring, std::wstring>>& renamedGroups,
+                                 const std::vector<std::wstring>& removedGroupIds);
     HWND GetFrameWindow() const;
     TabManager::ExplorerWindowId BuildWindowId() const;
     std::wstring ResolveWindowToken();

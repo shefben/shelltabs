@@ -218,6 +218,13 @@ bool GroupStore::Remove(const std::wstring& name) {
     return Save();
 }
 
+void GroupStore::RecordChanges(const std::vector<std::pair<std::wstring, std::wstring>>& renamedGroups,
+                               const std::vector<std::wstring>& removedGroupIds) {
+    ++m_changeGeneration;
+    m_lastRenamedGroups = renamedGroups;
+    m_lastRemovedGroups = removedGroupIds;
+}
+
 std::wstring GroupStore::ResolveStoragePath() const {
     std::wstring base = GetShellTabsDataDirectory();
     if (base.empty()) {
