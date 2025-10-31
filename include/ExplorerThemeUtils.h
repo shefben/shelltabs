@@ -2,9 +2,11 @@
 
 #include <windows.h>
 
+#include <optional>
+
 namespace shelltabs {
 
-COLORREF SampleAverageColor(HDC dc, const RECT& rect);
+std::optional<COLORREF> SampleAverageColor(HDC dc, const RECT& rect);
 
 }
 

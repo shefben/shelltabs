@@ -477,9 +477,20 @@ HostChromeSample SampleHostChrome(HWND host, const RECT& windowRect) {
     RECT bottomRect = localRect;
     bottomRect.top = std::max<LONG>(bottomRect.bottom - sampleHeight, localRect.top);
 
-    sample.top = SampleAverageColor(dc, topRect);
-    sample.bottom = SampleAverageColor(dc, bottomRect);
-    sample.valid = true;
+    const auto topSample = SampleAverageColor(dc, topRect);
+    const auto bottomSample = SampleAverageColor(dc, bottomRect);
+    if (topSample) {
+        sample.top = *topSample;
+    }
+    if (bottomSample) {
+        sample.bottom = *bottomSample;
+    }
+    if (!bottomSample && topSample) {
+        sample.bottom = sample.top;
+    } else if (!topSample && bottomSample) {
+        sample.top = sample.bottom;
+    }
+    sample.valid = topSample.has_value() || bottomSample.has_value();
 
     ReleaseDC(host, dc);
     return sample;
