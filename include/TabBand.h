@@ -18,6 +18,7 @@
 #include "TabManager.h"
 #include "SessionStore.h"
 #include "OptionsStore.h"
+#include "GroupStore.h"
 
 namespace shelltabs {
 
