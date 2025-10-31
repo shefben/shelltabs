@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <thread>
 
@@ -39,9 +40,12 @@ public:
     static PreviewCache& Instance();
 
     std::optional<PreviewImage> GetPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize);
-    void StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, const SIZE& desiredSize);
+    void StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, const SIZE& desiredSize,
+                                std::wstring_view ownerToken = {});
     uint64_t RequestPreviewAsync(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, HWND notifyHwnd, UINT message);
     void CancelRequest(uint64_t requestId);
+    void CancelPendingCapturesForKey(PCIDLIST_ABSOLUTE pidl);
+    void CancelPendingCapturesForOwner(std::wstring_view ownerToken);
     void Clear();
 
 private:

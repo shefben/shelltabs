@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include "Utilities.h"
@@ -13,6 +14,11 @@ namespace shelltabs {
 
 namespace {
 struct PreviewCache::AsyncRequest {
+    enum class Kind {
+        kShellPreview,
+        kWindowCapture,
+    };
+
     uint64_t id = 0;
     std::wstring key;
     UniquePidl pidl;
@@ -20,7 +26,12 @@ struct PreviewCache::AsyncRequest {
     HWND notify = nullptr;
     UINT message = 0;
     std::atomic<bool> cancelled{false};
+    Kind kind = Kind::kShellPreview;
+    HWND window = nullptr;
+    std::wstring ownerToken;
 };
+
+constexpr size_t kMaxPendingCaptureRequests = 8;
 
 HBITMAP LoadShellItemPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SIZE* outSize) {
     if (!pidl) {
@@ -170,73 +181,27 @@ bool RenderWindowToDc(HWND window, HDC dc, int width, int height) {
     return copied != FALSE;
 }
 
-}  // namespace
-
-PreviewCache& PreviewCache::Instance() {
-    static PreviewCache cache;
-    return cache;
-}
-
-PreviewCache::~PreviewCache() {
-    {
-        std::unique_lock lock(m_requestMutex);
-        m_shutdown = true;
-    }
-    m_requestCv.notify_all();
-    if (m_workerThread.joinable()) {
-        m_workerThread.join();
-    }
-    Clear();
-}
-
-std::optional<PreviewImage> PreviewCache::GetPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize) {
-    if (!pidl) {
-        return std::nullopt;
-    }
-
-    UNREFERENCED_PARAMETER(desiredSize);
-
-    const std::wstring key = BuildCacheKey(pidl);
-    if (key.empty()) {
-        return std::nullopt;
-    }
-
-    std::scoped_lock lock(m_mutex);
-    auto it = m_entries.find(key);
-    if (it == m_entries.end() || !it->second.bitmap) {
-        return std::nullopt;
-    }
-
-    it->second.lastAccess = GetTickCount64();
-    return PreviewImage{it->second.bitmap, it->second.size};
-}
-
-void PreviewCache::StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, const SIZE& desiredSize) {
-    if (!pidl || !window || !IsWindow(window)) {
-        return;
-    }
-
-    const std::wstring key = BuildCacheKey(pidl);
-    if (key.empty()) {
-        return;
+HBITMAP CaptureWindowPreview(HWND window, const SIZE& desiredSize, SIZE* outSize) {
+    if (!window || !IsWindow(window)) {
+        return nullptr;
     }
 
     RECT client{};
     if (!GetClientRect(window, &client)) {
-        return;
+        return nullptr;
     }
 
     const int srcWidth = client.right - client.left;
     const int srcHeight = client.bottom - client.top;
     if (srcWidth <= 0 || srcHeight <= 0) {
-        return;
+        return nullptr;
     }
 
     const SIZE targetSize = ComputeScaledSize(srcWidth, srcHeight, desiredSize);
 
     HDC screenDc = GetDC(nullptr);
     if (!screenDc) {
-        return;
+        return nullptr;
     }
 
     HDC srcDc = nullptr;
@@ -336,18 +301,144 @@ void PreviewCache::StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, c
         if (finalBitmap) {
             DeleteObject(finalBitmap);
         }
-        return;
+        return nullptr;
+    }
+
+    if (outSize) {
+        *outSize = finalSize;
+    }
+    return finalBitmap;
+}
+
+}  // namespace
+
+PreviewCache& PreviewCache::Instance() {
+    static PreviewCache cache;
+    return cache;
+}
+
+PreviewCache::~PreviewCache() {
+    {
+        std::unique_lock lock(m_requestMutex);
+        m_shutdown = true;
+    }
+    m_requestCv.notify_all();
+    if (m_workerThread.joinable()) {
+        m_workerThread.join();
+    }
+    Clear();
+}
+
+std::optional<PreviewImage> PreviewCache::GetPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize) {
+    if (!pidl) {
+        return std::nullopt;
+    }
+
+    UNREFERENCED_PARAMETER(desiredSize);
+
+    const std::wstring key = BuildCacheKey(pidl);
+    if (key.empty()) {
+        return std::nullopt;
     }
 
     std::scoped_lock lock(m_mutex);
-    Entry& entry = m_entries[key];
-    if (entry.bitmap) {
-        DeleteObject(entry.bitmap);
+    auto it = m_entries.find(key);
+    if (it == m_entries.end() || !it->second.bitmap) {
+        return std::nullopt;
     }
-    entry.bitmap = finalBitmap;
-    entry.size = finalSize;
-    entry.lastAccess = GetTickCount64();
-    TrimCacheLocked();
+
+    it->second.lastAccess = GetTickCount64();
+    return PreviewImage{it->second.bitmap, it->second.size};
+}
+
+void PreviewCache::StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, const SIZE& desiredSize,
+                                          std::wstring_view ownerToken) {
+    if (!pidl || !window || !IsWindow(window)) {
+        return;
+    }
+
+    const std::wstring key = BuildCacheKey(pidl);
+    if (key.empty()) {
+        return;
+    }
+
+    UniquePidl clone = ClonePidl(pidl);
+    if (!clone) {
+        return;
+    }
+
+    EnsureWorkerThread();
+
+    auto request = std::make_shared<AsyncRequest>();
+    request->kind = AsyncRequest::Kind::kWindowCapture;
+    request->key = key;
+    request->pidl = std::move(clone);
+    request->size = desiredSize;
+    request->window = window;
+    if (!ownerToken.empty()) {
+        request->ownerToken.assign(ownerToken);
+    }
+
+    {
+        std::scoped_lock lock(m_requestMutex);
+
+        for (auto it = m_requestQueue.begin(); it != m_requestQueue.end();) {
+            const auto& pending = *it;
+            if (!pending || pending->kind != AsyncRequest::Kind::kWindowCapture) {
+                ++it;
+                continue;
+            }
+            const bool sameKey = pending->key == request->key;
+            const bool sameOwner = !request->ownerToken.empty() && pending->ownerToken == request->ownerToken;
+            if (sameKey || sameOwner) {
+                pending->cancelled.store(true, std::memory_order_release);
+                m_requestMap.erase(pending->id);
+                it = m_requestQueue.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        for (auto& [_, pending] : m_requestMap) {
+            if (pending && pending->kind == AsyncRequest::Kind::kWindowCapture) {
+                if (pending->key == request->key ||
+                    (!request->ownerToken.empty() && pending->ownerToken == request->ownerToken)) {
+                    pending->cancelled.store(true, std::memory_order_release);
+                }
+            }
+        }
+
+        size_t pendingCaptures = 0;
+        for (const auto& pending : m_requestQueue) {
+            if (pending && pending->kind == AsyncRequest::Kind::kWindowCapture) {
+                ++pendingCaptures;
+            }
+        }
+        while (pendingCaptures >= kMaxPendingCaptureRequests) {
+            auto eraseIt = std::find_if(m_requestQueue.begin(), m_requestQueue.end(), [](const auto& candidate) {
+                return candidate && candidate->kind == AsyncRequest::Kind::kWindowCapture;
+            });
+            if (eraseIt == m_requestQueue.end()) {
+                break;
+            }
+            (*eraseIt)->cancelled.store(true, std::memory_order_release);
+            m_requestMap.erase((*eraseIt)->id);
+            eraseIt = m_requestQueue.erase(eraseIt);
+            if (pendingCaptures > 0) {
+                --pendingCaptures;
+            }
+        }
+
+        request->id = m_nextRequestId++;
+        if (m_nextRequestId == 0 || m_nextRequestId > 0xFFFFFFFFULL) {
+            m_nextRequestId = 1;
+        }
+
+        m_requestQueue.push_back(request);
+        m_requestMap[request->id] = request;
+    }
+
+    m_requestCv.notify_one();
 }
 
 uint64_t PreviewCache::RequestPreviewAsync(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, HWND notifyHwnd, UINT message) {
@@ -372,6 +463,7 @@ uint64_t PreviewCache::RequestPreviewAsync(PCIDLIST_ABSOLUTE pidl, const SIZE& d
         if (m_nextRequestId == 0 || m_nextRequestId > 0xFFFFFFFFULL) {
             m_nextRequestId = 1;
         }
+        request->kind = AsyncRequest::Kind::kShellPreview;
         request->key = key;
         request->pidl = std::move(clone);
         request->size = desiredSize;
@@ -401,6 +493,56 @@ void PreviewCache::CancelRequest(uint64_t requestId) {
             m_requestQueue.erase(queueIt);
             m_requestMap.erase(it);
             return;
+        }
+    }
+}
+
+void PreviewCache::CancelPendingCapturesForKey(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return;
+    }
+    const std::wstring key = BuildCacheKey(pidl);
+    if (key.empty()) {
+        return;
+    }
+
+    std::scoped_lock lock(m_requestMutex);
+    for (auto it = m_requestQueue.begin(); it != m_requestQueue.end();) {
+        const auto& pending = *it;
+        if (pending && pending->kind == AsyncRequest::Kind::kWindowCapture && pending->key == key) {
+            pending->cancelled.store(true, std::memory_order_release);
+            m_requestMap.erase(pending->id);
+            it = m_requestQueue.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto& [_, pending] : m_requestMap) {
+        if (pending && pending->kind == AsyncRequest::Kind::kWindowCapture && pending->key == key) {
+            pending->cancelled.store(true, std::memory_order_release);
+        }
+    }
+}
+
+void PreviewCache::CancelPendingCapturesForOwner(std::wstring_view ownerToken) {
+    if (ownerToken.empty()) {
+        return;
+    }
+
+    std::scoped_lock lock(m_requestMutex);
+    for (auto it = m_requestQueue.begin(); it != m_requestQueue.end();) {
+        const auto& pending = *it;
+        if (pending && pending->kind == AsyncRequest::Kind::kWindowCapture && pending->ownerToken == ownerToken) {
+            pending->cancelled.store(true, std::memory_order_release);
+            m_requestMap.erase(pending->id);
+            it = m_requestQueue.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto& [_, pending] : m_requestMap) {
+        if (pending && pending->kind == AsyncRequest::Kind::kWindowCapture && pending->ownerToken == ownerToken) {
+            pending->cancelled.store(true, std::memory_order_release);
         }
     }
 }
@@ -483,13 +625,29 @@ void PreviewCache::ProcessRequests() {
             continue;
         }
 
+        const bool cancelledBeforeWork = request->cancelled.load(std::memory_order_acquire);
+
         SIZE generatedSize{};
-        HBITMAP bitmap = LoadShellItemPreview(request->pidl.get(), request->size, &generatedSize);
-        if (bitmap) {
-            StoreBitmapForKey(request->key, bitmap, generatedSize);
+        HBITMAP bitmap = nullptr;
+        if (!cancelledBeforeWork) {
+            if (request->kind == AsyncRequest::Kind::kShellPreview) {
+                bitmap = LoadShellItemPreview(request->pidl.get(), request->size, &generatedSize);
+            } else {
+                bitmap = CaptureWindowPreview(request->window, request->size, &generatedSize);
+            }
         }
 
-        const bool cancelled = request->cancelled.load(std::memory_order_acquire);
+        const bool cancelledAfterWork = request->cancelled.load(std::memory_order_acquire);
+        bool stored = false;
+        if (!cancelledAfterWork && bitmap) {
+            StoreBitmapForKey(request->key, bitmap, generatedSize);
+            stored = true;
+        }
+        if (!stored && bitmap) {
+            DeleteObject(bitmap);
+            bitmap = nullptr;
+        }
+
         const HWND target = request->notify;
         const UINT message = request->message;
         const uint64_t id = request->id;
@@ -499,9 +657,7 @@ void PreviewCache::ProcessRequests() {
             m_requestMap.erase(id);
         }
 
-        if (!cancelled && bitmap && target && message != 0) {
-            PostMessageW(target, message, static_cast<WPARAM>(id), 0);
-        } else if (!bitmap && !cancelled && target && message != 0) {
+        if (request->kind == AsyncRequest::Kind::kShellPreview && !cancelledAfterWork && target && message != 0) {
             PostMessageW(target, message, static_cast<WPARAM>(id), 0);
         }
     }

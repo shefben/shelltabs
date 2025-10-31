@@ -218,6 +218,8 @@ private:
     void OnPeriodicSessionFlush();
     void ApplyOptionsChanges(const ShellTabsOptions& previousOptions);
     UniquePidl QueryCurrentFolder() const;
+    void CancelPendingPreviewForTab(const TabInfo& tab) const;
+    void CancelPendingPreviewForGroup(const TabGroup& group) const;
     void NavigateToTab(TabLocation location);
     void EnsureTabForCurrentFolder();
     void OpenTabInNewWindow(const TabInfo& tab);
