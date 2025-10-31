@@ -3774,7 +3774,8 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
                 if (wheelLines == WHEEL_PAGESCROLL) {
                     RECT client{};
                     if (GetClientRect(hwnd, &client)) {
-                        const int page = std::max(1, (client.bottom - client.top) - kCustomizationScrollLineStep);
+                        const int clientHeight = static_cast<int>(client.bottom - client.top);
+                        const int page = std::max(1, clientHeight - kCustomizationScrollLineStep);
                         ApplyCustomizationScrollDelta(hwnd, data, -increment * page);
                     } else {
                         ApplyCustomizationScrollDelta(hwnd, data, -increment * kCustomizationScrollPageStep);
