@@ -2412,6 +2412,20 @@ void UpdateGlowControlStates(HWND hwnd) {
     }
 }
 
+void SetPreviewColor(HWND hwnd, int controlId, HBRUSH* brush, COLORREF color) {
+    if (!brush) {
+        return;
+    }
+    if (*brush) {
+        DeleteObject(*brush);
+        *brush = nullptr;
+    }
+    *brush = CreateSolidBrush(color);
+    if (HWND ctrl = GetDlgItem(hwnd, controlId)) {
+        InvalidateRect(ctrl, nullptr, TRUE);
+    }
+}
+
 void RefreshGlowControls(HWND hwnd, OptionsDialogData* data) {
     if (!data) {
         return;
@@ -2430,20 +2444,6 @@ void RefreshGlowControls(HWND hwnd, OptionsDialogData* data) {
                     data->workingOptions.neonGlowSecondaryColor);
 
     UpdateGlowControlStates(hwnd);
-}
-
-void SetPreviewColor(HWND hwnd, int controlId, HBRUSH* brush, COLORREF color) {
-    if (!brush) {
-        return;
-    }
-    if (*brush) {
-        DeleteObject(*brush);
-        *brush = nullptr;
-    }
-    *brush = CreateSolidBrush(color);
-    if (HWND ctrl = GetDlgItem(hwnd, controlId)) {
-        InvalidateRect(ctrl, nullptr, TRUE);
-    }
 }
 
 bool HandleColorButtonClick(HWND hwnd, OptionsDialogData* data, WORD controlId) {
@@ -4025,7 +4025,6 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
         if (result.optionsChanged) {
             ForceExplorerUIRefresh(parent);
         }
-        auto& groupStore = GroupStore::Instance();
         if (groupsChanged) {
             groupStore.Load();
             std::vector<SavedGroup> existingGroups = groupStore.Groups();

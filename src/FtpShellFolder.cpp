@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <cwchar>
 #include <cwctype>
@@ -35,6 +36,27 @@ using Microsoft::WRL::ComPtr;
 namespace shelltabs::ftp {
 
 namespace {
+
+struct DefContextMenuLayout {
+    HWND hwnd;
+    IContextMenuCB* pcmcb;
+    PCIDLIST_ABSOLUTE pidlFolder;
+    IShellFolder* psf;
+    UINT cidl;
+    PCUITEMID_CHILD_ARRAY apidl;
+    IUnknown* punkAssociationInfo;
+    IDataObject* pdtobj;
+    IUnknown* punkSite;
+};
+
+static_assert(sizeof(DefContextMenuLayout) == sizeof(DEFCONTEXTMENU),
+              "DEFCONTEXTMENU layout changed unexpectedly");
+
+inline void AssignContextMenuDataObject(DEFCONTEXTMENU& def, IDataObject* dataObject) noexcept {
+    auto* slot = reinterpret_cast<IDataObject**>(reinterpret_cast<unsigned char*>(&def) +
+                                                 offsetof(DefContextMenuLayout, pdtobj));
+    *slot = dataObject;
+}
 
 #ifdef SHCONTF_ALLFOLDERS
 constexpr SHCONTF kShcontfAllFolders = SHCONTF_ALLFOLDERS;
@@ -1225,16 +1247,10 @@ IFACEMETHODIMP FtpShellFolder::GetUIObjectOf(HWND hwnd, UINT cidl, PCUITEMID_CHI
             if (FAILED(hr)) {
                 return hr;
             }
-            // DEFCONTEXTMENU exposes the selected data through an anonymous union. When the
-            // Windows headers are compiled with NONAMELESSUNION defined (as is the case when
-            // using /permissive-), the union gains the DUMMYUNIONNAME indirection and direct
-            // access via "pdtobj" becomes ill-formed. Handle both configurations so the code
-            // remains portable across SDKs and compiler settings.
-#if defined(NONAMELESSUNION)
-            def.DUMMYUNIONNAME.pdtobj = dataObject.Get();
-#else
-            def.pdtobj = dataObject.Get();
-#endif
+            // DEFCONTEXTMENU exposes the selected data through an anonymous union whose exact
+            // naming depends on how the Windows headers are configured. Assign the pointer using
+            // a layout-aware helper so the code remains agnostic to those details.
+            AssignContextMenuDataObject(def, dataObject.Get());
         }
 
         return SHCreateDefaultContextMenu(&def, riid, ppv);
