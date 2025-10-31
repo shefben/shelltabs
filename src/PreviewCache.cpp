@@ -1,18 +1,19 @@
 #include "PreviewCache.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "Utilities.h"
 
 namespace shelltabs {
 
-namespace {
 struct PreviewCache::AsyncRequest {
     enum class Kind {
         kShellPreview,
@@ -31,6 +32,7 @@ struct PreviewCache::AsyncRequest {
     std::wstring ownerToken;
 };
 
+namespace {
 constexpr size_t kMaxPendingCaptureRequests = 8;
 
 HBITMAP LoadShellItemPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SIZE* outSize) {
