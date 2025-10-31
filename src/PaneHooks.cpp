@@ -1,10 +1,11 @@
 #include "PaneHooks.h"
 
+#include "Utilities.h"
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <algorithm>
+#include <cwctype>
 
 namespace shelltabs {
 
@@ -56,6 +57,18 @@ void DispatchInvalidations(const std::vector<HWND>& handles, HighlightPaneType p
 void NotifyHighlightObservers(const std::vector<HWND>& listViews, const std::vector<HWND>& treeViews) {
     DispatchInvalidations(listViews, HighlightPaneType::ListView);
     DispatchInvalidations(treeViews, HighlightPaneType::TreeView);
+}
+
+std::wstring NormalizeHighlightKey(const std::wstring& path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring normalized = NormalizeFileSystemPath(path);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return normalized;
 }
 
 }  // namespace
@@ -143,6 +156,40 @@ bool PaneHookRouter::HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result)
         return false;
     }
 
+    auto applyHighlight = [&](int itemIndex, bool isSubItemStage) {
+        if (!m_provider || !m_listView) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        if (itemIndex < 0) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        PaneHighlight highlight{};
+        if (!m_provider->TryGetListViewHighlight(m_listView, itemIndex, &highlight)) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        bool applied = false;
+        if (highlight.hasTextColor) {
+            draw->clrText = highlight.textColor;
+            applied = true;
+        }
+        if (highlight.hasBackgroundColor) {
+            draw->clrTextBk = highlight.backgroundColor;
+            applied = true;
+        }
+
+        *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
+        if (!isSubItemStage) {
+            *result |= CDRF_NOTIFYSUBITEMDRAW;
+        }
+        return true;
+    };
+
     switch (draw->nmcd.dwDrawStage) {
         case CDDS_PREPAINT: {
             *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
@@ -150,40 +197,9 @@ bool PaneHookRouter::HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result)
         }
         case CDDS_ITEMPREPAINT:
         case CDDS_ITEMPREPAINT | CDDS_SUBITEM: {
-            if ((draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0 && draw->iSubItem != 0) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            if (!m_provider || !m_listView) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
             const int index = static_cast<int>(draw->nmcd.dwItemSpec);
-            if (index < 0) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            PaneHighlight highlight{};
-            if (!m_provider->TryGetListViewHighlight(m_listView, index, &highlight)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            bool applied = false;
-            if (highlight.hasTextColor) {
-                draw->clrText = highlight.textColor;
-                applied = true;
-            }
-            if (highlight.hasBackgroundColor) {
-                draw->clrTextBk = highlight.backgroundColor;
-                applied = true;
-            }
-
-            *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
-            return true;
+            const bool isSubItemStage = (draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0;
+            return applyHighlight(index, isSubItemStage);
         }
         default:
             break;
@@ -241,7 +257,8 @@ bool PaneHookRouter::HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result)
 }
 
 void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight) {
-    if (path.empty()) {
+    std::wstring normalized = NormalizeHighlightKey(path);
+    if (normalized.empty()) {
         return;
     }
 
@@ -258,7 +275,8 @@ void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highli
 }
 
 void UnregisterPaneHighlight(const std::wstring& path) {
-    if (path.empty()) {
+    std::wstring normalized = NormalizeHighlightKey(path);
+    if (normalized.empty()) {
         return;
     }
 
@@ -294,12 +312,13 @@ void ClearPaneHighlights() {
 }
 
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight) {
-    if (path.empty()) {
+    std::wstring normalized = NormalizeHighlightKey(path);
+    if (normalized.empty()) {
         return false;
     }
 
     std::scoped_lock lock(g_highlightMutex);
-    auto it = g_highlights.find(path);
+    auto it = g_highlights.find(normalized);
     if (it == g_highlights.end()) {
         return false;
     }

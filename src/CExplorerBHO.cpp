@@ -1162,34 +1162,19 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
         return false;
     }
 
-    PITEMID_CHILD child = nullptr;
-    hr = folderView->GetItem(itemIndex, &child);
-    if (FAILED(hr) || !child) {
+    Microsoft::WRL::ComPtr<IUnknown> item;
+    hr = folderView->GetItem(itemIndex, IID_PPV_ARGS(&item));
+    if (FAILED(hr) || !item) {
         return false;
     }
 
-    Microsoft::WRL::ComPtr<IPersistFolder2> persist;
-    hr = folderView->GetFolder(IID_PPV_ARGS(&persist));
-    if (FAILED(hr) || !persist) {
-        CoTaskMemFree(child);
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    hr = SHGetIDListFromObject(item.Get(), &pidl);
+    if (FAILED(hr) || !pidl) {
         return false;
     }
 
-    PIDLIST_ABSOLUTE parent = nullptr;
-    hr = persist->GetCurFolder(&parent);
-    if (FAILED(hr) || !parent) {
-        CoTaskMemFree(child);
-        return false;
-    }
-
-    UniquePidl parentHolder(parent);
-    PIDLIST_ABSOLUTE combined = ILCombine(parentHolder.get(), child);
-    CoTaskMemFree(child);
-    if (!combined) {
-        return false;
-    }
-
-    UniquePidl absolute(combined);
+    UniquePidl absolute(pidl);
     return ResolveHighlightFromPidl(absolute.get(), highlight);
 }
 
@@ -2981,14 +2966,14 @@ bool CExplorerBHO::CollectPathsFromItemArray(IShellItemArray* items, std::vector
         return false;
     }
 
-    if (count > kMaxTrackedSelection) {
-        LogMessage(LogLevel::Info, L"CollectPathsFromItemArray limiting selection from %lu to %u entries", count,
-                   kMaxTrackedSelection);
-    }
-
     bool appended = false;
 
-    for (DWORD index = 0; index < count && paths.size() < kMaxTrackedSelection; ++index) {
+    const size_t additional = static_cast<size_t>(count);
+    if (additional > 0 && additional <= paths.max_size() - paths.size()) {
+        paths.reserve(paths.size() + additional);
+    }
+
+    for (DWORD index = 0; index < count; ++index) {
         Microsoft::WRL::ComPtr<IShellItem> item;
         if (FAILED(items->GetItemAt(index, &item)) || !item) {
             LogMessage(LogLevel::Warning, L"CollectPathsFromItemArray failed: unable to access item %lu", index);
@@ -3015,8 +3000,7 @@ bool CExplorerBHO::CollectPathsFromItemArray(IShellItemArray* items, std::vector
             if (value.empty()) {
                 continue;
             }
-            if (std::find(paths.begin(), paths.end(), value) == paths.end() &&
-                paths.size() < kMaxTrackedSelection) {
+            if (std::find(paths.begin(), paths.end(), value) == paths.end()) {
                 paths.push_back(std::move(value));
                 appended = true;
             }
@@ -3040,11 +3024,6 @@ bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) co
     int index = -1;
     bool appended = false;
     while ((index = ListView_GetNextItem(m_listView, index, LVNI_SELECTED)) != -1) {
-        if (paths.size() >= kMaxTrackedSelection) {
-            LogMessage(LogLevel::Info, L"CollectPathsFromListView truncated selection at %zu entries", paths.size());
-            break;
-        }
-
         LVITEMW item{};
         item.mask = LVIF_PARAM;
         item.iItem = index;
@@ -3067,10 +3046,6 @@ bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) co
 
 bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) const {
     if (!m_treeView || !IsWindow(m_treeView)) {
-        return false;
-    }
-
-    if (paths.size() >= kMaxTrackedSelection) {
         return false;
     }
 
