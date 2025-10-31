@@ -12,6 +12,64 @@
 namespace shelltabs {
 
 namespace {
+struct PreviewCache::AsyncRequest {
+    uint64_t id = 0;
+    std::wstring key;
+    UniquePidl pidl;
+    SIZE size{};
+    HWND notify = nullptr;
+    UINT message = 0;
+    std::atomic<bool> cancelled{false};
+};
+
+HBITMAP LoadShellItemPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SIZE* outSize) {
+    if (!pidl) {
+        return nullptr;
+    }
+
+    Microsoft::WRL::ComPtr<IShellItem> item;
+    if (FAILED(SHCreateItemFromIDList(pidl, IID_PPV_ARGS(&item))) || !item) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IShellItemImageFactory> factory;
+    if (FAILED(item.As(&factory)) || !factory) {
+        return nullptr;
+    }
+
+    SIZE requestSize = desiredSize;
+    if (requestSize.cx <= 0 || requestSize.cy <= 0) {
+        requestSize = kPreviewImageSize;
+    }
+
+    HBITMAP bitmap = nullptr;
+    HRESULT hr = factory->GetImage(requestSize,
+                                   SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK | SIIGBF_THUMBNAILONLY,
+                                   &bitmap);
+    if (FAILED(hr)) {
+        hr = factory->GetImage(requestSize, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, &bitmap);
+    }
+    if (FAILED(hr)) {
+        hr = factory->GetImage(requestSize, SIIGBF_ICONONLY, &bitmap);
+    }
+    if (FAILED(hr) || !bitmap) {
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+        return nullptr;
+    }
+
+    BITMAP bmp{};
+    if (GetObject(bitmap, sizeof(bmp), &bmp) <= 0) {
+        DeleteObject(bitmap);
+        return nullptr;
+    }
+    if (outSize) {
+        outSize->cx = bmp.bmWidth;
+        outSize->cy = bmp.bmHeight;
+    }
+    return bitmap;
+}
+
 SIZE ComputeScaledSize(int srcWidth, int srcHeight, const SIZE& desiredSize) {
     SIZE result{srcWidth, srcHeight};
     if (srcWidth <= 0 || srcHeight <= 0) {
@@ -120,6 +178,14 @@ PreviewCache& PreviewCache::Instance() {
 }
 
 PreviewCache::~PreviewCache() {
+    {
+        std::unique_lock lock(m_requestMutex);
+        m_shutdown = true;
+    }
+    m_requestCv.notify_all();
+    if (m_workerThread.joinable()) {
+        m_workerThread.join();
+    }
     Clear();
 }
 
@@ -284,6 +350,61 @@ void PreviewCache::StorePreviewFromWindow(PCIDLIST_ABSOLUTE pidl, HWND window, c
     TrimCacheLocked();
 }
 
+uint64_t PreviewCache::RequestPreviewAsync(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, HWND notifyHwnd, UINT message) {
+    if (!pidl) {
+        return 0;
+    }
+    const std::wstring key = BuildCacheKey(pidl);
+    if (key.empty()) {
+        return 0;
+    }
+    UniquePidl clone = ClonePidl(pidl);
+    if (!clone) {
+        return 0;
+    }
+
+    EnsureWorkerThread();
+
+    auto request = std::make_shared<AsyncRequest>();
+    {
+        std::scoped_lock lock(m_requestMutex);
+        request->id = m_nextRequestId++;
+        if (m_nextRequestId == 0 || m_nextRequestId > 0xFFFFFFFFULL) {
+            m_nextRequestId = 1;
+        }
+        request->key = key;
+        request->pidl = std::move(clone);
+        request->size = desiredSize;
+        request->notify = notifyHwnd;
+        request->message = message;
+        m_requestQueue.push_back(request);
+        m_requestMap[request->id] = request;
+    }
+    m_requestCv.notify_one();
+    return request->id;
+}
+
+void PreviewCache::CancelRequest(uint64_t requestId) {
+    if (requestId == 0) {
+        return;
+    }
+    std::scoped_lock lock(m_requestMutex);
+    auto it = m_requestMap.find(requestId);
+    if (it == m_requestMap.end()) {
+        return;
+    }
+    it->second->cancelled.store(true, std::memory_order_release);
+    it->second->notify = nullptr;
+    it->second->message = 0;
+    for (auto queueIt = m_requestQueue.begin(); queueIt != m_requestQueue.end(); ++queueIt) {
+        if ((*queueIt)->id == requestId) {
+            m_requestQueue.erase(queueIt);
+            m_requestMap.erase(it);
+            return;
+        }
+    }
+}
+
 void PreviewCache::Clear() {
     std::scoped_lock lock(m_mutex);
     for (auto& [_, entry] : m_entries) {
@@ -334,6 +455,77 @@ std::wstring PreviewCache::BuildCacheKey(PCIDLIST_ABSOLUTE pidl) {
     wchar_t buffer[32];
     _snwprintf_s(buffer, _TRUNCATE, L"pidl:%p", pidl);
     return buffer;
+}
+
+void PreviewCache::EnsureWorkerThread() {
+    std::scoped_lock lock(m_requestMutex);
+    if (m_workerThread.joinable()) {
+        return;
+    }
+    m_shutdown = false;
+    m_workerThread = std::thread([this]() { ProcessRequests(); });
+}
+
+void PreviewCache::ProcessRequests() {
+    const HRESULT coInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    while (true) {
+        std::shared_ptr<AsyncRequest> request;
+        {
+            std::unique_lock lock(m_requestMutex);
+            m_requestCv.wait(lock, [this]() { return m_shutdown || !m_requestQueue.empty(); });
+            if (m_shutdown && m_requestQueue.empty()) {
+                break;
+            }
+            request = m_requestQueue.front();
+            m_requestQueue.pop_front();
+        }
+        if (!request) {
+            continue;
+        }
+
+        SIZE generatedSize{};
+        HBITMAP bitmap = LoadShellItemPreview(request->pidl.get(), request->size, &generatedSize);
+        if (bitmap) {
+            StoreBitmapForKey(request->key, bitmap, generatedSize);
+        }
+
+        const bool cancelled = request->cancelled.load(std::memory_order_acquire);
+        const HWND target = request->notify;
+        const UINT message = request->message;
+        const uint64_t id = request->id;
+
+        {
+            std::scoped_lock lock(m_requestMutex);
+            m_requestMap.erase(id);
+        }
+
+        if (!cancelled && bitmap && target && message != 0) {
+            PostMessageW(target, message, static_cast<WPARAM>(id), 0);
+        } else if (!bitmap && !cancelled && target && message != 0) {
+            PostMessageW(target, message, static_cast<WPARAM>(id), 0);
+        }
+    }
+    if (SUCCEEDED(coInit)) {
+        CoUninitialize();
+    }
+}
+
+void PreviewCache::StoreBitmapForKey(const std::wstring& key, HBITMAP bitmap, const SIZE& size) {
+    if (key.empty() || !bitmap) {
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+        return;
+    }
+    std::scoped_lock lock(m_mutex);
+    Entry& entry = m_entries[key];
+    if (entry.bitmap) {
+        DeleteObject(entry.bitmap);
+    }
+    entry.bitmap = bitmap;
+    entry.size = size;
+    entry.lastAccess = GetTickCount64();
+    TrimCacheLocked();
 }
 
 }  // namespace shelltabs

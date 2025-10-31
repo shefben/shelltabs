@@ -2602,6 +2602,7 @@ void TabBandWindow::HandleMouseHover(const POINT& pt) {
 }
 
 void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
+    CancelPreviewRequest();
     if (index >= m_items.size()) {
         HidePreviewWindow(false);
         return;
@@ -2615,24 +2616,40 @@ void TabBandWindow::ShowPreviewForItem(size_t index, const POINT& screenPt) {
         m_owner->EnsureTabPreview(visual.data.location);
     }
     auto preview = PreviewCache::Instance().GetPreview(visual.data.pidl, kPreviewImageSize);
-    if (!preview.has_value() || !preview->bitmap) {
-        HidePreviewWindow(false);
-        return;
+    bool overlayShown = false;
+    if (preview.has_value() && preview->bitmap) {
+        overlayShown = m_previewOverlay.Show(m_hwnd, preview->bitmap, preview->size, screenPt);
+    } else {
+        std::wstring placeholderText = !visual.data.name.empty() ? visual.data.name : visual.data.tooltip;
+        if (placeholderText.empty()) {
+            placeholderText = !visual.data.path.empty() ? visual.data.path : L"Generating preview…";
+        }
+        HICON icon = LoadItemIcon(visual.data, SHGFI_LARGEICON);
+        overlayShown = m_previewOverlay.Show(m_hwnd, nullptr, kPreviewImageSize, screenPt, placeholderText.c_str(), icon);
+        if (icon) {
+            DestroyIcon(icon);
+        }
+        if (overlayShown) {
+            m_previewRequestId = PreviewCache::Instance().RequestPreviewAsync(visual.data.pidl, kPreviewImageSize, m_hwnd,
+                                                                             WM_SHELLTABS_PREVIEW_READY);
+        }
     }
-
-    if (!m_previewOverlay.Show(m_hwnd, preview->bitmap, preview->size, screenPt)) {
+    if (!overlayShown) {
         HidePreviewWindow(false);
         return;
     }
     m_previewItemIndex = index;
     m_previewVisible = true;
+    m_previewAnchorPoint = screenPt;
     PositionPreviewWindow(visual, screenPt);
 }
 
 void TabBandWindow::HidePreviewWindow(bool destroy) {
+    CancelPreviewRequest();
     m_previewOverlay.Hide(destroy);
     m_previewVisible = false;
     m_previewItemIndex = std::numeric_limits<size_t>::max();
+    m_previewAnchorPoint = POINT{};
 }
 
 void TabBandWindow::PositionPreviewWindow(const VisualItem& item, const POINT& screenPt) {
@@ -2642,6 +2659,33 @@ void TabBandWindow::PositionPreviewWindow(const VisualItem& item, const POINT& s
     RECT rect = item.bounds;
     MapWindowPoints(m_hwnd, nullptr, reinterpret_cast<POINT*>(&rect), 2);
     m_previewOverlay.PositionRelativeToRect(rect, screenPt);
+}
+
+void TabBandWindow::HandlePreviewReady(uint64_t requestId) {
+    if (requestId == 0 || requestId != m_previewRequestId) {
+        return;
+    }
+    m_previewRequestId = 0;
+    if (!m_previewVisible || m_previewItemIndex >= m_items.size()) {
+        return;
+    }
+    const auto& visual = m_items[m_previewItemIndex];
+    auto preview = PreviewCache::Instance().GetPreview(visual.data.pidl, kPreviewImageSize);
+    if (!preview.has_value() || !preview->bitmap) {
+        return;
+    }
+    if (!m_previewOverlay.Show(m_hwnd, preview->bitmap, preview->size, m_previewAnchorPoint)) {
+        HidePreviewWindow(false);
+        return;
+    }
+    PositionPreviewWindow(visual, m_previewAnchorPoint);
+}
+
+void TabBandWindow::CancelPreviewRequest() {
+    if (m_previewRequestId != 0) {
+        PreviewCache::Instance().CancelRequest(m_previewRequestId);
+        m_previewRequestId = 0;
+    }
 }
 
 void TabBandWindow::RefreshProgressState() {
@@ -4368,6 +4412,10 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_SHELLTABS_EXTERNAL_DROP: {
                 self->HandleExternalDropExecute();
+                return 0;
+            }
+            case WM_SHELLTABS_PREVIEW_READY: {
+                self->HandlePreviewReady(static_cast<uint64_t>(wParam));
                 return 0;
             }
             case WM_COPYDATA: {
