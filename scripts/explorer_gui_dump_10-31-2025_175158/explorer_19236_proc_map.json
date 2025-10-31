@@ -1,0 +1,698 @@
+[
+  {
+    "hwnd": 10168968,
+    "hwnd_hex": "0x9b2a88",
+    "class": "Shell_TrayWnd",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": ""
+  },
+  {
+    "hwnd": 11937328,
+    "hwnd_hex": "0xb62630",
+    "class": "Start",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199fc020",
+    "text": "Start"
+  },
+  {
+    "hwnd": 145163930,
+    "hwnd_hex": "0x8a7069a",
+    "class": "TrayDummySearchControl",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199cac00",
+    "text": ""
+  },
+  {
+    "hwnd": 36702256,
+    "hwnd_hex": "0x2300830",
+    "class": "Button",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b718e0",
+    "text": "Type here to search"
+  },
+  {
+    "hwnd": 87492178,
+    "hwnd_hex": "0x5370652",
+    "class": "Static",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b92590",
+    "text": "Type here to search"
+  },
+  {
+    "hwnd": 1575320,
+    "hwnd_hex": "0x180998",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": ""
+  },
+  {
+    "hwnd": 18686142,
+    "hwnd_hex": "0x11d20be",
+    "class": "DynamicContent1",
+    "wndproc": null,
+    "class_wndproc": "0x7ff619aa6b10",
+    "text": "Search highlights icon opens search home window"
+  },
+  {
+    "hwnd": 31721194,
+    "hwnd_hex": "0x1e406ea",
+    "class": "ReBarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b80f90",
+    "text": ""
+  },
+  {
+    "hwnd": 95551690,
+    "hwnd_hex": "0x5b200ca",
+    "class": "MSTaskSwWClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": "Running applications"
+  },
+  {
+    "hwnd": 34144922,
+    "hwnd_hex": "0x209029a",
+    "class": "MSTaskListWClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": "Running applications"
+  },
+  {
+    "hwnd": 75434052,
+    "hwnd_hex": "0x47f0844",
+    "class": "DynamicContent2",
+    "wndproc": null,
+    "class_wndproc": "0x7ff619aa6b10",
+    "text": "News and interests"
+  },
+  {
+    "hwnd": 35390818,
+    "hwnd_hex": "0x21c0562",
+    "class": "TrayNotifyWnd",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": ""
+  },
+  {
+    "hwnd": 39195132,
+    "hwnd_hex": "0x25611fc",
+    "class": "Button",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b718e0",
+    "text": ""
+  },
+  {
+    "hwnd": 751643222,
+    "hwnd_hex": "0x2ccd2a56",
+    "class": "Button",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b718e0",
+    "text": ""
+  },
+  {
+    "hwnd": 26150266,
+    "hwnd_hex": "0x18f057a",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": "System Promoted Notification Area"
+  },
+  {
+    "hwnd": 225976548,
+    "hwnd_hex": "0xd7820e4",
+    "class": "SysPager",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6ba0150",
+    "text": ""
+  },
+  {
+    "hwnd": 304229586,
+    "hwnd_hex": "0x12222cd2",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": "User Promoted Notification Area"
+  },
+  {
+    "hwnd": 20514416,
+    "hwnd_hex": "0x1390670",
+    "class": "TrayInputIndicatorWClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": "Tray Input Indicator"
+  },
+  {
+    "hwnd": 225052346,
+    "hwnd_hex": "0xd6a06ba",
+    "class": "IMEModeButton",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 33228152,
+    "hwnd_hex": "0x1fb0578",
+    "class": "InputIndicatorButton",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 4852038,
+    "hwnd_hex": "0x4a0946",
+    "class": "TrayClockWClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": "System Clock, 5:51 PM, ?10/?31/?2025"
+  },
+  {
+    "hwnd": 61867454,
+    "hwnd_hex": "0x3b005be",
+    "class": "TrayButton",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199f7470",
+    "text": "Action Center, 2 new notifications"
+  },
+  {
+    "hwnd": 202647140,
+    "hwnd_hex": "0xc142664",
+    "class": "TrayShowDesktopButtonWClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ff6199fbde0",
+    "text": ""
+  },
+  {
+    "hwnd": 7997664,
+    "hwnd_hex": "0x7a08e0",
+    "class": "CabinetWClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952511b0",
+    "text": "shelltabs"
+  },
+  {
+    "hwnd": 50594670,
+    "hwnd_hex": "0x304036e",
+    "class": "UIRibbonCommandBarDock",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc050f9360",
+    "text": "UIRibbonDockLeft"
+  },
+  {
+    "hwnd": 253035342,
+    "hwnd_hex": "0xf15034e",
+    "class": "UIRibbonCommandBarDock",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc050f9360",
+    "text": "UIRibbonDockRight"
+  },
+  {
+    "hwnd": 10158884,
+    "hwnd_hex": "0x9b0324",
+    "class": "UIRibbonCommandBarDock",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc050f9360",
+    "text": "UIRibbonDockTop"
+  },
+  {
+    "hwnd": 17367916,
+    "hwnd_hex": "0x109036c",
+    "class": "UIRibbonCommandBar",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc05115af0",
+    "text": "Ribbon"
+  },
+  {
+    "hwnd": 211091696,
+    "hwnd_hex": "0xc9500f0",
+    "class": "UIRibbonWorkPane",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc050ce2c0",
+    "text": "Ribbon"
+  },
+  {
+    "hwnd": 72299984,
+    "hwnd_hex": "0x44f35d0",
+    "class": "NUIPane",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 74725538,
+    "hwnd_hex": "0x47438a2",
+    "class": "NetUIHWND",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 32637250,
+    "hwnd_hex": "0x1f20142",
+    "class": "UIRibbonCommandBarDock",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc050f9360",
+    "text": "UIRibbonDockBottom"
+  },
+  {
+    "hwnd": 409930044,
+    "hwnd_hex": "0x186f093c",
+    "class": "WorkerW",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0cac000",
+    "text": ""
+  },
+  {
+    "hwnd": 110825466,
+    "hwnd_hex": "0x69b0ffa",
+    "class": "ReBarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b80f90",
+    "text": ""
+  },
+  {
+    "hwnd": 23204098,
+    "hwnd_hex": "0x1621102",
+    "class": "TravelBand",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc95295b10",
+    "text": ""
+  },
+  {
+    "hwnd": 53613248,
+    "hwnd_hex": "0x33212c0",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": "Navigation buttons"
+  },
+  {
+    "hwnd": 31201396,
+    "hwnd_hex": "0x1dc1874",
+    "class": "UpBand",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc95252220",
+    "text": ""
+  },
+  {
+    "hwnd": 358947078,
+    "hwnd_hex": "0x15651906",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": "Up band toolbar"
+  },
+  {
+    "hwnd": 45425010,
+    "hwnd_hex": "0x2b52172",
+    "class": "Address Band Root",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc9527b1d0",
+    "text": ""
+  },
+  {
+    "hwnd": 57876872,
+    "hwnd_hex": "0x3732188",
+    "class": "msctls_progress32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b41e80",
+    "text": ""
+  },
+  {
+    "hwnd": 8004354,
+    "hwnd_hex": "0x7a2302",
+    "class": "Breadcrumb Parent",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc9527da20",
+    "text": ""
+  },
+  {
+    "hwnd": 11346706,
+    "hwnd_hex": "0xad2312",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": "Address: F:\\development\\steam\\emulator_bot\\shelltabs"
+  },
+  {
+    "hwnd": 27599486,
+    "hwnd_hex": "0x1a5227e",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": "Address band toolbar"
+  },
+  {
+    "hwnd": 5251862,
+    "hwnd_hex": "0x502316",
+    "class": "SeparatorBand",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc95251370",
+    "text": ""
+  },
+  {
+    "hwnd": 12395310,
+    "hwnd_hex": "0xbd232e",
+    "class": "UniversalSearchBand",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952509a0",
+    "text": ""
+  },
+  {
+    "hwnd": 20718394,
+    "hwnd_hex": "0x13c233a",
+    "class": "Search Box",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952bdef0",
+    "text": ""
+  },
+  {
+    "hwnd": 19342160,
+    "hwnd_hex": "0x1272350",
+    "class": "SearchEditBoxWrapperClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952bf110",
+    "text": ""
+  },
+  {
+    "hwnd": 66659176,
+    "hwnd_hex": "0x3f92368",
+    "class": "DirectUIHWND",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 18621518,
+    "hwnd_hex": "0x11c244e",
+    "class": "SeparatorBand",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc95251370",
+    "text": ""
+  },
+  {
+    "hwnd": 56364622,
+    "hwnd_hex": "0x35c0e4e",
+    "class": "ShellTabWindowClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952809e0",
+    "text": "shelltabs"
+  },
+  {
+    "hwnd": 18556996,
+    "hwnd_hex": "0x11b2844",
+    "class": "DUIViewWndClassName",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcbf0cf9b0",
+    "text": ""
+  },
+  {
+    "hwnd": 33436234,
+    "hwnd_hex": "0x1fe324a",
+    "class": "DirectUIHWND",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 23398424,
+    "hwnd_hex": "0x1650818",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 21301324,
+    "hwnd_hex": "0x145084c",
+    "class": "Shell Preview Extension Host",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcbf08a060",
+    "text": "Shell Preview Extension Host"
+  },
+  {
+    "hwnd": 375522670,
+    "hwnd_hex": "0x1662056e",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 27657666,
+    "hwnd_hex": "0x1a605c2",
+    "class": "Button",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b718e0",
+    "text": ""
+  },
+  {
+    "hwnd": 76153136,
+    "hwnd_hex": "0x48a0130",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 137823434,
+    "hwnd_hex": "0x83704ca",
+    "class": "Button",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b718e0",
+    "text": ""
+  },
+  {
+    "hwnd": 49822024,
+    "hwnd_hex": "0x2f83948",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 102892574,
+    "hwnd_hex": "0x622041e",
+    "class": "NamespaceTreeControl",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc952511b0",
+    "text": "Namespace Tree Control"
+  },
+  {
+    "hwnd": 38798602,
+    "hwnd_hex": "0x250050a",
+    "class": "Static",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b92590",
+    "text": "Namespace Tree Control"
+  },
+  {
+    "hwnd": 24445108,
+    "hwnd_hex": "0x17500b4",
+    "class": "SysTreeView32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b26d30",
+    "text": "Tree View"
+  },
+  {
+    "hwnd": 140453532,
+    "hwnd_hex": "0x85f269c",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 20850592,
+    "hwnd_hex": "0x13e27a0",
+    "class": "SHELLDLL_DefView",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcbf137c40",
+    "text": "ShellView"
+  },
+  {
+    "hwnd": 23732606,
+    "hwnd_hex": "0x16a217e",
+    "class": "DirectUIHWND",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 84083738,
+    "hwnd_hex": "0x503041a",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 20324836,
+    "hwnd_hex": "0x13621e4",
+    "class": "ScrollBar",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b11bf0",
+    "text": ""
+  },
+  {
+    "hwnd": 167715394,
+    "hwnd_hex": "0x9ff2242",
+    "class": "CtrlNotifySink",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0f4d230",
+    "text": ""
+  },
+  {
+    "hwnd": 125055002,
+    "hwnd_hex": "0x774301a",
+    "class": "ScrollBar",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b11bf0",
+    "text": ""
+  },
+  {
+    "hwnd": 45295426,
+    "hwnd_hex": "0x2b32742",
+    "class": "WorkerW",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0cac000",
+    "text": ""
+  },
+  {
+    "hwnd": 61351768,
+    "hwnd_hex": "0x3a82758",
+    "class": "ReBarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b80f90",
+    "text": ""
+  },
+  {
+    "hwnd": 16983926,
+    "hwnd_hex": "0x1032776",
+    "class": "ToolbarWindow32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b77240",
+    "text": ""
+  },
+  {
+    "hwnd": 68495302,
+    "hwnd_hex": "0x41527c6",
+    "class": "ShellTabsBandWindow",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc89a6a270",
+    "text": ""
+  },
+  {
+    "hwnd": 63645736,
+    "hwnd_hex": "0x3cb2828",
+    "class": "Button",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b718e0",
+    "text": "+"
+  },
+  {
+    "hwnd": 19605692,
+    "hwnd_hex": "0x12b28bc",
+    "class": "msctls_statusbar32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b49130",
+    "text": ""
+  },
+  {
+    "hwnd": 11741494,
+    "hwnd_hex": "0xb32936",
+    "class": "msctls_statusbar32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b49130",
+    "text": ""
+  },
+  {
+    "hwnd": 43069632,
+    "hwnd_hex": "0x29130c0",
+    "class": "UIRibbonWorkPane",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc050ce2c0",
+    "text": "UIRibbonWorkPane"
+  },
+  {
+    "hwnd": 5973768,
+    "hwnd_hex": "0x5b2708",
+    "class": "DummyDWMListenerWindow",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc62ff5d00",
+    "text": ""
+  },
+  {
+    "hwnd": 4327664,
+    "hwnd_hex": "0x4208f0",
+    "class": "EdgeUiInputTopWndClass",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc5126cc10",
+    "text": ""
+  },
+  {
+    "hwnd": 273026750,
+    "hwnd_hex": "0x10460ebe",
+    "class": "DummyDWMListenerWindow",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc62ff5d00",
+    "text": ""
+  },
+  {
+    "hwnd": 30082884,
+    "hwnd_hex": "0x1cb0744",
+    "class": "DummyDWMListenerWindow",
+    "wndproc": null,
+    "class_wndproc": "0x7ffc62ff5d00",
+    "text": ""
+  },
+  {
+    "hwnd": 1378574,
+    "hwnd_hex": "0x15090e",
+    "class": "WorkerW",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0cac000",
+    "text": ""
+  },
+  {
+    "hwnd": 45222066,
+    "hwnd_hex": "0x2b208b2",
+    "class": "SHELLDLL_DefView",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcbf137c40",
+    "text": ""
+  },
+  {
+    "hwnd": 11020256,
+    "hwnd_hex": "0xa827e0",
+    "class": "SysListView32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b79090",
+    "text": "FolderView"
+  },
+  {
+    "hwnd": 3868916,
+    "hwnd_hex": "0x3b08f4",
+    "class": "SysHeader32",
+    "wndproc": null,
+    "class_wndproc": "0x7ffca6b78860",
+    "text": ""
+  },
+  {
+    "hwnd": 5835146,
+    "hwnd_hex": "0x59098a",
+    "class": "WorkerW",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcc0cac000",
+    "text": ""
+  },
+  {
+    "hwnd": 63113086,
+    "hwnd_hex": "0x3c3077e",
+    "class": "Progman",
+    "wndproc": null,
+    "class_wndproc": "0x7ffcbf121bc0",
+    "text": "Program Manager"
+  }
+]

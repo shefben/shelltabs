@@ -1,0 +1,10 @@
+{
+  "19236": {
+    "pid": 19236,
+    "exe": "C:\\Windows\\explorer.exe",
+    "collected_at": "10/31/2025 17:51:58",
+    "is_wow64": false,
+    "top_windows_count": 9,
+    "modules_count": 347
+  }
+}

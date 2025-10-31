@@ -1,0 +1,359 @@
+HWND 0x9b2a88 Class=Shell_TrayWnd Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+  RECT=(0, 1400, 2560, 1440)
+  HWND 0xb62630 Class=Start Text='Start' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199fc020
+    RECT=(0, 1400, 48, 1440)
+  HWND 0x8a7069a Class=TrayDummySearchControl Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199cac00
+    RECT=(0, 1400, 0, 1400)
+    HWND 0x2300830 Class=Button Text='Type here to search' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b718e0
+      RECT=(0, 1400, 0, 1400)
+    HWND 0x5370652 Class=Static Text='Type here to search' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b92590
+      RECT=(40, 1390, 40, 1410)
+    HWND 0x180998 Class=ToolbarWindow32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+      RECT=(0, 1400, 0, 1400)
+    HWND 0x11d20be Class=DynamicContent1 Text='Search highlights icon opens search home window' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff619aa6b10
+      RECT=(0, 1400, 0, 1400)
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  HWND 0x1e406ea Class=ReBarWindow32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b80f90
+    RECT=(46, 1400, 2419, 1440)
+    HWND 0x5b200ca Class=MSTaskSwWClass Text='Running applications' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+      RECT=(48, 1400, 2419, 1440)
+      HWND 0x209029a Class=MSTaskListWClass Text='Running applications' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+        RECT=(48, 1400, 2419, 1440)
+    <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  HWND 0x47f0844 Class=DynamicContent2 Text='News and interests' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff619aa6b10
+    RECT=(2315, 1400, 2411, 1440)
+  HWND 0x21c0562 Class=TrayNotifyWnd Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+    RECT=(2419, 1400, 2560, 1440)
+    HWND 0x25611fc Class=Button Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b718e0
+      RECT=(2419, 1400, 2443, 1440)
+      HWND 0x2ccd2a56 Class=Button Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b718e0
+        RECT=(2419, 1400, 2419, 1400)
+    <bad child entry>
+    HWND 0x18f057a Class=ToolbarWindow32 Text='System Promoted Notification Area' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+      RECT=(2443, 1400, 2443, 1400)
+    HWND 0xd7820e4 Class=SysPager Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6ba0150
+      RECT=(2443, 1400, 2443, 1400)
+      HWND 0x12222cd2 Class=ToolbarWindow32 Text='User Promoted Notification Area' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+        RECT=(2443, 1400, 2443, 1400)
+    <bad child entry>
+    HWND 0x1390670 Class=TrayInputIndicatorWClass Text='Tray Input Indicator' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+      RECT=(2443, 1400, 2443, 1440)
+      HWND 0xd6a06ba Class=IMEModeButton Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+        RECT=(2443, 1400, 2443, 1440)
+      HWND 0x1fb0578 Class=InputIndicatorButton Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+        RECT=(2443, 1400, 2479, 1440)
+    <bad child entry>
+    <bad child entry>
+    HWND 0x4a0946 Class=TrayClockWClass Text='System Clock, 5:51 PM, \u200e10/\u200e31/\u200e2025' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+      RECT=(2443, 1400, 2507, 1440)
+    HWND 0x3b005be Class=TrayButton Text='Action Center, 2 new notifications' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199f7470
+      RECT=(2507, 1400, 2555, 1440)
+    HWND 0xc142664 Class=TrayShowDesktopButtonWClass Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ff6199fbde0
+      RECT=(2555, 1400, 2560, 1440)
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+--------------------------------------------------------------------------------
+HWND 0x7a08e0 Class=CabinetWClass Text='shelltabs' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc952511b0
+  RECT=(1045, 381, 2139, 1342)
+  HWND 0x304036e Class=UIRibbonCommandBarDock Text='UIRibbonDockLeft' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc050f9360
+    RECT=(1053, 553, 1053, 1334)
+  HWND 0xf15034e Class=UIRibbonCommandBarDock Text='UIRibbonDockRight' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc050f9360
+    RECT=(2131, 553, 2131, 1334)
+  HWND 0x9b0324 Class=UIRibbonCommandBarDock Text='UIRibbonDockTop' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc050f9360
+    RECT=(1053, 412, 2131, 553)
+    HWND 0x109036c Class=UIRibbonCommandBar Text='Ribbon' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc05115af0
+      RECT=(1053, 412, 2131, 553)
+      HWND 0xc9500f0 Class=UIRibbonWorkPane Text='Ribbon' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc050ce2c0
+        RECT=(1053, 412, 2131, 553)
+        HWND 0x44f35d0 Class=NUIPane Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+          RECT=(1053, 412, 2131, 584)
+          HWND 0x47438a2 Class=NetUIHWND Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+            RECT=(1053, 381, 2131, 553)
+        <bad child entry>
+      <bad child entry>
+      <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  HWND 0x1f20142 Class=UIRibbonCommandBarDock Text='UIRibbonDockBottom' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc050f9360
+    RECT=(1053, 1334, 2131, 1334)
+  HWND 0x186f093c Class=WorkerW Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0cac000
+    RECT=(1053, 553, 2131, 588)
+    HWND 0x69b0ffa Class=ReBarWindow32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b80f90
+      RECT=(1053, 553, 2131, 588)
+      HWND 0x1621102 Class=TravelBand Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc95295b10
+        RECT=(1053, 553, 1134, 585)
+        HWND 0x33212c0 Class=ToolbarWindow32 Text='Navigation buttons' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+          RECT=(1057, 555, 1134, 585)
+      <bad child entry>
+      HWND 0x1dc1874 Class=UpBand Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc95252220
+        RECT=(1134, 554, 1158, 583)
+        HWND 0x15651906 Class=ToolbarWindow32 Text='Up band toolbar' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+          RECT=(1134, 558, 1158, 587)
+      <bad child entry>
+      HWND 0x2b52172 Class=Address Band Root Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc9527b1d0
+        RECT=(1158, 555, 1905, 583)
+        HWND 0x3732188 Class=msctls_progress32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b41e80
+          RECT=(1160, 559, 1903, 581)
+          HWND 0x7a2302 Class=Breadcrumb Parent Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc9527da20
+            RECT=(1160, 559, 1869, 581)
+            HWND 0xad2312 Class=ToolbarWindow32 Text='Address: F:\\development\\steam\\emulator_bot\\shelltabs' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+              RECT=(1160, 559, 1869, 581)
+          <bad child entry>
+          HWND 0x1a5227e Class=ToolbarWindow32 Text='Address band toolbar' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+            RECT=(1869, 559, 1903, 581)
+        <bad child entry>
+        <bad child entry>
+        <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      HWND 0x502316 Class=SeparatorBand Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc95251370
+        RECT=(1909, 568, 1915, 569)
+      HWND 0xbd232e Class=UniversalSearchBand Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc952509a0
+        RECT=(1915, 555, 2120, 583)
+        HWND 0x13c233a Class=Search Box Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc952bdef0
+          RECT=(1915, 558, 2120, 582)
+          HWND 0x1272350 Class=SearchEditBoxWrapperClass Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc952bf110
+            RECT=(1920, 558, 2115, 582)
+            HWND 0x3f92368 Class=DirectUIHWND Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+              RECT=(1920, 558, 2115, 582)
+          <bad child entry>
+        <bad child entry>
+        <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      HWND 0x11c244e Class=SeparatorBand Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc95251370
+        RECT=(2124, 568, 2131, 569)
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  HWND 0x35c0e4e Class=ShellTabWindowClass Text='shelltabs' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc952809e0
+    RECT=(1053, 588, 2131, 1334)
+    HWND 0x11b2844 Class=DUIViewWndClassName Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcbf0cf9b0
+      RECT=(1053, 619, 2131, 1311)
+      HWND 0x1fe324a Class=DirectUIHWND Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+        RECT=(1053, 619, 2131, 1311)
+        HWND 0x1650818 Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+          RECT=(1053, 619, 1053, 619)
+          HWND 0x145084c Class=Shell Preview Extension Host Text='Shell Preview Extension Host' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcbf08a060
+            RECT=(1053, 619, 1053, 619)
+        <bad child entry>
+        HWND 0x1662056e Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+          RECT=(1320, 631, 1320, 631)
+          HWND 0x1a605c2 Class=Button Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b718e0
+            RECT=(1320, 631, 1320, 631)
+        <bad child entry>
+        HWND 0x48a0130 Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+          RECT=(1320, 631, 1320, 631)
+          HWND 0x83704ca Class=Button Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b718e0
+            RECT=(1320, 631, 1320, 631)
+        <bad child entry>
+        HWND 0x2f83948 Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+          RECT=(1053, 619, 1304, 1288)
+          HWND 0x622041e Class=NamespaceTreeControl Text='Namespace Tree Control' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc952511b0
+            RECT=(1053, 619, 1304, 1288)
+            HWND 0x250050a Class=Static Text='Namespace Tree Control' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b92590
+              RECT=(1053, 619, 1053, 619)
+            HWND 0x17500b4 Class=SysTreeView32 Text='Tree View' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b26d30
+              RECT=(1053, 619, 1304, 1288)
+          <bad child entry>
+          <bad child entry>
+        <bad child entry>
+        <bad child entry>
+        <bad child entry>
+        HWND 0x85f269c Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+          RECT=(1308, 619, 2131, 1288)
+          HWND 0x13e27a0 Class=SHELLDLL_DefView Text='ShellView' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcbf137c40
+            RECT=(1308, 619, 2131, 1288)
+            HWND 0x16a217e Class=DirectUIHWND Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+              RECT=(1308, 619, 2131, 1288)
+              HWND 0x503041a Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+                RECT=(1308, 1271, 2114, 1288)
+                HWND 0x13621e4 Class=ScrollBar Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b11bf0
+                  RECT=(1308, 1271, 2114, 1288)
+              <bad child entry>
+              HWND 0x9ff2242 Class=CtrlNotifySink Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0f4d230
+                RECT=(2114, 619, 2131, 1271)
+                HWND 0x774301a Class=ScrollBar Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b11bf0
+                  RECT=(2114, 619, 2131, 1271)
+              <bad child entry>
+            <bad child entry>
+            <bad child entry>
+            <bad child entry>
+            <bad child entry>
+          <bad child entry>
+          <bad child entry>
+          <bad child entry>
+          <bad child entry>
+          <bad child entry>
+        <bad child entry>
+        <bad child entry>
+        <bad child entry>
+        <bad child entry>
+        <bad child entry>
+        <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    HWND 0x2b32742 Class=WorkerW Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0cac000
+      RECT=(1053, 588, 2131, 619)
+      HWND 0x3a82758 Class=ReBarWindow32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b80f90
+        RECT=(1053, 588, 2131, 619)
+        HWND 0x1032776 Class=ToolbarWindow32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b77240
+          RECT=(1064, 588, 2131, 588)
+        HWND 0x41527c6 Class=ShellTabsBandWindow Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc89a6a270
+          RECT=(1064, 588, 2131, 616)
+          HWND 0x3cb2828 Class=Button Text='+' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b718e0
+            RECT=(2110, 592, 2129, 611)
+        <bad child entry>
+      <bad child entry>
+      <bad child entry>
+      <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    <bad child entry>
+    HWND 0x12b28bc Class=msctls_statusbar32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b49130
+      RECT=(1053, 565, 1053, 588)
+    HWND 0xb32936 Class=msctls_statusbar32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b49130
+      RECT=(1053, 1311, 2131, 1334)
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  <bad child entry>
+  HWND 0x29130c0 Class=UIRibbonWorkPane Text='UIRibbonWorkPane' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc050ce2c0
+    RECT=(1053, 381, 1153, 481)
+--------------------------------------------------------------------------------
+HWND 0x5b2708 Class=DummyDWMListenerWindow Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc62ff5d00
+  RECT=(0, 0, 0, 0)
+--------------------------------------------------------------------------------
+HWND 0x4208f0 Class=EdgeUiInputTopWndClass Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc5126cc10
+  RECT=(15, 0, 2560, 4)
+--------------------------------------------------------------------------------
+HWND 0x10460ebe Class=DummyDWMListenerWindow Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc62ff5d00
+  RECT=(0, 0, 0, 0)
+--------------------------------------------------------------------------------
+HWND 0x1cb0744 Class=DummyDWMListenerWindow Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffc62ff5d00
+  RECT=(0, 0, 0, 0)
+--------------------------------------------------------------------------------
+HWND 0x15090e Class=WorkerW Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0cac000
+  RECT=(0, -189, 3640, 1731)
+  HWND 0x2b208b2 Class=SHELLDLL_DefView Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcbf137c40
+    RECT=(0, -189, 3640, 1731)
+    HWND 0xa827e0 Class=SysListView32 Text='FolderView' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b79090
+      RECT=(0, -189, 3640, 1731)
+      HWND 0x3b08f4 Class=SysHeader32 Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffca6b78860
+        RECT=(0, -189, 0, -189)
+    <bad child entry>
+  <bad child entry>
+  <bad child entry>
+--------------------------------------------------------------------------------
+HWND 0x59098a Class=WorkerW Text='' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcc0cac000
+  RECT=(0, -189, 3640, 1731)
+--------------------------------------------------------------------------------
+HWND 0x3c3077e Class=Progman Text='Program Manager' PID=19236 WNDPROC= CLASS_WNDPROC=0x7ffcbf121bc0
+  RECT=(0, -189, 3640, 1731)
+--------------------------------------------------------------------------------

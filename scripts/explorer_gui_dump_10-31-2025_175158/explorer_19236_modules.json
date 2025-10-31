@@ -1,0 +1,2778 @@
+[
+  {
+    "szModule": "explorer.exe",
+    "szExePath": "C:\\Windows\\explorer.exe",
+    "baseaddr": 140694968074240,
+    "baseaddr_hex": "0x7ff619980000",
+    "size": 5754880,
+    "hModule": 140694968074240
+  },
+  {
+    "szModule": "ntdll.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\ntdll.dll",
+    "baseaddr": 140723545112576,
+    "baseaddr_hex": "0x7ffcc0eb0000",
+    "size": 2064384,
+    "hModule": 140723545112576
+  },
+  {
+    "szModule": "KERNEL32.DLL",
+    "szExePath": "C:\\Windows\\System32\\KERNEL32.DLL",
+    "baseaddr": 140723541049344,
+    "baseaddr_hex": "0x7ffcc0ad0000",
+    "size": 790528,
+    "hModule": 140723541049344
+  },
+  {
+    "szModule": "KERNELBASE.dll",
+    "szExePath": "C:\\Windows\\System32\\KERNELBASE.dll",
+    "baseaddr": 140723506905088,
+    "baseaddr_hex": "0x7ffcbea40000",
+    "size": 3133440,
+    "hModule": 140723506905088
+  },
+  {
+    "szModule": "msvcp_win.dll",
+    "szExePath": "C:\\Windows\\System32\\msvcp_win.dll",
+    "baseaddr": 140723506249728,
+    "baseaddr_hex": "0x7ffcbe9a0000",
+    "size": 643072,
+    "hModule": 140723506249728
+  },
+  {
+    "szModule": "ucrtbase.dll",
+    "szExePath": "C:\\Windows\\System32\\ucrtbase.dll",
+    "baseaddr": 140723510706176,
+    "baseaddr_hex": "0x7ffcbede0000",
+    "size": 1048576,
+    "hModule": 140723510706176
+  },
+  {
+    "szModule": "combase.dll",
+    "szExePath": "C:\\Windows\\System32\\combase.dll",
+    "baseaddr": 140723529449472,
+    "baseaddr_hex": "0x7ffcbffc0000",
+    "size": 3485696,
+    "hModule": 140723529449472
+  },
+  {
+    "szModule": "RPCRT4.dll",
+    "szExePath": "C:\\Windows\\System32\\RPCRT4.dll",
+    "baseaddr": 140723533578240,
+    "baseaddr_hex": "0x7ffcc03b0000",
+    "size": 1191936,
+    "hModule": 140723533578240
+  },
+  {
+    "szModule": "OLEAUT32.dll",
+    "szExePath": "C:\\Windows\\System32\\OLEAUT32.dll",
+    "baseaddr": 140723512541184,
+    "baseaddr_hex": "0x7ffcbefa0000",
+    "size": 839680,
+    "hModule": 140723512541184
+  },
+  {
+    "szModule": "shcore.dll",
+    "szExePath": "C:\\Windows\\System32\\shcore.dll",
+    "baseaddr": 140723542753280,
+    "baseaddr_hex": "0x7ffcc0c70000",
+    "size": 708608,
+    "hModule": 140723542753280
+  },
+  {
+    "szModule": "AEPIC.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\AEPIC.dll",
+    "baseaddr": 140722845712384,
+    "baseaddr_hex": "0x7ffc973b0000",
+    "size": 647168,
+    "hModule": 140722845712384
+  },
+  {
+    "szModule": "msvcrt.dll",
+    "szExePath": "C:\\Windows\\System32\\msvcrt.dll",
+    "baseaddr": 140723542097920,
+    "baseaddr_hex": "0x7ffcc0bd0000",
+    "size": 647168,
+    "hModule": 140723542097920
+  },
+  {
+    "szModule": "TWINAPI.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\TWINAPI.dll",
+    "baseaddr": 140722844991488,
+    "baseaddr_hex": "0x7ffc97300000",
+    "size": 688128,
+    "hModule": 140722844991488
+  },
+  {
+    "szModule": "advapi32.dll",
+    "szExePath": "C:\\Windows\\System32\\advapi32.dll",
+    "baseaddr": 140723538558976,
+    "baseaddr_hex": "0x7ffcc0870000",
+    "size": 720896,
+    "hModule": 140723538558976
+  },
+  {
+    "szModule": "sechost.dll",
+    "szExePath": "C:\\Windows\\System32\\sechost.dll",
+    "baseaddr": 140723537903616,
+    "baseaddr_hex": "0x7ffcc07d0000",
+    "size": 655360,
+    "hModule": 140723537903616
+  },
+  {
+    "szModule": "SHLWAPI.dll",
+    "szExePath": "C:\\Windows\\System32\\SHLWAPI.dll",
+    "baseaddr": 140723544457216,
+    "baseaddr_hex": "0x7ffcc0e10000",
+    "size": 348160,
+    "hModule": 140723544457216
+  },
+  {
+    "szModule": "bcrypt.dll",
+    "szExePath": "C:\\Windows\\System32\\bcrypt.dll",
+    "baseaddr": 140723505463296,
+    "baseaddr_hex": "0x7ffcbe8e0000",
+    "size": 159744,
+    "hModule": 140723505463296
+  },
+  {
+    "szModule": "ntmarta.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\ntmarta.dll",
+    "baseaddr": 140723486261248,
+    "baseaddr_hex": "0x7ffcbd690000",
+    "size": 208896,
+    "hModule": 140723486261248
+  },
+  {
+    "szModule": "user32.dll",
+    "szExePath": "C:\\Windows\\System32\\user32.dll",
+    "baseaddr": 140723535282176,
+    "baseaddr_hex": "0x7ffcc0550000",
+    "size": 1691648,
+    "hModule": 140723535282176
+  },
+  {
+    "szModule": "win32u.dll",
+    "szExePath": "C:\\Windows\\System32\\win32u.dll",
+    "baseaddr": 140723510509568,
+    "baseaddr_hex": "0x7ffcbedb0000",
+    "size": 139264,
+    "hModule": 140723510509568
+  },
+  {
+    "szModule": "GDI32.dll",
+    "szExePath": "C:\\Windows\\System32\\GDI32.dll",
+    "baseaddr": 140723541901312,
+    "baseaddr_hex": "0x7ffcc0ba0000",
+    "size": 176128,
+    "hModule": 140723541901312
+  },
+  {
+    "szModule": "USERENV.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\USERENV.dll",
+    "baseaddr": 140723500613632,
+    "baseaddr_hex": "0x7ffcbe440000",
+    "size": 188416,
+    "hModule": 140723500613632
+  },
+  {
+    "szModule": "gdi32full.dll",
+    "szExePath": "C:\\Windows\\System32\\gdi32full.dll",
+    "baseaddr": 140723503955968,
+    "baseaddr_hex": "0x7ffcbe770000",
+    "size": 1142784,
+    "hModule": 140723503955968
+  },
+  {
+    "szModule": "IPHLPAPI.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\IPHLPAPI.DLL",
+    "baseaddr": 140723489013760,
+    "baseaddr_hex": "0x7ffcbd930000",
+    "size": 241664,
+    "hModule": 140723489013760
+  },
+  {
+    "szModule": "powrprof.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\powrprof.dll",
+    "baseaddr": 140723490258944,
+    "baseaddr_hex": "0x7ffcbda60000",
+    "size": 307200,
+    "hModule": 140723490258944
+  },
+  {
+    "szModule": "SHELL32.dll",
+    "szExePath": "C:\\Windows\\System32\\SHELL32.dll",
+    "baseaddr": 140723513393152,
+    "baseaddr_hex": "0x7ffcbf070000",
+    "size": 7794688,
+    "hModule": 140723513393152
+  },
+  {
+    "szModule": "cryptsp.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\cryptsp.dll",
+    "baseaddr": 140723494387712,
+    "baseaddr_hex": "0x7ffcbde50000",
+    "size": 98304,
+    "hModule": 140723494387712
+  },
+  {
+    "szModule": "windows.storage.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\windows.storage.dll",
+    "baseaddr": 140723468500992,
+    "baseaddr_hex": "0x7ffcbc5a0000",
+    "size": 7991296,
+    "hModule": 140723468500992
+  },
+  {
+    "szModule": "dxgi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\dxgi.dll",
+    "baseaddr": 140723476889600,
+    "baseaddr_hex": "0x7ffcbcda0000",
+    "size": 1007616,
+    "hModule": 140723476889600
+  },
+  {
+    "szModule": "kernel.appcore.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\kernel.appcore.dll",
+    "baseaddr": 140723476758528,
+    "baseaddr_hex": "0x7ffcbcd80000",
+    "size": 73728,
+    "hModule": 140723476758528
+  },
+  {
+    "szModule": "PROPSYS.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\PROPSYS.dll",
+    "baseaddr": 140723466993664,
+    "baseaddr_hex": "0x7ffcbc430000",
+    "size": 1007616,
+    "hModule": 140723466993664
+  },
+  {
+    "szModule": "CoreMessaging.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\CoreMessaging.dll",
+    "baseaddr": 140723432718336,
+    "baseaddr_hex": "0x7ffcba380000",
+    "size": 991232,
+    "hModule": 140723432718336
+  },
+  {
+    "szModule": "urlmon.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\urlmon.dll",
+    "baseaddr": 140723220905984,
+    "baseaddr_hex": "0x7ffcad980000",
+    "size": 2015232,
+    "hModule": 140723220905984
+  },
+  {
+    "szModule": "WS2_32.dll",
+    "szExePath": "C:\\Windows\\System32\\WS2_32.dll",
+    "baseaddr": 140723534823424,
+    "baseaddr_hex": "0x7ffcc04e0000",
+    "size": 438272,
+    "hModule": 140723534823424
+  },
+  {
+    "szModule": "WTSAPI32.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\WTSAPI32.dll",
+    "baseaddr": 140723438813184,
+    "baseaddr_hex": "0x7ffcba950000",
+    "size": 81920,
+    "hModule": 140723438813184
+  },
+  {
+    "szModule": "WININET.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\WININET.dll",
+    "baseaddr": 140723082625024,
+    "baseaddr_hex": "0x7ffca55a0000",
+    "size": 5079040,
+    "hModule": 140723082625024
+  },
+  {
+    "szModule": "UxTheme.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\UxTheme.dll",
+    "baseaddr": 140723457163264,
+    "baseaddr_hex": "0x7ffcbbad0000",
+    "size": 647168,
+    "hModule": 140723457163264
+  },
+  {
+    "szModule": "dwmapi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\dwmapi.dll",
+    "baseaddr": 140723463258112,
+    "baseaddr_hex": "0x7ffcbc0a0000",
+    "size": 192512,
+    "hModule": 140723463258112
+  },
+  {
+    "szModule": "SspiCli.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\SspiCli.dll",
+    "baseaddr": 140723500351488,
+    "baseaddr_hex": "0x7ffcbe400000",
+    "size": 204800,
+    "hModule": 140723500351488
+  },
+  {
+    "szModule": "Wldp.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\Wldp.dll",
+    "baseaddr": 140723495632896,
+    "baseaddr_hex": "0x7ffcbdf80000",
+    "size": 188416,
+    "hModule": 140723495632896
+  },
+  {
+    "szModule": "twinapi.appcore.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\twinapi.appcore.dll",
+    "baseaddr": 140723370196992,
+    "baseaddr_hex": "0x7ffcb67e0000",
+    "size": 2109440,
+    "hModule": 140723370196992
+  },
+  {
+    "szModule": "srvcli.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\srvcli.dll",
+    "baseaddr": 140723220709376,
+    "baseaddr_hex": "0x7ffcad950000",
+    "size": 163840,
+    "hModule": 140723220709376
+  },
+  {
+    "szModule": "iertutil.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\iertutil.dll",
+    "baseaddr": 140723309379584,
+    "baseaddr_hex": "0x7ffcb2de0000",
+    "size": 2875392,
+    "hModule": 140723309379584
+  },
+  {
+    "szModule": "netutils.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\netutils.dll",
+    "baseaddr": 140723490193408,
+    "baseaddr_hex": "0x7ffcbda50000",
+    "size": 49152,
+    "hModule": 140723490193408
+  },
+  {
+    "szModule": "bcryptPrimitives.dll",
+    "szExePath": "C:\\Windows\\System32\\bcryptPrimitives.dll",
+    "baseaddr": 140723505659904,
+    "baseaddr_hex": "0x7ffcbe910000",
+    "size": 532480,
+    "hModule": 140723505659904
+  },
+  {
+    "szModule": "IMM32.DLL",
+    "szExePath": "C:\\Windows\\System32\\IMM32.DLL",
+    "baseaddr": 140723537707008,
+    "baseaddr_hex": "0x7ffcc07a0000",
+    "size": 192512,
+    "hModule": 140723537707008
+  },
+  {
+    "szModule": "UMPDC.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\UMPDC.dll",
+    "baseaddr": 140723488882688,
+    "baseaddr_hex": "0x7ffcbd910000",
+    "size": 73728,
+    "hModule": 140723488882688
+  },
+  {
+    "szModule": "NInput.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\NInput.dll",
+    "baseaddr": 140723375046656,
+    "baseaddr_hex": "0x7ffcb6c80000",
+    "size": 434176,
+    "hModule": 140723375046656
+  },
+  {
+    "szModule": "MSCTF.dll",
+    "szExePath": "C:\\Windows\\System32\\MSCTF.dll",
+    "baseaddr": 140723539279872,
+    "baseaddr_hex": "0x7ffcc0920000",
+    "size": 1130496,
+    "hModule": 140723539279872
+  },
+  {
+    "szModule": "ole32.dll",
+    "szExePath": "C:\\Windows\\System32\\ole32.dll",
+    "baseaddr": 140723527614464,
+    "baseaddr_hex": "0x7ffcbfe00000",
+    "size": 1224704,
+    "hModule": 140723527614464
+  },
+  {
+    "szModule": "comctl32.dll",
+    "szExePath": "C:\\Windows\\WinSxS\\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.19041.4355_none_60b8b9eb71f62e16\\comctl32.dll",
+    "baseaddr": 140723105103872,
+    "baseaddr_hex": "0x7ffca6b10000",
+    "size": 2727936,
+    "hModule": 140723105103872
+  },
+  {
+    "szModule": "clbcatq.dll",
+    "szExePath": "C:\\Windows\\System32\\clbcatq.dll",
+    "baseaddr": 140723536986112,
+    "baseaddr_hex": "0x7ffcc06f0000",
+    "size": 692224,
+    "hModule": 140723536986112
+  },
+  {
+    "szModule": "appresolver.dll",
+    "szExePath": "C:\\Windows\\System32\\appresolver.dll",
+    "baseaddr": 140722843942912,
+    "baseaddr_hex": "0x7ffc97200000",
+    "size": 598016,
+    "hModule": 140722843942912
+  },
+  {
+    "szModule": "Bcp47Langs.dll",
+    "szExePath": "C:\\Windows\\System32\\Bcp47Langs.dll",
+    "baseaddr": 140723362725888,
+    "baseaddr_hex": "0x7ffcb60c0000",
+    "size": 372736,
+    "hModule": 140723362725888
+  },
+  {
+    "szModule": "SLC.dll",
+    "szExePath": "C:\\Windows\\System32\\SLC.dll",
+    "baseaddr": 140723479511040,
+    "baseaddr_hex": "0x7ffcbd020000",
+    "size": 167936,
+    "hModule": 140723479511040
+  },
+  {
+    "szModule": "sppc.dll",
+    "szExePath": "C:\\Windows\\System32\\sppc.dll",
+    "baseaddr": 140723479314432,
+    "baseaddr_hex": "0x7ffcbcff0000",
+    "size": 151552,
+    "hModule": 140723479314432
+  },
+  {
+    "szModule": "apphelp.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\apphelp.dll",
+    "baseaddr": 140723436257280,
+    "baseaddr_hex": "0x7ffcba6e0000",
+    "size": 606208,
+    "hModule": 140723436257280
+  },
+  {
+    "szModule": "shell.dll",
+    "szExePath": "C:\\Program Files\\Nilesoft Shell\\shell.dll",
+    "baseaddr": 140722953322496,
+    "baseaddr_hex": "0x7ffc9da50000",
+    "size": 1941504,
+    "hModule": 140722953322496
+  },
+  {
+    "szModule": "d2d1.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\d2d1.dll",
+    "baseaddr": 140723414695936,
+    "baseaddr_hex": "0x7ffcb9250000",
+    "size": 6029312,
+    "hModule": 140723414695936
+  },
+  {
+    "szModule": "DWrite.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\DWrite.dll",
+    "baseaddr": 140723212255232,
+    "baseaddr_hex": "0x7ffcad140000",
+    "size": 2617344,
+    "hModule": 140723212255232
+  },
+  {
+    "szModule": "WINMM.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\WINMM.dll",
+    "baseaddr": 140723294371840,
+    "baseaddr_hex": "0x7ffcb1f90000",
+    "size": 159744,
+    "hModule": 140723294371840
+  },
+  {
+    "szModule": "profapi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\profapi.dll",
+    "baseaddr": 140723500941312,
+    "baseaddr_hex": "0x7ffcbe490000",
+    "size": 147456,
+    "hModule": 140723500941312
+  },
+  {
+    "szModule": "OneCoreUAPCommonProxyStub.dll",
+    "szExePath": "C:\\Windows\\System32\\OneCoreUAPCommonProxyStub.dll",
+    "baseaddr": 140723351584768,
+    "baseaddr_hex": "0x7ffcb5620000",
+    "size": 8204288,
+    "hModule": 140723351584768
+  },
+  {
+    "szModule": "NetworkExplorer.dll",
+    "szExePath": "C:\\Windows\\system32\\NetworkExplorer.dll",
+    "baseaddr": 140722892439552,
+    "baseaddr_hex": "0x7ffc9a040000",
+    "size": 94208,
+    "hModule": 140722892439552
+  },
+  {
+    "szModule": "MPR.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\MPR.dll",
+    "baseaddr": 140723005095936,
+    "baseaddr_hex": "0x7ffca0bb0000",
+    "size": 118784,
+    "hModule": 140723005095936
+  },
+  {
+    "szModule": "p9np.dll",
+    "szExePath": "C:\\Windows\\System32\\p9np.dll",
+    "baseaddr": 140722892242944,
+    "baseaddr_hex": "0x7ffc9a010000",
+    "size": 167936,
+    "hModule": 140722892242944
+  },
+  {
+    "szModule": "drprov.dll",
+    "szExePath": "C:\\Windows\\System32\\drprov.dll",
+    "baseaddr": 140722902925312,
+    "baseaddr_hex": "0x7ffc9aa40000",
+    "size": 45056,
+    "hModule": 140722902925312
+  },
+  {
+    "szModule": "WINSTA.dll",
+    "szExePath": "C:\\Windows\\System32\\WINSTA.dll",
+    "baseaddr": 140723481280512,
+    "baseaddr_hex": "0x7ffcbd1d0000",
+    "size": 372736,
+    "hModule": 140723481280512
+  },
+  {
+    "szModule": "ntlanman.dll",
+    "szExePath": "C:\\Windows\\System32\\ntlanman.dll",
+    "baseaddr": 140722892111872,
+    "baseaddr_hex": "0x7ffc99ff0000",
+    "size": 131072,
+    "hModule": 140722892111872
+  },
+  {
+    "szModule": "davclnt.dll",
+    "szExePath": "C:\\Windows\\System32\\davclnt.dll",
+    "baseaddr": 140722891980800,
+    "baseaddr_hex": "0x7ffc99fd0000",
+    "size": 122880,
+    "hModule": 140722891980800
+  },
+  {
+    "szModule": "DAVHLPR.dll",
+    "szExePath": "C:\\Windows\\System32\\DAVHLPR.dll",
+    "baseaddr": 140722891915264,
+    "baseaddr_hex": "0x7ffc99fc0000",
+    "size": 53248,
+    "hModule": 140722891915264
+  },
+  {
+    "szModule": "StartTileData.dll",
+    "szExePath": "C:\\Windows\\System32\\StartTileData.dll",
+    "baseaddr": 140722836537344,
+    "baseaddr_hex": "0x7ffc96af0000",
+    "size": 5836800,
+    "hModule": 140722836537344
+  },
+  {
+    "szModule": "MrmCoreR.dll",
+    "szExePath": "C:\\Windows\\System32\\MrmCoreR.dll",
+    "baseaddr": 140723334807552,
+    "baseaddr_hex": "0x7ffcb4620000",
+    "size": 1015808,
+    "hModule": 140723334807552
+  },
+  {
+    "szModule": "usermgrcli.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\usermgrcli.dll",
+    "baseaddr": 140723439534080,
+    "baseaddr_hex": "0x7ffcbaa00000",
+    "size": 90112,
+    "hModule": 140723439534080
+  },
+  {
+    "szModule": "Windows.UI.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.UI.dll",
+    "baseaddr": 140723333496832,
+    "baseaddr_hex": "0x7ffcb44e0000",
+    "size": 1306624,
+    "hModule": 140723333496832
+  },
+  {
+    "szModule": "WindowManagementAPI.dll",
+    "szExePath": "C:\\Windows\\System32\\WindowManagementAPI.dll",
+    "baseaddr": 140723372359680,
+    "baseaddr_hex": "0x7ffcb69f0000",
+    "size": 659456,
+    "hModule": 140723372359680
+  },
+  {
+    "szModule": "TextInputFramework.dll",
+    "szExePath": "C:\\Windows\\System32\\TextInputFramework.dll",
+    "baseaddr": 140723332448256,
+    "baseaddr_hex": "0x7ffcb43e0000",
+    "size": 1019904,
+    "hModule": 140723332448256
+  },
+  {
+    "szModule": "InputHost.dll",
+    "szExePath": "C:\\Windows\\System32\\InputHost.dll",
+    "baseaddr": 140723331006464,
+    "baseaddr_hex": "0x7ffcb4280000",
+    "size": 1384448,
+    "hModule": 140723331006464
+  },
+  {
+    "szModule": "CoreUIComponents.dll",
+    "szExePath": "C:\\Windows\\System32\\CoreUIComponents.dll",
+    "baseaddr": 140723425509376,
+    "baseaddr_hex": "0x7ffcb9ca0000",
+    "size": 3518464,
+    "hModule": 140723425509376
+  },
+  {
+    "szModule": "wintypes.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\wintypes.dll",
+    "baseaddr": 140723447726080,
+    "baseaddr_hex": "0x7ffcbb1d0000",
+    "size": 1404928,
+    "hModule": 140723447726080
+  },
+  {
+    "szModule": "Windows.StateRepositoryPS.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.StateRepositoryPS.dll",
+    "baseaddr": 140723037601792,
+    "baseaddr_hex": "0x7ffca2ab0000",
+    "size": 1335296,
+    "hModule": 140723037601792
+  },
+  {
+    "szModule": "languageoverlayutil.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\languageoverlayutil.dll",
+    "baseaddr": 140723330678784,
+    "baseaddr_hex": "0x7ffcb4230000",
+    "size": 266240,
+    "hModule": 140723330678784
+  },
+  {
+    "szModule": "bcp47mrm.dll",
+    "szExePath": "C:\\Windows\\System32\\bcp47mrm.dll",
+    "baseaddr": 140723351388160,
+    "baseaddr_hex": "0x7ffcb55f0000",
+    "size": 184320,
+    "hModule": 140723351388160
+  },
+  {
+    "szModule": "usermgrproxy.dll",
+    "szExePath": "C:\\Windows\\System32\\usermgrproxy.dll",
+    "baseaddr": 140723388612608,
+    "baseaddr_hex": "0x7ffcb7970000",
+    "size": 344064,
+    "hModule": 140723388612608
+  },
+  {
+    "szModule": "Windows.ApplicationModel.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.ApplicationModel.dll",
+    "baseaddr": 140723039436800,
+    "baseaddr_hex": "0x7ffca2c70000",
+    "size": 954368,
+    "hModule": 140723039436800
+  },
+  {
+    "szModule": "AppXDeploymentClient.dll",
+    "szExePath": "C:\\Windows\\System32\\AppXDeploymentClient.dll",
+    "baseaddr": 140723392479232,
+    "baseaddr_hex": "0x7ffcb7d20000",
+    "size": 1056768,
+    "hModule": 140723392479232
+  },
+  {
+    "szModule": "IDStore.dll",
+    "szExePath": "C:\\Windows\\System32\\IDStore.dll",
+    "baseaddr": 140723048677376,
+    "baseaddr_hex": "0x7ffca3540000",
+    "size": 200704,
+    "hModule": 140723048677376
+  },
+  {
+    "szModule": "Windows.CloudStore.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.CloudStore.dll",
+    "baseaddr": 140722889228288,
+    "baseaddr_hex": "0x7ffc99d30000",
+    "size": 2637824,
+    "hModule": 140722889228288
+  },
+  {
+    "szModule": "SAMLIB.dll",
+    "szExePath": "C:\\Windows\\System32\\SAMLIB.dll",
+    "baseaddr": 140723400802304,
+    "baseaddr_hex": "0x7ffcb8510000",
+    "size": 159744,
+    "hModule": 140723400802304
+  },
+  {
+    "szModule": "wlidprov.dll",
+    "szExePath": "C:\\Windows\\System32\\wlidprov.dll",
+    "baseaddr": 140722843222016,
+    "baseaddr_hex": "0x7ffc97150000",
+    "size": 696320,
+    "hModule": 140722843222016
+  },
+  {
+    "szModule": "samcli.dll",
+    "szExePath": "C:\\Windows\\System32\\samcli.dll",
+    "baseaddr": 140723079413760,
+    "baseaddr_hex": "0x7ffca5290000",
+    "size": 102400,
+    "hModule": 140723079413760
+  },
+  {
+    "szModule": "AppExtension.dll",
+    "szExePath": "C:\\Windows\\System32\\AppExtension.dll",
+    "baseaddr": 140722836275200,
+    "baseaddr_hex": "0x7ffc96ab0000",
+    "size": 225280,
+    "hModule": 140722836275200
+  },
+  {
+    "szModule": "policymanager.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\policymanager.dll",
+    "baseaddr": 140723452968960,
+    "baseaddr_hex": "0x7ffcbb6d0000",
+    "size": 659456,
+    "hModule": 140723452968960
+  },
+  {
+    "szModule": "msvcp110_win.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\msvcp110_win.dll",
+    "baseaddr": 140723485671424,
+    "baseaddr_hex": "0x7ffcbd600000",
+    "size": 565248,
+    "hModule": 140723485671424
+  },
+  {
+    "szModule": "SndVolSSO.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\SndVolSSO.DLL",
+    "baseaddr": 140723046711296,
+    "baseaddr_hex": "0x7ffca3360000",
+    "size": 327680,
+    "hModule": 140723046711296
+  },
+  {
+    "szModule": "MMDevAPI.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\MMDevAPI.DLL",
+    "baseaddr": 140723377799168,
+    "baseaddr_hex": "0x7ffcb6f20000",
+    "size": 544768,
+    "hModule": 140723377799168
+  },
+  {
+    "szModule": "DEVOBJ.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\DEVOBJ.dll",
+    "baseaddr": 140723499302912,
+    "baseaddr_hex": "0x7ffcbe300000",
+    "size": 208896,
+    "hModule": 140723499302912
+  },
+  {
+    "szModule": "cfgmgr32.dll",
+    "szExePath": "C:\\Windows\\System32\\cfgmgr32.dll",
+    "baseaddr": 140723505135616,
+    "baseaddr_hex": "0x7ffcbe890000",
+    "size": 319488,
+    "hModule": 140723505135616
+  },
+  {
+    "szModule": "Windows.StateRepositoryClient.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.StateRepositoryClient.dll",
+    "baseaddr": 140722836013056,
+    "baseaddr_hex": "0x7ffc96a70000",
+    "size": 262144,
+    "hModule": 140722836013056
+  },
+  {
+    "szModule": "OLEACC.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\OLEACC.dll",
+    "baseaddr": 140723103924224,
+    "baseaddr_hex": "0x7ffca69f0000",
+    "size": 417792,
+    "hModule": 140723103924224
+  },
+  {
+    "szModule": "TextShaping.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\TextShaping.dll",
+    "baseaddr": 140723098157056,
+    "baseaddr_hex": "0x7ffca6470000",
+    "size": 704512,
+    "hModule": 140723098157056
+  },
+  {
+    "szModule": "windowscodecs.dll",
+    "szExePath": "C:\\Windows\\system32\\windowscodecs.dll",
+    "baseaddr": 140723454738432,
+    "baseaddr_hex": "0x7ffcbb880000",
+    "size": 1794048,
+    "hModule": 140723454738432
+  },
+  {
+    "szModule": "dcomp.dll",
+    "szExePath": "C:\\Windows\\System32\\dcomp.dll",
+    "baseaddr": 140723422101504,
+    "baseaddr_hex": "0x7ffcb9960000",
+    "size": 1982464,
+    "hModule": 140723422101504
+  },
+  {
+    "szModule": "d3d11.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\d3d11.dll",
+    "baseaddr": 140723412008960,
+    "baseaddr_hex": "0x7ffcb8fc0000",
+    "size": 2502656,
+    "hModule": 140723412008960
+  },
+  {
+    "szModule": "nvldumdx.dll",
+    "szExePath": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nvmdui.inf_amd64_b9a25d9bf14734a3\\nvldumdx.dll",
+    "baseaddr": 140723329826816,
+    "baseaddr_hex": "0x7ffcb4160000",
+    "size": 794624,
+    "hModule": 140723329826816
+  },
+  {
+    "szModule": "VERSION.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\VERSION.dll",
+    "baseaddr": 140723393855488,
+    "baseaddr_hex": "0x7ffcb7e70000",
+    "size": 40960,
+    "hModule": 140723393855488
+  },
+  {
+    "szModule": "msasn1.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\msasn1.dll",
+    "baseaddr": 140723497271296,
+    "baseaddr_hex": "0x7ffcbe110000",
+    "size": 73728,
+    "hModule": 140723497271296
+  },
+  {
+    "szModule": "cryptnet.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\cryptnet.dll",
+    "baseaddr": 140723393593344,
+    "baseaddr_hex": "0x7ffcb7e30000",
+    "size": 200704,
+    "hModule": 140723393593344
+  },
+  {
+    "szModule": "CRYPT32.dll",
+    "szExePath": "C:\\Windows\\System32\\CRYPT32.dll",
+    "baseaddr": 140723501793280,
+    "baseaddr_hex": "0x7ffcbe560000",
+    "size": 1433600,
+    "hModule": 140723501793280
+  },
+  {
+    "szModule": "cryptbase.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\cryptbase.dll",
+    "baseaddr": 140723494518784,
+    "baseaddr_hex": "0x7ffcbde70000",
+    "size": 49152,
+    "hModule": 140723494518784
+  },
+  {
+    "szModule": "drvstore.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\drvstore.dll",
+    "baseaddr": 140723391102976,
+    "baseaddr_hex": "0x7ffcb7bd0000",
+    "size": 1339392,
+    "hModule": 140723391102976
+  },
+  {
+    "szModule": "wintrust.dll",
+    "szExePath": "C:\\Windows\\System32\\wintrust.dll",
+    "baseaddr": 140723510050816,
+    "baseaddr_hex": "0x7ffcbed40000",
+    "size": 430080,
+    "hModule": 140723510050816
+  },
+  {
+    "szModule": "imagehlp.dll",
+    "szExePath": "C:\\Windows\\System32\\imagehlp.dll",
+    "baseaddr": 140723540852736,
+    "baseaddr_hex": "0x7ffcc0aa0000",
+    "size": 118784,
+    "hModule": 140723540852736
+  },
+  {
+    "szModule": "rsaenh.dll",
+    "szExePath": "C:\\Windows\\system32\\rsaenh.dll",
+    "baseaddr": 140723484950528,
+    "baseaddr_hex": "0x7ffcbd550000",
+    "size": 212992,
+    "hModule": 140723484950528
+  },
+  {
+    "szModule": "nvgpucomp64.dll",
+    "szExePath": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nvmdui.inf_amd64_b9a25d9bf14734a3\\nvgpucomp64.dll",
+    "baseaddr": 140723222937600,
+    "baseaddr_hex": "0x7ffcadb70000",
+    "size": 61538304,
+    "hModule": 140723222937600
+  },
+  {
+    "szModule": "NvMemMapStoragex.dll",
+    "szExePath": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nvmdui.inf_amd64_b9a25d9bf14734a3\\NvMemMapStoragex.dll",
+    "baseaddr": 140723208978432,
+    "baseaddr_hex": "0x7ffcace20000",
+    "size": 888832,
+    "hModule": 140723208978432
+  },
+  {
+    "szModule": "nvwgf2umx.dll",
+    "szExePath": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nvmdui.inf_amd64_b9a25d9bf14734a3\\nvwgf2umx.dll",
+    "baseaddr": 140723112574976,
+    "baseaddr_hex": "0x7ffca7230000",
+    "size": 88805376,
+    "hModule": 140723112574976
+  },
+  {
+    "szModule": "dxcore.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\dxcore.dll",
+    "baseaddr": 140723336118272,
+    "baseaddr_hex": "0x7ffcb4760000",
+    "size": 241664,
+    "hModule": 140723336118272
+  },
+  {
+    "szModule": "XmlLite.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\XmlLite.dll",
+    "baseaddr": 140723389726720,
+    "baseaddr_hex": "0x7ffcb7a80000",
+    "size": 221184,
+    "hModule": 140723389726720
+  },
+  {
+    "szModule": "windowsudk.shellcommon.dll",
+    "szExePath": "C:\\Windows\\system32\\windowsudk.shellcommon.dll",
+    "baseaddr": 140722816811008,
+    "baseaddr_hex": "0x7ffc95820000",
+    "size": 3035136,
+    "hModule": 140722816811008
+  },
+  {
+    "szModule": "DictationManager.dll",
+    "szExePath": "C:\\Windows\\system32\\DictationManager.dll",
+    "baseaddr": 140722816286720,
+    "baseaddr_hex": "0x7ffc957a0000",
+    "size": 524288,
+    "hModule": 140722816286720
+  },
+  {
+    "szModule": "cldapi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\cldapi.dll",
+    "baseaddr": 140723099992064,
+    "baseaddr_hex": "0x7ffca6630000",
+    "size": 139264,
+    "hModule": 140723099992064
+  },
+  {
+    "szModule": "FLTLIB.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\FLTLIB.DLL",
+    "baseaddr": 140723023511552,
+    "baseaddr_hex": "0x7ffca1d40000",
+    "size": 45056,
+    "hModule": 140723023511552
+  },
+  {
+    "szModule": "windows.staterepositorycore.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\windows.staterepositorycore.dll",
+    "baseaddr": 140723050774528,
+    "baseaddr_hex": "0x7ffca3740000",
+    "size": 69632,
+    "hModule": 140723050774528
+  },
+  {
+    "szModule": "SearchUx.Model.dll",
+    "szExePath": "C:\\Windows\\SystemApps\\Microsoft.Windows.Search_cw5n1h2txyewy\\SearchUx.Model.dll",
+    "baseaddr": 140722803900416,
+    "baseaddr_hex": "0x7ffc94bd0000",
+    "size": 1499136,
+    "hModule": 140722803900416
+  },
+  {
+    "szModule": "Windows.Globalization.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Globalization.dll",
+    "baseaddr": 140723210485760,
+    "baseaddr_hex": "0x7ffcacf90000",
+    "size": 1728512,
+    "hModule": 140723210485760
+  },
+  {
+    "szModule": "mssprxy.dll",
+    "szExePath": "C:\\Windows\\system32\\mssprxy.dll",
+    "baseaddr": 140722788761600,
+    "baseaddr_hex": "0x7ffc93d60000",
+    "size": 163840,
+    "hModule": 140722788761600
+  },
+  {
+    "szModule": "dataexchange.dll",
+    "szExePath": "C:\\Windows\\system32\\dataexchange.dll",
+    "baseaddr": 140722820481024,
+    "baseaddr_hex": "0x7ffc95ba0000",
+    "size": 253952,
+    "hModule": 140722820481024
+  },
+  {
+    "szModule": "TileDataRepository.dll",
+    "szExePath": "C:\\Windows\\System32\\TileDataRepository.dll",
+    "baseaddr": 140722833981440,
+    "baseaddr_hex": "0x7ffc96880000",
+    "size": 626688,
+    "hModule": 140722833981440
+  },
+  {
+    "szModule": "StateRepository.Core.dll",
+    "szExePath": "C:\\Windows\\System32\\StateRepository.Core.dll",
+    "baseaddr": 140723063160832,
+    "baseaddr_hex": "0x7ffca4310000",
+    "size": 724992,
+    "hModule": 140723063160832
+  },
+  {
+    "szModule": "Windows.StateRepository.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.StateRepository.dll",
+    "baseaddr": 140723064406016,
+    "baseaddr_hex": "0x7ffca4440000",
+    "size": 5824512,
+    "hModule": 140723064406016
+  },
+  {
+    "szModule": "StartMenuHelper64.dll",
+    "szExePath": "F:\\development\\steam\\emulator_bot\\Open-Shell-Menu\\build\\bin\\Release64\\StartMenuHelper64.dll",
+    "baseaddr": 140723045138432,
+    "baseaddr_hex": "0x7ffca31e0000",
+    "size": 446464,
+    "hModule": 140723045138432
+  },
+  {
+    "szModule": "COMDLG32.dll",
+    "szExePath": "C:\\Windows\\System32\\COMDLG32.dll",
+    "baseaddr": 140723543539712,
+    "baseaddr_hex": "0x7ffcc0d30000",
+    "size": 892928,
+    "hModule": 140723543539712
+  },
+  {
+    "szModule": "explorerframe.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\explorerframe.dll",
+    "baseaddr": 140722810585088,
+    "baseaddr_hex": "0x7ffc95230000",
+    "size": 2396160,
+    "hModule": 140722810585088
+  },
+  {
+    "szModule": "thumbcache.dll",
+    "szExePath": "C:\\Windows\\System32\\thumbcache.dll",
+    "baseaddr": 140722807111680,
+    "baseaddr_hex": "0x7ffc94ee0000",
+    "size": 417792,
+    "hModule": 140722807111680
+  },
+  {
+    "szModule": "edputil.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\edputil.dll",
+    "baseaddr": 140722806915072,
+    "baseaddr_hex": "0x7ffc94eb0000",
+    "size": 147456,
+    "hModule": 140722806915072
+  },
+  {
+    "szModule": "coml2.dll",
+    "szExePath": "C:\\Windows\\System32\\coml2.dll",
+    "baseaddr": 140723533053952,
+    "baseaddr_hex": "0x7ffcc0330000",
+    "size": 495616,
+    "hModule": 140723533053952
+  },
+  {
+    "szModule": "twinui.pcshell.dll",
+    "szExePath": "C:\\Windows\\system32\\twinui.pcshell.dll",
+    "baseaddr": 140721968840704,
+    "baseaddr_hex": "0x7ffc62f70000",
+    "size": 6995968,
+    "hModule": 140721968840704
+  },
+  {
+    "szModule": "wkscli.dll",
+    "szExePath": "C:\\Windows\\system32\\wkscli.dll",
+    "baseaddr": 140723485540352,
+    "baseaddr_hex": "0x7ffcbd5e0000",
+    "size": 102400,
+    "hModule": 140723485540352
+  },
+  {
+    "szModule": "wincorlib.DLL",
+    "szExePath": "C:\\Windows\\system32\\wincorlib.DLL",
+    "baseaddr": 140723336380416,
+    "baseaddr_hex": "0x7ffcb47a0000",
+    "size": 454656,
+    "hModule": 140723336380416
+  },
+  {
+    "szModule": "cdp.dll",
+    "szExePath": "C:\\Windows\\system32\\cdp.dll",
+    "baseaddr": 140722879856640,
+    "baseaddr_hex": "0x7ffc99440000",
+    "size": 5062656,
+    "hModule": 140722879856640
+  },
+  {
+    "szModule": "dsreg.dll",
+    "szExePath": "C:\\Windows\\system32\\dsreg.dll",
+    "baseaddr": 140723420725248,
+    "baseaddr_hex": "0x7ffcb9810000",
+    "size": 1314816,
+    "hModule": 140723420725248
+  },
+  {
+    "szModule": "windows.immersiveshell.serviceprovider.dll",
+    "szExePath": "C:\\Windows\\System32\\windows.immersiveshell.serviceprovider.dll",
+    "baseaddr": 140722963218432,
+    "baseaddr_hex": "0x7ffc9e3c0000",
+    "size": 815104,
+    "hModule": 140722963218432
+  },
+  {
+    "szModule": "OneCoreCommonProxyStub.dll",
+    "szExePath": "C:\\Windows\\System32\\OneCoreCommonProxyStub.dll",
+    "baseaddr": 140723080527872,
+    "baseaddr_hex": "0x7ffca53a0000",
+    "size": 520192,
+    "hModule": 140723080527872
+  },
+  {
+    "szModule": "twinui.appcore.dll",
+    "szExePath": "C:\\Windows\\System32\\twinui.appcore.dll",
+    "baseaddr": 140722858229760,
+    "baseaddr_hex": "0x7ffc97fa0000",
+    "size": 679936,
+    "hModule": 140722858229760
+  },
+  {
+    "szModule": "twinui.dll",
+    "szExePath": "C:\\Windows\\system32\\twinui.dll",
+    "baseaddr": 140721669537792,
+    "baseaddr_hex": "0x7ffc51200000",
+    "size": 6406144,
+    "hModule": 140721669537792
+  },
+  {
+    "szModule": "pdh.dll",
+    "szExePath": "C:\\Windows\\system32\\pdh.dll",
+    "baseaddr": 140723004702720,
+    "baseaddr_hex": "0x7ffca0b50000",
+    "size": 339968,
+    "hModule": 140723004702720
+  },
+  {
+    "szModule": "PhotoMetadataHandler.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\PhotoMetadataHandler.dll",
+    "baseaddr": 140723073449984,
+    "baseaddr_hex": "0x7ffca4ce0000",
+    "size": 528384,
+    "hModule": 140723073449984
+  },
+  {
+    "szModule": "ApplicationFrame.dll",
+    "szExePath": "C:\\Windows\\System32\\ApplicationFrame.dll",
+    "baseaddr": 140722796036096,
+    "baseaddr_hex": "0x7ffc94450000",
+    "size": 692224,
+    "hModule": 140722796036096
+  },
+  {
+    "szModule": "ntshrui.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\ntshrui.dll",
+    "baseaddr": 140722796756992,
+    "baseaddr_hex": "0x7ffc94500000",
+    "size": 512000,
+    "hModule": 140722796756992
+  },
+  {
+    "szModule": "cscapi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\cscapi.dll",
+    "baseaddr": 140722967019520,
+    "baseaddr_hex": "0x7ffc9e760000",
+    "size": 73728,
+    "hModule": 140722967019520
+  },
+  {
+    "szModule": "IconCodecService.dll",
+    "szExePath": "C:\\Windows\\system32\\IconCodecService.dll",
+    "baseaddr": 140722779586560,
+    "baseaddr_hex": "0x7ffc934a0000",
+    "size": 36864,
+    "hModule": 140722779586560
+  },
+  {
+    "szModule": "rmclient.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\rmclient.dll",
+    "baseaddr": 140723460767744,
+    "baseaddr_hex": "0x7ffcbbe40000",
+    "size": 172032,
+    "hModule": 140723460767744
+  },
+  {
+    "szModule": "HolographicExtensions.dll",
+    "szExePath": "C:\\Windows\\System32\\HolographicExtensions.dll",
+    "baseaddr": 140722822709248,
+    "baseaddr_hex": "0x7ffc95dc0000",
+    "size": 876544,
+    "hModule": 140722822709248
+  },
+  {
+    "szModule": "ResourcePolicyClient.dll",
+    "szExePath": "C:\\Windows\\System32\\ResourcePolicyClient.dll",
+    "baseaddr": 140723458736128,
+    "baseaddr_hex": "0x7ffcbbc50000",
+    "size": 81920,
+    "hModule": 140723458736128
+  },
+  {
+    "szModule": "VirtualMonitorManager.dll",
+    "szExePath": "C:\\Windows\\System32\\VirtualMonitorManager.dll",
+    "baseaddr": 140723438026752,
+    "baseaddr_hex": "0x7ffcba890000",
+    "size": 114688,
+    "hModule": 140723438026752
+  },
+  {
+    "szModule": "Windows.UI.Immersive.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.UI.Immersive.dll",
+    "baseaddr": 140723308068864,
+    "baseaddr_hex": "0x7ffcb2ca0000",
+    "size": 1277952,
+    "hModule": 140723308068864
+  },
+  {
+    "szModule": "AboveLockAppHost.dll",
+    "szExePath": "C:\\Windows\\System32\\AboveLockAppHost.dll",
+    "baseaddr": 140723014729728,
+    "baseaddr_hex": "0x7ffca14e0000",
+    "size": 442368,
+    "hModule": 140723014729728
+  },
+  {
+    "szModule": "LINKINFO.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\LINKINFO.dll",
+    "baseaddr": 140722721128448,
+    "baseaddr_hex": "0x7ffc8fce0000",
+    "size": 53248,
+    "hModule": 140722721128448
+  },
+  {
+    "szModule": "npsm.dll",
+    "szExePath": "C:\\Windows\\System32\\npsm.dll",
+    "baseaddr": 140723074498560,
+    "baseaddr_hex": "0x7ffca4de0000",
+    "size": 217088,
+    "hModule": 140723074498560
+  },
+  {
+    "szModule": "Windows.Web.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Web.dll",
+    "baseaddr": 140722795184128,
+    "baseaddr_hex": "0x7ffc94380000",
+    "size": 798720,
+    "hModule": 140722795184128
+  },
+  {
+    "szModule": "Windows.Shell.BlueLightReduction.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Shell.BlueLightReduction.dll",
+    "baseaddr": 140722986942464,
+    "baseaddr_hex": "0x7ffc9fa60000",
+    "size": 356352,
+    "hModule": 140722986942464
+  },
+  {
+    "szModule": "mscms.dll",
+    "szExePath": "C:\\Windows\\System32\\mscms.dll",
+    "baseaddr": 140723368165376,
+    "baseaddr_hex": "0x7ffcb65f0000",
+    "size": 712704,
+    "hModule": 140723368165376
+  },
+  {
+    "szModule": "ColorAdapterClient.dll",
+    "szExePath": "C:\\Windows\\System32\\ColorAdapterClient.dll",
+    "baseaddr": 140723369607168,
+    "baseaddr_hex": "0x7ffcb6750000",
+    "size": 69632,
+    "hModule": 140723369607168
+  },
+  {
+    "szModule": "Windows.Internal.Signals.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Internal.Signals.dll",
+    "baseaddr": 140722799575040,
+    "baseaddr_hex": "0x7ffc947b0000",
+    "size": 1114112,
+    "hModule": 140722799575040
+  },
+  {
+    "szModule": "tdh.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\tdh.dll",
+    "baseaddr": 140723477938176,
+    "baseaddr_hex": "0x7ffcbcea0000",
+    "size": 1159168,
+    "hModule": 140723477938176
+  },
+  {
+    "szModule": "NPSMDesktopProvider.dll",
+    "szExePath": "C:\\Windows\\System32\\NPSMDesktopProvider.dll",
+    "baseaddr": 140723053199360,
+    "baseaddr_hex": "0x7ffca3990000",
+    "size": 229376,
+    "hModule": 140723053199360
+  },
+  {
+    "szModule": "BthAvctpSvc.dll",
+    "szExePath": "C:\\Windows\\System32\\BthAvctpSvc.dll",
+    "baseaddr": 140723454214144,
+    "baseaddr_hex": "0x7ffcbb800000",
+    "size": 409600,
+    "hModule": 140723454214144
+  },
+  {
+    "szModule": "WppRecorderUM.dll",
+    "szExePath": "C:\\Windows\\System32\\WppRecorderUM.dll",
+    "baseaddr": 140723454148608,
+    "baseaddr_hex": "0x7ffcbb7f0000",
+    "size": 28672,
+    "hModule": 140723454148608
+  },
+  {
+    "szModule": "ieframe.dll",
+    "szExePath": "C:\\Windows\\System32\\ieframe.dll",
+    "baseaddr": 140722768904192,
+    "baseaddr_hex": "0x7ffc92a70000",
+    "size": 7782400,
+    "hModule": 140722768904192
+  },
+  {
+    "szModule": "NETAPI32.dll",
+    "szExePath": "C:\\Windows\\System32\\NETAPI32.dll",
+    "baseaddr": 140723079282688,
+    "baseaddr_hex": "0x7ffca5270000",
+    "size": 102400,
+    "hModule": 140723079282688
+  },
+  {
+    "szModule": "WINHTTP.dll",
+    "szExePath": "C:\\Windows\\System32\\WINHTTP.dll",
+    "baseaddr": 140723393921024,
+    "baseaddr_hex": "0x7ffcb7e80000",
+    "size": 1101824,
+    "hModule": 140723393921024
+  },
+  {
+    "szModule": "msIso.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\msIso.dll",
+    "baseaddr": 140722966626304,
+    "baseaddr_hex": "0x7ffc9e700000",
+    "size": 364544,
+    "hModule": 140722966626304
+  },
+  {
+    "szModule": "MFPlat.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\MFPlat.DLL",
+    "baseaddr": 140723002015744,
+    "baseaddr_hex": "0x7ffca08c0000",
+    "size": 1818624,
+    "hModule": 140723002015744
+  },
+  {
+    "szModule": "RTWorkQ.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\RTWorkQ.DLL",
+    "baseaddr": 140722988056576,
+    "baseaddr_hex": "0x7ffc9fb70000",
+    "size": 221184,
+    "hModule": 140722988056576
+  },
+  {
+    "szModule": "TaskFlowDataEngine.dll",
+    "szExePath": "C:\\Windows\\System32\\TaskFlowDataEngine.dll",
+    "baseaddr": 140722801803264,
+    "baseaddr_hex": "0x7ffc949d0000",
+    "size": 1564672,
+    "hModule": 140722801803264
+  },
+  {
+    "szModule": "StructuredQuery.dll",
+    "szExePath": "C:\\Windows\\System32\\StructuredQuery.dll",
+    "baseaddr": 140723072729088,
+    "baseaddr_hex": "0x7ffca4c30000",
+    "size": 679936,
+    "hModule": 140723072729088
+  },
+  {
+    "szModule": "ActXPrxy.dll",
+    "szExePath": "C:\\Windows\\System32\\ActXPrxy.dll",
+    "baseaddr": 140723365216256,
+    "baseaddr_hex": "0x7ffcb6320000",
+    "size": 663552,
+    "hModule": 140723365216256
+  },
+  {
+    "szModule": "Secur32.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\Secur32.dll",
+    "baseaddr": 140723071746048,
+    "baseaddr_hex": "0x7ffca4b40000",
+    "size": 49152,
+    "hModule": 140723071746048
+  },
+  {
+    "szModule": "Windows.Devices.Enumeration.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Devices.Enumeration.dll",
+    "baseaddr": 140723074760704,
+    "baseaddr_hex": "0x7ffca4e20000",
+    "size": 552960,
+    "hModule": 140723074760704
+  },
+  {
+    "szModule": "MSWB7.dll",
+    "szExePath": "C:\\Windows\\System32\\MSWB7.dll",
+    "baseaddr": 140723048349696,
+    "baseaddr_hex": "0x7ffca34f0000",
+    "size": 286720,
+    "hModule": 140723048349696
+  },
+  {
+    "szModule": "DevDispItemProvider.dll",
+    "szExePath": "C:\\Windows\\System32\\DevDispItemProvider.dll",
+    "baseaddr": 140723047956480,
+    "baseaddr_hex": "0x7ffca3490000",
+    "size": 131072,
+    "hModule": 140723047956480
+  },
+  {
+    "szModule": "Windows.Internal.UI.Shell.WindowTabManager.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Internal.UI.Shell.WindowTabManager.dll",
+    "baseaddr": 140722962563072,
+    "baseaddr_hex": "0x7ffc9e320000",
+    "size": 446464,
+    "hModule": 140722962563072
+  },
+  {
+    "szModule": "NotificationControllerPS.dll",
+    "szExePath": "C:\\Windows\\System32\\NotificationControllerPS.dll",
+    "baseaddr": 140722820022272,
+    "baseaddr_hex": "0x7ffc95b30000",
+    "size": 405504,
+    "hModule": 140722820022272
+  },
+  {
+    "szModule": "Windows.Networking.Connectivity.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Networking.Connectivity.dll",
+    "baseaddr": 140722842435584,
+    "baseaddr_hex": "0x7ffc97090000",
+    "size": 757760,
+    "hModule": 140722842435584
+  },
+  {
+    "szModule": "provsvc.dll",
+    "szExePath": "C:\\Windows\\System32\\provsvc.dll",
+    "baseaddr": 140722805866496,
+    "baseaddr_hex": "0x7ffc94db0000",
+    "size": 512000,
+    "hModule": 140722805866496
+  },
+  {
+    "szModule": "ShellExtX64.dll",
+    "szExePath": "C:\\ProgramData\\MEGAsync\\ShellExtX64.dll",
+    "baseaddr": 140722777489408,
+    "baseaddr_hex": "0x7ffc932a0000",
+    "size": 1036288,
+    "hModule": 140722777489408
+  },
+  {
+    "szModule": "VCRUNTIME140.dll",
+    "szExePath": "C:\\ProgramData\\MEGAsync\\VCRUNTIME140.dll",
+    "baseaddr": 140723099533312,
+    "baseaddr_hex": "0x7ffca65c0000",
+    "size": 122880,
+    "hModule": 140723099533312
+  },
+  {
+    "szModule": "VCRUNTIME140_1.dll",
+    "szExePath": "C:\\ProgramData\\MEGAsync\\VCRUNTIME140_1.dll",
+    "baseaddr": 140723096453120,
+    "baseaddr_hex": "0x7ffca62d0000",
+    "size": 49152,
+    "hModule": 140723096453120
+  },
+  {
+    "szModule": "MSVCP140.dll",
+    "szExePath": "C:\\ProgramData\\MEGAsync\\MSVCP140.dll",
+    "baseaddr": 140722754158592,
+    "baseaddr_hex": "0x7ffc91c60000",
+    "size": 577536,
+    "hModule": 140722754158592
+  },
+  {
+    "szModule": "TortoiseOverlays.dll",
+    "szExePath": "C:\\Program Files\\Common Files\\TortoiseOverlays\\TortoiseOverlays.dll",
+    "baseaddr": 140723338149888,
+    "baseaddr_hex": "0x7ffcb4950000",
+    "size": 151552,
+    "hModule": 140723338149888
+  },
+  {
+    "szModule": "Windows.UI.Core.TextInput.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.UI.Core.TextInput.dll",
+    "baseaddr": 140722821136384,
+    "baseaddr_hex": "0x7ffc95c40000",
+    "size": 1064960,
+    "hModule": 140722821136384
+  },
+  {
+    "szModule": "TortoiseStub.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\TortoiseStub.dll",
+    "baseaddr": 140723008176128,
+    "baseaddr_hex": "0x7ffca0ea0000",
+    "size": 131072,
+    "hModule": 140723008176128
+  },
+  {
+    "szModule": "TortoiseSVN.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\TortoiseSVN.dll",
+    "baseaddr": 140722765037568,
+    "baseaddr_hex": "0x7ffc926c0000",
+    "size": 3805184,
+    "hModule": 140722765037568
+  },
+  {
+    "szModule": "libsvn_tsvn.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\libsvn_tsvn.dll",
+    "baseaddr": 140722680430592,
+    "baseaddr_hex": "0x7ffc8d610000",
+    "size": 9515008,
+    "hModule": 140722680430592
+  },
+  {
+    "szModule": "libapr_tsvn.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\libapr_tsvn.dll",
+    "baseaddr": 140722689998848,
+    "baseaddr_hex": "0x7ffc8df30000",
+    "size": 241664,
+    "hModule": 140722689998848
+  },
+  {
+    "szModule": "intl3_tsvn.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\intl3_tsvn.dll",
+    "baseaddr": 140722690260992,
+    "baseaddr_hex": "0x7ffc8df70000",
+    "size": 77824,
+    "hModule": 140722690260992
+  },
+  {
+    "szModule": "libaprutil_tsvn.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\libaprutil_tsvn.dll",
+    "baseaddr": 140722679971840,
+    "baseaddr_hex": "0x7ffc8d5a0000",
+    "size": 294912,
+    "hModule": 140722679971840
+  },
+  {
+    "szModule": "libsasl.dll",
+    "szExePath": "C:\\Program Files\\TortoiseSVN\\bin\\libsasl.dll",
+    "baseaddr": 140722680299520,
+    "baseaddr_hex": "0x7ffc8d5f0000",
+    "size": 110592,
+    "hModule": 140722680299520
+  },
+  {
+    "szModule": "WLDAP32.dll",
+    "szExePath": "C:\\Windows\\System32\\WLDAP32.dll",
+    "baseaddr": 140723511754752,
+    "baseaddr_hex": "0x7ffcbeee0000",
+    "size": 380928,
+    "hModule": 140723511754752
+  },
+  {
+    "szModule": "TortoiseGitStub.dll",
+    "szExePath": "C:\\Program Files\\TortoiseGit\\bin\\TortoiseGitStub.dll",
+    "baseaddr": 140722833850368,
+    "baseaddr_hex": "0x7ffc96860000",
+    "size": 126976,
+    "hModule": 140722833850368
+  },
+  {
+    "szModule": "TortoiseGit.dll",
+    "szExePath": "C:\\Program Files\\TortoiseGit\\bin\\TortoiseGit.dll",
+    "baseaddr": 140722760515584,
+    "baseaddr_hex": "0x7ffc92270000",
+    "size": 4517888,
+    "hModule": 140722760515584
+  },
+  {
+    "szModule": "gitdll.dll",
+    "szExePath": "C:\\Program Files\\TortoiseGit\\bin\\gitdll.dll",
+    "baseaddr": 140722758615040,
+    "baseaddr_hex": "0x7ffc920a0000",
+    "size": 1900544,
+    "hModule": 140722758615040
+  },
+  {
+    "szModule": "libgit2_tgit.dll",
+    "szExePath": "C:\\Program Files\\TortoiseGit\\bin\\libgit2_tgit.dll",
+    "baseaddr": 140722727944192,
+    "baseaddr_hex": "0x7ffc90360000",
+    "size": 1761280,
+    "hModule": 140722727944192
+  },
+  {
+    "szModule": "zlib1_tgit.dll",
+    "szExePath": "C:\\Program Files\\TortoiseGit\\bin\\zlib1_tgit.dll",
+    "baseaddr": 140722829983744,
+    "baseaddr_hex": "0x7ffc964b0000",
+    "size": 98304,
+    "hModule": 140722829983744
+  },
+  {
+    "szModule": "UIAnimation.dll",
+    "szExePath": "C:\\Windows\\System32\\UIAnimation.dll",
+    "baseaddr": 140723368886272,
+    "baseaddr_hex": "0x7ffcb66a0000",
+    "size": 290816,
+    "hModule": 140723368886272
+  },
+  {
+    "szModule": "EhStorShell.dll",
+    "szExePath": "C:\\Windows\\System32\\EhStorShell.dll",
+    "baseaddr": 140723079872512,
+    "baseaddr_hex": "0x7ffca5300000",
+    "size": 225280,
+    "hModule": 140723079872512
+  },
+  {
+    "szModule": "SETUPAPI.dll",
+    "szExePath": "C:\\Windows\\System32\\SETUPAPI.dll",
+    "baseaddr": 140723522961408,
+    "baseaddr_hex": "0x7ffcbf990000",
+    "size": 4644864,
+    "hModule": 140723522961408
+  },
+  {
+    "szModule": "HardlinkShellExt.dll",
+    "szExePath": "C:\\Program Files\\LinkShellExtension\\HardlinkShellExt.dll",
+    "baseaddr": 140722776965120,
+    "baseaddr_hex": "0x7ffc93220000",
+    "size": 520192,
+    "hModule": 140722776965120
+  },
+  {
+    "szModule": "SageThumbs.dll",
+    "szExePath": "C:\\Program Files (x86)\\SageThumbs\\64\\SageThumbs.dll",
+    "baseaddr": 140722753175552,
+    "baseaddr_hex": "0x7ffc91b70000",
+    "size": 499712,
+    "hModule": 140722753175552
+  },
+  {
+    "szModule": "libgfle340.dll",
+    "szExePath": "C:\\Program Files (x86)\\SageThumbs\\64\\libgfle340.dll",
+    "baseaddr": 6442450944,
+    "baseaddr_hex": "0x180000000",
+    "size": 282624,
+    "hModule": 6442450944
+  },
+  {
+    "szModule": "sqlite3.dll",
+    "szExePath": "C:\\Program Files (x86)\\SageThumbs\\64\\sqlite3.dll",
+    "baseaddr": 140722725191680,
+    "baseaddr_hex": "0x7ffc900c0000",
+    "size": 733184,
+    "hModule": 140722725191680
+  },
+  {
+    "szModule": "MSIMG32.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\MSIMG32.dll",
+    "baseaddr": 140723378388992,
+    "baseaddr_hex": "0x7ffcb6fb0000",
+    "size": 28672,
+    "hModule": 140723378388992
+  },
+  {
+    "szModule": "libgfl340.dll",
+    "szExePath": "C:\\Program Files (x86)\\SageThumbs\\64\\libgfl340.dll",
+    "baseaddr": 333709312,
+    "baseaddr_hex": "0x13e40000",
+    "size": 1540096,
+    "hModule": 333709312
+  },
+  {
+    "szModule": "LZ32.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\LZ32.dll",
+    "baseaddr": 228196352,
+    "baseaddr_hex": "0xd9a0000",
+    "size": 12288,
+    "hModule": 228196352
+  },
+  {
+    "szModule": "PCShellCommonProxyStub.dll",
+    "szExePath": "C:\\Windows\\System32\\PCShellCommonProxyStub.dll",
+    "baseaddr": 140723078496256,
+    "baseaddr_hex": "0x7ffca51b0000",
+    "size": 77824,
+    "hModule": 140723078496256
+  },
+  {
+    "szModule": "cryptngc.dll",
+    "szExePath": "C:\\Windows\\system32\\cryptngc.dll",
+    "baseaddr": 140722806390784,
+    "baseaddr_hex": "0x7ffc94e30000",
+    "size": 487424,
+    "hModule": 140722806390784
+  },
+  {
+    "szModule": "ncrypt.dll",
+    "szExePath": "C:\\Windows\\system32\\ncrypt.dll",
+    "baseaddr": 140723496091648,
+    "baseaddr_hex": "0x7ffcbdff0000",
+    "size": 167936,
+    "hModule": 140723496091648
+  },
+  {
+    "szModule": "NTASN1.dll",
+    "szExePath": "C:\\Windows\\system32\\NTASN1.dll",
+    "baseaddr": 140723495829504,
+    "baseaddr_hex": "0x7ffcbdfb0000",
+    "size": 241664,
+    "hModule": 140723495829504
+  },
+  {
+    "szModule": "ShellCommonCommonProxyStub.dll",
+    "szExePath": "C:\\Windows\\System32\\ShellCommonCommonProxyStub.dll",
+    "baseaddr": 140722786205696,
+    "baseaddr_hex": "0x7ffc93af0000",
+    "size": 937984,
+    "hModule": 140722786205696
+  },
+  {
+    "szModule": "cflapi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\cflapi.dll",
+    "baseaddr": 140723076923392,
+    "baseaddr_hex": "0x7ffca5030000",
+    "size": 192512,
+    "hModule": 140723076923392
+  },
+  {
+    "szModule": "Windows.Security.Authentication.Web.Core.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Security.Authentication.Web.Core.dll",
+    "baseaddr": 140722869895168,
+    "baseaddr_hex": "0x7ffc98ac0000",
+    "size": 1167360,
+    "hModule": 140722869895168
+  },
+  {
+    "szModule": "daxexec.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\daxexec.dll",
+    "baseaddr": 140723024953344,
+    "baseaddr_hex": "0x7ffca1ea0000",
+    "size": 737280,
+    "hModule": 140723024953344
+  },
+  {
+    "szModule": "container.dll",
+    "szExePath": "C:\\Windows\\System32\\container.dll",
+    "baseaddr": 140723023183872,
+    "baseaddr_hex": "0x7ffca1cf0000",
+    "size": 270336,
+    "hModule": 140723023183872
+  },
+  {
+    "szModule": "winbio.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\winbio.dll",
+    "baseaddr": 140723044876288,
+    "baseaddr_hex": "0x7ffca31a0000",
+    "size": 200704,
+    "hModule": 140723044876288
+  },
+  {
+    "szModule": "npmproxy.dll",
+    "szExePath": "C:\\Windows\\System32\\npmproxy.dll",
+    "baseaddr": 140723382648832,
+    "baseaddr_hex": "0x7ffcb73c0000",
+    "size": 65536,
+    "hModule": 140723382648832
+  },
+  {
+    "szModule": "CapabilityAccessManagerClient.dll",
+    "szExePath": "C:\\Windows\\System32\\CapabilityAccessManagerClient.dll",
+    "baseaddr": 140722888900608,
+    "baseaddr_hex": "0x7ffc99ce0000",
+    "size": 270336,
+    "hModule": 140722888900608
+  },
+  {
+    "szModule": "wlanapi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\wlanapi.dll",
+    "baseaddr": 140723396345856,
+    "baseaddr_hex": "0x7ffcb80d0000",
+    "size": 475136,
+    "hModule": 140723396345856
+  },
+  {
+    "szModule": "CloudExperienceHostRedirection.dll",
+    "szExePath": "C:\\Windows\\System32\\CloudExperienceHostRedirection.dll",
+    "baseaddr": 140723041075200,
+    "baseaddr_hex": "0x7ffca2e00000",
+    "size": 122880,
+    "hModule": 140723041075200
+  },
+  {
+    "szModule": "UserSetup.Eligibility.dll",
+    "szExePath": "C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\UserSetup.Eligibility.dll",
+    "baseaddr": 140722807570432,
+    "baseaddr_hex": "0x7ffc94f50000",
+    "size": 425984,
+    "hModule": 140722807570432
+  },
+  {
+    "szModule": "clipc.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\clipc.dll",
+    "baseaddr": 140722776702976,
+    "baseaddr_hex": "0x7ffc931e0000",
+    "size": 196608,
+    "hModule": 140722776702976
+  },
+  {
+    "szModule": "VCRUNTIME140_APP.dll",
+    "szExePath": "C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\VCRUNTIME140_APP.dll",
+    "baseaddr": 140723048218624,
+    "baseaddr_hex": "0x7ffca34d0000",
+    "size": 110592,
+    "hModule": 140723048218624
+  },
+  {
+    "szModule": "MSVCP140_APP.dll",
+    "szExePath": "C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\MSVCP140_APP.dll",
+    "baseaddr": 140722826772480,
+    "baseaddr_hex": "0x7ffc961a0000",
+    "size": 577536,
+    "hModule": 140722826772480
+  },
+  {
+    "szModule": "VCRUNTIME140_1_APP.dll",
+    "szExePath": "C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\VCRUNTIME140_1_APP.dll",
+    "baseaddr": 140723338477568,
+    "baseaddr_hex": "0x7ffcb49a0000",
+    "size": 49152,
+    "hModule": 140723338477568
+  },
+  {
+    "szModule": "Windows.Management.InprocObjects.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Management.InprocObjects.dll",
+    "baseaddr": 140723034128384,
+    "baseaddr_hex": "0x7ffca2760000",
+    "size": 323584,
+    "hModule": 140723034128384
+  },
+  {
+    "szModule": "D3D10Warp.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\D3D10Warp.dll",
+    "baseaddr": 140723343523840,
+    "baseaddr_hex": "0x7ffcb4e70000",
+    "size": 7299072,
+    "hModule": 140723343523840
+  },
+  {
+    "szModule": "UIAutomationCore.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\UIAutomationCore.DLL",
+    "baseaddr": 140722788958208,
+    "baseaddr_hex": "0x7ffc93d90000",
+    "size": 3100672,
+    "hModule": 140722788958208
+  },
+  {
+    "szModule": "stobject.dll",
+    "szExePath": "C:\\Windows\\system32\\stobject.dll",
+    "baseaddr": 140722809995264,
+    "baseaddr_hex": "0x7ffc951a0000",
+    "size": 335872,
+    "hModule": 140722809995264
+  },
+  {
+    "szModule": "WMICLNT.dll",
+    "szExePath": "C:\\Windows\\system32\\WMICLNT.dll",
+    "baseaddr": 140723397197824,
+    "baseaddr_hex": "0x7ffcb81a0000",
+    "size": 69632,
+    "hModule": 140723397197824
+  },
+  {
+    "szModule": "BatMeter.dll",
+    "szExePath": "C:\\Windows\\system32\\BatMeter.dll",
+    "baseaddr": 140723087933440,
+    "baseaddr_hex": "0x7ffca5ab0000",
+    "size": 61440,
+    "hModule": 140723087933440
+  },
+  {
+    "szModule": "InputSwitch.dll",
+    "szExePath": "C:\\Windows\\System32\\InputSwitch.dll",
+    "baseaddr": 140722723225600,
+    "baseaddr_hex": "0x7ffc8fee0000",
+    "size": 552960,
+    "hModule": 140722723225600
+  },
+  {
+    "szModule": "sxs.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\sxs.dll",
+    "baseaddr": 140723499630592,
+    "baseaddr_hex": "0x7ffcbe350000",
+    "size": 663552,
+    "hModule": 140723499630592
+  },
+  {
+    "szModule": "es.dll",
+    "szExePath": "C:\\Windows\\system32\\es.dll",
+    "baseaddr": 140723390119936,
+    "baseaddr_hex": "0x7ffcb7ae0000",
+    "size": 442368,
+    "hModule": 140723390119936
+  },
+  {
+    "szModule": "prnfldr.dll",
+    "szExePath": "C:\\Windows\\system32\\prnfldr.dll",
+    "baseaddr": 140722981240832,
+    "baseaddr_hex": "0x7ffc9f4f0000",
+    "size": 253952,
+    "hModule": 140722981240832
+  },
+  {
+    "szModule": "atlthunk.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\atlthunk.dll",
+    "baseaddr": 140722873434112,
+    "baseaddr_hex": "0x7ffc98e20000",
+    "size": 53248,
+    "hModule": 140722873434112
+  },
+  {
+    "szModule": "dxp.dll",
+    "szExePath": "C:\\Windows\\system32\\dxp.dll",
+    "baseaddr": 140722709004288,
+    "baseaddr_hex": "0x7ffc8f150000",
+    "size": 536576,
+    "hModule": 140722709004288
+  },
+  {
+    "szModule": "SHDOCVW.dll",
+    "szExePath": "C:\\Windows\\system32\\SHDOCVW.dll",
+    "baseaddr": 140722961842176,
+    "baseaddr_hex": "0x7ffc9e270000",
+    "size": 286720,
+    "hModule": 140722961842176
+  },
+  {
+    "szModule": "Actioncenter.dll",
+    "szExePath": "C:\\Windows\\System32\\Actioncenter.dll",
+    "baseaddr": 140722800951296,
+    "baseaddr_hex": "0x7ffc94900000",
+    "size": 339968,
+    "hModule": 140722800951296
+  },
+  {
+    "szModule": "wevtapi.dll",
+    "szExePath": "C:\\Windows\\System32\\wevtapi.dll",
+    "baseaddr": 140723438223360,
+    "baseaddr_hex": "0x7ffcba8c0000",
+    "size": 413696,
+    "hModule": 140723438223360
+  },
+  {
+    "szModule": "Windows.UI.Shell.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.UI.Shell.dll",
+    "baseaddr": 140723078430720,
+    "baseaddr_hex": "0x7ffca51a0000",
+    "size": 57344,
+    "hModule": 140723078430720
+  },
+  {
+    "szModule": "Syncreg.dll",
+    "szExePath": "C:\\Windows\\system32\\Syncreg.dll",
+    "baseaddr": 140723006144512,
+    "baseaddr_hex": "0x7ffca0cb0000",
+    "size": 102400,
+    "hModule": 140723006144512
+  },
+  {
+    "szModule": "Windows.FileExplorer.Common.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.FileExplorer.Common.dll",
+    "baseaddr": 140722625445888,
+    "baseaddr_hex": "0x7ffc8a1a0000",
+    "size": 401408,
+    "hModule": 140722625445888
+  },
+  {
+    "szModule": "NSI.dll",
+    "szExePath": "C:\\Windows\\System32\\NSI.dll",
+    "baseaddr": 140723543474176,
+    "baseaddr_hex": "0x7ffcc0d20000",
+    "size": 32768,
+    "hModule": 140723543474176
+  },
+  {
+    "szModule": "dusmapi.dll",
+    "szExePath": "C:\\Windows\\System32\\dusmapi.dll",
+    "baseaddr": 140722698321920,
+    "baseaddr_hex": "0x7ffc8e720000",
+    "size": 69632,
+    "hModule": 140722698321920
+  },
+  {
+    "szModule": "AUDIOSES.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\AUDIOSES.DLL",
+    "baseaddr": 140722984517632,
+    "baseaddr_hex": "0x7ffc9f810000",
+    "size": 1576960,
+    "hModule": 140722984517632
+  },
+  {
+    "szModule": "pnidui.dll",
+    "szExePath": "C:\\Windows\\System32\\pnidui.dll",
+    "baseaddr": 140721667309568,
+    "baseaddr_hex": "0x7ffc50fe0000",
+    "size": 2199552,
+    "hModule": 140721667309568
+  },
+  {
+    "szModule": "MobileNetworking.dll",
+    "szExePath": "C:\\Windows\\System32\\MobileNetworking.dll",
+    "baseaddr": 140723070238720,
+    "baseaddr_hex": "0x7ffca49d0000",
+    "size": 40960,
+    "hModule": 140723070238720
+  },
+  {
+    "szModule": "netprofm.dll",
+    "szExePath": "C:\\Windows\\System32\\netprofm.dll",
+    "baseaddr": 140723443073024,
+    "baseaddr_hex": "0x7ffcbad60000",
+    "size": 258048,
+    "hModule": 140723443073024
+  },
+  {
+    "szModule": "NetworkUXBroker.dll",
+    "szExePath": "C:\\Windows\\System32\\NetworkUXBroker.dll",
+    "baseaddr": 140723082166272,
+    "baseaddr_hex": "0x7ffca5530000",
+    "size": 446464,
+    "hModule": 140723082166272
+  },
+  {
+    "szModule": "WlanMediaManager.dll",
+    "szExePath": "C:\\Windows\\System32\\WlanMediaManager.dll",
+    "baseaddr": 140722698518528,
+    "baseaddr_hex": "0x7ffc8e750000",
+    "size": 774144,
+    "hModule": 140722698518528
+  },
+  {
+    "szModule": "EthernetMediaManager.dll",
+    "szExePath": "C:\\Windows\\System32\\EthernetMediaManager.dll",
+    "baseaddr": 140722830704640,
+    "baseaddr_hex": "0x7ffc96560000",
+    "size": 212992,
+    "hModule": 140722830704640
+  },
+  {
+    "szModule": "wpdshserviceobj.dll",
+    "szExePath": "C:\\Windows\\system32\\wpdshserviceobj.dll",
+    "baseaddr": 140722986811392,
+    "baseaddr_hex": "0x7ffc9fa40000",
+    "size": 86016,
+    "hModule": 140722986811392
+  },
+  {
+    "szModule": "PortableDeviceTypes.dll",
+    "szExePath": "C:\\Windows\\System32\\PortableDeviceTypes.dll",
+    "baseaddr": 140723462995968,
+    "baseaddr_hex": "0x7ffcbc060000",
+    "size": 204800,
+    "hModule": 140723462995968
+  },
+  {
+    "szModule": "PortableDeviceApi.dll",
+    "szExePath": "C:\\Windows\\System32\\PortableDeviceApi.dll",
+    "baseaddr": 140723460046848,
+    "baseaddr_hex": "0x7ffcbbd90000",
+    "size": 667648,
+    "hModule": 140723460046848
+  },
+  {
+    "szModule": "srchadmin.dll",
+    "szExePath": "C:\\Windows\\System32\\srchadmin.dll",
+    "baseaddr": 140722827952128,
+    "baseaddr_hex": "0x7ffc962c0000",
+    "size": 237568,
+    "hModule": 140722827952128
+  },
+  {
+    "szModule": "TetheringStation.dll",
+    "szExePath": "C:\\Windows\\System32\\TetheringStation.dll",
+    "baseaddr": 140722823757824,
+    "baseaddr_hex": "0x7ffc95ec0000",
+    "size": 229376,
+    "hModule": 140722823757824
+  },
+  {
+    "szModule": "BluetoothApis.dll",
+    "szExePath": "C:\\Windows\\System32\\BluetoothApis.dll",
+    "baseaddr": 140723052937216,
+    "baseaddr_hex": "0x7ffca3950000",
+    "size": 225280,
+    "hModule": 140723052937216
+  },
+  {
+    "szModule": "windows.storage.search.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\windows.storage.search.dll",
+    "baseaddr": 140722749177856,
+    "baseaddr_hex": "0x7ffc917a0000",
+    "size": 823296,
+    "hModule": 140722749177856
+  },
+  {
+    "szModule": "bthprops.cpl",
+    "szExePath": "C:\\Windows\\System32\\bthprops.cpl",
+    "baseaddr": 140722787188736,
+    "baseaddr_hex": "0x7ffc93be0000",
+    "size": 286720,
+    "hModule": 140722787188736
+  },
+  {
+    "szModule": "dhcpcsvc6.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\dhcpcsvc6.DLL",
+    "baseaddr": 140723435208704,
+    "baseaddr_hex": "0x7ffcba5e0000",
+    "size": 94208,
+    "hModule": 140723435208704
+  },
+  {
+    "szModule": "dhcpcsvc.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\dhcpcsvc.DLL",
+    "baseaddr": 140723433766912,
+    "baseaddr_hex": "0x7ffcba480000",
+    "size": 118784,
+    "hModule": 140723433766912
+  },
+  {
+    "szModule": "SyncCenter.dll",
+    "szExePath": "C:\\Windows\\System32\\SyncCenter.dll",
+    "baseaddr": 140722664374272,
+    "baseaddr_hex": "0x7ffc8c6c0000",
+    "size": 536576,
+    "hModule": 140722664374272
+  },
+  {
+    "szModule": "imapi2.dll",
+    "szExePath": "C:\\Windows\\System32\\imapi2.dll",
+    "baseaddr": 140722660835328,
+    "baseaddr_hex": "0x7ffc8c360000",
+    "size": 540672,
+    "hModule": 140722660835328
+  },
+  {
+    "szModule": "deviceassociation.dll",
+    "szExePath": "C:\\Windows\\System32\\deviceassociation.dll",
+    "baseaddr": 140722988318720,
+    "baseaddr_hex": "0x7ffc9fbb0000",
+    "size": 73728,
+    "hModule": 140722988318720
+  },
+  {
+    "szModule": "wpnclient.dll",
+    "szExePath": "C:\\Windows\\System32\\wpnclient.dll",
+    "baseaddr": 140722832015360,
+    "baseaddr_hex": "0x7ffc966a0000",
+    "size": 385024,
+    "hModule": 140722832015360
+  },
+  {
+    "szModule": "StartMenuDLL.dll",
+    "szExePath": "c:\\Program Files\\Open-Shell\\StartMenuDLL.dll",
+    "baseaddr": 140722596806656,
+    "baseaddr_hex": "0x7ffc88650000",
+    "size": 2867200,
+    "hModule": 140722596806656
+  },
+  {
+    "szModule": "LOGONCLI.DLL",
+    "szExePath": "C:\\Windows\\SYSTEM32\\LOGONCLI.DLL",
+    "baseaddr": 140723490586624,
+    "baseaddr_hex": "0x7ffcbdab0000",
+    "size": 274432,
+    "hModule": 140723490586624
+  },
+  {
+    "szModule": "fontext.dll",
+    "szExePath": "C:\\Windows\\system32\\fontext.dll",
+    "baseaddr": 140722639667200,
+    "baseaddr_hex": "0x7ffc8af30000",
+    "size": 1011712,
+    "hModule": 140722639667200
+  },
+  {
+    "szModule": "DeviceCenter.dll",
+    "szExePath": "C:\\Windows\\system32\\DeviceCenter.dll",
+    "baseaddr": 140722758352896,
+    "baseaddr_hex": "0x7ffc92060000",
+    "size": 253952,
+    "hModule": 140722758352896
+  },
+  {
+    "szModule": "DUI70.dll",
+    "szExePath": "C:\\Windows\\system32\\DUI70.dll",
+    "baseaddr": 140722716868608,
+    "baseaddr_hex": "0x7ffc8f8d0000",
+    "size": 1761280,
+    "hModule": 140722716868608
+  },
+  {
+    "szModule": "twext.dll",
+    "szExePath": "C:\\Windows\\system32\\twext.dll",
+    "baseaddr": 140722632196096,
+    "baseaddr_hex": "0x7ffc8a810000",
+    "size": 208896,
+    "hModule": 140722632196096
+  },
+  {
+    "szModule": "UnlockerCOM.dll",
+    "szExePath": "C:\\Program Files\\Unlocker\\UnlockerCOM.dll",
+    "baseaddr": 43515904,
+    "baseaddr_hex": "0x2980000",
+    "size": 28672,
+    "hModule": 43515904
+  },
+  {
+    "szModule": "PowerToys.PowerRenameExt.dll",
+    "szExePath": "C:\\Program Files\\PowerToys\\WinUI3Apps\\PowerToys.PowerRenameExt.dll",
+    "baseaddr": 140722631081984,
+    "baseaddr_hex": "0x7ffc8a700000",
+    "size": 1073152,
+    "hModule": 140722631081984
+  },
+  {
+    "szModule": "PowerToys.FileLocksmithExt.dll",
+    "szExePath": "C:\\Program Files\\PowerToys\\WinUI3Apps\\PowerToys.FileLocksmithExt.dll",
+    "baseaddr": 140722629640192,
+    "baseaddr_hex": "0x7ffc8a5a0000",
+    "size": 1007616,
+    "hModule": 140722629640192
+  },
+  {
+    "szModule": "nv3dappshext.dll",
+    "szExePath": "C:\\Windows\\System32\\DriverStore\\FileRepository\\nvmdui.inf_amd64_b9a25d9bf14734a3\\nv3dappshext.dll",
+    "baseaddr": 140722624397312,
+    "baseaddr_hex": "0x7ffc8a0a0000",
+    "size": 1036288,
+    "hModule": 140722624397312
+  },
+  {
+    "szModule": "nvapi64.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\nvapi64.dll",
+    "baseaddr": 140723214876672,
+    "baseaddr_hex": "0x7ffcad3c0000",
+    "size": 5771264,
+    "hModule": 140723214876672
+  },
+  {
+    "szModule": "BCShellEx64.dll",
+    "szExePath": "C:\\Program Files\\Beyond Compare 5\\BCShellEx64.dll",
+    "baseaddr": 1537081344,
+    "baseaddr_hex": "0x5b9e0000",
+    "size": 843776,
+    "hModule": 1537081344
+  },
+  {
+    "szModule": "PWRISOSH.DLL",
+    "szExePath": "C:\\Program Files\\PowerISO\\PWRISOSH.DLL",
+    "baseaddr": 501678080,
+    "baseaddr_hex": "0x1de70000",
+    "size": 417792,
+    "hModule": 501678080
+  },
+  {
+    "szModule": "WINSPOOL.DRV",
+    "szExePath": "C:\\Windows\\SYSTEM32\\WINSPOOL.DRV",
+    "baseaddr": 140723104382976,
+    "baseaddr_hex": "0x7ffca6a60000",
+    "size": 671744,
+    "hModule": 140723104382976
+  },
+  {
+    "szModule": "ConvertToPDFShellExtension_x64.dll",
+    "szExePath": "C:\\Program Files (x86)\\Foxit Software\\Foxit PDF Editor\\plugins\\ConvertToPDFShellExtension_x64.dll",
+    "baseaddr": 140722560368640,
+    "baseaddr_hex": "0x7ffc86390000",
+    "size": 1101824,
+    "hModule": 140722560368640
+  },
+  {
+    "szModule": "gdiplus.dll",
+    "szExePath": "C:\\Windows\\WinSxS\\amd64_microsoft.windows.gdiplus_6595b64144ccf1df_1.1.19041.4597_none_91a78020cc854124\\gdiplus.dll",
+    "baseaddr": 140723107856384,
+    "baseaddr_hex": "0x7ffca6db0000",
+    "size": 1724416,
+    "hModule": 140723107856384
+  },
+  {
+    "szModule": "mssvp.dll",
+    "szExePath": "C:\\Windows\\system32\\mssvp.dll",
+    "baseaddr": 140722722308096,
+    "baseaddr_hex": "0x7ffc8fe00000",
+    "size": 405504,
+    "hModule": 140722722308096
+  },
+  {
+    "szModule": "7-zip.dll",
+    "szExePath": "C:\\Program Files\\7-Zip\\7-zip.dll",
+    "baseaddr": 140722638880768,
+    "baseaddr_hex": "0x7ffc8ae70000",
+    "size": 237568,
+    "hModule": 140722638880768
+  },
+  {
+    "szModule": "ShellTabs.dll",
+    "szExePath": "F:\\development\\steam\\emulator_bot\\shelltabs\\build\\bin\\Release\\ShellTabs.dll",
+    "baseaddr": 140722617581568,
+    "baseaddr_hex": "0x7ffc89a20000",
+    "size": 950272,
+    "hModule": 140722617581568
+  },
+  {
+    "szModule": "credui.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\credui.dll",
+    "baseaddr": 140722295603200,
+    "baseaddr_hex": "0x7ffc76710000",
+    "size": 102400,
+    "hModule": 140722295603200
+  },
+  {
+    "szModule": "DUser.dll",
+    "szExePath": "C:\\Windows\\system32\\DUser.dll",
+    "baseaddr": 140722067144704,
+    "baseaddr_hex": "0x7ffc68d30000",
+    "size": 610304,
+    "hModule": 140722067144704
+  },
+  {
+    "szModule": "MsftEdit.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\MsftEdit.dll",
+    "baseaddr": 140721904877568,
+    "baseaddr_hex": "0x7ffc5f270000",
+    "size": 3452928,
+    "hModule": 140721904877568
+  },
+  {
+    "szModule": "globinputhost.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\globinputhost.dll",
+    "baseaddr": 140723351191552,
+    "baseaddr_hex": "0x7ffcb55c0000",
+    "size": 151552,
+    "hModule": 140723351191552
+  },
+  {
+    "szModule": "tiptsf.dll",
+    "szExePath": "C:\\Program Files\\Common Files\\microsoft shared\\ink\\tiptsf.dll",
+    "baseaddr": 140722638159872,
+    "baseaddr_hex": "0x7ffc8adc0000",
+    "size": 692224,
+    "hModule": 140722638159872
+  },
+  {
+    "szModule": "ClassicExplorer64.dll",
+    "szExePath": "F:\\development\\steam\\emulator_bot\\Open-Shell-Menu\\build\\bin\\Release64\\ClassicExplorer64.dll",
+    "baseaddr": 140722554601472,
+    "baseaddr_hex": "0x7ffc85e10000",
+    "size": 1007616,
+    "hModule": 140722554601472
+  },
+  {
+    "szModule": "Windows.Internal.System.UserProfile.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.Internal.System.UserProfile.dll",
+    "baseaddr": 140722982158336,
+    "baseaddr_hex": "0x7ffc9f5d0000",
+    "size": 282624,
+    "hModule": 140722982158336
+  },
+  {
+    "szModule": "UIRibbon.dll",
+    "szExePath": "C:\\Windows\\system32\\UIRibbon.dll",
+    "baseaddr": 140720392699904,
+    "baseaddr_hex": "0x7ffc05050000",
+    "size": 4112384,
+    "hModule": 140720392699904
+  },
+  {
+    "szModule": "dlnashext.dll",
+    "szExePath": "C:\\Windows\\System32\\dlnashext.dll",
+    "baseaddr": 140723070304256,
+    "baseaddr_hex": "0x7ffca49e0000",
+    "size": 352256,
+    "hModule": 140723070304256
+  },
+  {
+    "szModule": "wpdshext.dll",
+    "szExePath": "C:\\Windows\\system32\\wpdshext.dll",
+    "baseaddr": 140723044024320,
+    "baseaddr_hex": "0x7ffca30d0000",
+    "size": 659456,
+    "hModule": 140723044024320
+  },
+  {
+    "szModule": "EhStorAPI.dll",
+    "szExePath": "C:\\Windows\\System32\\EhStorAPI.dll",
+    "baseaddr": 140722755928064,
+    "baseaddr_hex": "0x7ffc91e10000",
+    "size": 155648,
+    "hModule": 140722755928064
+  },
+  {
+    "szModule": "NetworkItemFactory.dll",
+    "szExePath": "C:\\Windows\\system32\\NetworkItemFactory.dll",
+    "baseaddr": 140722967216128,
+    "baseaddr_hex": "0x7ffc9e790000",
+    "size": 73728,
+    "hModule": 140722967216128
+  },
+  {
+    "szModule": "dtsh.dll",
+    "szExePath": "C:\\Windows\\system32\\dtsh.dll",
+    "baseaddr": 140722715230208,
+    "baseaddr_hex": "0x7ffc8f740000",
+    "size": 57344,
+    "hModule": 140722715230208
+  },
+  {
+    "szModule": "FirewallAPI.dll",
+    "szExePath": "C:\\Windows\\system32\\FirewallAPI.dll",
+    "baseaddr": 140723480231936,
+    "baseaddr_hex": "0x7ffcbd0d0000",
+    "size": 614400,
+    "hModule": 140723480231936
+  },
+  {
+    "szModule": "DNSAPI.dll",
+    "szExePath": "C:\\Windows\\system32\\DNSAPI.dll",
+    "baseaddr": 140723489341440,
+    "baseaddr_hex": "0x7ffcbd980000",
+    "size": 827392,
+    "hModule": 140723489341440
+  },
+  {
+    "szModule": "fwbase.dll",
+    "szExePath": "C:\\Windows\\system32\\fwbase.dll",
+    "baseaddr": 140723479969792,
+    "baseaddr_hex": "0x7ffcbd090000",
+    "size": 225280,
+    "hModule": 140723479969792
+  },
+  {
+    "szModule": "wbemprox.dll",
+    "szExePath": "C:\\Windows\\system32\\wbem\\wbemprox.dll",
+    "baseaddr": 140723378847744,
+    "baseaddr_hex": "0x7ffcb7020000",
+    "size": 69632,
+    "hModule": 140723378847744
+  },
+  {
+    "szModule": "wbemcomn.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\wbemcomn.dll",
+    "baseaddr": 140723209895936,
+    "baseaddr_hex": "0x7ffcacf00000",
+    "size": 589824,
+    "hModule": 140723209895936
+  },
+  {
+    "szModule": "wbemsvc.dll",
+    "szExePath": "C:\\Windows\\system32\\wbem\\wbemsvc.dll",
+    "baseaddr": 140723049922560,
+    "baseaddr_hex": "0x7ffca3670000",
+    "size": 81920,
+    "hModule": 140723049922560
+  },
+  {
+    "szModule": "fastprox.dll",
+    "szExePath": "C:\\Windows\\system32\\wbem\\fastprox.dll",
+    "baseaddr": 140722898665472,
+    "baseaddr_hex": "0x7ffc9a630000",
+    "size": 1097728,
+    "hModule": 140722898665472
+  },
+  {
+    "szModule": "amsi.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\amsi.dll",
+    "baseaddr": 140722897682432,
+    "baseaddr_hex": "0x7ffc9a540000",
+    "size": 126976,
+    "hModule": 140722897682432
+  },
+  {
+    "szModule": "FWPolicyIOMgr.dll",
+    "szExePath": "C:\\Windows\\system32\\FWPolicyIOMgr.dll",
+    "baseaddr": 140723029540864,
+    "baseaddr_hex": "0x7ffca2300000",
+    "size": 323584,
+    "hModule": 140723029540864
+  },
+  {
+    "szModule": "FunDisc.dll",
+    "szExePath": "C:\\Windows\\System32\\FunDisc.dll",
+    "baseaddr": 140722715295744,
+    "baseaddr_hex": "0x7ffc8f750000",
+    "size": 180224,
+    "hModule": 140722715295744
+  },
+  {
+    "szModule": "fdproxy.dll",
+    "szExePath": "C:\\Windows\\System32\\fdproxy.dll",
+    "baseaddr": 140721762664448,
+    "baseaddr_hex": "0x7ffc56ad0000",
+    "size": 86016,
+    "hModule": 140721762664448
+  },
+  {
+    "szModule": "fdwcn.dll",
+    "szExePath": "C:\\Windows\\System32\\fdwcn.dll",
+    "baseaddr": 140722825723904,
+    "baseaddr_hex": "0x7ffc960a0000",
+    "size": 135168,
+    "hModule": 140722825723904
+  },
+  {
+    "szModule": "wcnapi.dll",
+    "szExePath": "C:\\Windows\\System32\\wcnapi.dll",
+    "baseaddr": 140722758156288,
+    "baseaddr_hex": "0x7ffc92030000",
+    "size": 159744,
+    "hModule": 140722758156288
+  },
+  {
+    "szModule": "fdWNet.dll",
+    "szExePath": "C:\\Windows\\System32\\fdWNet.dll",
+    "baseaddr": 140723043631104,
+    "baseaddr_hex": "0x7ffca3070000",
+    "size": 49152,
+    "hModule": 140723043631104
+  },
+  {
+    "szModule": "ATL.DLL",
+    "szExePath": "C:\\Windows\\System32\\ATL.DLL",
+    "baseaddr": 140722734891008,
+    "baseaddr_hex": "0x7ffc90a00000",
+    "size": 118784,
+    "hModule": 140722734891008
+  },
+  {
+    "szModule": "dfscli.dll",
+    "szExePath": "C:\\Windows\\System32\\dfscli.dll",
+    "baseaddr": 140722846367744,
+    "baseaddr_hex": "0x7ffc97450000",
+    "size": 86016,
+    "hModule": 140722846367744
+  },
+  {
+    "szModule": "browcli.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\browcli.dll",
+    "baseaddr": 140722805407744,
+    "baseaddr_hex": "0x7ffc94d40000",
+    "size": 81920,
+    "hModule": 140722805407744
+  },
+  {
+    "szModule": "MLANG.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\MLANG.dll",
+    "baseaddr": 140723337756672,
+    "baseaddr_hex": "0x7ffcb48f0000",
+    "size": 270336,
+    "hModule": 140723337756672
+  },
+  {
+    "szModule": "msi.dll",
+    "szExePath": "C:\\Windows\\System32\\msi.dll",
+    "baseaddr": 140722996838400,
+    "baseaddr_hex": "0x7ffca03d0000",
+    "size": 3375104,
+    "hModule": 140722996838400
+  },
+  {
+    "szModule": "SettingSync.dll",
+    "szExePath": "C:\\Windows\\system32\\SettingSync.dll",
+    "baseaddr": 140722156863488,
+    "baseaddr_hex": "0x7ffc6e2c0000",
+    "size": 757760,
+    "hModule": 140722156863488
+  },
+  {
+    "szModule": "SettingSyncCore.dll",
+    "szExePath": "C:\\Windows\\system32\\SettingSyncCore.dll",
+    "baseaddr": 140722743934976,
+    "baseaddr_hex": "0x7ffc912a0000",
+    "size": 1146880,
+    "hModule": 140722743934976
+  },
+  {
+    "szModule": "GraphicsCapture.dll",
+    "szExePath": "C:\\Windows\\System32\\GraphicsCapture.dll",
+    "baseaddr": 140722747932672,
+    "baseaddr_hex": "0x7ffc91670000",
+    "size": 151552,
+    "hModule": 140722747932672
+  },
+  {
+    "szModule": "Windows.UI.Xaml.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.UI.Xaml.dll",
+    "baseaddr": 140723312263168,
+    "baseaddr_hex": "0x7ffcb30a0000",
+    "size": 17559552,
+    "hModule": 140723312263168
+  },
+  {
+    "szModule": "WindowsInternal.ComposableShell.Experiences.Switcher.dll",
+    "szExePath": "C:\\Windows\\ShellComponents\\WindowsInternal.ComposableShell.Experiences.Switcher.dll",
+    "baseaddr": 140720390275072,
+    "baseaddr_hex": "0x7ffc04e00000",
+    "size": 2412544,
+    "hModule": 140720390275072
+  },
+  {
+    "szModule": "TileControl.dll",
+    "szExePath": "C:\\Windows\\ShellExperiences\\TileControl.dll",
+    "baseaddr": 140722660311040,
+    "baseaddr_hex": "0x7ffc8c2e0000",
+    "size": 512000,
+    "hModule": 140722660311040
+  },
+  {
+    "szModule": "TaskFlowUI.dll",
+    "szExePath": "C:\\Windows\\ShellComponents\\TaskFlowUI.dll",
+    "baseaddr": 140720183050240,
+    "baseaddr_hex": "0x7ffbf8860000",
+    "size": 2179072,
+    "hModule": 140720183050240
+  },
+  {
+    "szModule": "UiaManager.dll",
+    "szExePath": "C:\\Windows\\System32\\UiaManager.dll",
+    "baseaddr": 140722857508864,
+    "baseaddr_hex": "0x7ffc97ef0000",
+    "size": 659456,
+    "hModule": 140722857508864
+  },
+  {
+    "szModule": "wscinterop.dll",
+    "szExePath": "C:\\Windows\\System32\\wscinterop.dll",
+    "baseaddr": 140723041796096,
+    "baseaddr_hex": "0x7ffca2eb0000",
+    "size": 249856,
+    "hModule": 140723041796096
+  },
+  {
+    "szModule": "WSCAPI.dll",
+    "szExePath": "C:\\Windows\\System32\\WSCAPI.dll",
+    "baseaddr": 140722831687680,
+    "baseaddr_hex": "0x7ffc96650000",
+    "size": 315392,
+    "hModule": 140722831687680
+  },
+  {
+    "szModule": "wscui.cpl",
+    "szExePath": "C:\\Windows\\System32\\wscui.cpl",
+    "baseaddr": 140723046580224,
+    "baseaddr_hex": "0x7ffca3340000",
+    "size": 102400,
+    "hModule": 140723046580224
+  },
+  {
+    "szModule": "werconcpl.dll",
+    "szExePath": "C:\\Windows\\System32\\werconcpl.dll",
+    "baseaddr": 140721804410880,
+    "baseaddr_hex": "0x7ffc592a0000",
+    "size": 909312,
+    "hModule": 140721804410880
+  },
+  {
+    "szModule": "framedynos.dll",
+    "szExePath": "C:\\Windows\\System32\\framedynos.dll",
+    "baseaddr": 140722893029376,
+    "baseaddr_hex": "0x7ffc9a0d0000",
+    "size": 372736,
+    "hModule": 140722893029376
+  },
+  {
+    "szModule": "wer.dll",
+    "szExePath": "C:\\Windows\\System32\\wer.dll",
+    "baseaddr": 140723460964352,
+    "baseaddr_hex": "0x7ffcbbe70000",
+    "size": 942080,
+    "hModule": 140723460964352
+  },
+  {
+    "szModule": "hcproviders.dll",
+    "szExePath": "C:\\Windows\\System32\\hcproviders.dll",
+    "baseaddr": 140722831556608,
+    "baseaddr_hex": "0x7ffc96630000",
+    "size": 81920,
+    "hModule": 140722831556608
+  },
+  {
+    "szModule": "DPAPI.dll",
+    "szExePath": "C:\\Windows\\SYSTEM32\\DPAPI.dll",
+    "baseaddr": 140723499565056,
+    "baseaddr_hex": "0x7ffcbe340000",
+    "size": 40960,
+    "hModule": 140723499565056
+  },
+  {
+    "szModule": "ieproxy.dll",
+    "szExePath": "C:\\Windows\\System32\\ieproxy.dll",
+    "baseaddr": 140721797791744,
+    "baseaddr_hex": "0x7ffc58c50000",
+    "size": 974848,
+    "hModule": 140721797791744
+  },
+  {
+    "szModule": "wpnapps.dll",
+    "szExePath": "C:\\Windows\\System32\\wpnapps.dll",
+    "baseaddr": 140722832408576,
+    "baseaddr_hex": "0x7ffc96700000",
+    "size": 1421312,
+    "hModule": 140722832408576
+  },
+  {
+    "szModule": "msxml6.dll",
+    "szExePath": "C:\\Windows\\System32\\msxml6.dll",
+    "baseaddr": 140723055820800,
+    "baseaddr_hex": "0x7ffca3c10000",
+    "size": 2486272,
+    "hModule": 140723055820800
+  },
+  {
+    "szModule": "WorkFoldersShell.dll",
+    "szExePath": "C:\\Windows\\System32\\WorkFoldersShell.dll",
+    "baseaddr": 140722605326336,
+    "baseaddr_hex": "0x7ffc88e70000",
+    "size": 249856,
+    "hModule": 140722605326336
+  },
+  {
+    "szModule": "Windows.CloudStore.Schema.Shell.dll",
+    "szExePath": "C:\\Windows\\System32\\Windows.CloudStore.Schema.Shell.dll",
+    "baseaddr": 140722834636800,
+    "baseaddr_hex": "0x7ffc96920000",
+    "size": 1024000,
+    "hModule": 140722834636800
+  }
+]
