@@ -2374,23 +2374,39 @@ void TabBandWindow::RefreshRebarMetrics() {
 
 void TabBandWindow::EnsureRebarIntegration() {
         if (!m_hwnd) return;
+
+        const HWND previousRebar = m_parentRebar;
+        const bool previouslyValidRebar = previousRebar && IsWindow(previousRebar);
+
         if (!m_parentRebar || !IsWindow(m_parentRebar)) {
                 HWND parent = GetParent(m_hwnd);
                 while (parent && !IsRebarWindow(parent)) parent = GetParent(parent);
                 m_parentRebar = parent;
                 m_rebarBandIndex = -1;
-                if (m_parentRebar) {
-            InstallRebarDarkSubclass();   // NEW: we own the bar bg now
-            UpdateRebarColors();  // NEW
-                }
+                m_rebarSubclassed = false;
         }
 
-        if (!m_parentRebar) {
+        const bool hasValidRebar = m_parentRebar && IsWindow(m_parentRebar);
+        const bool rebarNewlyAcquired = hasValidRebar && (!previouslyValidRebar || m_parentRebar != previousRebar);
+
+        if (!hasValidRebar) {
                 if (m_parentFrame) {
                         ClearAvailableDockMaskForFrame(m_parentFrame);
                         m_parentFrame = nullptr;
                 }
                 return;
+        }
+
+        if (rebarNewlyAcquired) {
+                // The rebar appeared after an earlier miss; reapply dark mode and palette now.
+                const bool immersiveDark = m_darkMode && !m_highContrast;
+                ApplyImmersiveDarkMode(m_parentRebar, immersiveDark);
+                InstallRebarDarkSubclass();
+                ResetThemePalette();
+                UpdateThemePalette();
+                UpdateRebarColors();
+                UpdateNewTabButtonTheme();
+                InvalidateRect(m_hwnd, nullptr, TRUE);
         }
 
         HWND frame = GetAncestor(m_parentRebar, GA_ROOT);
