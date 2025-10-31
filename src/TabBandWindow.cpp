@@ -53,6 +53,33 @@ std::atomic<uint32_t> g_availableDockMask{0};
 std::mutex g_availableDockMaskMutex;
 std::unordered_map<HWND, uint32_t> g_availableDockMaskByFrame;
 
+class SelectObjectGuard {
+public:
+    SelectObjectGuard(HDC dc, HGDIOBJ object) noexcept : m_dc(dc) {
+        if (m_dc && object) {
+            HGDIOBJ previous = SelectObject(m_dc, object);
+            if (previous && previous != HGDI_ERROR) {
+                m_previous = previous;
+            }
+        }
+    }
+
+    SelectObjectGuard(const SelectObjectGuard&) = delete;
+    SelectObjectGuard& operator=(const SelectObjectGuard&) = delete;
+    SelectObjectGuard(SelectObjectGuard&&) = delete;
+    SelectObjectGuard& operator=(SelectObjectGuard&&) = delete;
+
+    ~SelectObjectGuard() {
+        if (m_dc && m_previous) {
+            SelectObject(m_dc, m_previous);
+        }
+    }
+
+private:
+    HDC m_dc = nullptr;
+    HGDIOBJ m_previous = nullptr;
+};
+
 void RecomputeAvailableDockMaskLocked() {
     uint32_t combined = 0;
     for (const auto& entry : g_availableDockMaskByFrame) {
@@ -734,6 +761,7 @@ void TabBandWindow::Destroy() {
     ClearExplorerContext();
     ClearVisualItems();
     CloseThemeHandles();
+    ClearGdiCache();
     ClearDropHoverState();
     HidePreviewWindow(true);
     if (m_hwnd) {
@@ -2203,11 +2231,12 @@ void TabBandWindow::AdjustBandHeightToRow() {
 
 
 void TabBandWindow::RefreshTheme() {
-	if (m_refreshingTheme) return;
-	m_refreshingTheme = true;
-	struct Guard { TabBandWindow* w; ~Guard() { if (w) w->m_refreshingTheme = false; } } g{ this };
+        if (m_refreshingTheme) return;
+        m_refreshingTheme = true;
+        struct Guard { TabBandWindow* w; ~Guard() { if (w) w->m_refreshingTheme = false; } } g{ this };
 
     CloseThemeHandles();
+    ClearGdiCache();
     m_toolbarGripWidth = kToolbarGripWidth;
     if (!m_hwnd) { /* existing reset block unchanged */ return; }
 
@@ -2804,6 +2833,44 @@ void TabBandWindow::HandleDpiChanged(UINT dpiX, UINT dpiY, const RECT* suggested
     RebuildLayout();
 }
 
+HBRUSH TabBandWindow::GetCachedBrush(COLORREF color) const {
+    auto it = m_brushCache.find(color);
+    if (it != m_brushCache.end()) {
+        return it->second.Get();
+    }
+    HBRUSH brush = CreateSolidBrush(color);
+    if (!brush) {
+        return nullptr;
+    }
+    m_brushCache.emplace(color, BrushHandle(brush));
+    return brush;
+}
+
+HPEN TabBandWindow::GetCachedPen(COLORREF color, int width, int style) const {
+    PenKey key{color, width, style};
+    auto it = m_penCache.find(key);
+    if (it != m_penCache.end()) {
+        return it->second.Get();
+    }
+    HPEN pen = CreatePen(style, width, color);
+    if (!pen) {
+        return nullptr;
+    }
+    m_penCache.emplace(key, PenHandle(pen));
+    return pen;
+}
+
+void TabBandWindow::ClearGdiCache() {
+    for (auto& entry : m_brushCache) {
+        entry.second.Reset();
+    }
+    m_brushCache.clear();
+    for (auto& entry : m_penCache) {
+        entry.second.Reset();
+    }
+    m_penCache.clear();
+}
+
 void TabBandWindow::UpdateNewTabButtonTheme() {
     if (!m_newTabButton) {
         m_buttonDarkModeInitialized = false;
@@ -3030,21 +3097,16 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         if (m_highContrast) {
             RECT fillRect = tabRect;
             fillRect.bottom = std::min(fillRect.bottom, rect.bottom - 1);
-            HBRUSH brush = CreateSolidBrush(backgroundColor);
-            if (brush) {
+            if (HBRUSH brush = GetCachedBrush(backgroundColor)) {
                 FillRect(dc, &fillRect, brush);
-                DeleteObject(brush);
             }
-            HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_WINDOWTEXT));
-            if (pen) {
-                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+            if (HPEN pen = GetCachedPen(GetSysColor(COLOR_WINDOWTEXT))) {
+                SelectObjectGuard penGuard(dc, pen);
                 MoveToEx(dc, fillRect.left, fillRect.top, nullptr);
                 LineTo(dc, fillRect.right, fillRect.top);
                 LineTo(dc, fillRect.right, fillRect.bottom);
                 LineTo(dc, fillRect.left, fillRect.bottom);
                 LineTo(dc, fillRect.left, fillRect.top);
-                SelectObject(dc, oldPen);
-                DeleteObject(pen);
             }
         } else {
             COLORREF baseBorder = m_darkMode
@@ -3072,19 +3134,17 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
             HRGN region = CreatePolygonRgn(points, ARRAYSIZE(points), WINDING);
             if (region) {
-                HBRUSH brush = CreateSolidBrush(backgroundColor);
-                if (brush) {
+                if (HBRUSH brush = GetCachedBrush(backgroundColor)) {
                     FillRgn(dc, region, brush);
-                    DeleteObject(brush);
                 }
-                HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
-                if (pen) {
-                    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-                    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
-                    Polygon(dc, points, ARRAYSIZE(points));
-                    SelectObject(dc, oldBrush);
-                    SelectObject(dc, oldPen);
-                    DeleteObject(pen);
+                if (HPEN pen = GetCachedPen(borderColor)) {
+                    SelectObjectGuard penGuard(dc, pen);
+                    if (HGDIOBJ hollowBrush = GetStockObject(HOLLOW_BRUSH)) {
+                        SelectObjectGuard brushGuard(dc, hollowBrush);
+                        Polygon(dc, points, ARRAYSIZE(points));
+                    } else {
+                        Polygon(dc, points, ARRAYSIZE(points));
+                    }
                 }
                 DeleteObject(region);
             }
@@ -3092,13 +3152,10 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             COLORREF bottomLineColor = selected ? backgroundColor
                                                 : (m_darkMode ? BlendColors(backgroundColor, RGB(0, 0, 0), 0.25)
                                                               : GetSysColor(COLOR_3DLIGHT));
-            HPEN bottomPen = CreatePen(PS_SOLID, 1, bottomLineColor);
-            if (bottomPen) {
-                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, bottomPen));
+            if (HPEN bottomPen = GetCachedPen(bottomLineColor)) {
+                SelectObjectGuard penGuard(dc, bottomPen);
                 MoveToEx(dc, tabRect.left + 1, rect.bottom - 1, nullptr);
                 LineTo(dc, rect.right - 1, rect.bottom - 1);
-                SelectObject(dc, oldPen);
-                DeleteObject(bottomPen);
             }
         }
 
@@ -3119,10 +3176,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         if (selected) {
             indicatorColor = DarkenColor(indicatorColor, 0.2);
         }
-        HBRUSH indicatorBrush = CreateSolidBrush(indicatorColor);
-        if (indicatorBrush) {
+        if (HBRUSH indicatorBrush = GetCachedBrush(indicatorColor)) {
             FillRect(dc, &indicatorRect, indicatorBrush);
-            DeleteObject(indicatorBrush);
         }
     }
 
@@ -3196,10 +3251,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
                 closeBackground = BlendColors(closeBackground, RGB(0, 0, 0), 0.2);
             }
 
-            HBRUSH closeBrush = CreateSolidBrush(closeBackground);
-            if (closeBrush) {
+            if (HBRUSH closeBrush = GetCachedBrush(closeBackground)) {
                 FillRect(dc, &closeRect, closeBrush);
-                DeleteObject(closeBrush);
             }
 
             COLORREF borderColor = closeHot ? BlendColors(closeBackground, RGB(0, 0, 0), 0.2)
@@ -3207,16 +3260,13 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             if (m_highContrast) {
                 borderColor = GetSysColor(COLOR_WINDOWTEXT);
             }
-            HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
-            if (borderPen) {
-                HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
+            if (HPEN borderPen = GetCachedPen(borderColor)) {
+                SelectObjectGuard penGuard(dc, borderPen);
                 MoveToEx(dc, closeRect.left, closeRect.top, nullptr);
                 LineTo(dc, closeRect.right, closeRect.top);
                 LineTo(dc, closeRect.right, closeRect.bottom);
                 LineTo(dc, closeRect.left, closeRect.bottom);
                 LineTo(dc, closeRect.left, closeRect.top);
-                SelectObject(dc, oldPen);
-                DeleteObject(borderPen);
             }
 
             RECT glyphRect = closeRect;
@@ -3252,9 +3302,8 @@ void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, const TabPai
 
     const COLORREF trackColor = m_darkMode ? BlendColors(background, RGB(255, 255, 255), 0.2)
                                            : BlendColors(background, RGB(0, 0, 0), 0.15);
-    if (HBRUSH trackBrush = CreateSolidBrush(trackColor)) {
+    if (HBRUSH trackBrush = GetCachedBrush(trackColor)) {
         FillRect(dc, &outer, trackBrush);
-        DeleteObject(trackBrush);
     }
 
     RECT inner = outer;
@@ -3280,9 +3329,8 @@ void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, const TabPai
             segmentRect.right = inner.right;
         }
         if (segmentRect.right > segmentRect.left) {
-            if (HBRUSH brush = CreateSolidBrush(m_progressEndColor)) {
+            if (HBRUSH brush = GetCachedBrush(m_progressEndColor)) {
                 FillRect(dc, &segmentRect, brush);
-                DeleteObject(brush);
             }
         }
     } else {
@@ -3314,15 +3362,13 @@ void TabBandWindow::DrawTabProgress(HDC dc, const VisualItem& item, const TabPai
     }
 
     const COLORREF borderColor = BlendColors(trackColor, RGB(0, 0, 0), m_darkMode ? 0.5 : 0.35);
-    if (HPEN pen = CreatePen(PS_SOLID, 1, borderColor)) {
-        HGDIOBJ oldPen = SelectObject(dc, pen);
+    if (HPEN pen = GetCachedPen(borderColor)) {
+        SelectObjectGuard penGuard(dc, pen);
         MoveToEx(dc, outer.left, outer.top, nullptr);
         LineTo(dc, outer.right, outer.top);
         LineTo(dc, outer.right, outer.bottom);
         LineTo(dc, outer.left, outer.bottom);
         LineTo(dc, outer.left, outer.top);
-        SelectObject(dc, oldPen);
-        DeleteObject(pen);
     }
 }
 
@@ -3445,13 +3491,12 @@ void TabBandWindow::DrawDropIndicator(HDC dc) const {
         return;
     }
 
-    HPEN pen = CreatePen(PS_SOLID, 2, m_accentColor);
-    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
-    const int x = indicator->indicatorX;
-    MoveToEx(dc, x, m_clientRect.top + 2, nullptr);
-    LineTo(dc, x, m_clientRect.bottom - 2);
-    SelectObject(dc, oldPen);
-    DeleteObject(pen);
+    if (HPEN pen = GetCachedPen(m_accentColor, 2)) {
+        SelectObjectGuard penGuard(dc, pen);
+        const int x = indicator->indicatorX;
+        MoveToEx(dc, x, m_clientRect.top + 2, nullptr);
+        LineTo(dc, x, m_clientRect.bottom - 2);
+    }
 }
 
 void TabBandWindow::DrawDragVisual(HDC dc) const {
