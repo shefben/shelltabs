@@ -208,7 +208,7 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                      return false;
                                                  }
                                                  version = std::max(1, _wtoi(tokens[1].c_str()));
-                                                 if (version > 5) {
+                                                 if (version > 6) {
                                                      return false;
                                                  }
                                                  versionSeen = true;
@@ -274,15 +274,32 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                              }
 
                                              if (header == kUndoTabToken) {
-                                                 if (!parsedData.lastClosed || tokens.size() < 6) {
+                                                 if (!parsedData.lastClosed) {
                                                      return true;
                                                  }
                                                  SessionClosedTab entry;
-                                                 entry.index = _wtoi(tokens[1].c_str());
-                                                 entry.tab.name = tokens[2];
-                                                 entry.tab.tooltip = tokens[3];
-                                                 entry.tab.hidden = ParseBool(tokens[4]);
-                                                 entry.tab.path = tokens[5];
+                                                 size_t index = 1;
+                                                 if (tokens.size() > index) {
+                                                     entry.index = _wtoi(tokens[index].c_str());
+                                                     ++index;
+                                                 }
+                                                 if (tokens.size() > index) {
+                                                     entry.tab.name = tokens[index++];
+                                                 }
+                                                 if (tokens.size() > index) {
+                                                     entry.tab.tooltip = tokens[index++];
+                                                 }
+                                                 if (tokens.size() > index) {
+                                                     entry.tab.hidden = ParseBool(tokens[index]);
+                                                     ++index;
+                                                 }
+                                                 if (version >= 6 && tokens.size() > index) {
+                                                     entry.tab.pinned = ParseBool(tokens[index]);
+                                                     ++index;
+                                                 }
+                                                 if (tokens.size() > index) {
+                                                     entry.tab.path = tokens[index];
+                                                 }
                                                  parsedData.lastClosed->tabs.emplace_back(std::move(entry));
                                                  return true;
                                              }
@@ -352,6 +369,10 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                      if (tokens.size() > index) {
                                                          tab.activationOrdinal =
                                                              _wcstoui64(tokens[index].c_str(), nullptr, 10);
+                                                         ++index;
+                                                     }
+                                                     if (version >= 6 && tokens.size() > index) {
+                                                         tab.pinned = ParseBool(tokens[index]);
                                                          ++index;
                                                      }
                                                  }
@@ -700,7 +721,7 @@ bool SessionStore::Save(const SessionData& data) const {
 
     std::wstring payload;
     payload += kVersionToken;
-    payload += L"|5\n";
+    payload += L"|6\n";
     payload += kSelectedToken;
     payload += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     payload += kSequenceToken;
@@ -718,7 +739,8 @@ bool SessionStore::Save(const SessionData& data) const {
             payload += kTabToken;
             payload += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path +
                        L"|" + std::to_wstring(static_cast<unsigned long long>(tab.lastActivatedTick)) + L"|" +
-                       std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"\n";
+                       std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"|" +
+                       (tab.pinned ? L"1" : L"0") + L"\n";
         }
     }
 
@@ -738,7 +760,8 @@ bool SessionStore::Save(const SessionData& data) const {
         for (const auto& entry : undo.tabs) {
             payload += kUndoTabToken;
             payload += L"|" + std::to_wstring(entry.index) + L"|" + entry.tab.name + L"|" + entry.tab.tooltip +
-                        L"|" + (entry.tab.hidden ? L"1" : L"0") + L"|" + entry.tab.path + L"\n";
+                        L"|" + (entry.tab.hidden ? L"1" : L"0") + L"|" + (entry.tab.pinned ? L"1" : L"0") + L"|" +
+                        entry.tab.path + L"\n";
         }
     }
 

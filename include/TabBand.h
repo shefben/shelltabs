@@ -84,6 +84,7 @@ public:
     void OnUnhideTabRequested(TabLocation location);
     void OnDetachTabRequested(TabLocation location);
     void OnCloneTabRequested(TabLocation location);
+    void OnToggleTabPinned(TabLocation location);
     void OnToggleGroupCollapsed(int groupIndex);
     void OnUnhideAllInGroup(int groupIndex);
     void OnCreateIslandAfter(int groupIndex);

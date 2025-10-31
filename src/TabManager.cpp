@@ -39,6 +39,19 @@ void InvalidateTabIcon(const TabInfo& tab) {
 }
 }  // namespace
 
+namespace {
+int CountLeadingPinned(const TabGroup& group) {
+    int count = 0;
+    for (const auto& tab : group.tabs) {
+        if (!tab.pinned) {
+            break;
+        }
+        ++count;
+    }
+    return count;
+}
+}  // namespace
+
 std::mutex TabManager::s_windowMutex;
 std::unordered_map<TabManager::ExplorerWindowId, TabManager*, TabManager::ExplorerWindowIdHash>
     TabManager::s_windowMap;
@@ -273,7 +286,8 @@ std::vector<TabLocation> TabManager::GetTabsByActivationOrder(bool includeHidden
     return order;
 }
 
-TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex) {
+TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex,
+                            bool pinned) {
     if (!pidl) {
         return {};
     }
@@ -291,6 +305,7 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
         .name = std::move(name),
         .tooltip = std::move(tooltip),
         .hidden = false,
+        .pinned = pinned,
     };
     std::wstring canonicalPath = GetCanonicalParsingName(info.pidl.get());
     if (canonicalPath.empty()) {
@@ -299,13 +314,18 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
     info.path = std::move(canonicalPath);
 
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
-    group.tabs.emplace_back(std::move(info));
+    const int desiredIndex = info.pinned ? CountLeadingPinned(group)
+                                         : static_cast<int>(group.tabs.size());
+    const int insertIndex = std::clamp(desiredIndex, 0, static_cast<int>(group.tabs.size()));
+    group.tabs.insert(group.tabs.begin() + insertIndex, std::move(info));
 
-    const TabLocation location{groupIndex, static_cast<int>(group.tabs.size() - 1)};
+    const TabLocation location{groupIndex, insertIndex};
     if (select) {
         m_selectedGroup = location.groupIndex;
         m_selectedTab = location.tabIndex;
         group.collapsed = false;
+    } else if (m_selectedGroup == location.groupIndex && m_selectedTab >= location.tabIndex) {
+        ++m_selectedTab;
     }
 
     EnsureVisibleSelection();
@@ -439,7 +459,13 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
     }
 
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
-    const int insertIndex = std::clamp(tabIndex, 0, static_cast<int>(group.tabs.size()));
+    int insertIndex = std::clamp(tabIndex, 0, static_cast<int>(group.tabs.size()));
+    const int pinnedCount = CountLeadingPinned(group);
+    if (tab.pinned) {
+        insertIndex = std::clamp(insertIndex, 0, pinnedCount);
+    } else {
+        insertIndex = std::max(insertIndex, pinnedCount);
+    }
 
     group.tabs.insert(group.tabs.begin() + insertIndex, std::move(tab));
 
@@ -522,6 +548,9 @@ void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int se
         }
     }
     m_groups = std::move(groups);
+    for (auto& group : m_groups) {
+        NormalizePinnedOrder(group);
+    }
     m_selectedGroup = selectedGroup;
     m_selectedTab = selectedTab;
     m_groupSequence = std::max(groupSequence, 1);
@@ -610,6 +639,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.headerVisible = group.headerVisible;
             item.lastActivatedTick = tab.lastActivatedTick;
             item.activationOrdinal = tab.activationOrdinal;
+            item.pinned = tab.pinned;
             if (tab.progress.active) {
                 item.progress.visible = true;
                 item.progress.indeterminate = tab.progress.indeterminate;
@@ -726,6 +756,10 @@ bool TabManager::ClearProgress(TabInfo* tab) {
     }
     tab->progress = {};
     return true;
+}
+
+void TabManager::NormalizePinnedOrder(TabGroup& group) {
+    std::stable_partition(group.tabs.begin(), group.tabs.end(), [](const TabInfo& tab) { return tab.pinned; });
 }
 
 void TabManager::UpdateSelectionActivation(TabLocation previousSelection) {
@@ -1010,8 +1044,18 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
     to.groupIndex = std::clamp(to.groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
     auto& destinationGroup = m_groups[static_cast<size_t>(to.groupIndex)];
 
-    if (to.tabIndex < 0 || to.tabIndex > static_cast<int>(destinationGroup.tabs.size())) {
-        to.tabIndex = static_cast<int>(destinationGroup.tabs.size());
+    const int destinationSize = static_cast<int>(destinationGroup.tabs.size());
+    if (to.tabIndex < 0 || to.tabIndex > destinationSize) {
+        to.tabIndex = destinationSize;
+    }
+
+    const int pinnedCount = CountLeadingPinned(destinationGroup);
+    if (movingTab.pinned) {
+        to.tabIndex = std::clamp(to.tabIndex, 0, pinnedCount);
+    } else {
+        const int lowerBound = std::min(pinnedCount, destinationSize);
+        to.tabIndex = std::max(to.tabIndex, lowerBound);
+        to.tabIndex = std::clamp(to.tabIndex, lowerBound, destinationSize);
     }
 
     destinationGroup.tabs.insert(destinationGroup.tabs.begin() + to.tabIndex, std::move(movingTab));
@@ -1024,6 +1068,36 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
     }
 
     EnsureVisibleSelection();
+}
+
+bool TabManager::SetTabPinned(TabLocation location, bool pinned) {
+    if (!location.IsValid()) {
+        return false;
+    }
+    if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
+        return false;
+    }
+
+    auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
+        return false;
+    }
+
+    if (group.tabs[static_cast<size_t>(location.tabIndex)].pinned == pinned) {
+        return false;
+    }
+
+    group.tabs[static_cast<size_t>(location.tabIndex)].pinned = pinned;
+    MoveTab(location, {location.groupIndex, pinned ? static_cast<int>(group.tabs.size()) : 0});
+    return true;
+}
+
+bool TabManager::ToggleTabPinned(TabLocation location) {
+    const TabInfo* tab = Get(location);
+    if (!tab) {
+        return false;
+    }
+    return SetTabPinned(location, !tab->pinned);
 }
 
 void TabManager::MoveGroup(int fromGroup, int toGroup) {

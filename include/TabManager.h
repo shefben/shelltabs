@@ -56,6 +56,7 @@ struct TabInfo {
     std::wstring name;
     std::wstring tooltip;
     bool hidden = false;
+    bool pinned = false;
     std::wstring path;
     TabProgressState progress;
     ULONGLONG lastActivatedTick = 0;
@@ -94,6 +95,7 @@ struct TabViewItem {
     TabProgressView progress;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
+    bool pinned = false;
 };
 
 class TabManager {
@@ -145,7 +147,8 @@ public:
     TabLocation GetLastActivatedTab(bool includeHidden = false) const;
     std::vector<TabLocation> GetTabsByActivationOrder(bool includeHidden = false) const;
 
-    TabLocation Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex = -1);
+    TabLocation Add(UniquePidl pidl, std::wstring name, std::wstring tooltip, bool select, int groupIndex = -1,
+                    bool pinned = false);
     void Remove(TabLocation location);
     std::optional<TabInfo> TakeTab(TabLocation location);
     TabLocation InsertTab(TabInfo tab, int groupIndex, int tabIndex, bool select);
@@ -178,6 +181,9 @@ public:
     void SetGroupHeaderVisible(int groupIndex, bool visible);
     bool IsGroupHeaderVisible(int groupIndex) const;
 
+    bool SetTabPinned(TabLocation location, bool pinned);
+    bool ToggleTabPinned(TabLocation location);
+
     int NextGroupSequence() const noexcept { return m_groupSequence; }
 
 private:
@@ -189,6 +195,7 @@ private:
     bool ClearProgress(TabInfo* tab);
     void UpdateSelectionActivation(TabLocation previousSelection);
     void RecalculateNextActivationOrdinal();
+    void NormalizePinnedOrder(TabGroup& group);
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;

@@ -149,7 +149,7 @@ bool EquivalentTabViewItem(const TabViewItem& a, const TabViewItem& b) noexcept 
            a.visibleTabs == b.visibleTabs && a.hiddenTabs == b.hiddenTabs &&
            a.hasCustomOutline == b.hasCustomOutline && a.outlineColor == b.outlineColor &&
            a.outlineStyle == b.outlineStyle && a.headerVisible == b.headerVisible &&
-           a.isSavedGroup == b.isSavedGroup && a.progress == b.progress;
+           a.isSavedGroup == b.isSavedGroup && a.pinned == b.pinned && a.progress == b.progress;
 }
 
 bool EquivalentVisualMetadata(const TabBandWindow::VisualItem& a,
@@ -243,6 +243,9 @@ constexpr int kDropPreviewOffset = 12;
 constexpr int kEmptyIslandBodyMinWidth = 24; // enough space for a centered "+"
 constexpr int kEmptyIslandBodyMaxWidth = 32; // clamp empty outline length
 constexpr int kEmptyPlusSize = 14; // glyph size
+constexpr int kPinnedGlyphWidth = 12;
+constexpr int kPinnedGlyphPadding = 6;
+constexpr int kPinnedTabMaxWidth = 160;
 
 const wchar_t kThemePreferenceKey[] =
 L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
@@ -1066,10 +1069,13 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 				static_cast<int>(item.name.size()), &textSize);
 		}
 
-		int width = textSize.cx + kPaddingX * 2;
-		width = std::max(width, kItemMinWidth);
+                int width = textSize.cx + kPaddingX * 2;
+                if (item.pinned) {
+                        width += kPinnedGlyphWidth + kPinnedGlyphPadding;
+                }
+                width = std::max(width, kItemMinWidth);
 
-                visual.badgeWidth = 0;
+                visual.badgeWidth = item.pinned ? (kPinnedGlyphWidth + kPinnedGlyphPadding) : 0;
 
                 visual.icon = LoadItemIcon(item, SHGFI_SMALLICON);
                 if (visual.icon) {
@@ -1097,7 +1103,10 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 			width += visual.iconWidth + kIconGap;
 		}
 
-		width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
+                width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
+                if (item.pinned) {
+                        width = std::min(width, kPinnedTabMaxWidth);
+                }
 
                 bool wrapped = false;
                 if (x + width > maxX) {
@@ -2503,6 +2512,62 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
     return rect;
 }
 
+void TabBandWindow::DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF color) const {
+    const int availableHeight = tabRect.bottom - tabRect.top;
+    if (availableHeight <= 4) {
+        return;
+    }
+
+    const int headRadius = std::max(2, std::min(kPinnedGlyphWidth / 2, availableHeight / 5));
+    int headTop = tabRect.top + (availableHeight / 2) - headRadius;
+    int headBottom = headTop + headRadius * 2;
+    headTop = std::max(headTop, tabRect.top + 1);
+    headBottom = std::min(headBottom, tabRect.bottom - 2);
+
+    int maxStem = std::max(1, tabRect.bottom - headBottom - 2);
+    int stemLength = std::min(std::max(headRadius, availableHeight / 3), maxStem);
+    if (stemLength < 1) {
+        stemLength = std::min(maxStem, 1);
+    }
+
+    const int baseHalf = std::max(1, headRadius);
+    const int triangleHeight = std::max(1, headRadius / 2);
+    const int tipY = headBottom - 1 + stemLength;
+    const int triangleBottom = std::min(tabRect.bottom - 1, tipY + triangleHeight);
+
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    HBRUSH brush = CreateSolidBrush(color);
+    if (!pen || !brush) {
+        if (pen) {
+            DeleteObject(pen);
+        }
+        if (brush) {
+            DeleteObject(brush);
+        }
+        return;
+    }
+
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, brush));
+
+    Ellipse(dc, x, headTop, x + kPinnedGlyphWidth, headBottom);
+
+    MoveToEx(dc, x + kPinnedGlyphWidth / 2, headBottom - 1, nullptr);
+    LineTo(dc, x + kPinnedGlyphWidth / 2, tipY);
+
+    POINT triangle[3] = {
+        {x + kPinnedGlyphWidth / 2, tipY},
+        {x + kPinnedGlyphWidth / 2 - baseHalf, triangleBottom},
+        {x + kPinnedGlyphWidth / 2 + baseHalf, triangleBottom},
+    };
+    Polygon(dc, triangle, ARRAYSIZE(triangle));
+
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+}
+
 void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
     const bool selected = item.data.selected;
@@ -2644,6 +2709,10 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     int textRight = trailingBoundary;
 
     int textLeft = rect.left + islandIndicator + kPaddingX;
+    if (item.data.pinned) {
+        DrawPinnedGlyph(dc, tabRect, textLeft, textColor);
+        textLeft += kPinnedGlyphWidth + kPinnedGlyphPadding;
+    }
     if (item.icon) {
         const int availableHeight = rect.bottom - rect.top;
         const int iconHeight = std::min(item.iconHeight, availableHeight - 4);
@@ -3535,16 +3604,22 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		}
 		break;
 
-	case IDM_HIDE_TAB:
-		if (m_contextHit.location.IsValid()) {
-			m_owner->OnHideTabRequested(m_contextHit.location);
-		}
-		break;
+        case IDM_HIDE_TAB:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnHideTabRequested(m_contextHit.location);
+                }
+                break;
 
-	case IDM_DETACH_TAB:
-		if (m_contextHit.location.IsValid()) {
-			m_owner->OnDetachTabRequested(m_contextHit.location);
-		}
+        case IDM_TOGGLE_PIN_TAB:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnToggleTabPinned(m_contextHit.location);
+                }
+                break;
+
+        case IDM_DETACH_TAB:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnDetachTabRequested(m_contextHit.location);
+                }
 		break;
 
         case IDM_CLONE_TAB:
@@ -4273,7 +4348,93 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
         }
     }
 
+    AdjustDropTargetForPinned(origin, target);
     return target;
+}
+
+int TabBandWindow::ComputeIndicatorXForInsertion(int groupIndex, int tabIndex) const {
+    const VisualItem* header = nullptr;
+    const VisualItem* previous = nullptr;
+    const VisualItem* next = nullptr;
+    for (const auto& visual : m_items) {
+        if (visual.data.type == TabViewItemType::kGroupHeader) {
+            if (visual.data.location.groupIndex == groupIndex) {
+                header = &visual;
+            }
+            continue;
+        }
+        if (visual.data.location.groupIndex != groupIndex) {
+            continue;
+        }
+        if (visual.data.location.tabIndex >= tabIndex) {
+            next = &visual;
+            break;
+        }
+        previous = &visual;
+    }
+
+    if (next) {
+        return next->bounds.left;
+    }
+    if (previous) {
+        return previous->bounds.right;
+    }
+    if (header) {
+        return header->bounds.right;
+    }
+
+    const int fallback = m_clientRect.left + m_toolbarGripWidth;
+    return std::clamp(fallback, m_clientRect.left, m_clientRect.right);
+}
+
+void TabBandWindow::AdjustDropTargetForPinned(const HitInfo& origin, DropTarget& target) const {
+    if (!target.active || target.group || target.newGroup || target.outside) {
+        return;
+    }
+    if (!origin.location.IsValid()) {
+        return;
+    }
+    auto* manager = ResolveManager();
+    if (!manager) {
+        return;
+    }
+    const TabInfo* moving = manager->Get(origin.location);
+    if (!moving) {
+        return;
+    }
+    const TabGroup* destination = manager->GetGroup(target.groupIndex);
+    if (!destination) {
+        return;
+    }
+
+    int destinationSize = static_cast<int>(destination->tabs.size());
+    int adjustedIndex = std::clamp(target.tabIndex, 0, destinationSize);
+
+    int pinnedCount = 0;
+    for (const auto& tab : destination->tabs) {
+        if (!tab.pinned) {
+            break;
+        }
+        ++pinnedCount;
+    }
+
+    if (moving->pinned) {
+        int effectivePinned = pinnedCount;
+        if (origin.location.groupIndex == target.groupIndex && effectivePinned > 0) {
+            effectivePinned = std::max(0, effectivePinned - 1);
+        }
+        adjustedIndex = std::clamp(adjustedIndex, 0, effectivePinned);
+    } else {
+        int lowerBound = std::min(pinnedCount, destinationSize);
+        adjustedIndex = std::max(adjustedIndex, lowerBound);
+        adjustedIndex = std::clamp(adjustedIndex, lowerBound, destinationSize);
+    }
+
+    target.tabIndex = adjustedIndex;
+    const int indicator = ComputeIndicatorXForInsertion(target.groupIndex, adjustedIndex);
+    if (indicator >= 0) {
+        target.indicatorX = indicator;
+    }
 }
 
 void TabBandWindow::UpdateDropTarget(const POINT& pt) {
@@ -4611,6 +4772,17 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
         if (hit.type == HitType::kTab) {
             AppendMenuW(menu, MF_STRING, IDM_CLOSE_TAB, L"Close Tab");
             AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
+            bool pinned = false;
+            if (hitVisual && hitVisual->data.type == TabViewItemType::kTab) {
+                pinned = hitVisual->data.pinned;
+            } else if (hit.itemIndex < m_items.size()) {
+                pinned = m_items[hit.itemIndex].data.pinned;
+            } else if (auto* manager = ResolveManager()) {
+                if (const auto* tab = manager->Get(hit.location)) {
+                    pinned = tab->pinned;
+                }
+            }
+            AppendMenuW(menu, MF_STRING, IDM_TOGGLE_PIN_TAB, pinned ? L"Unpin Tab" : L"Pin Tab");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
             AppendMenuW(menu, MF_STRING, IDM_CLONE_TAB, L"Clone Tab");
 
