@@ -5265,17 +5265,21 @@ void TabBandWindow::PopulateSavedGroupsMenu(HMENU parent, bool addSeparator) {
         return;
     }
 
+    m_savedGroupCommands.clear();
+
     HMENU groupsMenu = CreatePopupMenu();
     if (!groupsMenu) {
         return;
     }
 
     const auto names = m_owner->GetSavedGroupNames();
-    if (names.empty()) {
+    if (!names.has_value()) {
+        AppendMenuW(groupsMenu, MF_STRING | MF_GRAYED, 0, L"Failed to load saved groups");
+    } else if (names->empty()) {
         AppendMenuW(groupsMenu, MF_STRING | MF_GRAYED, 0, L"No Saved Groups");
     } else {
         UINT command = IDM_LOAD_SAVED_GROUP_BASE;
-        for (const auto& name : names) {
+        for (const auto& name : *names) {
             if (command > IDM_LOAD_SAVED_GROUP_LAST) {
                 break;
             }

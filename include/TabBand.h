@@ -134,7 +134,7 @@ public:
                                   UINT* usedLast) const;
     bool InvokeExplorerContextCommand(TabLocation location, IContextMenu* menu, UINT commandId,
                                       UINT idFirst, const POINT& ptInvoke) const;
-    std::vector<std::wstring> GetSavedGroupNames() const;
+    std::optional<std::vector<std::wstring>> GetSavedGroupNames() const;
     void OnCreateSavedGroup(int afterGroup);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
