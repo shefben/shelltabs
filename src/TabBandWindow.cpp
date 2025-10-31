@@ -641,6 +641,7 @@ TabBandWindow::~TabBandWindow() { Destroy(); }
 
 void TabBandWindow::SetPreferredDockMode(TabBandDockMode mode) {
     m_preferredDockMode = mode;
+    InvalidateRebarIntegration();
     EnsureRebarIntegration();
 }
 
@@ -675,6 +676,7 @@ HWND TabBandWindow::Create(HWND parent) {
 
     if (m_hwnd) {
         RegisterWindow(m_hwnd, this);
+        InvalidateRebarIntegration();
         EnsureRebarIntegration();
         if (!m_dropTarget) {
             m_dropTarget.Attach(new BandDropTarget(this));
@@ -775,6 +777,7 @@ void TabBandWindow::Destroy() {
     }
     m_parentRebar = nullptr;
     m_rebarBandIndex = -1;
+    InvalidateRebarIntegration();
     m_tabData.clear();
     m_nextRedrawIncremental = false;
     m_redrawMetrics = {};
@@ -1392,10 +1395,10 @@ bool TabBandWindow::BandHasRebarGrip() const {
 }
 
 void TabBandWindow::UpdateRebarColors() {
-	if (!m_parentRebar || !IsWindow(m_parentRebar)) return;
+        if (!m_parentRebar || !IsWindow(m_parentRebar)) return;
 
-	// Revert to defaults so bands are transparent to the bar we paint.
-	// Do NOT set RB_SETBKCOLOR or a custom COLORSCHEME in dark;
+        // Revert to defaults so bands are transparent to the bar we paint.
+        // Do NOT set RB_SETBKCOLOR or a custom COLORSCHEME in dark;
 	// themed rebars ignore parts of it and it triggers extra invalidation.
 	const int count = (int)SendMessageW(m_parentRebar, RB_GETBANDCOUNT, 0, 0);
 	for (int i = 0; i < count; ++i) {
@@ -1406,15 +1409,43 @@ void TabBandWindow::UpdateRebarColors() {
 		SendMessageW(m_parentRebar, RB_SETBANDINFO, i, (LPARAM)&bi);
 	}
 
-	RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
+        RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
 }
 
 
-void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
-	if (!dc) return;
-	if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return;
+void TabBandWindow::InvalidateRebarIntegration() {
+        m_rebarIntegrationDirty = true;
+        m_lastIntegratedRebar = nullptr;
+        m_lastIntegratedFrame = nullptr;
+}
 
-	const_cast<TabBandWindow*>(this)->EnsureRebarIntegration();
+bool TabBandWindow::NeedsRebarIntegration() const {
+        if (!m_hwnd) {
+                return false;
+        }
+        if (m_rebarIntegrationDirty) {
+                return true;
+        }
+        if (!m_parentRebar || !IsWindow(m_parentRebar)) {
+                return true;
+        }
+        if (m_parentRebar != m_lastIntegratedRebar) {
+                return true;
+        }
+        if (m_lastIntegratedFrame && !IsWindow(m_lastIntegratedFrame)) {
+                return true;
+        }
+        HWND frame = GetAncestor(m_parentRebar, GA_ROOT);
+        return frame != m_lastIntegratedFrame;
+}
+
+void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
+        if (!dc) return;
+        if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return;
+
+        if (NeedsRebarIntegration()) {
+                const_cast<TabBandWindow*>(this)->EnsureRebarIntegration();
+        }
 
 	bool backgroundDrawn = false;
 
@@ -2071,11 +2102,16 @@ LRESULT CALLBACK TabBandWindow::RebarSubclassProc(HWND hwnd, UINT msg,
 		}
 		break; // let children continue drawing
 	}
-	case WM_NCDESTROY:
-		RemoveWindowSubclass(hwnd, RebarSubclassProc, 0);
-		if (self) self->m_rebarSubclassed = false;
-		break;
-	}
+        case WM_NCDESTROY:
+                RemoveWindowSubclass(hwnd, RebarSubclassProc, 0);
+                if (self) {
+                        self->m_rebarSubclassed = false;
+                        self->m_parentRebar = nullptr;
+                        self->m_rebarBandIndex = -1;
+                        self->InvalidateRebarIntegration();
+                }
+                break;
+        }
 	return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
@@ -2164,7 +2200,8 @@ void TabBandWindow::RefreshTheme() {
     }
     m_darkMode = immersiveDark;
 
-    // NEW: also flip the parent rebar immediately
+    // Ensure the parent rebar picks up the refreshed theme immediately.
+    InvalidateRebarIntegration();
     EnsureRebarIntegration();
     AdjustBandHeightToRow();
         if (m_parentRebar) {
@@ -2537,12 +2574,15 @@ void TabBandWindow::EnsureRebarIntegration() {
         const HWND previousRebar = m_parentRebar;
         const bool previouslyValidRebar = previousRebar && IsWindow(previousRebar);
 
-        if (!m_parentRebar || !IsWindow(m_parentRebar)) {
-                HWND parent = GetParent(m_hwnd);
-                while (parent && !IsRebarWindow(parent)) parent = GetParent(parent);
+        HWND parent = GetParent(m_hwnd);
+        while (parent && !IsRebarWindow(parent)) {
+                parent = GetParent(parent);
+        }
+        if (parent != m_parentRebar) {
                 m_parentRebar = parent;
                 m_rebarBandIndex = -1;
                 m_rebarSubclassed = false;
+                m_rebarIntegrationDirty = true;
         }
 
         const bool hasValidRebar = m_parentRebar && IsWindow(m_parentRebar);
@@ -2553,6 +2593,24 @@ void TabBandWindow::EnsureRebarIntegration() {
                         ClearAvailableDockMaskForFrame(m_parentFrame);
                         m_parentFrame = nullptr;
                 }
+                m_lastIntegratedRebar = nullptr;
+                m_lastIntegratedFrame = nullptr;
+                m_rebarIntegrationDirty = true;
+                return;
+        }
+
+        HWND frame = GetAncestor(m_parentRebar, GA_ROOT);
+        if (frame != m_parentFrame) {
+                if (m_parentFrame) {
+                        ClearAvailableDockMaskForFrame(m_parentFrame);
+                }
+                m_parentFrame = frame;
+                m_rebarIntegrationDirty = true;
+        }
+
+        if (!m_rebarIntegrationDirty &&
+            m_parentRebar == m_lastIntegratedRebar &&
+            frame == m_lastIntegratedFrame) {
                 return;
         }
 
@@ -2568,13 +2626,6 @@ void TabBandWindow::EnsureRebarIntegration() {
                 InvalidateRect(m_hwnd, nullptr, TRUE);
         }
 
-        HWND frame = GetAncestor(m_parentRebar, GA_ROOT);
-        if (frame != m_parentFrame) {
-                if (m_parentFrame) {
-                        ClearAvailableDockMaskForFrame(m_parentFrame);
-                }
-                m_parentFrame = frame;
-        }
         if (frame) {
                 UpdateAvailableDockMaskFromFrame(frame);
         }
@@ -2591,9 +2642,13 @@ void TabBandWindow::EnsureRebarIntegration() {
         const int index = FindRebarBandIndex();
         if (index >= 0) {
                 m_rebarBandIndex = index;
-        AdjustBandHeightToRow();
+                AdjustBandHeightToRow();
                 RefreshRebarMetrics();
         }
+
+        m_lastIntegratedRebar = m_parentRebar;
+        m_lastIntegratedFrame = frame;
+        m_rebarIntegrationDirty = false;
 }
 
 
@@ -5902,6 +5957,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 self->m_parentRebar = nullptr;
                 self->m_rebarBandIndex = -1;
+                self->InvalidateRebarIntegration();
                 UnregisterWindow(hwnd, self);
                 self->m_hwnd = nullptr;
                 self->m_newTabButton = nullptr;

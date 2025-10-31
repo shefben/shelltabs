@@ -263,10 +263,13 @@ private:
     ThemeNotifier m_themeNotifier;
     ThemeNotifier::ThemeColors m_themeColors;
         bool m_rebarSubclassed = false;
-	struct EmptyIslandPlus {
-		int   groupIndex = -1;
-		RECT  rect{};   // click target for "+"
-	};
+        bool m_rebarIntegrationDirty = true;
+        HWND m_lastIntegratedRebar = nullptr;
+        HWND m_lastIntegratedFrame = nullptr;
+        struct EmptyIslandPlus {
+                int   groupIndex = -1;
+                RECT  rect{};   // click target for "+"
+        };
 
 	// Render-time cache of empty-island "+" hit targets
 	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
@@ -342,6 +345,8 @@ private:
     void UpdateCloseButtonHover(const POINT& pt);
     void ClearCloseButtonHover();
 
+    void InvalidateRebarIntegration();
+    bool NeedsRebarIntegration() const;
     void EnsureRebarIntegration();
     void RefreshRebarMetrics();
     int FindRebarBandIndex() const;
