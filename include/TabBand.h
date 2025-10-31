@@ -26,6 +26,8 @@ class TabBand : public IDeskBand2,
                 public IObjectWithSite,
                 public IInputObject,
                 public IPersistStream {
+    friend class TabBandWindow;
+
 public:
     TabBand();
     ~TabBand();

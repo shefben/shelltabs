@@ -152,29 +152,6 @@ bool EquivalentTabViewItem(const TabViewItem& a, const TabViewItem& b) noexcept 
            a.isSavedGroup == b.isSavedGroup && a.pinned == b.pinned && a.progress == b.progress;
 }
 
-bool EquivalentVisualMetadata(const TabBandWindow::VisualItem& a,
-                              const TabBandWindow::VisualItem& b) noexcept {
-    if (a.firstInGroup != b.firstInGroup) {
-        return false;
-    }
-    if (a.badgeWidth != b.badgeWidth) {
-        return false;
-    }
-    if (a.hasGroupHeader != b.hasGroupHeader) {
-        return false;
-    }
-    if (a.collapsedPlaceholder != b.collapsedPlaceholder) {
-        return false;
-    }
-    if (a.indicatorHandle != b.indicatorHandle) {
-        return false;
-    }
-    if (a.hasGroupHeader && !EquivalentTabViewItem(a.groupHeader, b.groupHeader)) {
-        return false;
-    }
-    return true;
-}
-
 uint32_t DockModeToMask(TabBandDockMode mode) {
     return 1u << static_cast<uint32_t>(mode);
 }
@@ -254,7 +231,7 @@ const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG = WM_APP + 60;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
-constexpr UINT WM_SHELLTABS_THEME_CHANGED = WM_APP + 63;
+constexpr UINT WM_SHELLTABS_THEME_CHANGED = WM_APP + 80;
 const wchar_t kOverlayWindowClassName[] = L"ShellTabsDragOverlay";
 constexpr UINT kPreviewHoverTime = 400;
 constexpr ULONGLONG kProgressStaleTimeoutMs = 3000;
@@ -1250,8 +1227,15 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
         const VisualItem& oldItem = oldItems[oldIndex];
 
         const bool moved = !EqualRect(&oldItem.bounds, &item.bounds);
-        const bool contentChanged = !EquivalentTabViewItem(oldItem.data, item.data) ||
-                                    !EquivalentVisualMetadata(oldItem, item);
+        const bool metadataChanged = oldItem.firstInGroup != item.firstInGroup ||
+                                     oldItem.badgeWidth != item.badgeWidth ||
+                                     oldItem.hasGroupHeader != item.hasGroupHeader ||
+                                     oldItem.collapsedPlaceholder != item.collapsedPlaceholder ||
+                                     oldItem.indicatorHandle != item.indicatorHandle ||
+                                     (item.hasGroupHeader &&
+                                      !EquivalentTabViewItem(oldItem.groupHeader, item.groupHeader));
+
+        const bool contentChanged = !EquivalentTabViewItem(oldItem.data, item.data) || metadataChanged;
 
         if (moved) {
             ++stats.moved;
@@ -2534,18 +2518,21 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
 }
 
 void TabBandWindow::DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF color) const {
-    const int availableHeight = tabRect.bottom - tabRect.top;
+    const int top = static_cast<int>(tabRect.top);
+    const int bottom = static_cast<int>(tabRect.bottom);
+    const int availableHeight = bottom - top;
     if (availableHeight <= 4) {
         return;
     }
 
     const int headRadius = std::max(2, std::min(kPinnedGlyphWidth / 2, availableHeight / 5));
-    int headTop = tabRect.top + (availableHeight / 2) - headRadius;
-    int headBottom = headTop + headRadius * 2;
-    headTop = std::max(headTop, tabRect.top + 1);
-    headBottom = std::min(headBottom, tabRect.bottom - 2);
+    const int headCenter = top + (availableHeight / 2);
+    int headTop = headCenter - headRadius;
+    int headBottom = headCenter + headRadius;
+    headTop = std::max(headTop, top + 1);
+    headBottom = std::min(headBottom, bottom - 2);
 
-    int maxStem = std::max(1, tabRect.bottom - headBottom - 2);
+    const int maxStem = std::max(1, bottom - headBottom - 2);
     int stemLength = std::min(std::max(headRadius, availableHeight / 3), maxStem);
     if (stemLength < 1) {
         stemLength = std::min(maxStem, 1);
@@ -2554,7 +2541,7 @@ void TabBandWindow::DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF
     const int baseHalf = std::max(1, headRadius);
     const int triangleHeight = std::max(1, headRadius / 2);
     const int tipY = headBottom - 1 + stemLength;
-    const int triangleBottom = std::min(tabRect.bottom - 1, tipY + triangleHeight);
+    const int triangleBottom = std::min(bottom - 1, tipY + triangleHeight);
 
     HPEN pen = CreatePen(PS_SOLID, 1, color);
     HBRUSH brush = CreateSolidBrush(color);
@@ -2587,6 +2574,8 @@ void TabBandWindow::DrawPinnedGlyph(HDC dc, const RECT& tabRect, int x, COLORREF
     SelectObject(dc, oldPen);
     DeleteObject(brush);
     DeleteObject(pen);
+}
+
 TabBandWindow::TabPaintMetrics TabBandWindow::ComputeTabPaintMetrics(const VisualItem& item) const {
     TabPaintMetrics metrics;
     metrics.itemBounds = item.bounds;
@@ -2747,10 +2736,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
 
     RECT closeRect = metrics.closeButton;
 
-    const int textLeft = metrics.textLeft;
+    int textLeft = metrics.textLeft;
     const int textRight = metrics.textRight;
-
-    int textLeft = rect.left + islandIndicator + kPaddingX;
     if (item.data.pinned) {
         DrawPinnedGlyph(dc, tabRect, textLeft, textColor);
         textLeft += kPinnedGlyphWidth + kPinnedGlyphPadding;
@@ -2758,8 +2745,8 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
   
     if (item.icon) {
         const int availableHeight = rect.bottom - rect.top;
-        const int iconHeight = std::min(item.iconHeight, availableHeight - 4);
-        const int iconWidth = item.iconWidth;
+        const int iconHeight = std::min(metrics.iconHeight, availableHeight - 4);
+        const int iconWidth = metrics.iconWidth;
         const int iconY = rect.top + (availableHeight - iconHeight) / 2;
         DrawIconEx(dc, metrics.iconLeft, iconY, item.icon.Get(), iconWidth, iconHeight, 0, nullptr, DI_NORMAL);
     }
@@ -4560,8 +4547,13 @@ int TabBandWindow::ComputeIndicatorXForInsertion(int groupIndex, int tabIndex) c
         return header->bounds.right;
     }
 
-    const int fallback = m_clientRect.left + m_toolbarGripWidth;
-    return std::clamp(fallback, m_clientRect.left, m_clientRect.right);
+    const LONG left = m_clientRect.left;
+    const LONG right = m_clientRect.right;
+    const LONG fallback = static_cast<LONG>(m_clientRect.left + m_toolbarGripWidth);
+    const LONG low = std::min(left, right);
+    const LONG high = std::max(left, right);
+    const LONG clamped = std::clamp(fallback, low, high);
+    return static_cast<int>(clamped);
 }
 
 void TabBandWindow::AdjustDropTargetForPinned(const HitInfo& origin, DropTarget& target) const {
