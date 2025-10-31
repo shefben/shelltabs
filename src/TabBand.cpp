@@ -570,17 +570,38 @@ void TabBand::OnNewTabRequested() {
 }
 
 void TabBand::OnCloseTabRequested(TabLocation location) {
-    const auto selected = m_tabs.SelectedLocation();
-    const bool wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
-
-    std::wstring removedGroupId;
-    if (const auto* group = m_tabs.GetGroup(location.groupIndex)) {
-        if (!group->savedGroupId.empty() && group->tabs.size() == 1) {
-            removedGroupId = group->savedGroupId;
-        }
+    if (!location.IsValid()) {
+        return;
     }
 
-    m_tabs.Remove(location);
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
+
+    const TabGroup* groupBefore = m_tabs.GetGroup(location.groupIndex);
+    if (!groupBefore) {
+        return;
+    }
+
+    ClosedTabSet closedSet;
+    closedSet.groupIndex = location.groupIndex;
+    closedSet.selectionOriginalIndex = location.tabIndex;
+    closedSet.groupInfo = CaptureGroupMetadata(*groupBefore);
+    if (groupBefore->tabs.size() == 1) {
+        closedSet.groupRemoved = true;
+    }
+
+    std::wstring removedGroupId;
+    if (!groupBefore->savedGroupId.empty() && groupBefore->tabs.size() == 1) {
+        removedGroupId = groupBefore->savedGroupId;
+    }
+
+    auto removed = m_tabs.TakeTab(location);
+    if (!removed) {
+        return;
+    }
+    EnsureTabPath(*removed);
+    closedSet.entries.push_back({location.tabIndex, std::move(*removed)});
+    PushClosedSet(std::move(closedSet));
 
     if (m_tabs.TotalTabCount() == 0) {
         EnsureTabForCurrentFolder();
@@ -598,6 +619,317 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
             NavigateToTab(newSelection);
         }
     }
+
+    SaveSession();
+}
+
+void TabBand::OnCloseOtherTabsRequested(TabLocation location) {
+    if (!location.IsValid() || !CanCloseOtherTabs(location)) {
+        return;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool targetWasSelected = (selected.groupIndex == location.groupIndex &&
+                                    selected.tabIndex == location.tabIndex);
+
+    const TabGroup* groupBefore = m_tabs.GetGroup(location.groupIndex);
+    if (!groupBefore) {
+        return;
+    }
+
+    const TabInfo* targetTab = m_tabs.Get(location);
+    if (!targetTab) {
+        return;
+    }
+    PCIDLIST_ABSOLUTE anchorPid = targetTab->pidl.get();
+
+    ClosedTabSet closedSet;
+    closedSet.groupIndex = location.groupIndex;
+    closedSet.groupInfo = CaptureGroupMetadata(*groupBefore);
+
+    for (int index = static_cast<int>(groupBefore->tabs.size()) - 1; index >= 0; --index) {
+        if (index == location.tabIndex) {
+            continue;
+        }
+        auto removed = m_tabs.TakeTab({location.groupIndex, index});
+        if (!removed) {
+            continue;
+        }
+        EnsureTabPath(*removed);
+        closedSet.entries.push_back({index, std::move(*removed)});
+    }
+
+    if (closedSet.entries.empty()) {
+        return;
+    }
+    closedSet.selectionOriginalIndex = closedSet.entries.back().originalIndex;
+    PushClosedSet(std::move(closedSet));
+
+    TabLocation anchorLocation;
+    if (anchorPid) {
+        anchorLocation = m_tabs.Find(anchorPid);
+        if (anchorLocation.IsValid() && targetWasSelected) {
+            m_tabs.SetSelectedLocation(anchorLocation);
+        }
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    if (targetWasSelected && anchorLocation.IsValid()) {
+        NavigateToTab(anchorLocation);
+    }
+
+    SaveSession();
+}
+
+void TabBand::OnCloseTabsToRightRequested(TabLocation location) {
+    if (!location.IsValid() || !CanCloseTabsToRight(location)) {
+        return;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool targetWasSelected = (selected.groupIndex == location.groupIndex &&
+                                    selected.tabIndex == location.tabIndex);
+
+    const TabGroup* groupBefore = m_tabs.GetGroup(location.groupIndex);
+    if (!groupBefore) {
+        return;
+    }
+    const TabInfo* targetTab = m_tabs.Get(location);
+    if (!targetTab) {
+        return;
+    }
+    PCIDLIST_ABSOLUTE anchorPid = targetTab->pidl.get();
+
+    ClosedTabSet closedSet;
+    closedSet.groupIndex = location.groupIndex;
+    closedSet.groupInfo = CaptureGroupMetadata(*groupBefore);
+
+    for (int index = static_cast<int>(groupBefore->tabs.size()) - 1; index > location.tabIndex; --index) {
+        auto removed = m_tabs.TakeTab({location.groupIndex, index});
+        if (!removed) {
+            continue;
+        }
+        EnsureTabPath(*removed);
+        closedSet.entries.push_back({index, std::move(*removed)});
+    }
+
+    if (closedSet.entries.empty()) {
+        return;
+    }
+    closedSet.selectionOriginalIndex = closedSet.entries.back().originalIndex;
+    PushClosedSet(std::move(closedSet));
+
+    TabLocation anchorLocation;
+    if (anchorPid) {
+        anchorLocation = m_tabs.Find(anchorPid);
+        if (anchorLocation.IsValid() && targetWasSelected) {
+            m_tabs.SetSelectedLocation(anchorLocation);
+        }
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    if (targetWasSelected && anchorLocation.IsValid()) {
+        NavigateToTab(anchorLocation);
+    }
+
+    SaveSession();
+}
+
+void TabBand::OnCloseTabsToLeftRequested(TabLocation location) {
+    if (!location.IsValid() || !CanCloseTabsToLeft(location)) {
+        return;
+    }
+
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool targetWasSelected = (selected.groupIndex == location.groupIndex &&
+                                    selected.tabIndex == location.tabIndex);
+
+    const TabGroup* groupBefore = m_tabs.GetGroup(location.groupIndex);
+    if (!groupBefore) {
+        return;
+    }
+    const TabInfo* targetTab = m_tabs.Get(location);
+    if (!targetTab) {
+        return;
+    }
+    PCIDLIST_ABSOLUTE anchorPid = targetTab->pidl.get();
+
+    ClosedTabSet closedSet;
+    closedSet.groupIndex = location.groupIndex;
+    closedSet.groupInfo = CaptureGroupMetadata(*groupBefore);
+
+    for (int index = location.tabIndex - 1; index >= 0; --index) {
+        auto removed = m_tabs.TakeTab({location.groupIndex, index});
+        if (!removed) {
+            continue;
+        }
+        EnsureTabPath(*removed);
+        closedSet.entries.push_back({index, std::move(*removed)});
+    }
+
+    if (closedSet.entries.empty()) {
+        return;
+    }
+    closedSet.selectionOriginalIndex = closedSet.entries.back().originalIndex;
+    PushClosedSet(std::move(closedSet));
+
+    TabLocation anchorLocation;
+    if (anchorPid) {
+        anchorLocation = m_tabs.Find(anchorPid);
+        if (anchorLocation.IsValid() && targetWasSelected) {
+            m_tabs.SetSelectedLocation(anchorLocation);
+        }
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    if (targetWasSelected && anchorLocation.IsValid()) {
+        NavigateToTab(anchorLocation);
+    }
+
+    SaveSession();
+}
+
+void TabBand::OnReopenClosedTabRequested() {
+    if (m_closedTabHistory.empty()) {
+        return;
+    }
+
+    ClosedTabSet set = std::move(m_closedTabHistory.back());
+    m_closedTabHistory.pop_back();
+
+    if (set.entries.empty()) {
+        return;
+    }
+
+    int targetGroupIndex = set.groupIndex;
+    if (targetGroupIndex < 0) {
+        targetGroupIndex = 0;
+    }
+
+    std::vector<ClosedTabEntry> entries = std::move(set.entries);
+    std::sort(entries.begin(), entries.end(), [](const ClosedTabEntry& a, const ClosedTabEntry& b) {
+        return a.originalIndex < b.originalIndex;
+    });
+
+    TabLocation selected{};
+    bool haveSelection = false;
+
+    bool createGroup = set.groupRemoved;
+    if (!createGroup) {
+        if (!m_tabs.GetGroup(targetGroupIndex)) {
+            createGroup = true;
+        }
+    }
+
+    if (createGroup) {
+        TabGroup group;
+        if (set.groupInfo) {
+            group.name = set.groupInfo->name;
+            group.collapsed = set.groupInfo->collapsed;
+            group.headerVisible = set.groupInfo->headerVisible;
+            group.hasCustomOutline = set.groupInfo->hasOutline;
+            group.outlineColor = set.groupInfo->outlineColor;
+            group.outlineStyle = set.groupInfo->outlineStyle;
+            group.savedGroupId = set.groupInfo->savedGroupId;
+        }
+        for (auto& entry : entries) {
+            group.tabs.emplace_back(std::move(entry.tab));
+        }
+        const int insertedIndex = m_tabs.InsertGroup(std::move(group), targetGroupIndex);
+        targetGroupIndex = insertedIndex;
+        if (!entries.empty()) {
+            int selectionOriginal = set.selectionOriginalIndex;
+            int selectIndex = static_cast<int>(entries.size()) - 1;
+            if (selectionOriginal >= 0) {
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    if (entries[i].originalIndex == selectionOriginal) {
+                        selectIndex = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+            selected = {targetGroupIndex, selectIndex};
+            haveSelection = true;
+        }
+    } else {
+        std::vector<std::pair<int, TabLocation>> insertedLocations;
+        insertedLocations.reserve(entries.size());
+        int insertedCount = 0;
+        for (auto& entry : entries) {
+            TabLocation loc = m_tabs.InsertTab(std::move(entry.tab), targetGroupIndex,
+                                               entry.originalIndex + insertedCount, false);
+            insertedLocations.emplace_back(entry.originalIndex, loc);
+            ++insertedCount;
+        }
+
+        int selectionOriginal = set.selectionOriginalIndex;
+        if (selectionOriginal >= 0) {
+            for (const auto& pair : insertedLocations) {
+                if (pair.first == selectionOriginal) {
+                    selected = pair.second;
+                    haveSelection = true;
+                    break;
+                }
+            }
+        }
+        if (!haveSelection && !insertedLocations.empty()) {
+            selected = insertedLocations.back().second;
+            haveSelection = true;
+        }
+    }
+
+    UpdateTabsUI();
+    SyncAllSavedGroups();
+
+    if (haveSelection && selected.IsValid()) {
+        m_tabs.SetSelectedLocation(selected);
+        NavigateToTab(selected);
+    }
+
+    SaveSession();
+}
+
+bool TabBand::CanCloseOtherTabs(TabLocation location) const {
+    const TabGroup* group = m_tabs.GetGroup(location.groupIndex);
+    if (!group) {
+        return false;
+    }
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group->tabs.size())) {
+        return false;
+    }
+    return group->tabs.size() > 1;
+}
+
+bool TabBand::CanCloseTabsToRight(TabLocation location) const {
+    const TabGroup* group = m_tabs.GetGroup(location.groupIndex);
+    if (!group) {
+        return false;
+    }
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group->tabs.size())) {
+        return false;
+    }
+    return location.tabIndex < static_cast<int>(group->tabs.size()) - 1;
+}
+
+bool TabBand::CanCloseTabsToLeft(TabLocation location) const {
+    const TabGroup* group = m_tabs.GetGroup(location.groupIndex);
+    if (!group) {
+        return false;
+    }
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group->tabs.size())) {
+        return false;
+    }
+    return location.tabIndex > 0;
+}
+
+bool TabBand::CanReopenClosedTabs() const {
+    return !m_closedTabHistory.empty();
 }
 
 void TabBand::OnHideTabRequested(TabLocation location) {
@@ -705,6 +1037,19 @@ void TabBand::OnCloseIslandRequested(int groupIndex) {
         return;
     }
 
+    ClosedTabSet closedSet;
+    closedSet.groupIndex = groupIndex;
+    closedSet.groupRemoved = true;
+    closedSet.groupInfo = CaptureGroupMetadata(*removed);
+    for (size_t i = 0; i < removed->tabs.size(); ++i) {
+        EnsureTabPath(removed->tabs[i]);
+        closedSet.entries.push_back({static_cast<int>(i), std::move(removed->tabs[i])});
+    }
+    if (!closedSet.entries.empty()) {
+        closedSet.selectionOriginalIndex = closedSet.entries.back().originalIndex;
+        PushClosedSet(std::move(closedSet));
+    }
+
     if (m_tabs.TotalTabCount() == 0) {
         EnsureTabForCurrentFolder();
     }
@@ -722,6 +1067,8 @@ void TabBand::OnCloseIslandRequested(int groupIndex) {
             NavigateToTab(newSelection);
         }
     }
+
+    SaveSession();
 }
 
 void TabBand::OnEditGroupProperties(int groupIndex) {
@@ -1392,6 +1739,13 @@ bool TabBand::RestoreSession() {
     m_restoringSession = true;
     m_tabs.Restore(std::move(groups), data.selectedGroup, data.selectedTab, data.groupSequence);
     m_restoringSession = false;
+
+    m_closedTabHistory.clear();
+    if (data.lastClosed) {
+        if (auto restored = BuildClosedSetFromSession(*data.lastClosed)) {
+            m_closedTabHistory.push_back(std::move(*restored));
+        }
+    }
     return true;
 }
 
@@ -1453,11 +1807,142 @@ void TabBand::SaveSession() {
         }
     }
 
+    if (!m_closedTabHistory.empty()) {
+        if (auto stored = BuildSessionClosedSet(m_closedTabHistory.back())) {
+            data.lastClosed = std::move(stored);
+        }
+    }
+
     if (data.groups.empty()) {
         return;
     }
 
     m_sessionStore->Save(data);
+}
+
+TabBand::ClosedGroupMetadata TabBand::CaptureGroupMetadata(const TabGroup& group) const {
+    ClosedGroupMetadata metadata;
+    metadata.name = group.name;
+    metadata.collapsed = group.collapsed;
+    metadata.headerVisible = group.headerVisible;
+    metadata.hasOutline = group.hasCustomOutline;
+    metadata.outlineColor = group.outlineColor;
+    metadata.outlineStyle = group.outlineStyle;
+    metadata.savedGroupId = group.savedGroupId;
+    return metadata;
+}
+
+void TabBand::EnsureTabPath(TabInfo& tab) const {
+    if (!tab.path.empty()) {
+        return;
+    }
+    tab.path = GetParsingName(tab.pidl.get());
+}
+
+void TabBand::PushClosedSet(ClosedTabSet set) {
+    if (set.entries.empty()) {
+        return;
+    }
+    constexpr size_t kMaxHistory = 16;
+    m_closedTabHistory.push_back(std::move(set));
+    if (m_closedTabHistory.size() > kMaxHistory) {
+        m_closedTabHistory.erase(m_closedTabHistory.begin());
+    }
+}
+
+std::optional<SessionClosedSet> TabBand::BuildSessionClosedSet(const ClosedTabSet& set) const {
+    if (set.entries.empty()) {
+        return std::nullopt;
+    }
+
+    SessionClosedSet stored;
+    stored.groupIndex = set.groupIndex;
+    stored.groupRemoved = set.groupRemoved;
+    stored.selectionIndex = set.selectionOriginalIndex;
+
+    if (set.groupInfo) {
+        stored.hasGroupInfo = true;
+        stored.groupInfo.name = set.groupInfo->name;
+        stored.groupInfo.collapsed = set.groupInfo->collapsed;
+        stored.groupInfo.headerVisible = set.groupInfo->headerVisible;
+        stored.groupInfo.hasOutline = set.groupInfo->hasOutline;
+        stored.groupInfo.outlineColor = set.groupInfo->outlineColor;
+        stored.groupInfo.outlineStyle = set.groupInfo->outlineStyle;
+        stored.groupInfo.savedGroupId = set.groupInfo->savedGroupId;
+    }
+
+    for (const auto& entry : set.entries) {
+        SessionClosedTab storedTab;
+        storedTab.index = entry.originalIndex;
+        storedTab.tab.name = entry.tab.name;
+        storedTab.tab.tooltip = entry.tab.tooltip;
+        storedTab.tab.hidden = entry.tab.hidden;
+        storedTab.tab.path = entry.tab.path;
+        if (storedTab.tab.path.empty()) {
+            storedTab.tab.path = GetParsingName(entry.tab.pidl.get());
+        }
+        if (storedTab.tab.path.empty()) {
+            return std::nullopt;
+        }
+        stored.tabs.emplace_back(std::move(storedTab));
+    }
+
+    if (stored.tabs.empty()) {
+        return std::nullopt;
+    }
+
+    return stored;
+}
+
+std::optional<TabBand::ClosedTabSet> TabBand::BuildClosedSetFromSession(const SessionClosedSet& stored) const {
+    if (stored.tabs.empty()) {
+        return std::nullopt;
+    }
+
+    ClosedTabSet set;
+    set.groupIndex = stored.groupIndex;
+    set.groupRemoved = stored.groupRemoved;
+    set.selectionOriginalIndex = stored.selectionIndex;
+
+    if (stored.hasGroupInfo) {
+        ClosedGroupMetadata metadata;
+        metadata.name = stored.groupInfo.name;
+        metadata.collapsed = stored.groupInfo.collapsed;
+        metadata.headerVisible = stored.groupInfo.headerVisible;
+        metadata.hasOutline = stored.groupInfo.hasOutline;
+        metadata.outlineColor = stored.groupInfo.outlineColor;
+        metadata.outlineStyle = stored.groupInfo.outlineStyle;
+        metadata.savedGroupId = stored.groupInfo.savedGroupId;
+        set.groupInfo = std::move(metadata);
+    }
+
+    for (const auto& storedTab : stored.tabs) {
+        UniquePidl pidl = ParseDisplayName(storedTab.tab.path);
+        if (!pidl) {
+            continue;
+        }
+
+        TabInfo tab;
+        tab.pidl = std::move(pidl);
+        tab.name = storedTab.tab.name;
+        if (tab.name.empty()) {
+            tab.name = GetDisplayName(tab.pidl.get());
+        }
+        if (tab.name.empty()) {
+            tab.name = L"Tab";
+        }
+        tab.tooltip = storedTab.tab.tooltip.empty() ? tab.name : storedTab.tab.tooltip;
+        tab.hidden = storedTab.tab.hidden;
+        tab.path = storedTab.tab.path;
+        EnsureTabPath(tab);
+        set.entries.push_back({storedTab.index, std::move(tab)});
+    }
+
+    if (set.entries.empty()) {
+        return std::nullopt;
+    }
+
+    return set;
 }
 
 void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {

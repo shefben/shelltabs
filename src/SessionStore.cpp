@@ -23,6 +23,8 @@ constexpr wchar_t kTabToken[] = L"tab";
 constexpr wchar_t kSelectedToken[] = L"selected";
 constexpr wchar_t kSequenceToken[] = L"sequence";
 constexpr wchar_t kDockToken[] = L"dock";
+constexpr wchar_t kUndoToken[] = L"undo";
+constexpr wchar_t kUndoTabToken[] = L"undotab";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
 
@@ -178,7 +180,7 @@ bool SessionStore::Load(SessionData& data) const {
                 return false;
             }
             version = std::max(1, _wtoi(tokens[1].c_str()));
-            if (version > 4) {
+            if (version > 5) {
                 return false;
             }
             versionSeen = true;
@@ -204,6 +206,54 @@ bool SessionStore::Load(SessionData& data) const {
             if (tokens.size() >= 2) {
                 data.dockMode = ParseDockMode(tokens[1]);
             }
+            return true;
+        }
+
+        if (header == kUndoToken) {
+            SessionClosedSet undo;
+            if (tokens.size() >= 5) {
+                undo.groupIndex = _wtoi(tokens[1].c_str());
+                undo.groupRemoved = ParseBool(tokens[2]);
+                undo.selectionIndex = _wtoi(tokens[3].c_str());
+                undo.hasGroupInfo = ParseBool(tokens[4]);
+                size_t index = 5;
+                if (undo.hasGroupInfo && tokens.size() > index) {
+                    undo.groupInfo.name = tokens[index++];
+                    if (tokens.size() > index) {
+                        undo.groupInfo.collapsed = ParseBool(tokens[index++]);
+                    }
+                    if (tokens.size() > index) {
+                        undo.groupInfo.headerVisible = ParseBool(tokens[index++]);
+                    }
+                    if (tokens.size() > index) {
+                        undo.groupInfo.hasOutline = ParseBool(tokens[index++]);
+                    }
+                    if (tokens.size() > index) {
+                        undo.groupInfo.outlineColor = ParseColor(tokens[index++], undo.groupInfo.outlineColor);
+                    }
+                    if (tokens.size() > index) {
+                        undo.groupInfo.outlineStyle = ParseOutlineStyle(tokens[index++], undo.groupInfo.outlineStyle);
+                    }
+                    if (tokens.size() > index) {
+                        undo.groupInfo.savedGroupId = tokens[index++];
+                    }
+                }
+            }
+            data.lastClosed = std::move(undo);
+            return true;
+        }
+
+        if (header == kUndoTabToken) {
+            if (!data.lastClosed || tokens.size() < 6) {
+                return true;
+            }
+            SessionClosedTab entry;
+            entry.index = _wtoi(tokens[1].c_str());
+            entry.tab.name = tokens[2];
+            entry.tab.tooltip = tokens[3];
+            entry.tab.hidden = ParseBool(tokens[4]);
+            entry.tab.path = tokens[5];
+            data.lastClosed->tabs.emplace_back(std::move(entry));
             return true;
         }
 
@@ -291,7 +341,7 @@ bool SessionStore::Save(const SessionData& data) const {
 
     std::wstring content;
     content += kVersionToken;
-    content += L"|4\n";
+    content += L"|5\n";
     content += kSelectedToken;
     content += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     content += kSequenceToken;
@@ -308,6 +358,26 @@ bool SessionStore::Save(const SessionData& data) const {
         for (const auto& tab : group.tabs) {
             content += kTabToken;
             content += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path + L"\n";
+        }
+    }
+
+    if (data.lastClosed && !data.lastClosed->tabs.empty()) {
+        const auto& undo = *data.lastClosed;
+        content += kUndoToken;
+        content += L"|" + std::to_wstring(undo.groupIndex) + L"|" + (undo.groupRemoved ? L"1" : L"0") + L"|" +
+                   std::to_wstring(undo.selectionIndex) + L"|" + (undo.hasGroupInfo ? L"1" : L"0");
+        if (undo.hasGroupInfo) {
+            content += L"|" + undo.groupInfo.name + L"|" + (undo.groupInfo.collapsed ? L"1" : L"0") + L"|" +
+                       (undo.groupInfo.headerVisible ? L"1" : L"0") + L"|" +
+                       (undo.groupInfo.hasOutline ? L"1" : L"0") + L"|" +
+                       ColorToString(undo.groupInfo.outlineColor) + L"|" +
+                       OutlineStyleToString(undo.groupInfo.outlineStyle) + L"|" + undo.groupInfo.savedGroupId;
+        }
+        content += L"\n";
+        for (const auto& entry : undo.tabs) {
+            content += kUndoTabToken;
+            content += L"|" + std::to_wstring(entry.index) + L"|" + entry.tab.name + L"|" + entry.tab.tooltip +
+                       L"|" + (entry.tab.hidden ? L"1" : L"0") + L"|" + entry.tab.path + L"\n";
         }
     }
 

@@ -78,6 +78,10 @@ public:
     void OnTabSelected(TabLocation location);
     void OnNewTabRequested();
     void OnCloseTabRequested(TabLocation location);
+    void OnCloseOtherTabsRequested(TabLocation location);
+    void OnCloseTabsToRightRequested(TabLocation location);
+    void OnCloseTabsToLeftRequested(TabLocation location);
+    void OnReopenClosedTabRequested();
     void OnHideTabRequested(TabLocation location);
     void OnUnhideTabRequested(TabLocation location);
     void OnDetachTabRequested(TabLocation location);
@@ -106,6 +110,11 @@ public:
     void OnOpenFolderInNewTab(const std::wstring& path);
     void CloseFrameWindowAsync();
     void EnsureTabPreview(TabLocation location);
+
+    bool CanCloseOtherTabs(TabLocation location) const;
+    bool CanCloseTabsToRight(TabLocation location) const;
+    bool CanCloseTabsToLeft(TabLocation location) const;
+    bool CanReopenClosedTabs() const;
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
     int GetGroupCount() const noexcept;
@@ -152,6 +161,37 @@ private:
     bool m_deferredNavigationPosted = false;
     TabBandDockMode m_dockMode = TabBandDockMode::kAutomatic;
     TabBandDockMode m_requestedDockMode = TabBandDockMode::kAutomatic;
+
+    struct ClosedGroupMetadata {
+        std::wstring name;
+        bool collapsed = false;
+        bool headerVisible = true;
+        bool hasOutline = false;
+        COLORREF outlineColor = RGB(0, 120, 215);
+        TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
+        std::wstring savedGroupId;
+    };
+
+    struct ClosedTabEntry {
+        int originalIndex = -1;
+        TabInfo tab;
+    };
+
+    struct ClosedTabSet {
+        int groupIndex = -1;
+        std::vector<ClosedTabEntry> entries;
+        std::optional<ClosedGroupMetadata> groupInfo;
+        bool groupRemoved = false;
+        int selectionOriginalIndex = -1;
+    };
+
+    std::vector<ClosedTabSet> m_closedTabHistory;
+
+    ClosedGroupMetadata CaptureGroupMetadata(const TabGroup& group) const;
+    void EnsureTabPath(TabInfo& tab) const;
+    void PushClosedSet(ClosedTabSet set);
+    std::optional<ClosedTabSet> BuildClosedSetFromSession(const SessionClosedSet& stored) const;
+    std::optional<SessionClosedSet> BuildSessionClosedSet(const ClosedTabSet& set) const;
 
     void EnsureWindow();
     void EnsureOptionsLoaded() const;

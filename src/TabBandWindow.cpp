@@ -2928,11 +2928,33 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		}
 		break;
 
-	case IDM_CLONE_TAB:
-		if (m_contextHit.location.IsValid()) {
-			m_owner->OnCloneTabRequested(m_contextHit.location);
-		}
-		break;
+        case IDM_CLONE_TAB:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnCloneTabRequested(m_contextHit.location);
+                }
+                break;
+
+        case IDM_CLOSE_OTHER_TABS:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnCloseOtherTabsRequested(m_contextHit.location);
+                }
+                break;
+
+        case IDM_CLOSE_TABS_TO_RIGHT:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnCloseTabsToRightRequested(m_contextHit.location);
+                }
+                break;
+
+        case IDM_CLOSE_TABS_TO_LEFT:
+                if (m_contextHit.location.IsValid()) {
+                        m_owner->OnCloseTabsToLeftRequested(m_contextHit.location);
+                }
+                break;
+
+        case IDM_REOPEN_CLOSED_TAB:
+                m_owner->OnReopenClosedTabRequested();
+                break;
 
 	case IDM_OPEN_TERMINAL:
 		if (m_contextHit.location.IsValid()) {
@@ -3866,6 +3888,20 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
             AppendMenuW(menu, MF_STRING, IDM_CLONE_TAB, L"Clone Tab");
+
+            const bool canCloseOthers = m_owner->CanCloseOtherTabs(hit.location);
+            const bool canCloseRight = m_owner->CanCloseTabsToRight(hit.location);
+            const bool canCloseLeft = m_owner->CanCloseTabsToLeft(hit.location);
+            const bool canReopen = m_owner->CanReopenClosedTabs();
+
+            AppendMenuW(menu, (canCloseOthers ? MF_STRING : MF_STRING | MF_GRAYED),
+                        IDM_CLOSE_OTHER_TABS, L"Close Other Tabs");
+            AppendMenuW(menu, (canCloseRight ? MF_STRING : MF_STRING | MF_GRAYED),
+                        IDM_CLOSE_TABS_TO_RIGHT, L"Close Tabs to the Right");
+            AppendMenuW(menu, (canCloseLeft ? MF_STRING : MF_STRING | MF_GRAYED),
+                        IDM_CLOSE_TABS_TO_LEFT, L"Close Tabs to the Left");
+            AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
+                        L"Reopen Closed Tab");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);

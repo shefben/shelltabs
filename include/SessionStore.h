@@ -4,6 +4,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 
 #include "OptionsStore.h"
 #include "TabManager.h"
@@ -28,12 +29,27 @@ struct SessionGroup {
     TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
 };
 
+struct SessionClosedTab {
+    SessionTab tab;
+    int index = -1;
+};
+
+struct SessionClosedSet {
+    int groupIndex = -1;
+    bool groupRemoved = false;
+    int selectionIndex = -1;
+    bool hasGroupInfo = false;
+    SessionGroup groupInfo;
+    std::vector<SessionClosedTab> tabs;
+};
+
 struct SessionData {
     std::vector<SessionGroup> groups;
     int selectedGroup = -1;
     int selectedTab = -1;
     int groupSequence = 1;
     TabBandDockMode dockMode = TabBandDockMode::kAutomatic;
+    std::optional<SessionClosedSet> lastClosed;
 };
 
 class SessionStore {
