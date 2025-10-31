@@ -801,6 +801,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
         m_emptyIslandPlusButtons.clear();
         m_nextRedrawIncremental = false;
         m_lastAppliedRowCount = 0;
+        InvalidateGroupOutlineCache();
         return;
     }
 
@@ -810,6 +811,8 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
 
     HideDragOverlay(true);
     HidePreviewWindow(false);
+    DropTarget clearedDropTarget{};
+    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
     m_drag = {};
     m_emptyIslandPlusButtons.clear();
 
@@ -821,6 +824,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
 
     m_items = std::move(layout.items);
     RebuildProgressRectCache();
+    RebuildGroupOutlineCache();
     m_lastRowCount = normalizedRowCount;
 
     bool topologyChanged = diff.inserted > 0 || diff.removed > 0 || rowCountChanged;
@@ -936,9 +940,12 @@ void TabBandWindow::ClearVisualItems() {
     m_items.clear();
     m_progressRects.clear();
     m_activeProgressIndices.clear();
+    DropTarget clearedDropTarget{};
+    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
+    InvalidateGroupOutlineCache();
 }
 
 void TabBandWindow::ReleaseBackBuffer() {
@@ -1240,6 +1247,7 @@ void TabBandWindow::RebuildLayout() {
         m_activeProgressIndices.clear();
         m_emptyIslandPlusButtons.clear();
         m_nextRedrawIncremental = false;
+        InvalidateGroupOutlineCache();
         return;
     }
 
@@ -1248,6 +1256,8 @@ void TabBandWindow::RebuildLayout() {
 
     HideDragOverlay(true);
     HidePreviewWindow(false);
+    DropTarget clearedDropTarget{};
+    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
@@ -1255,6 +1265,7 @@ void TabBandWindow::RebuildLayout() {
     LayoutResult layout = BuildLayoutItems(m_tabData);
     m_items = std::move(layout.items);
     RebuildProgressRectCache();
+    RebuildGroupOutlineCache();
 
     const int normalizedRowCount = layout.rowCount > 0 ? layout.rowCount : std::max(m_lastRowCount, 1);
     const bool rowChanged = normalizedRowCount != m_lastRowCount;
@@ -1789,7 +1800,7 @@ bool TabBandWindow::FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const {
 
 
 
-std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() const {
+std::vector<TabBandWindow::GroupOutline> TabBandWindow::ComputeGroupOutlines() const {
 	struct OutlineKey {
 		int groupIndex;
 		int row;
@@ -1905,17 +1916,60 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::BuildGroupOutlines() con
 			result.emplace_back(entry.second);
 		}
 	}
-	std::sort(result.begin(), result.end(),
-		[](const GroupOutline& a, const GroupOutline& b) {
-			if (a.bounds.top == b.bounds.top) {
-				if (a.bounds.left == b.bounds.left) {
-					return a.groupIndex < b.groupIndex;
-				}
-				return a.bounds.left < b.bounds.left;
-			}
-			return a.bounds.top < b.bounds.top;
-		});
-	return result;
+    std::sort(result.begin(), result.end(),
+            [](const GroupOutline& a, const GroupOutline& b) {
+                    if (a.bounds.top == b.bounds.top) {
+                            if (a.bounds.left == b.bounds.left) {
+                                    return a.groupIndex < b.groupIndex;
+                            }
+                            return a.bounds.left < b.bounds.left;
+                    }
+                    return a.bounds.top < b.bounds.top;
+            });
+    return result;
+}
+
+const std::vector<TabBandWindow::GroupOutline>& TabBandWindow::BuildGroupOutlines() const {
+    if (!m_groupOutlineCache.valid) {
+        RebuildGroupOutlineCache();
+    }
+    return m_groupOutlineCache.outlines;
+}
+
+void TabBandWindow::InvalidateGroupOutlineCache() {
+    m_groupOutlineCache.outlines.clear();
+    m_groupOutlineCache.valid = false;
+}
+
+void TabBandWindow::RebuildGroupOutlineCache() const {
+    m_groupOutlineCache.outlines = ComputeGroupOutlines();
+    m_groupOutlineCache.valid = true;
+}
+
+bool TabBandWindow::DropPreviewAffectsIndicators(const DropTarget& target) const {
+    if (!target.active || target.outside) {
+        return false;
+    }
+    if (target.group) {
+        return true;
+    }
+    if (target.newGroup) {
+        return true;
+    }
+    return false;
+}
+
+void TabBandWindow::OnDropPreviewTargetChanged(const DropTarget& previous, const DropTarget& current) {
+    const bool previousAffects = DropPreviewAffectsIndicators(previous);
+    const bool currentAffects = DropPreviewAffectsIndicators(current);
+    if (!previousAffects && !currentAffects) {
+        return;
+    }
+    if (previousAffects != currentAffects || previous.group != current.group ||
+        previous.groupIndex != current.groupIndex || previous.newGroup != current.newGroup ||
+        previous.floating != current.floating) {
+        RebuildGroupOutlineCache();
+    }
 }
 
 void TabBandWindow::DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const {
@@ -4101,6 +4155,8 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
 
     SetFocus(m_hwnd);
     HideDragOverlay(true);
+    DropTarget clearedDropTarget{};
+    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
     m_drag = {};
     if (hit.closeButton && hit.type == HitType::kTab) {
         m_drag.closeClick = true;
@@ -4173,17 +4229,20 @@ bool TabBandWindow::HandleMouseUp(const POINT& pt) {
 		UpdateExternalDrag(screen);
 
 		TabBandWindow* targetWindow = FindWindowFromPoint(screen);
-		if (!targetWindow || targetWindow == this) {
-			UpdateDropTarget(pt);
-		}
-		else {
-			m_drag.target = {};
-			m_drag.target.active = true;
-			m_drag.target.outside = true;
-		}
+                if (!targetWindow || targetWindow == this) {
+                        UpdateDropTarget(pt);
+                }
+                else {
+                        DropTarget previous = m_drag.target;
+                        DropTarget outside{};
+                        outside.active = true;
+                        outside.outside = true;
+                        OnDropPreviewTargetChanged(previous, outside);
+                        m_drag.target = outside;
+                }
 
-		CompleteDrop();  // this typically finalizes the move
-	}
+                CompleteDrop();  // this typically finalizes the move
+        }
 	// Simple tracking release → click selection
 	else if (m_drag.tracking) {
 		handled = true;
@@ -4237,9 +4296,12 @@ bool TabBandWindow::HandleMouseMove(const POINT& pt) {
         if (!targetWindow || targetWindow == this) {
             UpdateDropTarget(pt);
         } else {
-            m_drag.target = {};
-            m_drag.target.active = true;
-            m_drag.target.outside = true;
+            DropTarget previous = m_drag.target;
+            DropTarget outside{};
+            outside.active = true;
+            outside.outside = true;
+            OnDropPreviewTargetChanged(previous, outside);
+            m_drag.target = outside;
             RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
         }
         UpdateDragOverlay(pt, screen);
@@ -4641,6 +4703,11 @@ void TabBandWindow::CancelDrag() {
             DispatchExternalMessage(hovered->GetHwnd(), WM_SHELLTABS_EXTERNAL_DRAG_LEAVE);
         }
     }
+    DropTarget previousExternal = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
+    DropTarget previousDrag = m_drag.target;
+    DropTarget cleared{};
+    OnDropPreviewTargetChanged(previousExternal, cleared);
+    OnDropPreviewTargetChanged(previousDrag, cleared);
     m_externalDrop = {};
     m_drag = {};
     m_mouseTracking = false;
@@ -4806,7 +4873,10 @@ void TabBandWindow::AdjustDropTargetForPinned(const HitInfo& origin, DropTarget&
 }
 
 void TabBandWindow::UpdateDropTarget(const POINT& pt) {
-    m_drag.target = ComputeDropTarget(pt, m_drag.origin);
+    DropTarget previous = m_drag.target;
+    DropTarget target = ComputeDropTarget(pt, m_drag.origin);
+    OnDropPreviewTargetChanged(previous, target);
+    m_drag.target = target;
     RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
 
@@ -4834,6 +4904,8 @@ void TabBandWindow::UpdateExternalDrag(const POINT& screenPt) {
     if (!targetWindow || targetWindow == this) {
         return;
     }
+
+    DropTarget previousExternalTarget = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
 
     {
         std::scoped_lock lock(state.mutex);
@@ -4942,10 +5014,13 @@ void TabBandWindow::HandleExternalDragUpdate() {
     }
 
     if (!target.outside) {
+        OnDropPreviewTargetChanged(previousExternalTarget, target);
         m_externalDrop.active = true;
         m_externalDrop.target = target;
         m_externalDrop.source = sourceWindow;
     } else {
+        DropTarget cleared{};
+        OnDropPreviewTargetChanged(previousExternalTarget, cleared);
         m_externalDrop = {};
     }
 
@@ -4953,6 +5028,8 @@ void TabBandWindow::HandleExternalDragUpdate() {
 }
 
 void TabBandWindow::HandleExternalDragLeave() {
+    DropTarget previous = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
+
     {
         auto& state = GetSharedDragState();
         std::scoped_lock lock(state.mutex);
@@ -4962,6 +5039,8 @@ void TabBandWindow::HandleExternalDragLeave() {
             state.target = {};
         }
     }
+    DropTarget cleared{};
+    OnDropPreviewTargetChanged(previous, cleared);
     m_externalDrop = {};
     RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
@@ -4988,6 +5067,9 @@ void TabBandWindow::HandleExternalDropExecute() {
         m_owner->InsertTransferredGroup(std::move(payload->group), payload->targetGroupIndex, payload->select);
     }
 
+    DropTarget previous = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
+    DropTarget cleared{};
+    OnDropPreviewTargetChanged(previous, cleared);
     m_externalDrop = {};
     RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
