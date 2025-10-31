@@ -189,6 +189,18 @@ Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
 #define ERROR_ACCESS_DISABLED_BY_POLICY_OTHER 1263L
 #endif
 
+#ifndef RPC_E_CALL_REJECTED
+#define RPC_E_CALL_REJECTED _HRESULT_TYPEDEF_(0x80010001L)
+#endif
+
+#ifndef RPC_E_SERVERCALL_RETRYLATER
+#define RPC_E_SERVERCALL_RETRYLATER _HRESULT_TYPEDEF_(0x8001010AL)
+#endif
+
+#ifndef RPC_E_SERVERCALL_REJECTED
+#define RPC_E_SERVERCALL_REJECTED _HRESULT_TYPEDEF_(0x8001010BL)
+#endif
+
 #ifndef SID_STopLevelBrowserFrame
 EXTERN_C const GUID SID_STopLevelBrowserFrame;
 #endif
@@ -200,6 +212,15 @@ EXTERN_C const GUID SID_NamespaceTreeControl;
 bool IsShowBrowserBarThrottled(HRESULT hr) {
     if (hr == S_FALSE) {
         return true;
+    }
+
+    switch (hr) {
+        case RPC_E_CALL_REJECTED:
+        case RPC_E_SERVERCALL_RETRYLATER:
+        case RPC_E_SERVERCALL_REJECTED:
+            return true;
+        default:
+            break;
     }
 
     switch (HRESULT_CODE(hr)) {
@@ -1115,24 +1136,24 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                            attempt);
                 UpdateBreadcrumbSubclass();
                 TryDispatchQueuedOpenInNewTabRequests();
-            } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
-                m_bandVisible = false;
-                CancelEnsureRetry(state);
-                state.retryDelayMs = 0;
-                state.lastOutcome = BandEnsureOutcome::PermanentFailure;
-                state.lastHresult = hr;
-                LogMessage(LogLevel::Error,
-                           L"EnsureBandVisible: ShowBrowserBar denied access for host=%p (hr=0x%08X); stopping retries",
-                           hostWindow, hr);
             } else {
                 m_bandVisible = false;
                 const bool throttled = IsShowBrowserBarThrottled(hr);
+
                 if (throttled) {
                     LogMessage(LogLevel::Warning,
                                L"EnsureBandVisible: ShowBrowserBar throttled for host=%p on attempt %zu (hr=0x%08X code=%lu)",
                                hostWindow, attempt, hr, HRESULT_CODE(hr));
                     ScheduleEnsureRetry(hostWindow, state, hr, BandEnsureOutcome::Throttled,
                                          L"ShowBrowserBar throttled");
+                } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
+                    CancelEnsureRetry(state);
+                    state.retryDelayMs = 0;
+                    state.lastOutcome = BandEnsureOutcome::PermanentFailure;
+                    state.lastHresult = hr;
+                    LogMessage(LogLevel::Error,
+                               L"EnsureBandVisible: ShowBrowserBar denied access for host=%p (hr=0x%08X); stopping retries",
+                               hostWindow, hr);
                 } else if (IsAutomationDisabledResult(hr)) {
                     CancelEnsureRetry(state);
                     state.retryDelayMs = 0;
