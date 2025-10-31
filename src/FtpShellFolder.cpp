@@ -1225,7 +1225,16 @@ IFACEMETHODIMP FtpShellFolder::GetUIObjectOf(HWND hwnd, UINT cidl, PCUITEMID_CHI
             if (FAILED(hr)) {
                 return hr;
             }
+            // DEFCONTEXTMENU exposes the selected data through an anonymous union. When the
+            // Windows headers are compiled with NONAMELESSUNION defined (as is the case when
+            // using /permissive-), the union gains the DUMMYUNIONNAME indirection and direct
+            // access via "pdtobj" becomes ill-formed. Handle both configurations so the code
+            // remains portable across SDKs and compiler settings.
+#if defined(NONAMELESSUNION)
+            def.DUMMYUNIONNAME.pdtobj = dataObject.Get();
+#else
             def.pdtobj = dataObject.Get();
+#endif
         }
 
         return SHCreateDefaultContextMenu(&def, riid, ppv);
