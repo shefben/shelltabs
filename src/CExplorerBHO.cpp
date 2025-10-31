@@ -3060,6 +3060,28 @@ bool CExplorerBHO::CollectPathsFromListView(std::vector<std::wstring>& paths) co
 }
 
 bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) const {
+    bool appended = false;
+
+    if (m_namespaceTreeControl) {
+        Microsoft::WRL::ComPtr<IShellItemArray> items;
+        const HRESULT hr = m_namespaceTreeControl->GetSelectedItems(&items);
+        if (SUCCEEDED(hr) && items) {
+            if (CollectPathsFromItemArray(items.Get(), paths)) {
+                appended = true;
+            } else {
+                LogMessage(LogLevel::Info,
+                           L"CollectPathsFromTreeView skipped: namespace tree selection produced no filesystem folders");
+            }
+        } else {
+            LogMessage(LogLevel::Info,
+                       L"CollectPathsFromTreeView skipped: unable to query namespace tree selection (hr=0x%08lX)", hr);
+        }
+    }
+
+    if (appended) {
+        return true;
+    }
+
     if (!m_treeView || !IsWindow(m_treeView)) {
         return false;
     }
@@ -3078,12 +3100,13 @@ bool CExplorerBHO::CollectPathsFromTreeView(std::vector<std::wstring>& paths) co
         return false;
     }
 
+    const size_t before = paths.size();
     if (!AppendPathFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), paths)) {
         LogMessage(LogLevel::Info, L"CollectPathsFromTreeView skipped: selection not a filesystem folder");
         return false;
     }
 
-    return !paths.empty();
+    return paths.size() > before;
 }
 
 bool CExplorerBHO::ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const {
