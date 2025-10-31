@@ -5193,17 +5193,29 @@ void TabBandWindow::PopulateHiddenTabsMenu(HMENU menu, int groupIndex) {
 }
 
 void TabBandWindow::PopulateSavedGroupsMenu(HMENU parent, bool addSeparator) {
-    if (!parent || !m_owner) {
+    if (!parent) {
+        m_savedGroupCommands.clear();
         return;
     }
+
+    m_savedGroupCommands.clear();
 
     HMENU groupsMenu = CreatePopupMenu();
     if (!groupsMenu) {
         return;
     }
 
-    const auto names = m_owner->GetSavedGroupNames();
-    if (names.empty()) {
+    bool loadSucceeded = false;
+    std::vector<std::wstring> names;
+    if (m_owner) {
+        names = m_owner->GetSavedGroupNames(&loadSucceeded);
+    }
+
+    if (!m_owner) {
+        AppendMenuW(groupsMenu, MF_STRING | MF_GRAYED, 0, L"Groups unavailable");
+    } else if (!loadSucceeded) {
+        AppendMenuW(groupsMenu, MF_STRING | MF_GRAYED, 0, L"Failed to load saved groups");
+    } else if (names.empty()) {
         AppendMenuW(groupsMenu, MF_STRING | MF_GRAYED, 0, L"No Saved Groups");
     } else {
         UINT command = IDM_LOAD_SAVED_GROUP_BASE;
@@ -5221,7 +5233,12 @@ void TabBandWindow::PopulateSavedGroupsMenu(HMENU parent, bool addSeparator) {
         AppendMenuW(parent, MF_SEPARATOR, 0, nullptr);
     }
     AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(groupsMenu), L"Groups");
-    AppendMenuW(parent, MF_STRING, IDM_CREATE_SAVED_GROUP, L"Create Saved Group...");
+
+    UINT createFlags = MF_STRING;
+    if (!m_owner || !loadSucceeded) {
+        createFlags |= MF_GRAYED;
+    }
+    AppendMenuW(parent, createFlags, IDM_CREATE_SAVED_GROUP, L"Create Saved Group...");
 
 }
 

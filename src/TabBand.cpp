@@ -2669,10 +2669,14 @@ void TabBand::PerformFileOperation(TabLocation location, const std::vector<std::
     operation->PerformOperations();
 }
 
-std::vector<std::wstring> TabBand::GetSavedGroupNames() const {
+std::vector<std::wstring> TabBand::GetSavedGroupNames(bool* loadSucceeded) const {
     auto& store = GroupStore::Instance();
-    store.Load();
-    return store.GroupNames();
+    bool groupsLoaded = false;
+    auto names = store.GroupNames(&groupsLoaded);
+    if (loadSucceeded) {
+        *loadSucceeded = groupsLoaded;
+    }
+    return names;
 }
 
 std::wstring TabBand::GetSavedGroupId(int groupIndex) const {

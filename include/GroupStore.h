@@ -23,7 +23,7 @@ public:
     static GroupStore& Instance();
 
     const std::vector<SavedGroup>& Groups() const noexcept { return m_groups; }
-    std::vector<std::wstring> GroupNames() const;
+    std::vector<std::wstring> GroupNames(bool* loadSucceeded = nullptr) const;
     const SavedGroup* Find(const std::wstring& name) const;
 
     bool Load();

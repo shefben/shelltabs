@@ -23,8 +23,12 @@ GroupStore& GroupStore::Instance() {
     return instance;
 }
 
-std::vector<std::wstring> GroupStore::GroupNames() const {
-    if (!EnsureLoaded()) {
+std::vector<std::wstring> GroupStore::GroupNames(bool* loadSucceeded) const {
+    const bool loaded = EnsureLoaded();
+    if (loadSucceeded) {
+        *loadSucceeded = loaded;
+    }
+    if (!loaded) {
         return {};
     }
 
@@ -65,11 +69,12 @@ bool GroupStore::Load() {
     m_groups.clear();
 
     std::wstring content;
-    if (!ReadUtf8File(path, &content)) {
+    bool fileExists = false;
+    if (!ReadUtf8File(path, &content, &fileExists)) {
         return false;
     }
 
-    if (content.empty()) {
+    if (!fileExists || content.empty()) {
         m_loaded = true;
         return true;
     }
