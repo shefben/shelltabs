@@ -59,6 +59,9 @@ using shelltabs::LogMessageV;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
+constexpr UINT_PTR kExplorerPaneRetryTimerId = 0xE170;
+constexpr UINT kExplorerPaneRetryIntervalMs = 250;
+constexpr UINT kExplorerPaneRetryMaxIntervalMs = 2000;
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
     static std::once_flag once;
@@ -1647,41 +1650,19 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
         return;
     }
 
-	HWND listView = FindDescendantWindow(viewWindow, L"SysListView32");
-	// Windows 10/11 may use different class names for the folder view; try them if SysListView32 is missing.
-	if (!listView) {
-		listView = FindDescendantWindow(viewWindow, L"UIItemsView");
-		if (!listView) {
-			listView = FindDescendantWindow(viewWindow, L"ItemsViewWnd");
-		}
-	}
-	if (!listView) {
-		LogMessage(LogLevel::Warning,
-		           L"Explorer view subclass setup aborted: list view not found for view window %p",
-                   viewWindow);
-		return;
-	}
-
-    HWND treeView = FindDescendantWindow(viewWindow, L"SysTreeView32");
-    if (!treeView) {
-        LogMessage(LogLevel::Info,
-                   L"Explorer view subclass setup continuing without tree view (view=%p list=%p)", viewWindow,
-                   listView);
-    }
-
-    if (!InstallExplorerViewSubclass(viewWindow, listView, treeView)) {
-        LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass installation failed (view=%p list=%p tree=%p)", viewWindow, listView,
-                   treeView);
+    if (!InstallExplorerViewSubclass(viewWindow)) {
+        LogMessage(LogLevel::Warning, L"Explorer view subclass installation failed for view window %p", viewWindow);
         return;
     }
 
     m_shellView = shellView;
     m_shellViewWindow = viewWindow;
+    ClearPendingOpenInNewTabState();
+    TryResolveExplorerPanes();
     UpdateCurrentFolderBackground();
 }
 
-bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView) {
+bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow) {
     bool installed = false;
 
     if (viewWindow && IsWindow(viewWindow)) {
@@ -1690,13 +1671,6 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
             m_shellViewWindowSubclassInstalled = true;
             installed = true;
             LogMessage(LogLevel::Info, L"Installed shell view window subclass (view=%p)", viewWindow);
-			// Make the list view background transparent so our background image can be drawn by the parent.
-			ListView_SetBkColor(listView, CLR_NONE);
-			ListView_SetTextBkColor(listView, CLR_NONE);
-			DWORD exStyle = ListView_GetExtendedListViewStyle(listView);
-			exStyle |= LVS_EX_DOUBLEBUFFER;
-			exStyle |= LVS_EX_TRANSPARENTBKGND;
-			ListView_SetExtendedListViewStyle(listView, exStyle);
         } else {
             LogLastError(L"SetWindowSubclass(shell view window)", GetLastError());
             m_shellViewWindowSubclassInstalled = false;
@@ -1706,8 +1680,7 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
     }
 
     HWND frameWindow = GetTopLevelExplorerWindow();
-    if (frameWindow && frameWindow != viewWindow && frameWindow != listView && frameWindow != treeView &&
-        IsWindow(frameWindow)) {
+    if (frameWindow && frameWindow != viewWindow && IsWindow(frameWindow)) {
         if (SetWindowSubclass(frameWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
                               0)) {
             m_frameWindow = frameWindow;
@@ -1724,44 +1697,157 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow, HWND listView, H
         m_frameWindow = nullptr;
     }
 
-    if (listView && IsWindow(listView)) {
-        if (SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-            m_listView = listView;
-            m_listViewSubclassInstalled = true;
-            installed = true;
-            LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
-        } else {
-            LogLastError(L"SetWindowSubclass(list view)", GetLastError());
-        }
-    }
-
-    if (treeView && treeView != listView && IsWindow(treeView)) {
-        if (SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-            m_treeView = treeView;
-            m_treeViewSubclassInstalled = true;
-            LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
-        } else {
-            LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
-        }
-    }
-
-    m_paneHooks.SetListView(m_listViewSubclassInstalled ? m_listView : nullptr);
-    m_paneHooks.SetTreeView(m_treeViewSubclassInstalled ? m_treeView : nullptr);
-
     if (installed) {
-        ClearPendingOpenInNewTabState();
-        LogMessage(LogLevel::Info, L"Explorer view subclass ready (view=%p list=%p tree=%p)", viewWindow,
-                   listView, treeView);
+        LogMessage(LogLevel::Info, L"Explorer view subclass ready (view=%p frame=%p)", viewWindow, m_frameWindow);
     } else {
-        LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass installation skipped: no valid targets (view=%p list=%p tree=%p)",
-                   viewWindow, listView, treeView);
+        LogMessage(LogLevel::Warning, L"Explorer view subclass installation skipped: view=%p frame=%p", viewWindow,
+                   frameWindow);
     }
 
     return installed;
 }
 
+HWND CExplorerBHO::FindExplorerListViewWindow(HWND root) const {
+    if (!root) {
+        return nullptr;
+    }
+
+    if (HWND listView = FindDescendantWindow(root, L"SysListView32")) {
+        return listView;
+    }
+
+    if (HWND listView = FindDescendantWindow(root, L"UIItemsView")) {
+        return listView;
+    }
+
+    if (HWND listView = FindDescendantWindow(root, L"ItemsViewWnd")) {
+        return listView;
+    }
+
+    return nullptr;
+}
+
+HWND CExplorerBHO::FindExplorerTreeViewWindow(HWND root) const {
+    if (!root) {
+        return nullptr;
+    }
+
+    return FindDescendantWindow(root, L"SysTreeView32");
+}
+
+bool CExplorerBHO::TryResolveExplorerPanes() {
+    if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
+        CancelExplorerPaneRetry();
+        return false;
+    }
+
+    bool resolvedListView = m_listView && m_listViewSubclassInstalled && IsWindow(m_listView);
+    bool resolvedTreeView = m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView);
+
+    if (!resolvedListView) {
+        HWND listView = FindExplorerListViewWindow(m_shellViewWindow);
+        if (listView) {
+            if (SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
+                                  0)) {
+                m_listView = listView;
+                m_listViewSubclassInstalled = true;
+                resolvedListView = true;
+                LogMessage(LogLevel::Info, L"Installed explorer list view subclass (list=%p)", listView);
+
+                if (MatchesClass(listView, L"SysListView32") || MatchesClass(listView, L"UIItemsView") ||
+                    MatchesClass(listView, L"ItemsViewWnd")) {
+                    ListView_SetBkColor(listView, CLR_NONE);
+                    ListView_SetTextBkColor(listView, CLR_NONE);
+                    DWORD exStyle = ListView_GetExtendedListViewStyle(listView);
+                    exStyle |= LVS_EX_DOUBLEBUFFER;
+                    exStyle |= LVS_EX_TRANSPARENTBKGND;
+                    ListView_SetExtendedListViewStyle(listView, exStyle);
+                }
+            } else {
+                LogLastError(L"SetWindowSubclass(list view)", GetLastError());
+            }
+        } else {
+            HWND directUi = MatchesClass(m_shellViewWindow, L"DirectUIHWND")
+                                ? m_shellViewWindow
+                                : FindDescendantWindow(m_shellViewWindow, L"DirectUIHWND");
+            if (directUi && m_explorerPaneRetryDelayMs == 0) {
+                LogMessage(LogLevel::Info,
+                           L"Explorer list view not ready; DirectUI window present (view=%p directUI=%p)",
+                           m_shellViewWindow, directUi);
+            } else if (!directUi && m_explorerPaneRetryDelayMs == 0) {
+                LogMessage(LogLevel::Info, L"Explorer list view not ready; searching descendants of %p",
+                           m_shellViewWindow);
+            }
+        }
+    }
+
+    if (!resolvedTreeView) {
+        HWND treeView = FindExplorerTreeViewWindow(m_shellViewWindow);
+        if (treeView && treeView != m_listView) {
+            if (SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
+                                  0)) {
+                m_treeView = treeView;
+                m_treeViewSubclassInstalled = true;
+                resolvedTreeView = true;
+                LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
+            } else {
+                LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
+            }
+        }
+    }
+
+    m_paneHooks.SetListView(resolvedListView ? m_listView : nullptr);
+    m_paneHooks.SetTreeView(resolvedTreeView ? m_treeView : nullptr);
+
+    if (resolvedListView && resolvedTreeView) {
+        CancelExplorerPaneRetry();
+        m_explorerPaneRetryDelayMs = 0;
+        return true;
+    }
+
+    ScheduleExplorerPaneRetry();
+    return resolvedListView;
+}
+
+void CExplorerBHO::ScheduleExplorerPaneRetry() {
+    if (m_explorerPaneRetryScheduled) {
+        return;
+    }
+
+    if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
+        return;
+    }
+
+    UINT nextDelay = m_explorerPaneRetryDelayMs == 0 ? kExplorerPaneRetryIntervalMs
+                                                     : std::min(m_explorerPaneRetryDelayMs * 2,
+                                                                kExplorerPaneRetryMaxIntervalMs);
+
+    if (SetTimer(m_shellViewWindow, kExplorerPaneRetryTimerId, nextDelay, nullptr)) {
+        m_explorerPaneRetryScheduled = true;
+        m_explorerPaneRetryDelayMs = nextDelay;
+        LogMessage(LogLevel::Info, L"Scheduled explorer pane discovery retry for view %p in %u ms",
+                   m_shellViewWindow, nextDelay);
+    } else {
+        LogLastError(L"SetTimer(explorer pane retry)", GetLastError());
+    }
+}
+
+void CExplorerBHO::CancelExplorerPaneRetry() {
+    if (!m_explorerPaneRetryScheduled) {
+        return;
+    }
+
+    if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
+        KillTimer(m_shellViewWindow, kExplorerPaneRetryTimerId);
+    }
+
+    m_explorerPaneRetryScheduled = false;
+}
+
 void CExplorerBHO::RemoveExplorerViewSubclass() {
+    CancelExplorerPaneRetry();
+    m_explorerPaneRetryDelayMs = 0;
+
     if (m_shellViewWindow && m_shellViewWindowSubclassInstalled && IsWindow(m_shellViewWindow)) {
         RemoveWindowSubclass(m_shellViewWindow, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
@@ -2177,6 +2263,15 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     }
 
     switch (msg) {
+        case WM_TIMER: {
+            if (hwnd == m_shellViewWindow && wParam == kExplorerPaneRetryTimerId) {
+                CancelExplorerPaneRetry();
+                TryResolveExplorerPanes();
+                *result = 0;
+                return true;
+            }
+            break;
+        }
         case WM_ERASEBKGND: {
             if (handlesBackground) {
                 HDC dc = reinterpret_cast<HDC>(wParam);
@@ -4360,14 +4455,22 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
             self->m_paneHooks.SetListView(nullptr);
+            self->CancelExplorerPaneRetry();
+            self->m_explorerPaneRetryDelayMs = 0;
+            self->ScheduleExplorerPaneRetry();
         } else if (hwnd == self->m_treeView) {
             self->m_treeView = nullptr;
             self->m_treeViewSubclassInstalled = false;
             self->m_paneHooks.SetTreeView(nullptr);
+            self->CancelExplorerPaneRetry();
+            self->m_explorerPaneRetryDelayMs = 0;
+            self->ScheduleExplorerPaneRetry();
         } else if (hwnd == self->m_frameWindow) {
             self->m_frameWindow = nullptr;
             self->m_frameSubclassInstalled = false;
         } else if (hwnd == self->m_shellViewWindow) {
+            self->CancelExplorerPaneRetry();
+            self->m_explorerPaneRetryDelayMs = 0;
             self->m_shellViewWindowSubclassInstalled = false;
             self->m_shellViewWindow = nullptr;
         }
