@@ -40,6 +40,7 @@ add_library(ShellTabs SHARED
     src/StringUtils.cpp
     src/Utilities.cpp
     src/Logging.cpp
+    src/PaneHooks.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/resource.rc
@@ -148,6 +149,12 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         _WIN32_WINNT=0x0A00
     )
 
+    add_executable(ShellTabsPaneHooksTests
+        tests/PaneHooksTests.cpp
+        src/PaneHooks.cpp
+    )
+
+    target_include_directories(ShellTabsPaneHooksTests PRIVATE
     add_executable(ShellTabsThemeTransitionTests
         tests/ThemeTransitionTests.cpp
         tests/TestLoggingStubs.cpp
@@ -169,6 +176,15 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
+    target_compile_definitions(ShellTabsPaneHooksTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
+
+    target_link_libraries(ShellTabsPaneHooksTests PRIVATE
+        user32
+        comctl32
     target_compile_definitions(ShellTabsThemeTransitionTests PRIVATE
         UNICODE
         _UNICODE
