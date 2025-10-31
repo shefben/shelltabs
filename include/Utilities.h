@@ -45,8 +45,10 @@ struct FtpUrlParts {
 UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source);
 UniquePidl CloneParent(PCIDLIST_ABSOLUTE source);
 bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
+bool ArePidlsCanonicallyEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
 std::wstring GetDisplayName(PCIDLIST_ABSOLUTE pidl);
 std::wstring GetParsingName(PCIDLIST_ABSOLUTE pidl);
+std::wstring GetCanonicalParsingName(PCIDLIST_ABSOLUTE pidl);
 UniquePidl ParseDisplayName(const std::wstring& parsingName);
 UniquePidl ParseExplorerUrl(const std::wstring& url);
 bool TryParseFtpUrl(const std::wstring& url, FtpUrlParts* parts);

@@ -21,6 +21,43 @@
 
 namespace shelltabs {
 
+using Microsoft::WRL::ComPtr;
+
+namespace {
+
+HRESULT CreateShellItemFromPidl(PCIDLIST_ABSOLUTE pidl, ComPtr<IShellItem2>* item) {
+    if (!pidl || !item) {
+        return E_INVALIDARG;
+    }
+
+    item->Reset();
+
+    ComPtr<IShellItem2> resolved;
+    HRESULT hr = SHCreateItemFromIDList(pidl, IID_PPV_ARGS(&resolved));
+    if (SUCCEEDED(hr) && resolved) {
+        *item = std::move(resolved);
+        return S_OK;
+    }
+
+    ComPtr<IShellFolder> parent;
+    PCUITEMID_CHILD child = nullptr;
+    hr = SHBindToParent(pidl, IID_PPV_ARGS(&parent), &child);
+    if (FAILED(hr) || !child) {
+        return hr;
+    }
+
+    resolved.Reset();
+    hr = SHCreateItemWithParent(nullptr, parent.Get(), child, IID_PPV_ARGS(&resolved));
+    if (SUCCEEDED(hr) && resolved) {
+        *item = std::move(resolved);
+        return S_OK;
+    }
+
+    return hr;
+}
+
+}  // namespace
+
 std::wstring Utf8ToWide(std::string_view utf8) {
     if (utf8.empty()) {
         return {};
@@ -185,6 +222,32 @@ bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right) {
     return ILIsEqual(left, right) == TRUE;
 }
 
+bool ArePidlsCanonicallyEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right) {
+    if (left == nullptr && right == nullptr) {
+        return true;
+    }
+    if (left == nullptr || right == nullptr) {
+        return false;
+    }
+
+    ComPtr<IShellItem2> leftItem;
+    if (FAILED(CreateShellItemFromPidl(left, &leftItem)) || !leftItem) {
+        return false;
+    }
+
+    ComPtr<IShellItem2> rightItem;
+    if (FAILED(CreateShellItemFromPidl(right, &rightItem)) || !rightItem) {
+        return false;
+    }
+
+    int order = 0;
+    const HRESULT hr = leftItem->Compare(rightItem.Get(), SICHINT_CANONICAL, &order);
+    if (FAILED(hr)) {
+        return false;
+    }
+    return order == 0;
+}
+
 std::wstring GetDisplayName(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
         return {};
@@ -207,6 +270,27 @@ std::wstring GetParsingName(PCIDLIST_ABSOLUTE pidl) {
     PWSTR name = nullptr;
     std::wstring parsingName;
     if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_DESKTOPABSOLUTEPARSING, &name)) && name) {
+        parsingName.assign(name);
+    }
+    if (name) {
+        CoTaskMemFree(name);
+    }
+    return parsingName;
+}
+
+std::wstring GetCanonicalParsingName(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return {};
+    }
+
+    ComPtr<IShellItem2> item;
+    if (FAILED(CreateShellItemFromPidl(pidl, &item)) || !item) {
+        return {};
+    }
+
+    PWSTR name = nullptr;
+    std::wstring parsingName;
+    if (SUCCEEDED(item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &name)) && name) {
         parsingName.assign(name);
     }
     if (name) {

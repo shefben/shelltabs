@@ -1548,7 +1548,14 @@ void TabBand::EnsureTabForCurrentFolder() {
     if (name.empty()) {
         name = L"Tab";
     }
-    const std::wstring parsingName = GetParsingName(current.get());
+    const auto computeNormalizedPath = [](PCIDLIST_ABSOLUTE value) {
+        std::wstring canonical = GetCanonicalParsingName(value);
+        if (!canonical.empty()) {
+            return canonical;
+        }
+        return GetParsingName(value);
+    };
+    const std::wstring parsingName = computeNormalizedPath(current.get());
 
     const TabLocation selected = m_tabs.SelectedLocation();
     if (selected.IsValid()) {
@@ -1557,7 +1564,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->name = name;
             tab->tooltip = name;
             tab->hidden = false;
-            tab->path = !parsingName.empty() ? parsingName : GetParsingName(tab->pidl.get());
+            tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
             SyncSavedGroup(selected.groupIndex);
             return;
@@ -1570,7 +1577,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->hidden = false;
             tab->name = name;
             tab->tooltip = name;
-            tab->path = !parsingName.empty() ? parsingName : GetParsingName(tab->pidl.get());
+            tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
         }
         m_tabs.SetGroupCollapsed(existing.groupIndex, false);
         m_tabs.SetSelectedLocation(existing);

@@ -1,5 +1,6 @@
 #include "TabManager.h"
 
+#include "Logging.h"
 #include "ShellTabsMessages.h"
 
 #include <algorithm>
@@ -109,7 +110,29 @@ TabLocation TabManager::Find(PCIDLIST_ABSOLUTE pidl) const {
     for (size_t g = 0; g < m_groups.size(); ++g) {
         const auto& group = m_groups[g];
         for (size_t t = 0; t < group.tabs.size(); ++t) {
-            if (ArePidlsEqual(group.tabs[t].pidl.get(), pidl)) {
+            const auto& tab = group.tabs[t];
+            if (ArePidlsCanonicallyEqual(tab.pidl.get(), pidl)) {
+                if (!ArePidlsEqual(tab.pidl.get(), pidl)) {
+                    std::wstring storedCanonical = tab.path;
+                    if (storedCanonical.empty() && tab.pidl) {
+                        storedCanonical = GetCanonicalParsingName(tab.pidl.get());
+                        if (storedCanonical.empty()) {
+                            storedCanonical = GetParsingName(tab.pidl.get());
+                        }
+                    }
+                    std::wstring incomingCanonical = GetCanonicalParsingName(pidl);
+                    if (incomingCanonical.empty()) {
+                        incomingCanonical = GetParsingName(pidl);
+                    }
+                    LogMessage(LogLevel::Warning,
+                               L"Canonical PIDL collision detected during navigation (group=%zu, tab=%zu, stored=%ls, incoming=%ls)",
+                               g, t,
+                               storedCanonical.empty() ? L"(unknown)" : storedCanonical.c_str(),
+                               incomingCanonical.empty() ? L"(unknown)" : incomingCanonical.c_str());
+                }
+                return {static_cast<int>(g), static_cast<int>(t)};
+            }
+            if (ArePidlsEqual(tab.pidl.get(), pidl)) {
                 return {static_cast<int>(g), static_cast<int>(t)};
             }
         }
@@ -134,7 +157,11 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
         .tooltip = std::move(tooltip),
         .hidden = false,
     };
-    info.path = GetParsingName(info.pidl.get());
+    std::wstring canonicalPath = GetCanonicalParsingName(info.pidl.get());
+    if (canonicalPath.empty()) {
+        canonicalPath = GetParsingName(info.pidl.get());
+    }
+    info.path = std::move(canonicalPath);
 
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
     group.tabs.emplace_back(std::move(info));
