@@ -1149,7 +1149,7 @@ void TabManager::AccumulateGroupAggregates(TabGroup& group, const TabInfo& tab, 
     } else {
         ++group.visibleCount;
         if (IsBetterActivation(tab.activationOrdinal, tab.lastActivatedTick, tabIndex,
-                               group.lastVisibleActivationOrdinal, group.lastVisibleActivationTick,
+                               group.lastVisibleActivationOrdinal, group.lastVisibleActivatedTick,
                                group.lastVisibleActivatedTabIndex)) {
             group.lastVisibleActivationOrdinal = tab.activationOrdinal;
             group.lastVisibleActivatedTick = tab.lastActivatedTick;
@@ -1248,7 +1248,7 @@ void TabManager::HandleTabVisibilityChanged(TabGroup& group, int tabIndex, bool 
         }
         ++group.visibleCount;
         if (IsBetterActivation(tab.activationOrdinal, tab.lastActivatedTick, tabIndex,
-                               group.lastVisibleActivationOrdinal, group.lastVisibleActivationTick,
+                               group.lastVisibleActivationOrdinal, group.lastVisibleActivatedTick,
                                group.lastVisibleActivatedTabIndex)) {
             group.lastVisibleActivationOrdinal = tab.activationOrdinal;
             group.lastVisibleActivatedTick = tab.lastActivatedTick;
@@ -1281,7 +1281,7 @@ void TabManager::HandleTabActivationUpdated(TabGroup& group, int tabIndex) {
     }
 
     if (IsBetterActivation(tab.activationOrdinal, tab.lastActivatedTick, tabIndex,
-                           group.lastVisibleActivationOrdinal, group.lastVisibleActivationTick,
+                           group.lastVisibleActivationOrdinal, group.lastVisibleActivatedTick,
                            group.lastVisibleActivatedTabIndex)) {
         group.lastVisibleActivationOrdinal = tab.activationOrdinal;
         group.lastVisibleActivatedTick = tab.lastActivatedTick;

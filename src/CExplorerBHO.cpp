@@ -2665,6 +2665,7 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     UpdateExplorerPaneCreationWatch(!listViewResolved, !treeViewResolved);
 
     if (listViewResolved && treeViewResolved) {
+        CancelExplorerPaneRetry();
         CancelExplorerPaneFallback();
         if (!m_loggedExplorerPanesReady) {
             LogMessage(LogLevel::Info, L"Explorer panes resolved (view=%p list=%p tree=%p direct=%p)", m_shellViewWindow,
@@ -2703,6 +2704,7 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         m_loggedTreeViewMissing = false;
     }
 
+    ScheduleExplorerPaneRetry();
     return false;
 }
 
@@ -2752,6 +2754,54 @@ void CExplorerBHO::UpdateExplorerPaneCreationWatch(bool watchListView, bool watc
     }
 }
 
+void CExplorerBHO::ScheduleExplorerPaneRetry() {
+    if (m_explorerPaneRetryPending) {
+        return;
+    }
+    if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
+        return;
+    }
+
+    DWORD nextDelay = (m_explorerPaneRetryDelayMs == 0) ? kEnsureRetryInitialDelayMs : m_explorerPaneRetryDelayMs * 2;
+    if (nextDelay > kEnsureRetryMaxDelayMs) {
+        nextDelay = kEnsureRetryMaxDelayMs;
+    }
+
+    UINT_PTR timerId = SetTimer(m_shellViewWindow, 0, nextDelay, nullptr);
+    if (timerId == 0) {
+        LogLastError(L"SetTimer(explorer pane retry)", GetLastError());
+        return;
+    }
+
+    m_explorerPaneRetryPending = true;
+    m_explorerPaneRetryTimerId = timerId;
+    m_explorerPaneRetryDelayMs = nextDelay;
+    ++m_explorerPaneRetryAttempts;
+
+    LogMessage(LogLevel::Info,
+               L"Explorer pane retry timer armed (view=%p delay=%u attempts=%zu)",
+               m_shellViewWindow, nextDelay, m_explorerPaneRetryAttempts);
+}
+
+void CExplorerBHO::CancelExplorerPaneRetry(bool resetAttemptState) {
+    if (m_explorerPaneRetryPending && m_shellViewWindow && IsWindow(m_shellViewWindow) &&
+        m_explorerPaneRetryTimerId != 0) {
+        if (!KillTimer(m_shellViewWindow, m_explorerPaneRetryTimerId)) {
+            const DWORD error = GetLastError();
+            if (error != 0) {
+                LogLastError(L"KillTimer(explorer pane retry)", error);
+            }
+        }
+    }
+
+    m_explorerPaneRetryPending = false;
+    m_explorerPaneRetryTimerId = 0;
+    if (resetAttemptState) {
+        m_explorerPaneRetryDelayMs = 0;
+        m_explorerPaneRetryAttempts = 0;
+    }
+}
+
 void CExplorerBHO::ScheduleExplorerPaneFallback() {
     if (m_explorerPaneFallbackPending || m_explorerPaneFallbackUsed) {
         return;
@@ -2788,6 +2838,7 @@ void CExplorerBHO::CancelExplorerPaneFallback() {
 
 void CExplorerBHO::RemoveExplorerViewSubclass() {
     CancelExplorerPaneFallback();
+    CancelExplorerPaneRetry();
     UpdateExplorerPaneCreationWatch(false, false);
     ResetNamespaceTreeControl();
 
@@ -3653,15 +3704,31 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
     }
 
-    if (msg == WM_TIMER && m_explorerPaneFallbackPending && wParam == m_explorerPaneFallbackTimerId) {
-        CancelExplorerPaneFallback();
-        if (!isShellViewWindow || !IsWindow(hwnd)) {
-            return false;
+    if (msg == WM_TIMER) {
+        if (m_explorerPaneRetryPending && wParam == m_explorerPaneRetryTimerId) {
+            const size_t attempts = m_explorerPaneRetryAttempts;
+            CancelExplorerPaneRetry(false);
+            if (!isShellViewWindow || !IsWindow(hwnd)) {
+                return false;
+            }
+            LogMessage(LogLevel::Info,
+                       L"Explorer pane retry timer fired (view=%p attempts=%zu)", hwnd,
+                       attempts);
+            TryResolveExplorerPanes();
+            *result = 0;
+            return true;
         }
-        LogMessage(LogLevel::Info, L"Explorer pane fallback timer fired (view=%p)", hwnd);
-        TryResolveExplorerPanes();
-        *result = 0;
-        return true;
+
+        if (m_explorerPaneFallbackPending && wParam == m_explorerPaneFallbackTimerId) {
+            CancelExplorerPaneFallback();
+            if (!isShellViewWindow || !IsWindow(hwnd)) {
+                return false;
+            }
+            LogMessage(LogLevel::Info, L"Explorer pane fallback timer fired (view=%p)", hwnd);
+            TryResolveExplorerPanes();
+            *result = 0;
+            return true;
+        }
     }
 
     const UINT optionsChangedMessage = GetOptionsChangedMessage();
