@@ -2051,6 +2051,46 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     return true;
 }
 
+bool CExplorerBHO::AttachTreeView(HWND treeView) {
+    if (!treeView || !IsWindow(treeView)) {
+        if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
+            RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+        }
+        m_treeView = nullptr;
+        m_treeViewSubclassInstalled = false;
+        m_paneHooks.SetTreeView(nullptr);
+        return false;
+    }
+
+    if (treeView == m_listView) {
+        return false;
+    }
+
+    if (m_treeView == treeView && m_treeViewSubclassInstalled) {
+        return true;
+    }
+
+    if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
+        RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc,
+                             reinterpret_cast<UINT_PTR>(this));
+    }
+
+    if (!SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
+        m_treeView = nullptr;
+        m_treeViewSubclassInstalled = false;
+        m_paneHooks.SetTreeView(nullptr);
+        return false;
+    }
+
+    m_treeView = treeView;
+    m_treeViewSubclassInstalled = true;
+    m_paneHooks.SetTreeView(m_treeView);
+    LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
+    return true;
+}
+
 void CExplorerBHO::EnsureListViewHostSubclass(HWND hostWindow) {
     if (!hostWindow || !IsWindow(hostWindow)) {
         return;
@@ -2596,15 +2636,8 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         if (!treeView) {
             treeView = FindDescendantWindow(m_shellViewWindow, L"SysTreeView32");
         }
-        if (treeView && treeView != m_listView && IsWindow(treeView)) {
-            if (SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-                m_treeView = treeView;
-                m_treeViewSubclassInstalled = true;
-                treeViewResolved = true;
-                LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
-            } else {
-                LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
-            }
+        if (treeView && AttachTreeView(treeView)) {
+            treeViewResolved = true;
         }
     }
 
@@ -2612,15 +2645,15 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
 
     UpdateGlowSurfaceTargets();
 
+    UpdateExplorerPaneCreationWatch(!listViewResolved, !treeViewResolved);
+
     if (listViewResolved && treeViewResolved) {
+        CancelExplorerPaneFallback();
         if (!m_loggedExplorerPanesReady) {
             LogMessage(LogLevel::Info, L"Explorer panes resolved (view=%p list=%p tree=%p direct=%p)", m_shellViewWindow,
                        m_listView, m_treeView, m_directUiView);
             UpdateCurrentFolderBackground();
             m_loggedExplorerPanesReady = true;
-        }
-        if (m_explorerPaneRetryPending) {
-            CancelExplorerPaneRetry();
         }
         m_loggedListViewMissing = false;
         m_loggedTreeViewMissing = false;
@@ -2628,6 +2661,12 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     }
 
     m_loggedExplorerPanesReady = false;
+
+    if (m_watchListViewCreation || m_watchTreeViewCreation) {
+        ScheduleExplorerPaneFallback();
+    } else {
+        CancelExplorerPaneFallback();
+    }
 
     if (!listViewResolved) {
         if (!m_loggedListViewMissing) {
@@ -2650,37 +2689,89 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     return false;
 }
 
-void CExplorerBHO::ScheduleExplorerPaneRetry() {
-    if (m_explorerPaneRetryPending) {
+void CExplorerBHO::HandleExplorerPaneCandidate(HWND candidate) {
+    if (!candidate || !IsWindow(candidate)) {
+        return;
+    }
+
+    if (!m_watchListViewCreation && !m_watchTreeViewCreation) {
+        return;
+    }
+
+    wchar_t className[64] = {};
+    if (GetClassNameW(candidate, className, static_cast<int>(_countof(className))) == 0) {
+        return;
+    }
+
+    if (m_watchListViewCreation && _wcsicmp(className, L"SysListView32") == 0) {
+        LogMessage(LogLevel::Info,
+                   L"Explorer pane creation event detected: list view (child=%p parent=%p)", candidate, m_shellViewWindow);
+        if (AttachListView(candidate)) {
+            RefreshListViewAccentState();
+        }
+    } else if (m_watchTreeViewCreation && _wcsicmp(className, L"SysTreeView32") == 0) {
+        LogMessage(LogLevel::Info,
+                   L"Explorer pane creation event detected: tree view (child=%p parent=%p)", candidate, m_shellViewWindow);
+        AttachTreeView(candidate);
+    }
+}
+
+void CExplorerBHO::UpdateExplorerPaneCreationWatch(bool watchListView, bool watchTreeView) {
+    const bool previousListWatch = m_watchListViewCreation;
+    const bool previousTreeWatch = m_watchTreeViewCreation;
+
+    m_watchListViewCreation = watchListView;
+    m_watchTreeViewCreation = watchTreeView;
+
+    if (previousListWatch != watchListView || previousTreeWatch != watchTreeView) {
+        if (watchListView || watchTreeView) {
+            LogMessage(LogLevel::Info,
+                       L"Explorer pane creation watch armed (view=%p list=%d tree=%d)", m_shellViewWindow, watchListView,
+                       watchTreeView);
+        } else {
+            LogMessage(LogLevel::Info, L"Explorer pane creation watch cleared (view=%p)", m_shellViewWindow);
+            m_explorerPaneFallbackUsed = false;
+        }
+    }
+}
+
+void CExplorerBHO::ScheduleExplorerPaneFallback() {
+    if (m_explorerPaneFallbackPending || m_explorerPaneFallbackUsed) {
         return;
     }
     if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
         return;
     }
+
     UINT_PTR timerId = SetTimer(m_shellViewWindow, 0, kEnsureRetryInitialDelayMs, nullptr);
     if (timerId != 0) {
-        m_explorerPaneRetryPending = true;
-        m_explorerPaneRetryTimerId = timerId;
+        m_explorerPaneFallbackPending = true;
+        m_explorerPaneFallbackTimerId = timerId;
+        m_explorerPaneFallbackUsed = true;
+        LogMessage(LogLevel::Info, L"Explorer pane fallback timer armed (view=%p delay=%u)", m_shellViewWindow,
+                   kEnsureRetryInitialDelayMs);
     } else {
-        LogLastError(L"SetTimer(explorer pane retry)", GetLastError());
+        LogLastError(L"SetTimer(explorer pane fallback)", GetLastError());
     }
 }
 
-void CExplorerBHO::CancelExplorerPaneRetry() {
-    if (m_explorerPaneRetryPending && m_shellViewWindow && IsWindow(m_shellViewWindow) && m_explorerPaneRetryTimerId) {
-        if (!KillTimer(m_shellViewWindow, m_explorerPaneRetryTimerId)) {
+void CExplorerBHO::CancelExplorerPaneFallback() {
+    if (m_explorerPaneFallbackPending && m_shellViewWindow && IsWindow(m_shellViewWindow) &&
+        m_explorerPaneFallbackTimerId != 0) {
+        if (!KillTimer(m_shellViewWindow, m_explorerPaneFallbackTimerId)) {
             const DWORD error = GetLastError();
             if (error != 0) {
-                LogLastError(L"KillTimer(explorer pane retry)", error);
+                LogLastError(L"KillTimer(explorer pane fallback)", error);
             }
         }
     }
-    m_explorerPaneRetryPending = false;
-    m_explorerPaneRetryTimerId = 0;
+    m_explorerPaneFallbackPending = false;
+    m_explorerPaneFallbackTimerId = 0;
 }
 
 void CExplorerBHO::RemoveExplorerViewSubclass() {
-    CancelExplorerPaneRetry();
+    CancelExplorerPaneFallback();
+    UpdateExplorerPaneCreationWatch(false, false);
     ResetNamespaceTreeControl();
 
     if (m_shellViewWindow && m_shellViewWindowSubclassInstalled && IsWindow(m_shellViewWindow)) {
@@ -3451,14 +3542,13 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
     }
 
-    if (msg == WM_TIMER && m_explorerPaneRetryPending && wParam == m_explorerPaneRetryTimerId) {
-        CancelExplorerPaneRetry();
+    if (msg == WM_TIMER && m_explorerPaneFallbackPending && wParam == m_explorerPaneFallbackTimerId) {
+        CancelExplorerPaneFallback();
         if (!isShellViewWindow || !IsWindow(hwnd)) {
             return false;
         }
-        if (!TryResolveExplorerPanes()) {
-            ScheduleExplorerPaneRetry();
-        }
+        LogMessage(LogLevel::Info, L"Explorer pane fallback timer fired (view=%p)", hwnd);
+        TryResolveExplorerPanes();
         *result = 0;
         return true;
     }
@@ -3531,9 +3621,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if ((isShellViewWindow || isDirectUiHost) && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
                 EnsureListViewSubclass();
                 UpdateGlowSurfaceTargets();
-                if (!TryResolveExplorerPanes()) {
-                    ScheduleExplorerPaneRetry();
+                if (LOWORD(wParam) == WM_CREATE) {
+                    HandleExplorerPaneCandidate(reinterpret_cast<HWND>(lParam));
                 }
+                TryResolveExplorerPanes();
             }
             break;
         }
