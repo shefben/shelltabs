@@ -4195,8 +4195,12 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                     *result = CDRF_NOTIFYITEMDRAW;
                 } else if ((customDraw->dwDrawStage & CDDS_ITEMPREPAINT) == CDDS_ITEMPREPAINT) {
                     if (m_statusBarThemeValid) {
-                        customDraw->clrText = m_statusBarTextColor;
-                        customDraw->clrTextBk = m_statusBarBackgroundColor;
+                        if (m_statusBarTextColor != CLR_DEFAULT) {
+                            ::SetTextColor(customDraw->hdc, m_statusBarTextColor);
+                        }
+                        if (m_statusBarBackgroundColor != CLR_DEFAULT) {
+                            ::SetBkColor(customDraw->hdc, m_statusBarBackgroundColor);
+                        }
                     }
                     *result = CDRF_DODEFAULT;
                 } else {
