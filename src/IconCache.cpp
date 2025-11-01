@@ -250,6 +250,7 @@ IconCache::Reference IconCache::Acquire(const std::wstring& familyKey, UINT icon
                 newEntry->refCount = 1;
                 newEntry->lruIt = m_lru.insert(m_lru.begin(), variantKey);
                 entry = newEntry.get();
+                newEntry->familyIt = m_familyIndex.emplace(familyKey, entry);
                 m_entries.emplace(variantKey, std::move(newEntry));
                 TrimLocked(&destroyList);
             }
@@ -286,12 +287,25 @@ void IconCache::InvalidateFamily(const std::wstring& familyKey) {
     }
 
     std::vector<HICON> destroyList;
+    std::vector<Entry*> toInvalidate;
     {
         std::unique_lock lock(m_mutex);
-        for (auto it = m_entries.begin(); it != m_entries.end();) {
-            Entry* entry = it->second.get();
-            if (!entry || entry->family != familyKey) {
-                ++it;
+        auto range = m_familyIndex.equal_range(familyKey);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second) {
+                toInvalidate.push_back(it->second);
+            }
+        }
+#if defined(SHELLTABS_BUILD_TESTS)
+        m_debugLastFamilyInvalidationCount = toInvalidate.size();
+#endif
+
+        for (Entry* entry : toInvalidate) {
+            if (!entry) {
+                continue;
+            }
+            auto mapIt = m_entries.find(entry->key);
+            if (mapIt == m_entries.end() || mapIt->second.get() != entry) {
                 continue;
             }
             if (entry->refCount > 0) {
@@ -300,17 +314,23 @@ void IconCache::InvalidateFamily(const std::wstring& familyKey) {
                 if (entry->lruIt != m_lru.end()) {
                     *entry->lruIt = newKey;
                 }
-                auto owned = std::move(it->second);
-                it = m_entries.erase(it);
+                auto node = m_entries.extract(mapIt);
                 entry->key = std::move(newKey);
-                it = m_entries.emplace(entry->key, std::move(owned)).first;
-                ++it;
+                node.key() = entry->key;
+                m_entries.insert(std::move(node));
                 continue;
             }
+
             entry->stale = false;
             destroyList.push_back(entry->icon);
-            m_lru.erase(entry->lruIt);
-            it = m_entries.erase(it);
+            if (entry->lruIt != m_lru.end()) {
+                m_lru.erase(entry->lruIt);
+            }
+            auto familyIt = entry->familyIt;
+            if (familyIt != m_familyIndex.end()) {
+                m_familyIndex.erase(familyIt);
+            }
+            m_entries.erase(mapIt);
             ++m_evictions;
         }
     }
@@ -346,6 +366,32 @@ void IconCache::LogStatsNow() {
                static_cast<unsigned long long>(snapshot.misses),
                static_cast<unsigned long long>(snapshot.evictions), hitRate);
 }
+
+#if defined(SHELLTABS_BUILD_TESTS)
+void IconCache::DebugSetCapacity(size_t capacity) {
+    std::vector<HICON> destroyList;
+    {
+        std::unique_lock lock(m_mutex);
+        m_capacity = capacity;
+        TrimLocked(&destroyList);
+    }
+    for (HICON icon : destroyList) {
+        if (icon) {
+            DestroyIcon(icon);
+        }
+    }
+}
+
+size_t IconCache::DebugGetLastFamilyInvalidationCount() {
+    std::unique_lock lock(m_mutex);
+    return m_debugLastFamilyInvalidationCount;
+}
+
+void IconCache::DebugResetLastFamilyInvalidationCount() {
+    std::unique_lock lock(m_mutex);
+    m_debugLastFamilyInvalidationCount = 0;
+}
+#endif
 
 std::wstring IconCache::BuildVariantKey(const std::wstring& familyKey, UINT iconFlags) {
     std::wstring result = familyKey;
@@ -397,6 +443,10 @@ void IconCache::TrimLocked(std::vector<HICON>* destroyList) {
         }
         entry->stale = false;
         destroyList->push_back(entry->icon);
+        auto familyIt = entry->familyIt;
+        if (familyIt != m_familyIndex.end()) {
+            m_familyIndex.erase(familyIt);
+        }
         m_entries.erase(mapIt);
         m_lru.erase(listIt);
         ++m_evictions;
@@ -428,6 +478,9 @@ void IconCache::Release(Entry* entry) {
                 if (it != m_entries.end()) {
                     destroyList.push_back(entry->icon);
                     m_lru.erase(entry->lruIt);
+                    if (entry->familyIt != m_familyIndex.end()) {
+                        m_familyIndex.erase(entry->familyIt);
+                    }
                     m_entries.erase(it);
                     ++m_evictions;
                 }

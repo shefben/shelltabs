@@ -254,4 +254,29 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         _UNICODE
         _WIN32_WINNT=0x0A00
     )
+
+    add_executable(ShellTabsIconCacheTests
+        tests/IconCacheStressTests.cpp
+        tests/IconCacheTestStubs.cpp
+        tests/TestLoggingStubs.cpp
+        src/IconCache.cpp
+    )
+
+    target_include_directories(ShellTabsIconCacheTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsIconCacheTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+        NOMINMAX
+        SHELLTABS_BUILD_TESTS
+    )
+
+    target_link_libraries(ShellTabsIconCacheTests PRIVATE
+        user32
+        shell32
+    )
 endif()
