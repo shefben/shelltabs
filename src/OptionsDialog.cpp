@@ -53,7 +53,7 @@ constexpr int kGroupDialogHeight = 200;
 constexpr int kEditorWidth = 340;
 constexpr int kEditorHeight = 220;
 constexpr int kGlowDialogWidth = 260;
-constexpr int kGlowDialogHeight = 180;
+constexpr int kGlowDialogHeight = 260;
 constexpr int kGlowCheckboxWidth = 210;
 constexpr int kCustomizationScrollLineStep = 16;
 constexpr int kCustomizationScrollPageStep = 80;
@@ -65,6 +65,20 @@ struct PreviewBitmapResult {
     UINT64 token = 0;
     HBITMAP bitmap = nullptr;
 };
+
+struct GlowSurfaceControlMapping {
+    int controlId = 0;
+    GlowSurfaceOptions GlowSurfacePalette::*member = nullptr;
+};
+
+constexpr std::array<GlowSurfaceControlMapping, 6> kGlowSurfaceControlMappings = {{
+    {IDC_GLOW_SURFACE_LISTVIEW, &GlowSurfacePalette::listView},
+    {IDC_GLOW_SURFACE_HEADER, &GlowSurfacePalette::header},
+    {IDC_GLOW_SURFACE_REBAR, &GlowSurfacePalette::rebar},
+    {IDC_GLOW_SURFACE_TOOLBAR, &GlowSurfacePalette::toolbar},
+    {IDC_GLOW_SURFACE_EDIT, &GlowSurfacePalette::edits},
+    {IDC_GLOW_SURFACE_DIRECTUI, &GlowSurfacePalette::directUi},
+}};
 
 enum ControlIds : int {
     IDC_MAIN_REOPEN = 5001,
@@ -143,6 +157,12 @@ enum ControlIds : int {
     IDC_GLOW_SECONDARY_LABEL = 5407,
     IDC_GLOW_SECONDARY_PREVIEW = 5408,
     IDC_GLOW_SECONDARY_BUTTON = 5409,
+    IDC_GLOW_SURFACE_LISTVIEW = 5410,
+    IDC_GLOW_SURFACE_HEADER = 5411,
+    IDC_GLOW_SURFACE_REBAR = 5412,
+    IDC_GLOW_SURFACE_TOOLBAR = 5413,
+    IDC_GLOW_SURFACE_EDIT = 5414,
+    IDC_GLOW_SURFACE_DIRECTUI = 5415,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -941,7 +961,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 10;
+    dlg->cdit = 16;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kGlowDialogWidth;
@@ -985,6 +1005,31 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     AppendString(data, L"Enable neon glow effects");
     AppendWord(data, 0);
 
+    auto appendSurfaceCheckbox = [&](int controlId, SHORT y, const wchar_t* label) {
+        AlignDialogBuffer(data);
+        size_t localOffset = data.size();
+        data.resize(localOffset + sizeof(DLGITEMTEMPLATE));
+        auto* checkbox = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + localOffset);
+        checkbox->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+        checkbox->dwExtendedStyle = 0;
+        checkbox->x = 16;
+        checkbox->y = y;
+        checkbox->cx = kGlowCheckboxWidth;
+        checkbox->cy = 12;
+        checkbox->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0080);
+        AppendString(data, label);
+        AppendWord(data, 0);
+    };
+
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_LISTVIEW, 44, L"Enable list view glow");
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_HEADER, 60, L"Enable column header glow");
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_REBAR, 76, L"Enable rebar glow");
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_TOOLBAR, 92, L"Enable toolbar glow");
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_EDIT, 108, L"Enable address bar glow");
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_DIRECTUI, 124, L"Enable DirectUI glow");
+
     AlignDialogBuffer(data);
     offset = data.size();
     data.resize(offset + sizeof(DLGITEMTEMPLATE));
@@ -992,7 +1037,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     customColors->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
     customColors->dwExtendedStyle = 0;
     customColors->x = 16;
-    customColors->y = 44;
+    customColors->y = 144;
     customColors->cx = kGlowCheckboxWidth;
     customColors->cy = 12;
     customColors->id = static_cast<WORD>(IDC_GLOW_CUSTOM_COLORS);
@@ -1008,7 +1053,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     useGradient->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
     useGradient->dwExtendedStyle = 0;
     useGradient->x = 16;
-    useGradient->y = 64;
+    useGradient->y = 164;
     useGradient->cx = kGlowCheckboxWidth;
     useGradient->cy = 12;
     useGradient->id = static_cast<WORD>(IDC_GLOW_USE_GRADIENT);
@@ -1024,7 +1069,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     primaryLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     primaryLabel->dwExtendedStyle = 0;
     primaryLabel->x = 16;
-    primaryLabel->y = 90;
+    primaryLabel->y = 192;
     primaryLabel->cx = 68;
     primaryLabel->cy = 12;
     primaryLabel->id = static_cast<WORD>(IDC_GLOW_PRIMARY_LABEL);
@@ -1040,7 +1085,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     primaryPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
     primaryPreview->dwExtendedStyle = 0;
     primaryPreview->x = 86;
-    primaryPreview->y = 88;
+    primaryPreview->y = 190;
     primaryPreview->cx = 40;
     primaryPreview->cy = 16;
     primaryPreview->id = static_cast<WORD>(IDC_GLOW_PRIMARY_PREVIEW);
@@ -1056,7 +1101,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     primaryButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     primaryButton->dwExtendedStyle = 0;
     primaryButton->x = 134;
-    primaryButton->y = 86;
+    primaryButton->y = 188;
     primaryButton->cx = 72;
     primaryButton->cy = 14;
     primaryButton->id = static_cast<WORD>(IDC_GLOW_PRIMARY_BUTTON);
@@ -1072,7 +1117,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     secondaryLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     secondaryLabel->dwExtendedStyle = 0;
     secondaryLabel->x = 16;
-    secondaryLabel->y = 118;
+    secondaryLabel->y = 220;
     secondaryLabel->cx = 68;
     secondaryLabel->cy = 12;
     secondaryLabel->id = static_cast<WORD>(IDC_GLOW_SECONDARY_LABEL);
@@ -1088,7 +1133,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     secondaryPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
     secondaryPreview->dwExtendedStyle = 0;
     secondaryPreview->x = 86;
-    secondaryPreview->y = 116;
+    secondaryPreview->y = 218;
     secondaryPreview->cx = 40;
     secondaryPreview->cy = 16;
     secondaryPreview->id = static_cast<WORD>(IDC_GLOW_SECONDARY_PREVIEW);
@@ -1104,7 +1149,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     secondaryButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     secondaryButton->dwExtendedStyle = 0;
     secondaryButton->x = 134;
-    secondaryButton->y = 114;
+    secondaryButton->y = 216;
     secondaryButton->cx = 72;
     secondaryButton->cy = 14;
     secondaryButton->id = static_cast<WORD>(IDC_GLOW_SECONDARY_BUTTON);
@@ -2437,6 +2482,10 @@ void UpdateGlowControlStates(HWND hwnd) {
     const bool glowEnabled = IsDlgButtonChecked(hwnd, IDC_GLOW_ENABLE) == BST_CHECKED;
     EnableWindow(GetDlgItem(hwnd, IDC_GLOW_CUSTOM_COLORS), glowEnabled);
 
+    for (const auto& mapping : kGlowSurfaceControlMappings) {
+        EnableWindow(GetDlgItem(hwnd, mapping.controlId), glowEnabled);
+    }
+
     const bool customColors = glowEnabled &&
                               IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
     EnableWindow(GetDlgItem(hwnd, IDC_GLOW_USE_GRADIENT), customColors);
@@ -2481,6 +2530,11 @@ void RefreshGlowControls(HWND hwnd, OptionsDialogData* data) {
                    data->workingOptions.useCustomNeonGlowColors ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(hwnd, IDC_GLOW_USE_GRADIENT,
                    data->workingOptions.useNeonGlowGradient ? BST_CHECKED : BST_UNCHECKED);
+
+    for (const auto& mapping : kGlowSurfaceControlMappings) {
+        const GlowSurfaceOptions& surface = data->workingOptions.glowPalette.*(mapping.member);
+        CheckDlgButton(hwnd, mapping.controlId, surface.enabled ? BST_CHECKED : BST_UNCHECKED);
+    }
 
     SetPreviewColor(hwnd, IDC_GLOW_PRIMARY_PREVIEW, &data->glowPrimaryBrush,
                     data->workingOptions.neonGlowPrimaryColor);
@@ -3854,6 +3908,23 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
             }
             auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
             const WORD controlId = LOWORD(wParam);
+            for (const auto& mapping : kGlowSurfaceControlMappings) {
+                if (controlId == mapping.controlId) {
+                    if (data) {
+                        const bool enabled =
+                            IsDlgButtonChecked(hwnd, controlId) == BST_CHECKED;
+                        GlowSurfaceOptions& surface =
+                            data->workingOptions.glowPalette.*(mapping.member);
+                        if (surface.enabled != enabled) {
+                            surface.enabled = enabled;
+                            SendMessageW(GetParent(hwnd), PSM_CHANGED,
+                                         reinterpret_cast<WPARAM>(hwnd), 0);
+                            ApplyCustomizationPreview(hwnd, data);
+                        }
+                    }
+                    return TRUE;
+                }
+            }
             switch (controlId) {
                 case IDC_GLOW_ENABLE:
                     if (data) {
@@ -3916,6 +3987,12 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
                         IsDlgButtonChecked(hwnd, IDC_GLOW_CUSTOM_COLORS) == BST_CHECKED;
                     data->workingOptions.useNeonGlowGradient =
                         IsDlgButtonChecked(hwnd, IDC_GLOW_USE_GRADIENT) == BST_CHECKED;
+                    for (const auto& mapping : kGlowSurfaceControlMappings) {
+                        GlowSurfaceOptions& surface =
+                            data->workingOptions.glowPalette.*(mapping.member);
+                        surface.enabled =
+                            IsDlgButtonChecked(hwnd, mapping.controlId) == BST_CHECKED;
+                    }
                     UpdateGlowPaletteFromLegacySettings(data->workingOptions);
                     data->applyInvoked = true;
                 }

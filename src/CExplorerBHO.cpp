@@ -2089,19 +2089,23 @@ void CExplorerBHO::DetachListViewHosts() {
     m_listViewHostSubclassed.clear();
 }
 
-void CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass) {
+bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass) {
     if (!hwnd || !IsWindow(hwnd)) {
-        return;
+        return false;
     }
     if (!IsWindowOwnedByThisExplorer(hwnd)) {
-        return;
+        return false;
+    }
+    if (!m_glowRenderer.ShouldRenderSurface(kind)) {
+        return false;
     }
 
     auto existing = m_glowSurfaceKinds.find(hwnd);
     if (existing != m_glowSurfaceKinds.end()) {
         existing->second = kind;
         m_glowRenderer.RegisterSurface(hwnd, kind);
-        return;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
     }
 
     if (ensureSubclass) {
@@ -2111,13 +2115,15 @@ void CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
             message += DescribeSurfaceKind(kind);
             message += L")";
             LogLastError(message.c_str(), error);
-            return;
+            return false;
         }
     }
 
     m_glowSurfaceKinds.emplace(hwnd, kind);
     m_glowRenderer.RegisterSurface(hwnd, kind);
+    InvalidateRect(hwnd, nullptr, FALSE);
     LogMessage(LogLevel::Info, L"Registered glow surface %ls (hwnd=%p)", DescribeSurfaceKind(kind), hwnd);
+    return true;
 }
 
 void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
@@ -2137,6 +2143,7 @@ void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher
             if (target && IsWindow(target)) {
                 RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc,
                                      reinterpret_cast<UINT_PTR>(this));
+                InvalidateRect(target, nullptr, FALSE);
             }
             m_glowRenderer.UnregisterSurface(target);
             it = m_glowSurfaceKinds.erase(it);
@@ -2154,6 +2161,7 @@ void CExplorerBHO::ResetGlowSurfaces() {
         }
         if (IsWindow(target)) {
             RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+            InvalidateRect(target, nullptr, FALSE);
         }
         m_glowRenderer.UnregisterSurface(target);
     }
@@ -2164,25 +2172,29 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
     std::unordered_set<HWND, HandleHasher> active;
 
     if (m_listView && IsWindow(m_listView)) {
-        RegisterGlowSurface(m_listView, ExplorerSurfaceKind::ListView, false);
-        active.insert(m_listView);
+        if (RegisterGlowSurface(m_listView, ExplorerSurfaceKind::ListView, false)) {
+            active.insert(m_listView);
+        }
         if (HWND header = ListView_GetHeader(m_listView)) {
-            RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
-            active.insert(header);
+            if (RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true)) {
+                active.insert(header);
+            }
         }
     }
 
     if (m_directUiView && IsWindow(m_directUiView)) {
-        RegisterGlowSurface(m_directUiView, ExplorerSurfaceKind::DirectUi, false);
-        active.insert(m_directUiView);
+        if (RegisterGlowSurface(m_directUiView, ExplorerSurfaceKind::DirectUi, true)) {
+            active.insert(m_directUiView);
+        }
     }
 
     HWND frame = GetTopLevelExplorerWindow();
     if (frame && IsWindow(frame)) {
         HWND rebar = FindDescendantWindow(frame, L"ReBarWindow32");
         if (rebar && IsWindow(rebar) && IsWindowOwnedByThisExplorer(rebar)) {
-            RegisterGlowSurface(rebar, ExplorerSurfaceKind::Rebar, true);
-            active.insert(rebar);
+            if (RegisterGlowSurface(rebar, ExplorerSurfaceKind::Rebar, true)) {
+                active.insert(rebar);
+            }
 
             struct EnumContext {
                 CExplorerBHO* self = nullptr;
@@ -2200,8 +2212,9 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
                         if (HWND parent = GetParent(child); parent && MatchesClass(parent, L"ShellTabsBandWindow")) {
                             return TRUE;
                         }
-                        ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Toolbar, true);
-                        ctx->active->insert(child);
+                        if (ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Toolbar, true)) {
+                            ctx->active->insert(child);
+                        }
                     }
                     return TRUE;
                 },
@@ -2209,8 +2222,9 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         }
 
         if (HWND edit = FindAddressEditControl()) {
-            RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true);
-            active.insert(edit);
+            if (RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true)) {
+                active.insert(edit);
+            }
         }
     }
 
@@ -2223,6 +2237,9 @@ void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
         return;
     }
     if (!m_glowRenderer.ShouldRender()) {
+        return;
+    }
+    if (!m_glowRenderer.ShouldRenderSurface(it->second)) {
         return;
     }
 
@@ -3318,6 +3335,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         InvalidateFolderBackgroundTargets();
         RefreshListViewAccentState();
         m_glowRenderer.InvalidateRegisteredSurfaces();
+        UpdateGlowSurfaceTargets();
         *result = 0;
         return true;
     }

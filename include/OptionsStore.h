@@ -39,6 +39,7 @@ enum class GlowSurfaceMode {
 };
 
 struct GlowSurfaceOptions {
+    bool enabled = true;
     GlowSurfaceMode mode = GlowSurfaceMode::kGradient;
     COLORREF solidColor = RGB(0, 120, 215);
     COLORREF gradientStartColor = RGB(0, 120, 215);
@@ -51,6 +52,7 @@ struct GlowSurfaceOptions {
 struct GlowSurfacePalette {
     GlowSurfaceOptions header{};
     GlowSurfaceOptions listView{GlowSurfaceMode::kExplorerAccent};
+    GlowSurfaceOptions directUi{GlowSurfaceMode::kExplorerAccent};
     GlowSurfaceOptions toolbar{};
     GlowSurfaceOptions rebar{};
     GlowSurfaceOptions edits{};

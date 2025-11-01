@@ -80,6 +80,9 @@ void ExplorerGlowRenderer::InvalidateRegisteredSurfaces() const {
     for (const auto& entry : m_surfaces) {
         HWND hwnd = entry.first;
         if (hwnd && IsWindow(hwnd)) {
+            if (!ShouldRenderSurface(entry.second.kind)) {
+                continue;
+            }
             InvalidateRect(hwnd, nullptr, FALSE);
         }
     }
@@ -125,35 +128,38 @@ void ExplorerGlowRenderer::EnsureSurfaceState(HWND hwnd, ExplorerSurfaceKind kin
     }
 }
 
-ExplorerGlowRenderer::GlowColorSet ExplorerGlowRenderer::ResolveColors(ExplorerSurfaceKind kind) const {
-    GlowColorSet colors{};
+const GlowSurfaceOptions* ExplorerGlowRenderer::ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept {
     if (!m_glowEnabled) {
-        return colors;
+        return nullptr;
     }
 
-    const GlowSurfaceOptions* options = nullptr;
     switch (kind) {
         case ExplorerSurfaceKind::ListView:
+            return &m_palette.listView;
         case ExplorerSurfaceKind::DirectUi:
-            options = &m_palette.listView;
-            break;
+            return &m_palette.directUi;
         case ExplorerSurfaceKind::Header:
-            options = &m_palette.header;
-            break;
+            return &m_palette.header;
         case ExplorerSurfaceKind::Rebar:
-            options = &m_palette.rebar;
-            break;
+            return &m_palette.rebar;
         case ExplorerSurfaceKind::Toolbar:
-            options = &m_palette.toolbar;
-            break;
+            return &m_palette.toolbar;
         case ExplorerSurfaceKind::Edit:
-            options = &m_palette.edits;
-            break;
+            return &m_palette.edits;
         default:
-            break;
+            return nullptr;
     }
+}
 
-    if (!options) {
+bool ExplorerGlowRenderer::ShouldRenderSurface(ExplorerSurfaceKind kind) const noexcept {
+    const GlowSurfaceOptions* options = ResolveSurfaceOptions(kind);
+    return options && options->enabled;
+}
+
+ExplorerGlowRenderer::GlowColorSet ExplorerGlowRenderer::ResolveColors(ExplorerSurfaceKind kind) const {
+    GlowColorSet colors{};
+    const GlowSurfaceOptions* options = ResolveSurfaceOptions(kind);
+    if (!options || !options->enabled) {
         return colors;
     }
 
