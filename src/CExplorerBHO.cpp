@@ -6854,7 +6854,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             buttonFontEndRgb = sampleFontGradientAtX(buttonRect.right);
         }
 
-        auto computeBrightFontColor = [&](COLORREF rgb) -> Gdiplus::Color {
+        auto computeBrightFontColorFn = [&](COLORREF rgb) -> Gdiplus::Color {
             const BYTE adjustedRed = applyBrightness(GetRValue(rgb));
             const BYTE adjustedGreen = applyBrightness(GetGValue(rgb));
             const BYTE adjustedBlue = applyBrightness(GetBValue(rgb));
@@ -6863,10 +6863,10 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 buttonIsPressed, highlightBackgroundColor);
         };
 
-        const Gdiplus::Color buttonBrightFontStart = computeBrightFontColor(buttonFontStartRgb);
-        buttonBrightFontEnd = computeBrightFontColor(buttonFontEndRgb);
+        const Gdiplus::Color buttonBrightFontStart = computeBrightFontColorFn(buttonFontStartRgb);
+        buttonBrightFontEnd = computeBrightFontColorFn(buttonFontEndRgb);
 
-        auto computeOpaqueFontColor = [&](const Gdiplus::Color& fontColor, bool useStart) {
+        auto computeOpaqueFontColorFn = [&](const Gdiplus::Color& fontColor, bool useStart) {
             if (buttonTextAlpha >= 255) {
                 return Gdiplus::Color(255, fontColor.GetR(), fontColor.GetG(), fontColor.GetB());
             }
@@ -6898,8 +6898,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                                   blendComponent(fontColor.GetB(), backgroundBlue));
         };
 
-        buttonTextPaintStart = computeOpaqueFontColor(buttonBrightFontStart, true);
-        buttonTextPaintEnd = computeOpaqueFontColor(buttonBrightFontEnd, false);
+        buttonTextPaintStart = computeOpaqueFontColorFn(buttonBrightFontStart, true);
+        buttonTextPaintEnd = computeOpaqueFontColorFn(buttonBrightFontEnd, false);
 
         constexpr int kTextPadding = 8;
         const int iconReserve = hasIcon ? (imageWidth + 6) : 0;
@@ -6933,10 +6933,10 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                         textFontStartRgb = sampleFontGradientAtX(textRect.left);
                         textFontEndRgb = sampleFontGradientAtX(textRect.right);
                     }
-                    const Gdiplus::Color brightFontStart = computeBrightFontColor(textFontStartRgb);
-                    const Gdiplus::Color textBrightFontEnd = computeBrightFontColor(textFontEndRgb);
-                    buttonTextPaintStart = computeOpaqueFontColor(brightFontStart, true);
-                    buttonTextPaintEnd = computeOpaqueFontColor(textBrightFontEnd, false);
+                    const Gdiplus::Color brightFontStart = computeBrightFontColorFn(textFontStartRgb);
+                    const Gdiplus::Color textBrightFontEnd = computeBrightFontColorFn(textFontEndRgb);
+                    buttonTextPaintStart = computeOpaqueFontColorFn(brightFontStart, true);
+                    buttonTextPaintEnd = computeOpaqueFontColorFn(textBrightFontEnd, false);
 
                     if (buttonTextAlpha > 0) {
                         if (buttonUseFontGradient) {
@@ -6983,7 +6983,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                             const BYTE avgRed = AverageColorChannel(brightFontStart.GetR(), textBrightFontEnd.GetR());
                             const BYTE avgGreen = AverageColorChannel(brightFontStart.GetG(), textBrightFontEnd.GetG());
                             const BYTE avgBlue = AverageColorChannel(brightFontStart.GetB(), textBrightFontEnd.GetB());
-                            Gdiplus::Color solidColor = computeOpaqueFontColor(
+                            Gdiplus::Color solidColor = computeOpaqueFontColorFn(
                                 Gdiplus::Color(buttonTextAlpha, avgRed, avgGreen, avgBlue), true);
                             Gdiplus::SolidBrush textBrush(solidColor);
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
@@ -7000,10 +7000,11 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         if (buttonHasDropdown && m_useCustomBreadcrumbFontColors) {
             const int arrowLeft = buttonRect.right - 12;
             const int arrowRight = buttonRect.right - 6;
-            const Gdiplus::Color arrowBrightStart = computeBrightFontColor(sampleFontGradientAtX(arrowLeft));
-            const Gdiplus::Color arrowBrightEnd = computeBrightFontColor(sampleFontGradientAtX(arrowRight));
-            arrowTextStart = computeOpaqueFontColor(arrowBrightStart, true);
-            arrowTextEnd = computeOpaqueFontColor(arrowBrightEnd, false);
+            const Gdiplus::Color arrowBrightStart =
+                computeBrightFontColorFn(sampleFontGradientAtX(arrowLeft));
+            const Gdiplus::Color arrowBrightEnd = computeBrightFontColorFn(sampleFontGradientAtX(arrowRight));
+            arrowTextStart = computeOpaqueFontColorFn(arrowBrightStart, true);
+            arrowTextEnd = computeOpaqueFontColorFn(arrowBrightEnd, false);
         }
 
         if (buttonHasDropdown) {
