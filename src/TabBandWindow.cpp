@@ -4694,6 +4694,14 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
                 return;
         }
 
+        if (id == IDM_CONTEXT_MENU_CUSTOMIZATIONS) {
+                if (m_owner) {
+                        m_owner->OnShowOptionsDialog(OptionsDialogPage::kContextMenus);
+                }
+                ClearExplorerContext();
+                return;
+        }
+
         if (id == IDM_OPTIONS) {
                 if (m_owner) {
                         m_owner->OnShowOptionsDialog(OptionsDialogPage::kGeneral);
@@ -6228,6 +6236,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     }
     AppendMenuW(menu, MF_STRING, IDM_MANAGE_GROUPS, L"Manage Groups...");
+    AppendMenuW(menu, MF_STRING, IDM_CONTEXT_MENU_CUSTOMIZATIONS, L"Context Menu Customizations...");
     AppendMenuW(menu, MF_STRING, IDM_OPTIONS, L"Options...");
 
     PopulateSavedGroupsMenu(menu, true);
