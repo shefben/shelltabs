@@ -2089,7 +2089,7 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     m_listViewControlWindow = controlWindow;
     m_listViewControl = std::move(control);
 
-    RegisterGlowSurface(controlWindow, ExplorerSurfaceKind::ListView, true);
+    RegisterGlowSurface(newListView, ExplorerSurfaceKind::ListView, true);
     if (HWND header = ListView_GetHeader(m_listView)) {
         RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
     }
@@ -2299,13 +2299,11 @@ void CExplorerBHO::ResetGlowSurfaces() {
 void CExplorerBHO::UpdateGlowSurfaceTargets() {
     std::unordered_set<HWND, HandleHasher> active;
 
-    if (m_listViewControlWindow && IsWindow(m_listViewControlWindow)) {
-        if (RegisterGlowSurface(m_listViewControlWindow, ExplorerSurfaceKind::ListView, true)) {
-            active.insert(m_listViewControlWindow);
-        }
-    }
-
     if (m_listView && IsWindow(m_listView)) {
+        if (RegisterGlowSurface(m_listView, ExplorerSurfaceKind::ListView, true)) {
+            active.insert(m_listView);
+        }
+
         if (HWND header = ListView_GetHeader(m_listView)) {
             if (RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true)) {
                 active.insert(header);
