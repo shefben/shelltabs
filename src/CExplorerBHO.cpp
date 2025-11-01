@@ -2444,7 +2444,28 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         }
     }
 
-    if (!chrome) {
+    std::optional<COLORREF> backgroundCandidate;
+    std::optional<COLORREF> textCandidate;
+
+    if (chrome) {
+        auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
+            const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
+            const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
+            const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
+            return RGB(red, green, blue);
+        };
+
+        const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
+        const double luminance = ComputeColorLuminance(background);
+        backgroundCandidate = background;
+        textCandidate = luminance > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    } else if (IsAppDarkModePreferred()) {
+        LogMessage(LogLevel::Info, L"Status bar theme fallback to dark preference (hwnd=%p)", m_statusBar);
+        backgroundCandidate = RGB(32, 32, 32);
+        textCandidate = RGB(241, 241, 241);
+    }
+
+    if (!backgroundCandidate.has_value()) {
         if (m_statusBarThemeValid || m_statusBarBackgroundApplied) {
             LogMessage(LogLevel::Warning, L"Status bar theme reset: failed to sample toolbar chrome (hwnd=%p)", m_statusBar);
             SendMessageW(m_statusBar, SB_SETBKCOLOR, 0, CLR_DEFAULT);
@@ -2457,16 +2478,8 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         return;
     }
 
-    auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
-        const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
-        const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
-        const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
-        return RGB(red, green, blue);
-    };
-
-    const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
-    const double luminance = ComputeColorLuminance(background);
-    const COLORREF text = luminance > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    const COLORREF background = backgroundCandidate.value();
+    const COLORREF text = textCandidate.value_or(RGB(0, 0, 0));
 
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
     const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
