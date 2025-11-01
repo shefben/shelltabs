@@ -44,6 +44,7 @@ add_library(ShellTabs SHARED
     src/Notifications.cpp
     src/BreadcrumbGradient.cpp
     src/DirectUiHooks.cpp
+    src/ThemeHooks.cpp
     src/ExplorerGlowSurfaces.cpp
     src/PaneHooks.cpp
     src/ShellTabsListView.cpp
@@ -100,6 +101,7 @@ target_link_libraries(ShellTabs PRIVATE
     uiautomationcore
     runtimeobject
     wtsapi32
+    psapi
 )
 
 set_target_properties(ShellTabs PROPERTIES
