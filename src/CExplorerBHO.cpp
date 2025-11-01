@@ -37,6 +37,7 @@
 #include <optional>
 
 #include "BackgroundCache.h"
+#include "BreadcrumbGradient.h"
 #include "ComUtils.h"
 #include "Guids.h"
 #include "Logging.h"
@@ -2509,6 +2510,16 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
     m_glowSurfaces.erase(it);
 }
 
+void CExplorerBHO::RequestHeaderGlowRepaint() const {
+    for (const auto& entry : m_glowSurfaces) {
+        if (!entry.second) {
+            continue;
+        }
+        if (entry.second->Kind() != ExplorerSurfaceKind::Header) {
+            continue;
+        }
+        entry.second->RequestRepaint();
+    }
 ExplorerGlowSurface* CExplorerBHO::ResolveGlowSurface(HWND hwnd) {
     auto it = m_glowSurfaces.find(hwnd);
     if (it == m_glowSurfaces.end()) {
@@ -6262,6 +6273,14 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         loggedOptionsLoadFailure = false;
     }
     const ShellTabsOptions options = store.Get();
+    const bool previousBreadcrumbFontGradientEnabled = m_breadcrumbFontGradientEnabled;
+    const int previousBreadcrumbFontBrightness = m_breadcrumbFontBrightness;
+    const bool previousUseCustomFontColors = m_useCustomBreadcrumbFontColors;
+    const bool previousUseCustomGradientColors = m_useCustomBreadcrumbGradientColors;
+    const COLORREF previousBreadcrumbFontGradientStart = m_breadcrumbFontGradientStartColor;
+    const COLORREF previousBreadcrumbFontGradientEnd = m_breadcrumbFontGradientEndColor;
+    const COLORREF previousBreadcrumbGradientStart = m_breadcrumbGradientStartColor;
+    const COLORREF previousBreadcrumbGradientEnd = m_breadcrumbGradientEndColor;
     m_glowCoordinator.Configure(options);
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
@@ -6280,6 +6299,18 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_useCustomProgressGradientColors = options.useCustomProgressBarGradientColors;
     m_progressGradientStartColor = options.progressBarGradientStartColor;
     m_progressGradientEndColor = options.progressBarGradientEndColor;
+    const bool breadcrumbFontGradientChanged =
+        previousBreadcrumbFontGradientEnabled != m_breadcrumbFontGradientEnabled ||
+        previousBreadcrumbFontBrightness != m_breadcrumbFontBrightness ||
+        previousUseCustomFontColors != m_useCustomBreadcrumbFontColors ||
+        previousUseCustomGradientColors != m_useCustomBreadcrumbGradientColors ||
+        previousBreadcrumbFontGradientStart != m_breadcrumbFontGradientStartColor ||
+        previousBreadcrumbFontGradientEnd != m_breadcrumbFontGradientEndColor ||
+        previousBreadcrumbGradientStart != m_breadcrumbGradientStartColor ||
+        previousBreadcrumbGradientEnd != m_breadcrumbGradientEndColor;
+    if (breadcrumbFontGradientChanged) {
+        RequestHeaderGlowRepaint();
+    }
     const bool previousAccentSetting = m_useExplorerAccentColors;
     m_useExplorerAccentColors = options.useExplorerAccentColors;
     if (previousAccentSetting != m_useExplorerAccentColors) {
@@ -7190,55 +7221,11 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
         oldFont = static_cast<HFONT>(SelectObject(dc, font));
     }
 
-    static const std::array<COLORREF, 7> kRainbowColors = {
-        RGB(255, 59, 48),   // red
-        RGB(255, 149, 0),   // orange
-        RGB(255, 204, 0),   // yellow
-        RGB(52, 199, 89),   // green
-        RGB(0, 122, 255),   // blue
-        RGB(88, 86, 214),   // indigo
-        RGB(175, 82, 222)   // violet
-    };
-
-    COLORREF gradientStart = m_breadcrumbFontGradientStartColor;
-    COLORREF gradientEnd = m_breadcrumbFontGradientEndColor;
-    if (!m_useCustomBreadcrumbFontColors) {
-        if (m_useCustomBreadcrumbGradientColors) {
-            gradientStart = m_breadcrumbGradientStartColor;
-            gradientEnd = m_breadcrumbGradientEndColor;
-        } else {
-            gradientStart = kRainbowColors.front();
-            gradientEnd = kRainbowColors[1];
-        }
-    }
-
-    if (gradientStart == gradientEnd) {
-        auto brightenChannel = [](BYTE channel) -> BYTE {
-            return static_cast<BYTE>(std::clamp<int>(channel + 20, 0, 255));
-        };
-        gradientEnd = RGB(brightenChannel(GetRValue(gradientEnd)), brightenChannel(GetGValue(gradientEnd)),
-                          brightenChannel(GetBValue(gradientEnd)));
-        if (gradientStart == gradientEnd) {
-            gradientEnd = RGB(std::min(255, GetRValue(gradientEnd) + 10),
-                              std::min(255, GetGValue(gradientEnd) + 10),
-                              std::min(255, GetBValue(gradientEnd) + 10));
-        }
-    }
-    const int brightness = std::clamp<int>(m_breadcrumbFontBrightness, 0, 100);
+    const auto& gradientConfig = m_glowCoordinator.BreadcrumbFontGradient();
+    const BreadcrumbGradientPalette gradientPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
 
     const COLORREF previousTextColor = GetTextColor(dc);
     const int previousBkMode = SetBkMode(dc, TRANSPARENT);
-
-    auto applyBrightness = [&](BYTE channel) -> BYTE {
-        const int boosted = channel + ((255 - channel) * brightness) / 100;
-        return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
-    };
-
-    auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
-        const double value = static_cast<double>(start) +
-                             (static_cast<double>(end) - static_cast<double>(start)) * position;
-        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
-    };
 
     struct CharacterMetrics {
         int index;
@@ -7422,14 +7409,8 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
             double position = (centerX - gradientLeft) / gradientWidth;
             position = std::clamp<double>(position, 0.0, 1.0);
 
-            const BYTE red = applyBrightness(
-                interpolateChannel(GetRValue(gradientStart), GetRValue(gradientEnd), position));
-            const BYTE green = applyBrightness(
-                interpolateChannel(GetGValue(gradientStart), GetGValue(gradientEnd), position));
-            const BYTE blue = applyBrightness(
-                interpolateChannel(GetBValue(gradientStart), GetBValue(gradientEnd), position));
-
-            SetTextColor(dc, RGB(red, green, blue));
+            const COLORREF gradientColor = EvaluateBreadcrumbGradientColor(gradientPalette, position);
+            SetTextColor(dc, gradientColor);
         }
 
         const int drawX = static_cast<int>(std::lround(character.x));

@@ -1,5 +1,7 @@
 #include "ExplorerGlowSurfaces.h"
 
+#include "BreadcrumbGradient.h"
+
 #include "ExplorerThemeUtils.h"
 #include "ShellTabsListView.h"
 
@@ -9,6 +11,9 @@
 #include <mutex>
 #include <utility>
 #include <vector>
+#include <string>
+#include <cwchar>
+#include <cmath>
 
 #include <dwmapi.h>
 #include <gdiplus.h>
@@ -16,6 +21,7 @@
 #include <oleacc.h>
 #include <commctrl.h>
 #include <uxtheme.h>
+#include <vssym32.h>
 #include <windowsx.h>
 #include <wrl/client.h>
 
@@ -403,8 +409,7 @@ protected:
                 *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
                 return true;
             case CDDS_ITEMPREPAINT:
-                if (IsDividerSlot(*custom)) {
-                    *result = CDRF_SKIPDEFAULT | CDRF_NOTIFYPOSTPAINT;
+                if (HandleItemPrepaint(*custom, result)) {
                     return true;
                 }
                 break;
@@ -423,6 +428,29 @@ protected:
     void OnPaint(HDC, const RECT&, const GlowColorSet&) override {}
 
 private:
+    bool HandleItemPrepaint(const NMCUSTOMDRAW& custom, LRESULT* result) const {
+        if (!result) {
+            return false;
+        }
+
+        if (IsDividerSlot(custom)) {
+            *result = CDRF_SKIPDEFAULT | CDRF_NOTIFYPOSTPAINT;
+            return true;
+        }
+
+        const auto& gradientConfig = Coordinator().BreadcrumbFontGradient();
+        if (!gradientConfig.enabled) {
+            return false;
+        }
+
+        if (!DrawGradientHeaderItem(custom, gradientConfig)) {
+            return false;
+        }
+
+        *result = CDRF_SKIPDEFAULT;
+        return true;
+    }
+
     bool IsDividerSlot(const NMCUSTOMDRAW& custom) const {
         HWND hwnd = Handle();
         if (!hwnd || !IsWindow(hwnd)) {
@@ -517,6 +545,291 @@ private:
         }
 
         EndBufferedPaint(buffer, TRUE);
+    }
+
+    bool DrawGradientHeaderItem(const NMCUSTOMDRAW& custom,
+                                const BreadcrumbGradientConfig& gradientConfig) const {
+        if (custom.dwItemSpec < 0) {
+            return false;
+        }
+
+        HWND header = Handle();
+        if (!header || !IsWindow(header)) {
+            return false;
+        }
+
+        HWND parent = GetParent(header);
+        if (!MatchesClass(parent, WC_LISTVIEWW)) {
+            return false;
+        }
+
+        const DWORD viewStyle = static_cast<DWORD>(SendMessageW(parent, LVM_GETVIEW, 0, 0));
+        if (viewStyle != LV_VIEW_DETAILS) {
+            return false;
+        }
+
+        const int columnIndex = static_cast<int>(custom.dwItemSpec);
+
+        std::wstring text(256, L'\0');
+        HDITEMW item{};
+        item.mask = HDI_FORMAT | HDI_TEXT;
+        item.pszText = text.data();
+        item.cchTextMax = static_cast<int>(text.size());
+        if (!Header_GetItemW(header, columnIndex, &item)) {
+            return false;
+        }
+
+        if (item.cchTextMax > 0 && item.pszText) {
+            size_t length = std::wcslen(text.c_str());
+            while (length + 1 >= static_cast<size_t>(item.cchTextMax)) {
+                text.assign(text.size() * 2, L'\0');
+                item.pszText = text.data();
+                item.cchTextMax = static_cast<int>(text.size());
+                if (!Header_GetItemW(header, columnIndex, &item)) {
+                    break;
+                }
+                length = std::wcslen(text.c_str());
+            }
+            text.resize(length);
+        } else {
+            text.clear();
+        }
+
+        if (text.empty()) {
+            DrawHeaderBackground(custom, item);
+            DrawSortArrowIfNeeded(custom, item);
+            return true;
+        }
+
+        if ((item.fmt & (HDF_OWNERDRAW | HDF_BITMAP | HDF_BITMAP_ON_RIGHT)) != 0) {
+            return false;
+        }
+
+        const HFONT font = reinterpret_cast<HFONT>(SendMessageW(header, WM_GETFONT, 0, 0));
+        HFONT oldFont = nullptr;
+        if (font) {
+            oldFont = static_cast<HFONT>(SelectObject(custom.hdc, font));
+        }
+
+        DrawHeaderBackground(custom, item);
+
+        const BreadcrumbGradientPalette palette = ResolveBreadcrumbGradientPalette(gradientConfig);
+
+        RECT textRect = custom.rc;
+        const int horizontalPadding = ScaleByDpi(8, DpiX());
+        textRect.left += horizontalPadding;
+        textRect.right -= horizontalPadding;
+
+        const bool hasSortArrow = (item.fmt & (HDF_SORTDOWN | HDF_SORTUP)) != 0;
+        RECT arrowRect = {};
+        if (hasSortArrow) {
+            arrowRect = textRect;
+            const int arrowWidth = ScaleByDpi(12, DpiX());
+            arrowRect.left = std::max(textRect.left, textRect.right - arrowWidth);
+            arrowRect.right = textRect.right;
+            textRect.right = std::max(textRect.left, arrowRect.left - ScaleByDpi(4, DpiX()));
+        }
+
+        if (textRect.right <= textRect.left) {
+            if (oldFont) {
+                SelectObject(custom.hdc, oldFont);
+            }
+            DrawSortArrowIfNeeded(custom, item, &arrowRect);
+            return true;
+        }
+
+        TEXTMETRICW metrics{};
+        GetTextMetricsW(custom.hdc, &metrics);
+        const int textHeight = metrics.tmHeight > 0 ? metrics.tmHeight : (textRect.bottom - textRect.top);
+        const int verticalOffset = std::max(0, ((textRect.bottom - textRect.top) - textHeight) / 2);
+        const int textBaseline = textRect.top + verticalOffset;
+
+        std::vector<double> characterWidths(text.size(), 0.0);
+        for (size_t i = 0; i < text.size(); ++i) {
+            SIZE extent{};
+            if (GetTextExtentPoint32W(custom.hdc, &text[i], 1, &extent) && extent.cx > 0) {
+                characterWidths[i] = static_cast<double>(extent.cx);
+            } else {
+                characterWidths[i] = 1.0;
+            }
+        }
+
+        double totalWidth = 0.0;
+        for (double width : characterWidths) {
+            totalWidth += width;
+        }
+
+        int textStartX = textRect.left;
+        if ((item.fmt & HDF_CENTER) != 0) {
+            const int available = textRect.right - textRect.left;
+            const int offset = static_cast<int>(std::max(0.0, (static_cast<double>(available) - totalWidth) / 2.0));
+            textStartX += offset;
+        } else if ((item.fmt & HDF_RIGHT) != 0) {
+            textStartX = std::max(textRect.left, textRect.right - static_cast<int>(std::ceil(totalWidth)));
+        }
+
+        struct CharacterMetrics {
+            size_t index = 0;
+            double x = 0.0;
+            double width = 0.0;
+        };
+
+        std::vector<CharacterMetrics> characters;
+        characters.reserve(text.size());
+
+        double currentX = static_cast<double>(textStartX);
+        for (size_t i = 0; i < text.size(); ++i) {
+            const double width = std::max(1.0, characterWidths[i]);
+            characters.push_back(CharacterMetrics{i, currentX, width});
+            currentX += width;
+        }
+
+        if (characters.empty()) {
+            if (oldFont) {
+                SelectObject(custom.hdc, oldFont);
+            }
+            DrawSortArrowIfNeeded(custom, item, &arrowRect);
+            return true;
+        }
+
+        double gradientLeft = characters.front().x - characters.front().width * 0.5;
+        double gradientRight = characters.back().x + characters.back().width * 0.5;
+        gradientLeft = std::clamp(gradientLeft, static_cast<double>(textRect.left),
+                                  static_cast<double>(textRect.right));
+        gradientRight = std::clamp(gradientRight, static_cast<double>(textRect.left),
+                                   static_cast<double>(textRect.right));
+        if (gradientRight <= gradientLeft) {
+            gradientRight = static_cast<double>(textRect.right);
+            gradientLeft = static_cast<double>(textRect.left);
+        }
+        const double gradientWidth = std::max(1.0, gradientRight - gradientLeft);
+
+        const int previousBkMode = SetBkMode(custom.hdc, TRANSPARENT);
+        const UINT previousAlign = GetTextAlign(custom.hdc);
+        SetTextAlign(custom.hdc, TA_LEFT | TA_TOP);
+
+        RECT clipRect = textRect;
+
+        for (const CharacterMetrics& character : characters) {
+            const double centerX = character.x + character.width / 2.0;
+            const double position = (centerX - gradientLeft) / gradientWidth;
+            const COLORREF color = EvaluateBreadcrumbGradientColor(palette, position);
+            SetTextColor(custom.hdc, color);
+
+            const int drawX = static_cast<int>(std::lround(character.x));
+            ExtTextOutW(custom.hdc, drawX, textBaseline, ETO_CLIPPED, &clipRect,
+                        text.c_str() + character.index, 1, nullptr);
+        }
+
+        SetTextAlign(custom.hdc, previousAlign);
+        SetBkMode(custom.hdc, previousBkMode);
+
+        if (oldFont) {
+            SelectObject(custom.hdc, oldFont);
+        }
+
+        DrawSortArrowIfNeeded(custom, item, &arrowRect);
+        return true;
+    }
+
+    void DrawHeaderBackground(const NMCUSTOMDRAW& custom, const HDITEMW& item) const {
+        RECT rect = custom.rc;
+        HTHEME theme = OpenThemeData(Handle(), L"HEADER");
+        if (theme) {
+            const int state = ResolveThemeState(custom, item);
+            DrawThemeBackground(theme, custom.hdc, HP_HEADERITEM, state, &rect, nullptr);
+            CloseThemeData(theme);
+            return;
+        }
+
+        FillRect(custom.hdc, &rect, GetSysColorBrush(COLOR_BTNFACE));
+        DrawEdge(custom.hdc, &rect, BDR_RAISEDOUTER, BF_RECT);
+    }
+
+    int ResolveThemeState(const NMCUSTOMDRAW& custom, const HDITEMW& item) const {
+        const bool hot = (custom.uItemState & CDIS_HOT) != 0;
+        const bool pressed = (custom.uItemState & CDIS_SELECTED) != 0;
+        const bool sorted = (item.fmt & (HDF_SORTDOWN | HDF_SORTUP)) != 0;
+
+        if (sorted) {
+            if (pressed) {
+                return HIS_SORTEDPRESSED;
+            }
+            if (hot) {
+                return HIS_SORTEDHOT;
+            }
+            return HIS_SORTEDNORMAL;
+        }
+
+        if (pressed) {
+            return HIS_PRESSED;
+        }
+        if (hot) {
+            return HIS_HOT;
+        }
+        return HIS_NORMAL;
+    }
+
+    void DrawSortArrowIfNeeded(const NMCUSTOMDRAW& custom, const HDITEMW& item,
+                               const RECT* overrideRect = nullptr) const {
+        if ((item.fmt & (HDF_SORTDOWN | HDF_SORTUP)) == 0) {
+            return;
+        }
+
+        RECT arrowRect = overrideRect ? *overrideRect : custom.rc;
+        const int padding = ScaleByDpi(8, DpiX());
+        arrowRect.right = custom.rc.right - padding;
+        arrowRect.left = std::max(custom.rc.left, arrowRect.right - ScaleByDpi(12, DpiX()));
+        arrowRect.top = custom.rc.top + padding / 2;
+        arrowRect.bottom = custom.rc.bottom - padding / 2;
+        if (arrowRect.right <= arrowRect.left || arrowRect.bottom <= arrowRect.top) {
+            return;
+        }
+
+        const bool ascending = (item.fmt & HDF_SORTUP) != 0;
+        const int centerX = arrowRect.left + (arrowRect.right - arrowRect.left) / 2;
+        const int centerY = arrowRect.top + (arrowRect.bottom - arrowRect.top) / 2;
+        const int halfWidth = std::max(1, (arrowRect.right - arrowRect.left) / 2);
+        const int height = std::max(2, (arrowRect.bottom - arrowRect.top) / 2);
+
+        POINT points[3];
+        if (ascending) {
+            points[0] = {centerX, centerY - height};
+            points[1] = {centerX - halfWidth, centerY + height};
+            points[2] = {centerX + halfWidth, centerY + height};
+        } else {
+            points[0] = {centerX - halfWidth, centerY - height};
+            points[1] = {centerX + halfWidth, centerY - height};
+            points[2] = {centerX, centerY + height};
+        }
+
+        const COLORREF color = GetSysColor(COLOR_BTNTEXT);
+        HPEN pen = CreatePen(PS_SOLID, 1, color);
+        HBRUSH brush = CreateSolidBrush(color);
+        HPEN oldPen = nullptr;
+        HBRUSH oldBrush = nullptr;
+
+        if (pen) {
+            oldPen = static_cast<HPEN>(SelectObject(custom.hdc, pen));
+        }
+        if (brush) {
+            oldBrush = static_cast<HBRUSH>(SelectObject(custom.hdc, brush));
+        }
+
+        Polygon(custom.hdc, points, 3);
+
+        if (oldBrush) {
+            SelectObject(custom.hdc, oldBrush);
+        }
+        if (oldPen) {
+            SelectObject(custom.hdc, oldPen);
+        }
+        if (brush) {
+            DeleteObject(brush);
+        }
+        if (pen) {
+            DeleteObject(pen);
+        }
     }
 };
 
@@ -1229,6 +1542,14 @@ ExplorerGlowCoordinator::ExplorerGlowCoordinator() = default;
 void ExplorerGlowCoordinator::Configure(const ShellTabsOptions& options) {
     m_glowEnabled = options.enableNeonGlow;
     m_palette = options.glowPalette;
+    m_breadcrumbFontGradient.enabled = options.enableBreadcrumbFontGradient;
+    m_breadcrumbFontGradient.brightness = std::clamp(options.breadcrumbFontBrightness, 0, 100);
+    m_breadcrumbFontGradient.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+    m_breadcrumbFontGradient.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+    m_breadcrumbFontGradient.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+    m_breadcrumbFontGradient.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+    m_breadcrumbFontGradient.gradientStartColor = options.breadcrumbGradientStartColor;
+    m_breadcrumbFontGradient.gradientEndColor = options.breadcrumbGradientEndColor;
     RefreshAccessibilityState();
     UpdateAccentColor();
 }

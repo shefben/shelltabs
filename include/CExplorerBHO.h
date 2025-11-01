@@ -338,6 +338,7 @@ class ShellTabsListView;
                 void RestoreScrollbarTransparency(HWND hwnd);
                 void RequestScrollbarGlowRepaint(HWND hwnd);
                 void UpdateGlowSurfaceTargets();
+                void RequestHeaderGlowRepaint() const;
                 void UpdateStatusBarTheme();
                 void ResetStatusBarTheme(HWND statusBar = nullptr);
                 void InstallStatusBarSubclass();
