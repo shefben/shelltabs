@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 
+#include "BreadcrumbGradient.h"
 #include "OptionsStore.h"
 
 namespace shelltabs {
@@ -40,6 +41,7 @@ public:
     bool ShouldRender() const noexcept { return m_glowEnabled && !m_highContrastActive; }
     bool ShouldRenderSurface(ExplorerSurfaceKind kind) const noexcept;
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
+    const BreadcrumbGradientConfig& BreadcrumbFontGradient() const noexcept { return m_breadcrumbFontGradient; }
 
 private:
     const GlowSurfaceOptions* ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept;
@@ -47,6 +49,7 @@ private:
     bool RefreshAccessibilityState();
 
     GlowSurfacePalette m_palette{};
+    BreadcrumbGradientConfig m_breadcrumbFontGradient{};
     bool m_glowEnabled = false;
     bool m_highContrastActive = false;
     COLORREF m_accentColor = RGB(0, 120, 215);

@@ -331,6 +331,7 @@ class ShellTabsListView;
                 bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
                 void UnregisterGlowSurface(HWND hwnd);
                 void UpdateGlowSurfaceTargets();
+                void RequestHeaderGlowRepaint() const;
                 void UpdateStatusBarTheme();
                 void ResetStatusBarTheme(HWND statusBar = nullptr);
                 void InstallStatusBarSubclass();
