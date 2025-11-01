@@ -16,6 +16,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -31,6 +32,7 @@
 #include <wrl/client.h>
 
 #include "GlowRenderer.h"
+#include "OptionsStore.h"
 #include "PaneHooks.h"
 #include "Utilities.h"
 
@@ -129,6 +131,40 @@ struct ShellTabsOptions;
                         [[nodiscard]] bool empty() const noexcept { return raw == nullptr; }
                 };
 
+                struct ContextMenuSelectionItem {
+                        UniquePidl pidl;
+                        PCIDLIST_ABSOLUTE raw = nullptr;
+                        DWORD attributes = 0;
+                        bool isFolder = false;
+                        bool isFileSystem = false;
+                        std::wstring path;
+                        std::wstring parentPath;
+                        std::wstring extension;
+                };
+
+                struct ContextMenuSelectionSnapshot {
+                        std::vector<ContextMenuSelectionItem> items;
+                        size_t fileCount = 0;
+                        size_t folderCount = 0;
+
+                        void Clear() {
+                                items.clear();
+                                fileCount = 0;
+                                folderCount = 0;
+                        }
+                };
+
+                struct PreparedMenuItem {
+                        const ContextMenuItem* definition = nullptr;
+                        ContextMenuItemType type = ContextMenuItemType::kCommand;
+                        ContextMenuInsertionAnchor anchor = ContextMenuInsertionAnchor::kDefault;
+                        HMENU submenu = nullptr;
+                        UINT commandId = 0;
+                        HBITMAP bitmap = nullptr;
+                        bool enabled = true;
+                        std::wstring label;
+                };
+
                 void Disconnect();
                 HRESULT EnsureBandVisible();
                 HRESULT ConnectEvents();
@@ -202,11 +238,37 @@ struct ShellTabsOptions;
                 void HandleExplorerCommand(UINT commandId);
                 void HandleExplorerMenuDismiss(HMENU menu);
                 bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
-                bool CollectPathsFromShellViewSelection(std::vector<std::wstring>& paths) const;
-                bool CollectPathsFromFolderViewSelection(std::vector<std::wstring>& paths) const;
-                bool CollectPathsFromItemArray(IShellItemArray* items, std::vector<std::wstring>& paths) const;
-                bool CollectPathsFromListView(std::vector<std::wstring>& paths) const;
-                bool CollectPathsFromTreeView(std::vector<std::wstring>& paths) const;
+                bool CollectContextMenuSelection(ContextMenuSelectionSnapshot& selection) const;
+                bool CollectContextSelectionFromShellView(ContextMenuSelectionSnapshot& selection) const;
+                bool CollectContextSelectionFromFolderView(ContextMenuSelectionSnapshot& selection) const;
+                bool CollectContextSelectionFromItemArray(IShellItemArray* items,
+                        ContextMenuSelectionSnapshot& selection) const;
+                bool CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const;
+                bool CollectContextSelectionFromTreeView(ContextMenuSelectionSnapshot& selection) const;
+                bool AppendSelectionItemFromShellItem(IShellItem* item, ContextMenuSelectionSnapshot& selection) const;
+                bool AppendSelectionItemFromPidl(PCIDLIST_ABSOLUTE pidl,
+                        ContextMenuSelectionSnapshot& selection) const;
+                bool PopulateCustomContextMenus(HMENU menu, const ContextMenuSelectionSnapshot& selection,
+                        bool anchorFound, UINT anchorPosition);
+                bool PopulateCustomSubmenu(HMENU submenu, const std::vector<ContextMenuItem>& items,
+                        const ContextMenuSelectionSnapshot& selection);
+                std::optional<PreparedMenuItem> PrepareMenuItem(const ContextMenuItem& item,
+                        const ContextMenuSelectionSnapshot& selection, bool allowSubmenuAnchors);
+                bool ShouldDisplayMenuItem(const ContextMenuItem& item,
+                        const ContextMenuSelectionSnapshot& selection) const;
+                bool DoesSelectionMatchScope(const ContextMenuItemScope& scope,
+                        const ContextMenuSelectionSnapshot& selection) const;
+                bool IsSelectionCountAllowed(const ContextMenuSelectionRule& rule, size_t selectionCount) const;
+                UINT AllocateContextMenuCommandId(HMENU menu);
+                void TrackContextCommand(UINT commandId, const ContextMenuItem* item);
+                void ExecuteContextMenuCommand(const ContextMenuItem& item) const;
+                std::vector<std::wstring> BuildCommandLines(const ContextMenuItem& item) const;
+                std::wstring ExpandCommandTemplate(const std::wstring& commandTemplate,
+                        const ContextMenuSelectionItem* item) const;
+                std::wstring ExpandAggregateTokens(const std::wstring& commandTemplate) const;
+                bool ExecuteCommandLine(const std::wstring& commandLine) const;
+                HBITMAP CreateBitmapFromIcon(HICON icon, SIZE desiredSize) const;
+                void CleanupContextMenuResources();
                 TreeItemPidlResolution ResolveTreeViewItemPidl(HWND treeView, const TVITEMEXW& item) const;
                 bool ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const;
                 bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
@@ -378,6 +440,13 @@ struct ShellTabsOptions;
                 std::unordered_map<HWND, BandEnsureState, HandleHasher> m_bandEnsureStates;
                 std::unordered_map<HWND, ListViewAccentResources, HandleHasher> m_listViewAccentCache;
                 bool m_useExplorerAccentColors = true;
+                std::vector<ContextMenuItem> m_cachedContextMenuItems;
+                ContextMenuSelectionSnapshot m_contextMenuSelection;
+                std::unordered_map<UINT, const ContextMenuItem*> m_contextMenuCommandMap;
+                std::vector<IconCache::Reference> m_contextMenuIconRefs;
+                std::vector<HBITMAP> m_contextMenuBitmaps;
+                std::vector<HMENU> m_contextMenuSubmenus;
+                UINT m_nextContextCommandId = 0;
 
                 static std::mutex s_ensureTimerLock;
                 static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;
@@ -387,6 +456,7 @@ struct ShellTabsOptions;
                 bool m_openInNewTabRetryScheduled = false;
                 bool m_contextMenuInserted = false;
                 static constexpr UINT kOpenInNewTabCommandId = 0xE170;
+                static constexpr UINT kCustomCommandIdBase = 0xE200;
         };
 
 }  // namespace shelltabs
