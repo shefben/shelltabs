@@ -12,6 +12,23 @@ add_definitions(-D_WINSOCKAPI_)
 
 option(SHELLTABS_BUILD_TESTS "Build ShellTabs test harnesses" OFF)
 
+add_library(minhook STATIC
+    third_party/minhook/src/buffer.cpp
+    third_party/minhook/src/export.cpp
+    third_party/minhook/src/hook.cpp
+    third_party/minhook/src/thread.cpp
+    third_party/minhook/src/trampoline.cpp
+)
+
+target_include_directories(minhook PUBLIC
+    third_party/minhook
+    third_party/minhook/src
+)
+
+target_compile_definitions(minhook PRIVATE
+    _CRT_SECURE_NO_WARNINGS
+)
+
 add_library(ShellTabs SHARED
     src/dllmain.cpp
     src/ClassFactory.cpp
@@ -44,6 +61,7 @@ add_library(ShellTabs SHARED
     src/Notifications.cpp
     src/BreadcrumbGradient.cpp
     src/ExplorerGlowSurfaces.cpp
+    src/ThemeHooks.cpp
     src/PaneHooks.cpp
     src/ShellTabsListView.cpp
     src/ShellTabsTreeView.cpp
@@ -76,6 +94,7 @@ target_compile_options(ShellTabs PRIVATE
 )
 
 target_link_libraries(ShellTabs PRIVATE
+    minhook
     comctl32
     shlwapi
     shell32
