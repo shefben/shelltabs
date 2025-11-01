@@ -44,8 +44,6 @@ add_library(ShellTabs SHARED
     src/ThemeHooks.cpp
     src/ExplorerGlowSurfaces.cpp
     src/PaneHooks.cpp
-    src/ShellTabsListView.cpp
-    src/ShellTabsTreeView.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/resource.rc

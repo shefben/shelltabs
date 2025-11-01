@@ -5,12 +5,6 @@
 #include <string>
 #include <vector>
 
-#define private public
-#define protected public
-#include "ShellTabsListView.h"
-#undef private
-#undef protected
-
 #include "PaneHooks.h"
 
 namespace {
@@ -37,107 +31,6 @@ void ResetInvalidationTracking() { g_invalidationEvents.clear(); }
 void TestInvalidationCallback(HWND hwnd, shelltabs::HighlightPaneType pane,
                               const shelltabs::PaneHighlightInvalidationTargets& targets) {
     g_invalidationEvents.push_back({hwnd, pane, targets});
-}
-
-bool TestBackgroundResolverResetsSurface() {
-    shelltabs::ShellTabsListView view;
-    view.m_backgroundSurface.cacheKey = L"old";
-    view.m_backgroundSurface.size = {123, 456};
-
-    bool resolverCalled = false;
-    auto resolver = [&]() -> shelltabs::ShellTabsListView::BackgroundSource {
-        resolverCalled = true;
-        shelltabs::ShellTabsListView::BackgroundSource source{};
-        source.cacheKey = L"new";
-        return source;
-    };
-
-    view.SetBackgroundResolver(resolver);
-
-    if (!view.m_backgroundSurface.cacheKey.empty() || view.m_backgroundSurface.size.cx != 0 ||
-        view.m_backgroundSurface.size.cy != 0) {
-        PrintFailure(L"TestBackgroundResolverResetsSurface",
-                     L"Background surface was not cleared after resolver update");
-        return false;
-    }
-
-    if (!view.m_backgroundResolver) {
-        PrintFailure(L"TestBackgroundResolverResetsSurface", L"Resolver was not stored");
-        return false;
-    }
-
-    const auto source = view.m_backgroundResolver();
-    if (!resolverCalled || source.cacheKey != L"new") {
-        PrintFailure(L"TestBackgroundResolverResetsSurface",
-                     L"Resolver was not invoked or returned unexpected data");
-        return false;
-    }
-
-    return true;
-}
-
-bool TestAccentResolverResetsState() {
-    shelltabs::ShellTabsListView view;
-    view.m_accentResources.accentColor = RGB(10, 20, 30);
-    view.m_accentResources.textColor = RGB(200, 210, 220);
-
-    bool resolverCalled = false;
-    auto resolver = [&](COLORREF* accent, COLORREF* text) {
-        resolverCalled = true;
-        if (accent) {
-            *accent = RGB(1, 2, 3);
-        }
-        if (text) {
-            *text = RGB(4, 5, 6);
-        }
-        return true;
-    };
-
-    view.SetAccentColorResolver(resolver);
-
-    if (view.m_accentResources.accentColor != 0 || view.m_accentResources.textColor != 0) {
-        PrintFailure(L"TestAccentResolverResetsState", L"Accent resources were not reset");
-        return false;
-    }
-
-    if (!view.m_accentResolver) {
-        PrintFailure(L"TestAccentResolverResetsState", L"Resolver was not stored");
-        return false;
-    }
-
-    COLORREF accent = 0;
-    COLORREF text = 0;
-    if (!view.m_accentResolver(&accent, &text) || !resolverCalled) {
-        PrintFailure(L"TestAccentResolverResetsState", L"Resolver did not run as expected");
-        return false;
-    }
-
-    if (accent != RGB(1, 2, 3) || text != RGB(4, 5, 6)) {
-        PrintFailure(L"TestAccentResolverResetsState", L"Resolver returned unexpected colors");
-        return false;
-    }
-
-    return true;
-}
-
-bool TestUseAccentColorsToggleResets() {
-    shelltabs::ShellTabsListView view;
-    view.m_useAccentColors = true;
-    view.m_accentResources.accentColor = RGB(50, 60, 70);
-
-    view.SetUseAccentColors(false);
-
-    if (view.m_useAccentColors) {
-        PrintFailure(L"TestUseAccentColorsToggleResets", L"Accent usage flag was not updated");
-        return false;
-    }
-
-    if (view.m_accentResources.accentColor != 0) {
-        PrintFailure(L"TestUseAccentColorsToggleResets", L"Accent resources were not cleared");
-        return false;
-    }
-
-    return true;
 }
 
 bool TestHighlightRegistryNotifiesSubscribers() {
@@ -198,9 +91,6 @@ bool TestHighlightRegistryNotifiesSubscribers() {
 
 int wmain() {
     const std::vector<TestDefinition> tests = {
-        {L"TestBackgroundResolverResetsSurface", &TestBackgroundResolverResetsSurface},
-        {L"TestAccentResolverResetsState", &TestAccentResolverResetsState},
-        {L"TestUseAccentColorsToggleResets", &TestUseAccentColorsToggleResets},
         {L"TestHighlightRegistryNotifiesSubscribers", &TestHighlightRegistryNotifiesSubscribers},
     };
 

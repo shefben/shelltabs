@@ -43,8 +43,6 @@ class Bitmap;
 namespace shelltabs {
 
 struct ShellTabsOptions;
-class NamespaceTreeHost;
-class ShellTabsListView;
 
         class CExplorerBHO : public IObjectWithSite,
                              public IDispatch {
@@ -405,8 +403,6 @@ class ShellTabsListView;
                 bool m_frameSubclassInstalled = false;
                 HWND m_directUiView = nullptr;
                 bool m_directUiSubclassInstalled = false;
-                HWND m_nativeListView = nullptr;
-                HWND m_listViewControlWindow = nullptr;
                 HWND m_listView = nullptr;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
@@ -436,7 +432,6 @@ class ShellTabsListView;
                 PaneHookRouter m_paneHooks;
                 ExplorerGlowCoordinator m_glowCoordinator;
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
-                std::unique_ptr<NamespaceTreeHost> m_namespaceTreeHost;
                 struct FolderBackgroundEntryData {
                         std::wstring imagePath;
                         std::wstring folderDisplayPath;
@@ -448,7 +443,6 @@ class ShellTabsListView;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
-                std::unique_ptr<ShellTabsListView> m_listViewControl;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;

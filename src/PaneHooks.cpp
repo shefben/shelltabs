@@ -1,8 +1,8 @@
 #include "PaneHooks.h"
 
-#include "ShellTabsTreeView.h"
-
 #include "Utilities.h"
+#include "Logging.h"
+#include <shobjidl_core.h>
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
@@ -49,6 +49,79 @@ std::unordered_set<HWND> g_treeViewSubscribers;
 std::atomic<PaneHighlightInvalidationCallback> g_invalidationCallback = nullptr;
 
 bool TryGetTreeItemRect(HWND treeView, HTREEITEM item, RECT* rect);
+
+bool IsPidlPointerValid(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return false;
+    }
+
+    __try {
+        constexpr UINT kMaxTreeViewPidlSize = 64 * 1024;
+        const UINT size = ILGetSize(pidl);
+        if (size < sizeof(USHORT) || size > kMaxTreeViewPidlSize) {
+            return false;
+        }
+
+        const auto* tail = reinterpret_cast<const USHORT*>(
+            reinterpret_cast<const BYTE*>(pidl) + size - sizeof(USHORT));
+        return *tail == 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool ResolveTreeItemHighlight(
+    HWND treeView,
+    HTREEITEM item,
+    const std::function<bool(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight)>& resolver,
+    INameSpaceTreeControl* namespaceTree,
+    PaneHighlight* highlight) {
+    if (!treeView || !item || !resolver) {
+        return false;
+    }
+
+    TVITEMEXW treeItem{};
+    treeItem.mask = TVIF_PARAM;
+    treeItem.hItem = item;
+    if (TreeView_GetItemW(treeView, &treeItem)) {
+        PCIDLIST_ABSOLUTE pidl = reinterpret_cast<PCIDLIST_ABSOLUTE>(treeItem.lParam);
+        if (IsPidlPointerValid(pidl)) {
+            if (resolver(pidl, highlight)) {
+                return true;
+            }
+        } else if (pidl) {
+            LogMessage(LogLevel::Info, L"TreeView PIDL pointer invalid; attempting namespace fallback");
+        }
+    }
+
+    if (!namespaceTree) {
+        return false;
+    }
+
+    RECT bounds{};
+    if (!TreeView_GetItemRect(treeView, item, &bounds, TRUE)) {
+        return false;
+    }
+
+    POINT queryPoint{};
+    queryPoint.x = bounds.left + (bounds.right - bounds.left) / 2;
+    queryPoint.y = bounds.top + (bounds.bottom - bounds.top) / 2;
+
+    Microsoft::WRL::ComPtr<IShellItem> shellItem;
+    HRESULT hr = namespaceTree->HitTest(&queryPoint, &shellItem);
+    if (FAILED(hr) || !shellItem) {
+        return false;
+    }
+
+    PIDLIST_ABSOLUTE resolved = nullptr;
+    hr = SHGetIDListFromObject(shellItem.Get(), &resolved);
+    if (FAILED(hr) || !resolved) {
+        return false;
+    }
+
+    UniquePidl owned(resolved);
+    return resolver(owned.get(), highlight);
+}
 
 void CollectSubscribers(std::vector<HWND>& listViews, std::vector<HWND>& treeViews) {
     auto pruneAndCollect = [&](std::unordered_set<HWND>& subscribers, std::vector<HWND>& collected) {
@@ -248,12 +321,7 @@ void DispatchInvalidations(const std::vector<HWND>& handles, HighlightPaneType p
                 handled = InvalidateListViewTargets(hwnd, targets);
                 break;
             case HighlightPaneType::TreeView:
-                if (auto* tree = ShellTabsTreeView::FromHandle(hwnd)) {
-                    tree->HandleInvalidationTargets(targets);
-                    handled = true;
-                } else {
-                    handled = InvalidateTreeViewTargets(hwnd, targets);
-                }
+                handled = InvalidateTreeViewTargets(hwnd, targets);
                 break;
         }
 
@@ -359,22 +427,19 @@ void PaneHookRouter::SetTreeView(
     std::function<bool(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight)> resolver,
     INameSpaceTreeControl* namespaceTree) {
     if (m_treeView && m_treeView != treeView) {
-        m_treeControl.reset();
+        UnsubscribeTreeViewForHighlights(m_treeView);
     }
 
     m_treeView = treeView;
+    m_resolver = std::move(resolver);
+    m_namespaceTreeControl = namespaceTree;
 
-    if (!m_treeView) {
-        m_treeControl.reset();
-        return;
+    if (m_treeView) {
+        SubscribeTreeViewForHighlights(m_treeView);
+    } else {
+        m_resolver = {};
+        m_namespaceTreeControl.Reset();
     }
-
-    Microsoft::WRL::ComPtr<INameSpaceTreeControl> control;
-    if (namespaceTree) {
-        control = namespaceTree;
-    }
-
-    m_treeControl = ShellTabsTreeView::Create(m_treeView, std::move(resolver), control);
 }
 
 void PaneHookRouter::Reset() {
@@ -386,10 +451,69 @@ bool PaneHookRouter::HandleNotify(const NMHDR* header, LRESULT* result) {
         return false;
     }
 
-    if (m_treeControl && header->hwndFrom == m_treeView) {
-        if (m_treeControl->HandleNotify(header, result)) {
+    if (!m_treeView || header->hwndFrom != m_treeView) {
+        return false;
+    }
+
+    switch (header->code) {
+        case NM_CUSTOMDRAW: {
+            auto* draw = reinterpret_cast<NMTVCUSTOMDRAW*>(const_cast<NMHDR*>(header));
+            if (!draw) {
+                return false;
+            }
+
+            switch (draw->nmcd.dwDrawStage) {
+                case CDDS_PREPAINT:
+                    *result = CDRF_NOTIFYITEMDRAW;
+                    return true;
+                case CDDS_ITEMPREPAINT: {
+                    auto item = reinterpret_cast<HTREEITEM>(draw->nmcd.dwItemSpec);
+                    PaneHighlight highlight{};
+                    const bool resolved = ResolveTreeItemHighlight(
+                        m_treeView, item, m_resolver, m_namespaceTreeControl.Get(), &highlight);
+                    bool applied = false;
+                    if (resolved) {
+                        if (highlight.hasTextColor) {
+                            draw->clrText = highlight.textColor;
+                            applied = true;
+                        }
+                        if (highlight.hasBackgroundColor) {
+                            draw->clrTextBk = highlight.backgroundColor;
+                            applied = true;
+                        }
+                    }
+                    *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
+                    return true;
+                }
+                default:
+                    break;
+            }
+            break;
+        }
+        case TVN_ITEMCHANGING: {
+            const auto* change = reinterpret_cast<const NMTREEVIEWW*>(header);
+            if (!change) {
+                return false;
+            }
+            InvalidateTreeSelectionChange(m_treeView, change->itemOld.hItem, change->itemNew.hItem);
+            *result = 0;
             return true;
         }
+        case TVN_ITEMEXPANDED: {
+            const auto* expanded = reinterpret_cast<const NMTREEVIEWW*>(header);
+            if (!expanded) {
+                return false;
+            }
+            InvalidateTreeItemBranch(m_treeView, expanded->itemNew.hItem);
+            *result = 0;
+            return true;
+        }
+        case TVN_SELCHANGEDW:
+        case TVN_SELCHANGEDA:
+            InvalidateRect(m_treeView, nullptr, FALSE);
+            break;
+        default:
+            break;
     }
 
     return false;
