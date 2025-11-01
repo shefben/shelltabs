@@ -10,8 +10,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -50,7 +51,21 @@ public:
     void Clear();
 
 private:
+    enum class RequestKind {
+        kShellPreview,
+        kWindowCapture,
+    };
+
     struct AsyncRequest;
+
+    struct PendingKeyEntry {
+        uint64_t shellPreviewId = 0;
+        uint64_t windowCaptureId = 0;
+
+        [[nodiscard]] bool Empty() const {
+            return shellPreviewId == 0 && windowCaptureId == 0;
+        }
+    };
 
     PreviewCache() = default;
     ~PreviewCache();
@@ -71,6 +86,9 @@ private:
     void TouchEntryLocked(Entry& entry, const std::wstring& key);
     void TrimCacheLocked();
     static std::wstring BuildCacheKey(PCIDLIST_ABSOLUTE pidl);
+    uint64_t GetPendingRequestIdLocked(const std::wstring& key, RequestKind kind);
+    void SetPendingRequestIdLocked(const std::wstring& key, RequestKind kind, uint64_t requestId);
+    void ClearPendingRequestIdLocked(const std::wstring& key, RequestKind kind, uint64_t requestId);
 
     std::mutex m_mutex;
     std::unordered_map<std::wstring, Entry> m_entries;
@@ -81,6 +99,7 @@ private:
     std::condition_variable m_requestCv;
     std::deque<std::shared_ptr<AsyncRequest>> m_requestQueue;
     std::unordered_map<uint64_t, std::shared_ptr<AsyncRequest>> m_requestMap;
+    std::unordered_map<std::wstring, PendingKeyEntry> m_requestsByKey;
     std::thread m_workerThread;
     bool m_shutdown = false;
     uint64_t m_nextRequestId = 1;
