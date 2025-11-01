@@ -1,4 +1,8 @@
+#define private public
+#define protected public
 #include "TabManager.h"
+#undef private
+#undef protected
 
 #include <windows.h>
 
@@ -232,6 +236,70 @@ bool TestGroupAggregateMaintenance() {
     return true;
 }
 
+bool TestLookupAfterMovesAndRemovals() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    auto makeTab = [](const wchar_t* name, const wchar_t* path) {
+        shelltabs::TabInfo tab;
+        tab.name = name;
+        tab.tooltip = name;
+        tab.path = path;
+        return tab;
+    };
+
+    const auto first = manager.InsertTab(makeTab(L"Alpha", L"C:\\Test\\Shared"), 0, 0, true);
+    auto second = manager.InsertTab(makeTab(L"Beta", L"C:\\Test\\Second"), 0, 1, false);
+
+    auto lookup = manager.FindByPath(L"c:\\TEST\\shared");
+    if (!lookup.IsValid() || lookup.groupIndex != first.groupIndex || lookup.tabIndex != first.tabIndex) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Initial lookup did not resolve to inserted tab");
+        return false;
+    }
+
+    manager.MoveTab(first, {first.groupIndex, 1});
+    auto moved = manager.FindByPath(L"C:\\Test\\Shared");
+    if (!moved.IsValid() || moved.groupIndex != first.groupIndex || moved.tabIndex != 1) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Lookup failed after moving tab within group");
+        return false;
+    }
+
+    second = manager.FindByPath(L"C:\\Test\\Second");
+    if (!second.IsValid()) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Failed to locate secondary tab prior to removal");
+        return false;
+    }
+
+    manager.Remove(second);
+
+    auto afterRemoval = manager.FindByPath(L"C:\\Test\\Shared");
+    if (!afterRemoval.IsValid() || afterRemoval.groupIndex != 0 || afterRemoval.tabIndex != 0) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Lookup returned unexpected location after neighbor removal");
+        return false;
+    }
+
+    if (manager.FindByPath(L"C:\\Test\\Second").IsValid()) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Removed tab was still discoverable by path");
+        return false;
+    }
+
+    const int newGroup = manager.CreateGroupAfter(0, L"Later", true);
+    manager.MoveTab(afterRemoval, {newGroup, 0});
+    auto movedGroup = manager.FindByPath(L"C:\\Test\\Shared");
+    if (!movedGroup.IsValid() || movedGroup.groupIndex != newGroup || movedGroup.tabIndex != 0) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Lookup failed after moving tab to new group");
+        return false;
+    }
+
+    manager.Remove(movedGroup);
+    if (manager.FindByPath(L"C:\\Test\\Shared").IsValid()) {
+        PrintFailure(L"TestLookupAfterMovesAndRemovals", L"Lookup succeeded after tab deletion");
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -241,6 +309,7 @@ int wmain() {
         {L"TestStressOpenCloseWindows", &TestStressOpenCloseWindows},
         {L"TestCollectProgressSnapshot", &TestCollectProgressSnapshot},
         {L"TestGroupAggregateMaintenance", &TestGroupAggregateMaintenance},
+        {L"TestLookupAfterMovesAndRemovals", &TestLookupAfterMovesAndRemovals},
     };
 
     bool success = true;
