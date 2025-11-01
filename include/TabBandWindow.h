@@ -111,6 +111,8 @@ private:
         bool indicatorHandle = false;
         size_t index = 0;
         int row = 0;
+        size_t reuseSourceIndex = std::numeric_limits<size_t>::max();
+        bool reusedIconMetrics = false;
     };
 
     struct TabLocationHash {
@@ -154,6 +156,12 @@ private:
         int rowCount = 0;
     };
 
+    struct VisualItemReuseContext {
+        std::vector<VisualItem>* source = nullptr;
+        std::unordered_map<uint64_t, std::vector<size_t>> indexByKey;
+        std::vector<bool> reserved;
+    };
+
     struct LayoutDiffStats {
         size_t inserted = 0;
         size_t removed = 0;
@@ -161,6 +169,7 @@ private:
         size_t updated = 0;
         std::vector<RECT> invalidRects;
         std::vector<size_t> removedIndices;
+        std::vector<size_t> matchedOldIndices;
     };
 
     struct RedrawMetrics {
@@ -412,9 +421,13 @@ private:
         // Helpers
         bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
         void DrawEmptyIslandPluses(HDC dc) const;
-        LayoutResult BuildLayoutItems(const std::vector<TabViewItem>& items);
+        LayoutResult BuildLayoutItems(const std::vector<TabViewItem>& items,
+                                      VisualItemReuseContext* reuseContext = nullptr);
         LayoutDiffStats ComputeLayoutDiff(std::vector<VisualItem>& oldItems,
                                           std::vector<VisualItem>& newItems) const;
+        void ApplyPreservedVisualItems(const std::vector<VisualItem>& preserved,
+                                       std::vector<VisualItem>& current,
+                                       const LayoutDiffStats& diff) const;
         void DestroyVisualItemResources(std::vector<VisualItem>& items);
         void RecordRedrawDuration(double milliseconds, bool incremental);
 

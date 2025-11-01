@@ -808,6 +808,21 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     std::vector<VisualItem> oldItems;
     oldItems.swap(m_items);
 
+    VisualItemReuseContext reuseContext;
+    VisualItemReuseContext* reuseContextPtr = nullptr;
+    if (!oldItems.empty()) {
+        reuseContext.source = &oldItems;
+        reuseContext.reserved.assign(oldItems.size(), false);
+        reuseContext.indexByKey.reserve(oldItems.size());
+        for (size_t i = 0; i < oldItems.size(); ++i) {
+            const uint64_t key = oldItems[i].stableId != 0
+                                     ? oldItems[i].stableId
+                                     : ComputeTabViewStableId(oldItems[i].data);
+            reuseContext.indexByKey[key].push_back(i);
+        }
+        reuseContextPtr = &reuseContext;
+    }
+
     HideDragOverlay(true);
     HidePreviewWindow(false);
     DropTarget clearedDropTarget{};
@@ -815,9 +830,12 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_drag = {};
     m_emptyIslandPlusButtons.clear();
 
-    LayoutResult layout = BuildLayoutItems(items);
+    LayoutResult layout = BuildLayoutItems(items, reuseContextPtr);
 
     LayoutDiffStats diff = ComputeLayoutDiff(oldItems, layout.items);
+    if (reuseContextPtr) {
+        ApplyPreservedVisualItems(oldItems, layout.items, diff);
+    }
     const int normalizedRowCount = layout.rowCount > 0 ? layout.rowCount : std::max(m_lastRowCount, 1);
     const bool rowCountChanged = normalizedRowCount != m_lastRowCount;
 
@@ -979,7 +997,8 @@ void TabBandWindow::ReleaseBackBuffer() {
     m_backBufferSize = {0, 0};
 }
 
-TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<TabViewItem>& items) {
+TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<TabViewItem>& items,
+                                                            VisualItemReuseContext* reuseContext) {
     LayoutResult result;
     if (!m_hwnd) {
         return result;
@@ -1000,263 +1019,345 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
     HFONT font = GetDefaultFont();
     HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
 
-        const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
-        const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
+    const int baseIconWidth = std::max(GetSystemMetrics(SM_CXSMICON), 16);
+    const int baseIconHeight = std::max(GetSystemMetrics(SM_CYSMICON), 16);
 
-        TEXTMETRIC tm{};
-        GetTextMetrics(dc, &tm);
+    TEXTMETRIC tm{};
+    GetTextMetrics(dc, &tm);
 
-        int rowHeight = static_cast<int>(tm.tmHeight);
-        if (rowHeight > 0) {
-                rowHeight += 6;  // give text breathing room
-        } else {
-                rowHeight = baseIconHeight + 8;
+    int rowHeight = static_cast<int>(tm.tmHeight);
+    if (rowHeight > 0) {
+        rowHeight += 6;  // give text breathing room
+    } else {
+        rowHeight = baseIconHeight + 8;
+    }
+    rowHeight = std::max(rowHeight, baseIconHeight + 8);
+    rowHeight = std::max(rowHeight, kCloseButtonSize + kCloseButtonVerticalPadding * 2 + 4);
+    rowHeight = std::max(rowHeight, kButtonHeight - kButtonMargin);
+    rowHeight = std::max(rowHeight, 24);
+
+    const int bandWidth = bounds.right - bounds.left;
+    const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
+    int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
+
+    const int startY = bounds.top + 2;
+    const int maxX = bounds.right;
+
+    int row = 0;
+    int maxRowUsed = 0;
+    auto rowTop = [&](int r) { return startY + r * (rowHeight + kRowGap); };
+    auto rowBottom = [&](int r) { return rowTop(r) + rowHeight; };
+
+    auto try_wrap = [&]() {
+        if (row + 1 < kMaxTabRows) {
+            ++row;
+            if (row > maxRowUsed) {
+                maxRowUsed = row;
+            }
+            x = bounds.left + gripWidth - 3;  // DO NOT TOUCH
+            return true;
         }
-        rowHeight = std::max(rowHeight, baseIconHeight + 8);
-        rowHeight = std::max(rowHeight, kCloseButtonSize + kCloseButtonVerticalPadding * 2 + 4);
-        rowHeight = std::max(rowHeight, kButtonHeight - kButtonMargin);
-        rowHeight = std::max(rowHeight, 24);
+        return false;
+    };
 
-        const int bandWidth = bounds.right - bounds.left;
-        const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-        int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
+    auto acquireReuse = [&](VisualItem& visual) -> const VisualItem* {
+        if (!reuseContext || !reuseContext->source) {
+            visual.reuseSourceIndex = kInvalidIndex;
+            return nullptr;
+        }
+        const uint64_t key = visual.stableId != 0 ? visual.stableId : ComputeTabViewStableId(visual.data);
+        auto it = reuseContext->indexByKey.find(key);
+        if (it == reuseContext->indexByKey.end()) {
+            visual.reuseSourceIndex = kInvalidIndex;
+            return nullptr;
+        }
 
-        // row layout
-        const int startY = bounds.top + 2;
-        const int maxX = bounds.right;
-
-        int row = 0;
-        int maxRowUsed = 0;
-        auto rowTop = [&](int r) { return startY + r * (rowHeight + kRowGap); };
-        auto rowBottom = [&](int r) { return rowTop(r) + rowHeight; };
-
-        auto try_wrap = [&]() {
-                if (row + 1 < kMaxTabRows) {
-                        ++row;
-                        if (row > maxRowUsed) {
-                                maxRowUsed = row;
-                        }
-                        x = bounds.left + gripWidth - 3;  // DO NOT TOUCH
-                        return true;
+        const auto& candidates = it->second;
+        auto selectCandidate = [&](auto&& predicate) -> size_t {
+            for (size_t idx : candidates) {
+                if (idx >= reuseContext->reserved.size()) {
+                    continue;
                 }
-                return false;
+                if (reuseContext->reserved[idx]) {
+                    continue;
+                }
+                if (predicate((*reuseContext->source)[idx])) {
+                    return idx;
+                }
+            }
+            return kInvalidIndex;
         };
 
-	int currentGroup = -1;
-	TabViewItem currentHeader{};
-	bool headerMetadata = false;
-	bool expectFirstTab = false;
-	bool pendingIndicator = false;
-	TabViewItem indicatorHeader{};
-
-        result.items.reserve(items.size() + 8);
-
-        for (const auto& item : items) {
-		if (item.type == TabViewItemType::kGroupHeader) {
-			pendingIndicator = false;
-			currentGroup = item.location.groupIndex;
-			currentHeader = item;
-			headerMetadata = true;
-			expectFirstTab = true;
-
-			const bool collapsed = item.collapsed;
-			const bool hasVisibleTabs = item.visibleTabs > 0;
-			if (!item.headerVisible && !collapsed && hasVisibleTabs) {
-				indicatorHeader = item;
-				pendingIndicator = true;
-				continue;
-			}
-
-			if (currentGroup >= 0 && x > bounds.left) {
-				x += kGroupGap;
-			}
-
-			int width = kIslandIndicatorWidth;
-			if (x + width > maxX) {
-				if (!try_wrap()) break;
-			}
-
-                        // Emit the island's indicator handle
-                        VisualItem visual;
-                        visual.data = item;
-                        visual.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
-                        visual.firstInGroup = true;
-                        visual.collapsedPlaceholder = collapsed;
-                        visual.indicatorHandle = true;
-                        visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
-                        visual.row = row;
-                        result.items.emplace_back(std::move(visual));
-                        x += width;
-
-                        // NEW: empty island => reserve a tiny body and register a '+' target
-                        if (item.headerVisible && !collapsed && !hasVisibleTabs) {
-                                const int remaining = maxX - x;
-                                if (remaining > 0) {
-                                        const int placeholderWidth = std::min(remaining, kEmptyIslandBodyMaxWidth);
-                                        if (placeholderWidth > 0) {
-                                                RECT placeholder{ x, rowTop(row), x + placeholderWidth, rowBottom(row) };
-
-                                                // Emit a synthetic body so the island outline has a region to hug
-                                                VisualItem emptyBody;
-                                                emptyBody.data = item;               // tie to this group header
-                                                emptyBody.stableId =
-                                                    item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
-                                                emptyBody.hasGroupHeader = true;
-                                                emptyBody.groupHeader = currentHeader;
-                                                emptyBody.bounds = placeholder;
-                                                emptyBody.row = row;
-                                                result.items.emplace_back(std::move(emptyBody));
-
-                                                const int bodyWidth = placeholder.right - placeholder.left;
-                                                if (bodyWidth >= 4) {
-                                                        const int h = placeholder.bottom - placeholder.top;
-                                                        const int maxCentered = std::max(bodyWidth - 4, 0);
-                                                        int size = std::min(kEmptyPlusSize, maxCentered);
-                                                        if (size < 8) {
-                                                                size = std::max(4, maxCentered);
-                                                        }
-                                                        const int plusLeft = placeholder.left + (bodyWidth - size) / 2;
-                                                        RECT plus{
-                                                                plusLeft,
-                                                                placeholder.top + (h - size) / 2,
-                                                                plusLeft + size,
-                                                                placeholder.top + (h - size) / 2 + size
-                                                        };
-                                                        m_emptyIslandPlusButtons.push_back({ currentGroup, plus });
-                                                }
-
-                                                x = placeholder.right;
-                                        }
-                                }
-                        }
-			continue;
-		}
-
-                VisualItem visual;
-                visual.data = item;
-                visual.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
-
-                if (currentGroup != item.location.groupIndex) {
-                        currentGroup = item.location.groupIndex;
-			headerMetadata = false;
-			expectFirstTab = true;
-			if (!result.items.empty()) {
-				x += kGroupGap;
-			}
-			pendingIndicator = false;
-		}
-		else if (!expectFirstTab) {
-			x += kTabGap;
-		}
-
-		if (expectFirstTab) {
-			visual.firstInGroup = true;
-			expectFirstTab = false;
-		}
-		visual.hasGroupHeader = headerMetadata;
-		if (visual.hasGroupHeader) {
-			visual.groupHeader = currentHeader;
-		}
-                if (pendingIndicator && visual.firstInGroup) {
-                        visual.hasGroupHeader = true;
-                        visual.groupHeader = indicatorHeader;
-                        visual.indicatorHandle = indicatorHeader.headerVisible;
-                        pendingIndicator = false;
-                        headerMetadata = true;
-                }
-
-		SIZE textSize{ 0, 0 };
-		if (!item.name.empty()) {
-			GetTextExtentPoint32W(dc, item.name.c_str(),
-				static_cast<int>(item.name.size()), &textSize);
-		}
-
-                int width = textSize.cx + kPaddingX * 2;
-                if (item.pinned) {
-                        width += kPinnedGlyphWidth + kPinnedGlyphPadding;
-                }
-                width = std::max(width, kItemMinWidth);
-
-                visual.badgeWidth = item.pinned ? (kPinnedGlyphWidth + kPinnedGlyphPadding) : 0;
-
-                visual.icon = LoadItemIcon(item, SHGFI_SMALLICON);
-                if (visual.icon) {
-                        visual.iconWidth = baseIconWidth;
-                        visual.iconHeight = baseIconHeight;
-                        if (auto metrics = visual.icon.GetMetrics()) {
-                                visual.iconWidth = metrics->cx;
-                                visual.iconHeight = metrics->cy;
-                        } else {
-                                ICONINFO iconInfo{};
-                                HICON iconHandle = visual.icon.Get();
-                                if (iconHandle && GetIconInfo(iconHandle, &iconInfo)) {
-                                        BITMAP bitmap{};
-                                        if (iconInfo.hbmColor &&
-                                                GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-                                                visual.iconWidth = bitmap.bmWidth;
-                                                visual.iconHeight = bitmap.bmHeight;
-                                        }
-                                        else if (iconInfo.hbmMask &&
-                                                GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
-                                                visual.iconWidth = bitmap.bmWidth;
-                                                visual.iconHeight = bitmap.bmHeight / 2;
-                                        }
-                                        if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-                                        if (iconInfo.hbmMask)  DeleteObject(iconInfo.hbmMask);
-                                }
-                        }
-                        if (visual.iconWidth <= 0) visual.iconWidth = baseIconWidth;
-                        if (visual.iconHeight <= 0) visual.iconHeight = baseIconHeight;
-                        width += visual.iconWidth + kIconGap;
-                }
-
-                width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
-                if (item.pinned) {
-                        width = std::min(width, kPinnedTabMaxWidth);
-                }
-
-                bool wrapped = false;
-                if (x + width > maxX) {
-                        if (!try_wrap()) {
-                                width = std::max(40, maxX - x);
-                                if (width <= 0) break;
-                        } else {
-                                wrapped = true;
-                        }
-                }
-
-                if (wrapped && visual.firstInGroup) {
-                        if (!result.items.empty()) {
-                                VisualItem& previous = result.items.back();
-                                if (previous.indicatorHandle &&
-                                        previous.data.location.groupIndex == item.location.groupIndex) {
-                                        const int indicatorWidth = previous.bounds.right - previous.bounds.left;
-                                        previous.bounds.left = x;
-                                        previous.bounds.right = x + indicatorWidth;
-                                        previous.bounds.top = rowTop(row);
-                                        previous.bounds.bottom = rowBottom(row);
-                                        previous.row = row;
-                                        x += indicatorWidth;
-                                }
-                        }
-                }
-
-                width = std::clamp(width, 40, maxX - x);
-
-                visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
-                visual.row = row;
-                visual.index = result.items.size();
-                result.items.emplace_back(std::move(visual));
-                x += width;
+        size_t selected = selectCandidate([&](const VisualItem& candidate) {
+            return candidate.indicatorHandle == visual.indicatorHandle &&
+                   candidate.collapsedPlaceholder == visual.collapsedPlaceholder &&
+                   candidate.hasGroupHeader == visual.hasGroupHeader &&
+                   candidate.firstInGroup == visual.firstInGroup &&
+                   EquivalentTabViewItem(candidate.data, visual.data);
+        });
+        if (selected == kInvalidIndex) {
+            selected = selectCandidate([&](const VisualItem& candidate) {
+                return candidate.indicatorHandle == visual.indicatorHandle &&
+                       candidate.collapsedPlaceholder == visual.collapsedPlaceholder &&
+                       candidate.hasGroupHeader == visual.hasGroupHeader;
+            });
+        }
+        if (selected == kInvalidIndex) {
+            selected = selectCandidate([&](const VisualItem& candidate) {
+                return EquivalentTabViewItem(candidate.data, visual.data);
+            });
+        }
+        if (selected == kInvalidIndex) {
+            selected = selectCandidate([](const VisualItem&) { return true; });
         }
 
-        if (row > maxRowUsed) {
-                maxRowUsed = row;
+        if (selected == kInvalidIndex) {
+            visual.reuseSourceIndex = kInvalidIndex;
+            return nullptr;
         }
-        result.rowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
 
-        if (oldFont) SelectObject(dc, oldFont);
-        ReleaseDC(m_hwnd, dc);
+        reuseContext->reserved[selected] = true;
+        visual.reuseSourceIndex = selected;
+        return &(*reuseContext->source)[selected];
+    };
+
+    int currentGroup = -1;
+    TabViewItem currentHeader{};
+    bool headerMetadata = false;
+    bool expectFirstTab = false;
+    bool pendingIndicator = false;
+    TabViewItem indicatorHeader{};
+
+    result.items.reserve(items.size() + 8);
+
+    for (const auto& item : items) {
+        if (item.type == TabViewItemType::kGroupHeader) {
+            pendingIndicator = false;
+            currentGroup = item.location.groupIndex;
+            currentHeader = item;
+            headerMetadata = true;
+            expectFirstTab = true;
+
+            const bool collapsed = item.collapsed;
+            const bool hasVisibleTabs = item.visibleTabs > 0;
+            if (!item.headerVisible && !collapsed && hasVisibleTabs) {
+                indicatorHeader = item;
+                pendingIndicator = true;
+                continue;
+            }
+
+            if (currentGroup >= 0 && x > bounds.left) {
+                x += kGroupGap;
+            }
+
+            int width = kIslandIndicatorWidth;
+            if (x + width > maxX) {
+                if (!try_wrap()) {
+                    break;
+                }
+            }
+
+            VisualItem visual;
+            visual.data = item;
+            visual.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
+            visual.firstInGroup = true;
+            visual.collapsedPlaceholder = collapsed;
+            visual.indicatorHandle = true;
+            acquireReuse(visual);
+            visual.bounds = {x, rowTop(row), x + width, rowBottom(row)};
+            visual.row = row;
+            result.items.emplace_back(std::move(visual));
+            x += width;
+
+            if (item.headerVisible && !collapsed && !hasVisibleTabs) {
+                const int remaining = maxX - x;
+                if (remaining > 0) {
+                    const int placeholderWidth = std::min(remaining, kEmptyIslandBodyMaxWidth);
+                    if (placeholderWidth > 0) {
+                        RECT placeholder{ x, rowTop(row), x + placeholderWidth, rowBottom(row) };
+
+                        VisualItem emptyBody;
+                        emptyBody.data = item;
+                        emptyBody.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
+                        emptyBody.hasGroupHeader = true;
+                        emptyBody.groupHeader = currentHeader;
+                        acquireReuse(emptyBody);
+                        emptyBody.bounds = placeholder;
+                        emptyBody.row = row;
+                        result.items.emplace_back(std::move(emptyBody));
+
+                        const int bodyWidth = placeholder.right - placeholder.left;
+                        if (bodyWidth >= 4) {
+                            const int h = placeholder.bottom - placeholder.top;
+                            const int maxCentered = std::max(bodyWidth - 4, 0);
+                            int size = std::min(kEmptyPlusSize, maxCentered);
+                            if (size < 8) {
+                                size = std::max(4, maxCentered);
+                            }
+                            const int plusLeft = placeholder.left + (bodyWidth - size) / 2;
+                            RECT plus{
+                                plusLeft,
+                                placeholder.top + (h - size) / 2,
+                                plusLeft + size,
+                                placeholder.top + (h - size) / 2 + size
+                            };
+                            m_emptyIslandPlusButtons.push_back({ currentGroup, plus });
+                        }
+
+                        x = placeholder.right;
+                    }
+                }
+            }
+            continue;
+        }
+
+        VisualItem visual;
+        visual.data = item;
+        visual.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
+
+        if (currentGroup != item.location.groupIndex) {
+            currentGroup = item.location.groupIndex;
+            headerMetadata = false;
+            expectFirstTab = true;
+            if (!result.items.empty()) {
+                x += kGroupGap;
+            }
+            pendingIndicator = false;
+        } else if (!expectFirstTab) {
+            x += kTabGap;
+        }
+
+        if (expectFirstTab) {
+            visual.firstInGroup = true;
+            expectFirstTab = false;
+        }
+        visual.hasGroupHeader = headerMetadata;
+        if (visual.hasGroupHeader) {
+            visual.groupHeader = currentHeader;
+        }
+        if (pendingIndicator && visual.firstInGroup) {
+            visual.hasGroupHeader = true;
+            visual.groupHeader = indicatorHeader;
+            visual.indicatorHandle = indicatorHeader.headerVisible;
+            pendingIndicator = false;
+            headerMetadata = true;
+        }
+
+        SIZE textSize{0, 0};
+        if (!item.name.empty()) {
+            GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
+        }
+
+        int width = textSize.cx + kPaddingX * 2;
+        if (item.pinned) {
+            width += kPinnedGlyphWidth + kPinnedGlyphPadding;
+        }
+        width = std::max(width, kItemMinWidth);
+
+        visual.badgeWidth = item.pinned ? (kPinnedGlyphWidth + kPinnedGlyphPadding) : 0;
+
+        const VisualItem* preserved = acquireReuse(visual);
+        if (preserved && EquivalentTabViewItem(preserved->data, visual.data) && preserved->icon) {
+            visual.icon = preserved->icon;
+            visual.iconWidth = preserved->iconWidth;
+            visual.iconHeight = preserved->iconHeight;
+            visual.reusedIconMetrics = true;
+        }
+
+        if (!visual.icon) {
+            visual.icon = LoadItemIcon(item, SHGFI_SMALLICON);
+            if (visual.icon) {
+                visual.iconWidth = baseIconWidth;
+                visual.iconHeight = baseIconHeight;
+                if (auto metrics = visual.icon.GetMetrics()) {
+                    visual.iconWidth = metrics->cx;
+                    visual.iconHeight = metrics->cy;
+                } else {
+                    ICONINFO iconInfo{};
+                    HICON iconHandle = visual.icon.Get();
+                    if (iconHandle && GetIconInfo(iconHandle, &iconInfo)) {
+                        BITMAP bitmap{};
+                        if (iconInfo.hbmColor &&
+                            GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                            visual.iconWidth = bitmap.bmWidth;
+                            visual.iconHeight = bitmap.bmHeight;
+                        } else if (iconInfo.hbmMask &&
+                                   GetObject(iconInfo.hbmMask, sizeof(bitmap), &bitmap) == sizeof(bitmap)) {
+                            visual.iconWidth = bitmap.bmWidth;
+                            visual.iconHeight = bitmap.bmHeight / 2;
+                        }
+                        if (iconInfo.hbmColor) {
+                            DeleteObject(iconInfo.hbmColor);
+                        }
+                        if (iconInfo.hbmMask) {
+                            DeleteObject(iconInfo.hbmMask);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (visual.icon) {
+            if (visual.iconWidth <= 0) {
+                visual.iconWidth = baseIconWidth;
+            }
+            if (visual.iconHeight <= 0) {
+                visual.iconHeight = baseIconHeight;
+            }
+            width += visual.iconWidth + kIconGap;
+        }
+
+        width += kCloseButtonSize + kCloseButtonEdgePadding + kCloseButtonSpacing;
+        if (item.pinned) {
+            width = std::min(width, kPinnedTabMaxWidth);
+        }
+
+        bool wrapped = false;
+        if (x + width > maxX) {
+            if (!try_wrap()) {
+                width = std::max(40, maxX - x);
+                if (width <= 0) {
+                    break;
+                }
+            } else {
+                wrapped = true;
+            }
+        }
+
+        if (wrapped && visual.firstInGroup) {
+            if (!result.items.empty()) {
+                VisualItem& previous = result.items.back();
+                if (previous.indicatorHandle &&
+                    previous.data.location.groupIndex == item.location.groupIndex) {
+                    const int indicatorWidth = previous.bounds.right - previous.bounds.left;
+                    previous.bounds.left = x;
+                    previous.bounds.right = x + indicatorWidth;
+                    previous.bounds.top = rowTop(row);
+                    previous.bounds.bottom = rowBottom(row);
+                    previous.row = row;
+                    x += indicatorWidth;
+                }
+            }
+        }
+
+        width = std::clamp(width, 40, maxX - x);
+
+        visual.bounds = {x, rowTop(row), x + width, rowBottom(row)};
+        visual.row = row;
+        visual.index = result.items.size();
+        result.items.emplace_back(std::move(visual));
+        x += width;
+    }
+
+    if (row > maxRowUsed) {
+        maxRowUsed = row;
+    }
+    result.rowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
+
+    if (oldFont) {
+        SelectObject(dc, oldFont);
+    }
+    ReleaseDC(m_hwnd, dc);
     return result;
 }
 
@@ -1284,7 +1385,7 @@ void TabBandWindow::RebuildLayout() {
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
 
-    LayoutResult layout = BuildLayoutItems(m_tabData);
+    LayoutResult layout = BuildLayoutItems(m_tabData, nullptr);
     RebuildTabLocationIndex();
     m_items = std::move(layout.items);
     RebuildProgressRectCache();
@@ -1326,6 +1427,7 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<Visu
     }
 
     std::vector<bool> consumed(oldItems.size(), false);
+    stats.matchedOldIndices.assign(newItems.size(), kInvalidIndex);
 
     RECT client = m_clientRect;
     if (client.right <= client.left || client.bottom <= client.top) {
@@ -1366,13 +1468,28 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<Visu
             return kInvalidIndex;
         };
 
-        size_t oldIndex = selectCandidate([&](const VisualItem& oldItem) {
-            return oldItem.indicatorHandle == item.indicatorHandle &&
-                   oldItem.collapsedPlaceholder == item.collapsedPlaceholder &&
-                   oldItem.hasGroupHeader == item.hasGroupHeader &&
-                   oldItem.firstInGroup == item.firstInGroup &&
-                   EquivalentTabViewItem(oldItem.data, item.data);
-        });
+        size_t oldIndex = kInvalidIndex;
+        if (item.reuseSourceIndex != kInvalidIndex && item.reuseSourceIndex < oldItems.size() &&
+            !consumed[item.reuseSourceIndex]) {
+            for (size_t idx = 0; idx < candidates.size(); ++idx) {
+                if (candidates[idx] == item.reuseSourceIndex) {
+                    oldIndex = item.reuseSourceIndex;
+                    candidates[idx] = candidates.back();
+                    candidates.pop_back();
+                    break;
+                }
+            }
+        }
+
+        if (oldIndex == kInvalidIndex) {
+            oldIndex = selectCandidate([&](const VisualItem& oldItem) {
+                return oldItem.indicatorHandle == item.indicatorHandle &&
+                       oldItem.collapsedPlaceholder == item.collapsedPlaceholder &&
+                       oldItem.hasGroupHeader == item.hasGroupHeader &&
+                       oldItem.firstInGroup == item.firstInGroup &&
+                       EquivalentTabViewItem(oldItem.data, item.data);
+            });
+        }
 
         if (oldIndex == kInvalidIndex) {
             oldIndex = selectCandidate([&](const VisualItem& oldItem) {
@@ -1396,6 +1513,8 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<Visu
         consumed[oldIndex] = true;
         VisualItem& oldItem = oldItems[oldIndex];
         VisualItem& newItem = item;
+        stats.matchedOldIndices[newIndex] = oldIndex;
+        newItem.reuseSourceIndex = oldIndex;
 
         if (oldItem.icon) {
             if (newItem.icon) {
@@ -1441,6 +1560,42 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<Visu
     }
 
     return stats;
+}
+
+void TabBandWindow::ApplyPreservedVisualItems(const std::vector<VisualItem>& preserved,
+                                              std::vector<VisualItem>& current,
+                                              const LayoutDiffStats& diff) const {
+    if (preserved.empty() || current.empty()) {
+        return;
+    }
+    if (diff.matchedOldIndices.size() != current.size()) {
+        return;
+    }
+
+    for (size_t index = 0; index < current.size(); ++index) {
+        const size_t oldIndex = diff.matchedOldIndices[index];
+        if (oldIndex == kInvalidIndex || oldIndex >= preserved.size()) {
+            continue;
+        }
+
+        const VisualItem& oldItem = preserved[oldIndex];
+        VisualItem& newItem = current[index];
+
+        if (!newItem.icon && oldItem.icon) {
+            newItem.icon = oldItem.icon;
+            newItem.iconWidth = oldItem.iconWidth;
+            newItem.iconHeight = oldItem.iconHeight;
+        } else if (oldItem.icon && newItem.icon && (newItem.iconWidth <= 0 || newItem.iconHeight <= 0 ||
+                                                    newItem.reusedIconMetrics)) {
+            newItem.iconWidth = oldItem.iconWidth;
+            newItem.iconHeight = oldItem.iconHeight;
+        }
+
+        if (EqualRect(&oldItem.bounds, &newItem.bounds)) {
+            newItem.bounds = oldItem.bounds;
+            newItem.row = oldItem.row;
+        }
+    }
 }
 
 
