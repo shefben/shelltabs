@@ -4,6 +4,10 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0700
+#endif
+
 #include <windows.h>
 #include <CommCtrl.h>
 #include <ShlObj.h>
