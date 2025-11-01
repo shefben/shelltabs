@@ -6613,24 +6613,24 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         constexpr int kTextPadding = 8;
         const int iconReserve = hasIcon ? (imageWidth + 6) : 0;
         const int dropdownReserve = buttonHasDropdown ? 12 : 0;
-        const int availableTextWidth = (buttonRect.right - buttonRect.left) - iconReserve - dropdownReserve -
-                                       (kTextPadding * 2);
-        const bool iconOnlyButton = hasIcon && availableTextWidth <= 4 && (button.fsStyle & BTNS_SHOWTEXT) == 0;
 
-        std::wstring text;
-        if (!iconOnlyButton) {
-            text = fetchBreadcrumbText(button);
-            if (!text.empty()) {
-                const int iconAreaLeft = buttonRect.left + iconReserve;
-                const int textBaseLeft = iconAreaLeft + kTextPadding;
-                RECT textRect = buttonRect;
-                textRect.left = std::max(iconAreaLeft, textBaseLeft - 1);
-                textRect.right -= kTextPadding;
-                if (buttonHasDropdown) {
-                    textRect.right -= dropdownReserve;
-                }
+        std::wstring text = fetchBreadcrumbText(button);
+        if (!text.empty()) {
+            const int iconAreaLeft = buttonRect.left + iconReserve;
+            const int textBaseLeft = iconAreaLeft + kTextPadding;
+            RECT textRect = buttonRect;
+            textRect.left = std::max(iconAreaLeft, textBaseLeft - 1);
+            textRect.right -= kTextPadding;
+            if (buttonHasDropdown) {
+                textRect.right -= dropdownReserve;
+            }
 
-                if (textRect.right > textRect.left) {
+            if (textRect.right <= textRect.left) {
+                textRect.left = iconAreaLeft;
+                textRect.right = buttonRect.right - (buttonHasDropdown ? dropdownReserve : 0);
+            }
+
+            if (textRect.right > textRect.left) {
                     Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
                                              static_cast<Gdiplus::REAL>(textRect.top),
                                              static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
