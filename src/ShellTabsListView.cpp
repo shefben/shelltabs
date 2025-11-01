@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 #include "ExplorerThemeUtils.h"
 #include "Module.h"
@@ -251,6 +252,11 @@ LRESULT ShellTabsListView::OnNotify(const NMHDR* header) {
             HandleItemChanging(change);
             break;
         }
+        case LVN_ITEMCHANGED: {
+            auto* change = reinterpret_cast<NMLISTVIEW*>(const_cast<NMHDR*>(header));
+            HandleItemChanged(change);
+            break;
+        }
         default:
             break;
     }
@@ -329,6 +335,27 @@ void ShellTabsListView::HandleCacheHint(const NMLVCACHEHINT* hint) {
     PruneCache(keepFrom, keepTo);
 }
 
+void ShellTabsListView::HandleViewRangeChanged() {
+    if (!m_listView || !IsWindow(m_listView) || m_itemCount <= 0) {
+        return;
+    }
+
+    const int topIndex = static_cast<int>(SendMessageW(m_listView, LVM_GETTOPINDEX, 0, 0));
+    if (topIndex < 0) {
+        return;
+    }
+
+    int countPerPage = static_cast<int>(SendMessageW(m_listView, LVM_GETCOUNTPERPAGE, 0, 0));
+    if (countPerPage <= 0) {
+        countPerPage = 1;
+    }
+
+    NMLVCACHEHINT hint{};
+    hint.iFrom = topIndex;
+    hint.iTo = std::min(m_itemCount - 1, topIndex + countPerPage * 2);
+    HandleCacheHint(&hint);
+}
+
 void ShellTabsListView::HandleItemChanging(NMLISTVIEW* change) {
     if (!change || change->iItem < 0) {
         return;
@@ -340,6 +367,41 @@ void ShellTabsListView::HandleItemChanging(NMLISTVIEW* change) {
     }
 
     change->lParam = reinterpret_cast<LPARAM>(cached->pidl.get());
+}
+
+void ShellTabsListView::HandleItemChanged(NMLISTVIEW* change) {
+    if (!change || m_suppressSelectionNotifications) {
+        return;
+    }
+
+    if ((change->uChanged & LVIF_STATE) == 0) {
+        return;
+    }
+
+    constexpr UINT kRelevantMask = LVIS_SELECTED | LVIS_FOCUSED;
+    const UINT oldState = change->uOldState & kRelevantMask;
+    const UINT newState = change->uNewState & kRelevantMask;
+    const UINT delta = oldState ^ newState;
+    if (delta == 0 || !m_folderView) {
+        return;
+    }
+
+    DWORD flags = 0;
+    if ((delta & LVIS_SELECTED) != 0) {
+        if ((newState & LVIS_SELECTED) != 0) {
+            flags |= SVSI_SELECT | SVSI_NOSINGLESELECT;
+        } else {
+            flags |= SVSI_DESELECT;
+        }
+    }
+
+    if ((delta & LVIS_FOCUSED) != 0 && (newState & LVIS_FOCUSED) != 0) {
+        flags |= SVSI_FOCUSED;
+    }
+
+    if (flags != 0) {
+        m_folderView->SelectItem(change->iItem, flags);
+    }
 }
 
 ShellTabsListView::CachedItem* ShellTabsListView::EnsureCachedItem(int index) {
@@ -509,6 +571,186 @@ void ShellTabsListView::SetUseAccentColors(bool enabled) {
     if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, FALSE);
     }
+}
+
+bool ShellTabsListView::HitTest(const POINT& clientPoint, HitTestResult* result) {
+    if (!m_listView || !IsWindow(m_listView)) {
+        return false;
+    }
+
+    LVHITTESTINFOW hit{};
+    hit.pt = clientPoint;
+    const int index = ListView_SubItemHitTest(m_listView, &hit);
+    if (index < 0) {
+        return false;
+    }
+
+    if (result) {
+        result->index = index;
+        result->flags = hit.flags;
+        result->pidl.reset();
+        if (CachedItem* cached = EnsureCachedItem(index); cached && cached->pidl) {
+            result->pidl = ClonePidl(cached->pidl.get());
+        }
+    }
+
+    return true;
+}
+
+bool ShellTabsListView::SelectExclusive(int index) {
+    if (!m_listView || !IsWindow(m_listView) || index < 0 || index >= m_itemCount) {
+        return false;
+    }
+
+    m_suppressSelectionNotifications = true;
+    ListView_SetItemState(m_listView, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    ListView_SetItemState(m_listView, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    m_suppressSelectionNotifications = false;
+
+    ListView_EnsureVisible(m_listView, index, FALSE);
+
+    if (m_folderView) {
+        DWORD flags = SVSI_SELECT | SVSI_FOCUSED | SVSI_SELECTIONMARK | SVSI_DESELECTOTHERS | SVSI_ENSUREVISIBLE;
+        m_folderView->SelectItem(index, flags);
+    }
+
+    return true;
+}
+
+bool ShellTabsListView::ToggleSelection(int index) {
+    if (!m_listView || !IsWindow(m_listView) || index < 0 || index >= m_itemCount) {
+        return false;
+    }
+
+    const UINT current = ListView_GetItemState(m_listView, index, LVIS_SELECTED);
+    const bool selected = (current & LVIS_SELECTED) != 0;
+
+    m_suppressSelectionNotifications = true;
+    if (selected) {
+        ListView_SetItemState(m_listView, index, 0, LVIS_SELECTED);
+    } else {
+        ListView_SetItemState(m_listView, index, LVIS_SELECTED, LVIS_SELECTED);
+    }
+    m_suppressSelectionNotifications = false;
+
+    if (m_folderView) {
+        DWORD flags = selected ? SVSI_DESELECT : (SVSI_SELECT | SVSI_NOSINGLESELECT);
+        m_folderView->SelectItem(index, flags);
+    }
+
+    return true;
+}
+
+bool ShellTabsListView::FocusItem(int index, bool ensureVisible) {
+    if (!m_listView || !IsWindow(m_listView) || index < 0 || index >= m_itemCount) {
+        return false;
+    }
+
+    m_suppressSelectionNotifications = true;
+    ListView_SetItemState(m_listView, -1, 0, LVIS_FOCUSED);
+    ListView_SetItemState(m_listView, index, LVIS_FOCUSED, LVIS_FOCUSED);
+    m_suppressSelectionNotifications = false;
+
+    if (ensureVisible) {
+        ListView_EnsureVisible(m_listView, index, FALSE);
+    }
+
+    if (m_folderView) {
+        DWORD flags = SVSI_FOCUSED;
+        if (ensureVisible) {
+            flags |= SVSI_ENSUREVISIBLE;
+        }
+        m_folderView->SelectItem(index, flags);
+    }
+
+    return true;
+}
+
+bool ShellTabsListView::EnsureVisible(int index) const {
+    if (!m_listView || !IsWindow(m_listView) || index < 0 || index >= m_itemCount) {
+        return false;
+    }
+    return ListView_EnsureVisible(m_listView, index, FALSE) != FALSE;
+}
+
+int ShellTabsListView::GetNextSelectedIndex(int start) const {
+    if (!m_listView || !IsWindow(m_listView)) {
+        return -1;
+    }
+    return ListView_GetNextItem(m_listView, start, LVNI_SELECTED);
+}
+
+UINT ShellTabsListView::GetItemState(int index, UINT mask) const {
+    if (!m_listView || !IsWindow(m_listView)) {
+        return 0;
+    }
+    return ListView_GetItemState(m_listView, index, mask);
+}
+
+std::vector<ShellTabsListView::SelectionItem> ShellTabsListView::GetSelectionSnapshot() const {
+    std::vector<SelectionItem> result;
+    if (!m_listView || !IsWindow(m_listView)) {
+        return result;
+    }
+
+    const int focusedIndex = ListView_GetNextItem(m_listView, -1, LVNI_FOCUSED);
+
+    int index = -1;
+    while ((index = ListView_GetNextItem(m_listView, index, LVNI_SELECTED)) != -1) {
+        SelectionItem item{};
+        item.index = index;
+        item.focused = (index == focusedIndex);
+        if (auto* cached = const_cast<ShellTabsListView*>(this)->EnsureCachedItem(index); cached && cached->pidl) {
+            item.pidl = ClonePidl(cached->pidl.get());
+        }
+        result.emplace_back(std::move(item));
+    }
+
+    if (focusedIndex >= 0) {
+        const bool hasFocused = std::any_of(result.begin(), result.end(), [&](const SelectionItem& entry) {
+            return entry.index == focusedIndex;
+        });
+        if (!hasFocused) {
+            SelectionItem focused{};
+            focused.index = focusedIndex;
+            focused.focused = true;
+            if (auto* cached = const_cast<ShellTabsListView*>(this)->EnsureCachedItem(focusedIndex); cached && cached->pidl) {
+                focused.pidl = ClonePidl(cached->pidl.get());
+            }
+            result.emplace_back(std::move(focused));
+        }
+    }
+
+    return result;
+}
+
+bool ShellTabsListView::TryGetFocusedItem(SelectionItem* item) const {
+    if (!item) {
+        return false;
+    }
+
+    item->index = -1;
+    item->pidl.reset();
+    item->focused = false;
+
+    if (!m_listView || !IsWindow(m_listView)) {
+        return false;
+    }
+
+    const int focusedIndex = ListView_GetNextItem(m_listView, -1, LVNI_FOCUSED);
+    if (focusedIndex < 0) {
+        return false;
+    }
+
+    SelectionItem focused{};
+    focused.index = focusedIndex;
+    focused.focused = true;
+    if (auto* cached = const_cast<ShellTabsListView*>(this)->EnsureCachedItem(focusedIndex); cached && cached->pidl) {
+        focused.pidl = ClonePidl(cached->pidl.get());
+    }
+
+    *item = std::move(focused);
+    return true;
 }
 
 bool ShellTabsListView::HandleCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result) {
@@ -904,6 +1146,15 @@ LRESULT CALLBACK ShellTabsListView::ListViewSubclassProc(HWND hwnd,
                 instance->ResetBackgroundSurface();
             }
             break;
+        }
+        case WM_KEYDOWN:
+        case WM_MOUSEWHEEL:
+        case WM_VSCROLL: {
+            LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            if (instance) {
+                instance->HandleViewRangeChanged();
+            }
+            return result;
         }
         case WM_NCDESTROY: {
             if (instance) {

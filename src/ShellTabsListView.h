@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Gdiplus {
 class Bitmap;
@@ -42,6 +43,18 @@ public:
     using BackgroundResolver = std::function<BackgroundSource()>;
     using AccentColorResolver = std::function<bool(COLORREF* accent, COLORREF* text)>;
 
+    struct HitTestResult {
+        int index = -1;
+        UINT flags = 0;
+        UniquePidl pidl;
+    };
+
+    struct SelectionItem {
+        int index = -1;
+        UniquePidl pidl;
+        bool focused = false;
+    };
+
     ShellTabsListView();
     ~ShellTabsListView();
 
@@ -56,6 +69,7 @@ public:
     HWND GetListView() const noexcept { return m_listView; }
 
     static bool IsShellTabsListView(HWND hwnd);
+    static ShellTabsListView* FromListView(HWND hwnd);
 
     void HandleInvalidationTargets(const PaneHighlightInvalidationTargets& targets) const;
     bool TryResolveHighlight(int index, PaneHighlight* highlight);
@@ -63,6 +77,16 @@ public:
     void SetBackgroundResolver(BackgroundResolver resolver);
     void SetAccentColorResolver(AccentColorResolver resolver);
     void SetUseAccentColors(bool enabled);
+
+    bool HitTest(const POINT& clientPoint, HitTestResult* result);
+    bool SelectExclusive(int index);
+    bool ToggleSelection(int index);
+    bool FocusItem(int index, bool ensureVisible = true);
+    bool EnsureVisible(int index) const;
+    int GetNextSelectedIndex(int start) const;
+    UINT GetItemState(int index, UINT mask) const;
+    std::vector<SelectionItem> GetSelectionSnapshot() const;
+    bool TryGetFocusedItem(SelectionItem* item) const;
 
 private:
     struct CachedItem {
@@ -94,7 +118,6 @@ private:
                                                  DWORD_PTR referenceData);
 
     static ShellTabsListView* FromWindow(HWND hwnd);
-    static ShellTabsListView* FromListView(HWND hwnd);
 
     bool CreateHostWindow(HWND parent);
     bool EnsureListView();
@@ -104,6 +127,8 @@ private:
     bool HandleGetDispInfo(NMLVDISPINFOW* info);
     void HandleCacheHint(const NMLVCACHEHINT* hint);
     void HandleItemChanging(NMLISTVIEW* change);
+    void HandleItemChanged(NMLISTVIEW* change);
+    void HandleViewRangeChanged();
     CachedItem* EnsureCachedItem(int index);
     void PruneCache(int keepFrom, int keepTo);
     int ResolveIconIndex(PCIDLIST_ABSOLUTE pidl) const;
@@ -127,6 +152,7 @@ private:
     std::unordered_map<int, CachedItem> m_cache;
     BackgroundSurface m_backgroundSurface;
     AccentResources m_accentResources;
+    bool m_suppressSelectionNotifications = false;
 };
 
 }  // namespace shelltabs

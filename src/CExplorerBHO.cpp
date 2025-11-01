@@ -4018,6 +4018,10 @@ void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPo
     }
 
     if (target == m_listView) {
+        if (!m_listViewControl) {
+            return;
+        }
+
         if (screenPoint.x == -1 && screenPoint.y == -1) {
             return;
         }
@@ -4027,23 +4031,18 @@ void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPo
             return;
         }
 
-        LVHITTESTINFO hit{};
-        hit.pt = clientPoint;
-        const int index = ListView_SubItemHitTest(m_listView, &hit);
-        if (index < 0 || (hit.flags & LVHT_ONITEM) == 0) {
+        ShellTabsListView::HitTestResult hit{};
+        if (!m_listViewControl->HitTest(clientPoint, &hit) || hit.index < 0 || (hit.flags & LVHT_ONITEM) == 0) {
             return;
         }
 
-        const UINT state = ListView_GetItemState(m_listView, index, LVIS_SELECTED);
-        if ((state & LVIS_SELECTED) != 0) {
+        if ((m_listViewControl->GetItemState(hit.index, LVIS_SELECTED) & LVIS_SELECTED) != 0) {
             return;
         }
 
-        ListView_SetItemState(m_listView, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-        ListView_SetItemState(m_listView, index, LVIS_SELECTED | LVIS_FOCUSED,
-                              LVIS_SELECTED | LVIS_FOCUSED);
-        ListView_EnsureVisible(m_listView, index, FALSE);
-        LogMessage(LogLevel::Info, L"Context menu selection synchronized to list view item %d", index);
+        if (m_listViewControl->SelectExclusive(hit.index)) {
+            LogMessage(LogLevel::Info, L"Context menu selection synchronized to list view item %d", hit.index);
+        }
         return;
     }
 
@@ -4244,6 +4243,24 @@ bool CExplorerBHO::CollectContextSelectionFromItemArray(IShellItemArray* items,
 }
 
 bool CExplorerBHO::CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const {
+    if (m_listViewControl) {
+        bool appended = false;
+        for (const auto& item : m_listViewControl->GetSelectionSnapshot()) {
+            if (!item.pidl) {
+                continue;
+            }
+            if (AppendSelectionItemFromPidl(item.pidl.get(), selection)) {
+                appended = true;
+            }
+        }
+
+        if (!appended) {
+            LogMessage(LogLevel::Info, L"CollectContextSelectionFromListView found no selection");
+        }
+
+        return appended;
+    }
+
     if (!m_listView || !IsWindow(m_listView)) {
         return false;
     }
