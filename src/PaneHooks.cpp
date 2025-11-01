@@ -1,5 +1,7 @@
 #include "PaneHooks.h"
 
+#include "ShellTabsTreeView.h"
+
 #include "Utilities.h"
 #include <atomic>
 #include <mutex>
@@ -246,7 +248,12 @@ void DispatchInvalidations(const std::vector<HWND>& handles, HighlightPaneType p
                 handled = InvalidateListViewTargets(hwnd, targets);
                 break;
             case HighlightPaneType::TreeView:
-                handled = InvalidateTreeViewTargets(hwnd, targets);
+                if (auto* tree = ShellTabsTreeView::FromHandle(hwnd)) {
+                    tree->HandleInvalidationTargets(targets);
+                    handled = true;
+                } else {
+                    handled = InvalidateTreeViewTargets(hwnd, targets);
+                }
                 break;
         }
 
@@ -367,20 +374,27 @@ void PaneHookRouter::SetListView(HWND listView) {
     }
 }
 
-void PaneHookRouter::SetTreeView(HWND treeView) {
-    if (m_treeView == treeView) {
-        return;
-    }
-
-    if (m_treeView) {
-        UnsubscribeTreeViewForHighlights(m_treeView);
+void PaneHookRouter::SetTreeView(
+    HWND treeView,
+    std::function<bool(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight)> resolver,
+    INameSpaceTreeControl* namespaceTree) {
+    if (m_treeView && m_treeView != treeView) {
+        m_treeControl.reset();
     }
 
     m_treeView = treeView;
 
-    if (m_treeView) {
-        SubscribeTreeViewForHighlights(m_treeView);
+    if (!m_treeView) {
+        m_treeControl.reset();
+        return;
     }
+
+    Microsoft::WRL::ComPtr<INameSpaceTreeControl> control;
+    if (namespaceTree) {
+        control = namespaceTree;
+    }
+
+    m_treeControl = ShellTabsTreeView::Create(m_treeView, std::move(resolver), control);
 }
 
 void PaneHookRouter::Reset() {
@@ -398,33 +412,9 @@ bool PaneHookRouter::HandleNotify(const NMHDR* header, LRESULT* result) {
         return HandleListCustomDraw(draw, result);
     }
 
-    if (header->hwndFrom == m_treeView) {
-        switch (header->code) {
-            case NM_CUSTOMDRAW: {
-                auto* draw = reinterpret_cast<NMTVCUSTOMDRAW*>(const_cast<NMHDR*>(header));
-                return HandleTreeCustomDraw(draw, result);
-            }
-            case TVN_ITEMCHANGING:
-            {
-                const auto* change = reinterpret_cast<const NMTREEVIEW*>(header);
-                InvalidateTreeSelectionChange(m_treeView, change->itemOld.hItem, change->itemNew.hItem);
-                break;
-            }
-            case TVN_ITEMEXPANDED:
-            {
-                const auto* expanded = reinterpret_cast<const NMTREEVIEW*>(header);
-                InvalidateTreeItemBranch(m_treeView, expanded->itemNew.hItem);
-                break;
-            }
-            case TVN_SELCHANGEDW:
-            case TVN_SELCHANGEDA: {
-                if (m_treeView && IsWindow(m_treeView)) {
-                    InvalidateRect(m_treeView, nullptr, FALSE);
-                }
-                break;
-            }
-            default:
-                break;
+    if (m_treeControl && header->hwndFrom == m_treeView) {
+        if (m_treeControl->HandleNotify(header, result)) {
+            return true;
         }
     }
 
@@ -480,54 +470,6 @@ bool PaneHookRouter::HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result)
             const int index = static_cast<int>(draw->nmcd.dwItemSpec);
             const bool isSubItemStage = (draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0;
             return applyHighlight(index, isSubItemStage);
-        }
-        default:
-            break;
-    }
-
-    return false;
-}
-
-bool PaneHookRouter::HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result) {
-    if (!draw || !result) {
-        return false;
-    }
-
-    switch (draw->nmcd.dwDrawStage) {
-        case CDDS_PREPAINT: {
-            *result = CDRF_NOTIFYITEMDRAW;
-            return true;
-        }
-        case CDDS_ITEMPREPAINT: {
-            if (!m_provider || !m_treeView) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            auto* item = reinterpret_cast<HTREEITEM>(draw->nmcd.dwItemSpec);
-            if (!item) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            PaneHighlight highlight{};
-            if (!m_provider->TryGetTreeViewHighlight(m_treeView, item, &highlight)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
-
-            bool applied = false;
-            if (highlight.hasTextColor) {
-                draw->clrText = highlight.textColor;
-                applied = true;
-            }
-            if (highlight.hasBackgroundColor) {
-                draw->clrTextBk = highlight.backgroundColor;
-                applied = true;
-            }
-
-            *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
-            return true;
         }
         default:
             break;
