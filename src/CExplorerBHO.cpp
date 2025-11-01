@@ -7025,8 +7025,6 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     return true;
 }
 
-namespace shelltabs {
-
 bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
     if (!m_useCustomProgressGradientColors) {
         return false;
