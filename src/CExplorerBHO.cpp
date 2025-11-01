@@ -46,6 +46,7 @@
 #include "Utilities.h"
 #include "ExplorerThemeUtils.h"
 #include "TabManager.h"
+#include "IconCache.h"
 
 #ifndef TBSTATE_HOT
 #define TBSTATE_HOT 0x80
@@ -70,6 +71,7 @@ using shelltabs::ArePidlsEqual;
 using shelltabs::GetCanonicalParsingName;
 using shelltabs::GetParsingName;
 using shelltabs::UniquePidl;
+using shelltabs::IconCache;
 
 struct ListViewBackgroundReadyMessage {
     uint64_t generation = 0;
