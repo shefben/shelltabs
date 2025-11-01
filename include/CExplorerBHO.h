@@ -419,7 +419,6 @@ class NamespaceTreeHost;
                 COLORREF m_progressGradientBitmapEndColor = 0;
                 HWND m_addressEditWindow = nullptr;
                 bool m_addressEditSubclassInstalled = false;
-                bool m_handlingAddressEditPrintClient = false;
                 mutable bool m_addressEditRedrawPending = false;
                 mutable bool m_addressEditRedrawTimerActive = false;
                 std::wstring m_addressEditCachedText;
