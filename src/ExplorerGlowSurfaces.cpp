@@ -5,6 +5,7 @@
 #include "ExplorerThemeUtils.h"
 #include "ShellTabsListView.h"
 #include "DirectUiHooks.h"
+#include "ThemeHooks.h"
 
 #include <algorithm>
 #include <array>
@@ -1527,6 +1528,10 @@ public:
 
 protected:
     void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) override {
+        if (ThemeHooks::Instance().IsActive()) {
+            return;
+        }
+
         HWND hwnd = Handle();
         if (!hwnd || !IsWindow(hwnd)) {
             return;
