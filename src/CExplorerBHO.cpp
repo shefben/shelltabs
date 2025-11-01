@@ -89,6 +89,7 @@ constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
 constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
 constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_background";
+constexpr wchar_t kStatusBarClassName[] = L"msctls_statusbar32";
 constexpr UINT_PTR kAddressEditRedrawTimerId = 0x53445257;  // 'SRDW'
 constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
 
@@ -1042,6 +1043,7 @@ void CExplorerBHO::Disconnect() {
     RemoveProgressSubclass();
     RemoveAddressEditSubclass();
     RemoveExplorerViewSubclass();
+    RemoveStatusBarSubclass();
     ResetStatusBarTheme();
     m_statusBar = nullptr;
     DisconnectEvents();
@@ -2037,6 +2039,49 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
     return root == frame;
 }
 
+HWND CExplorerBHO::LocateExplorerStatusBar(HWND explorerFrame) const {
+    if (!explorerFrame || !IsWindow(explorerFrame)) {
+        return nullptr;
+    }
+
+    HWND best = nullptr;
+    bool bestVisible = false;
+
+    std::vector<HWND> stack;
+    stack.push_back(explorerFrame);
+
+    while (!stack.empty()) {
+        HWND current = stack.back();
+        stack.pop_back();
+
+        for (HWND child = GetWindow(current, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+            if (!IsWindow(child)) {
+                continue;
+            }
+
+            if (MatchesClass(child, kStatusBarClassName) && IsWindowOwnedByThisExplorer(child)) {
+                const LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
+                const bool visible = ((style & WS_VISIBLE) != 0) && IsWindowVisible(child);
+                if (!best || (visible && !bestVisible)) {
+                    best = child;
+                    bestVisible = visible;
+                }
+
+                if (bestVisible) {
+                    // A visible status bar owned by this Explorer instance is ideal; stop early.
+                    return best;
+                }
+
+                continue;
+            }
+
+            stack.push_back(child);
+        }
+    }
+
+    return best;
+}
+
 void CExplorerBHO::DetachListView() {
     if (m_listView) {
         if (HWND header = ListView_GetHeader(m_listView)) {
@@ -2314,8 +2359,13 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
     HWND frame = GetTopLevelExplorerWindow();
     HWND statusBarCandidate = nullptr;
     if (frame && IsWindow(frame)) {
-        statusBarCandidate = FindDescendantWindow(frame, STATUSCLASSNAMEW);
-        if (statusBarCandidate && !IsWindowOwnedByThisExplorer(statusBarCandidate)) {
+        statusBarCandidate = LocateExplorerStatusBar(frame);
+        if (statusBarCandidate && !MatchesClass(statusBarCandidate, kStatusBarClassName)) {
+            wchar_t className[256] = {};
+            if (GetClassNameW(statusBarCandidate, className, ARRAYSIZE(className)) > 0) {
+                LogMessage(LogLevel::Warning,
+                    L"Discarding unexpected status bar candidate class '%s' (hwnd=%p)", className, statusBarCandidate);
+            }
             statusBarCandidate = nullptr;
         }
     }
@@ -2323,15 +2373,17 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
     if (statusBarCandidate != m_statusBar) {
         if (m_statusBar) {
             LogMessage(LogLevel::Info, L"Explorer status bar released (hwnd=%p)", m_statusBar);
+            RemoveStatusBarSubclass(m_statusBar);
             ResetStatusBarTheme(m_statusBar);
         }
         m_statusBar = statusBarCandidate;
         m_statusBarThemeValid = false;
-        m_statusBarBackgroundApplied = false;
         m_statusBarBackgroundColor = CLR_DEFAULT;
         m_statusBarTextColor = CLR_DEFAULT;
+        m_statusBarChromeSample.reset();
         if (m_statusBar) {
             LogMessage(LogLevel::Info, L"Explorer status bar discovered (hwnd=%p)", m_statusBar);
+            InstallStatusBarSubclass();
         }
     }
 
@@ -2383,16 +2435,223 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
 
 void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
     HWND target = statusBar ? statusBar : m_statusBar;
-    if (target && IsWindow(target) && m_statusBarBackgroundApplied) {
-        const COLORREF previous = static_cast<COLORREF>(SendMessageW(target, SB_SETBKCOLOR, 0, CLR_DEFAULT));
+    if (target && IsWindow(target)) {
+        const COLORREF previous =
+            static_cast<COLORREF>(SendMessageW(target, SB_SETBKCOLOR, 0, CLR_DEFAULT));
         LogMessage(LogLevel::Info, L"Status bar background reset (hwnd=%p previous=0x%08X)", target, previous);
         InvalidateRect(target, nullptr, TRUE);
     }
 
     m_statusBarThemeValid = false;
-    m_statusBarBackgroundApplied = false;
     m_statusBarBackgroundColor = CLR_DEFAULT;
     m_statusBarTextColor = CLR_DEFAULT;
+    m_statusBarChromeSample.reset();
+}
+
+void CExplorerBHO::InstallStatusBarSubclass() {
+    if (!m_statusBar || m_statusBarSubclassInstalled || !IsWindow(m_statusBar)) {
+        return;
+    }
+
+    if (!MatchesClass(m_statusBar, kStatusBarClassName)) {
+        wchar_t className[256] = {};
+        if (GetClassNameW(m_statusBar, className, ARRAYSIZE(className)) > 0) {
+            LogMessage(LogLevel::Warning, L"Status bar subclass skipped: unexpected class '%s' (hwnd=%p)", className,
+                m_statusBar);
+        }
+        return;
+    }
+
+    if (!SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this),
+            reinterpret_cast<DWORD_PTR>(this))) {
+        LogLastError(L"SetWindowSubclass(status bar)", GetLastError());
+        return;
+    }
+
+    m_statusBarSubclassInstalled = true;
+}
+
+void CExplorerBHO::RemoveStatusBarSubclass(HWND statusBar) {
+    if (!m_statusBarSubclassInstalled) {
+        return;
+    }
+
+    HWND target = statusBar ? statusBar : m_statusBar;
+    if (!target || !IsWindow(target)) {
+        m_statusBarSubclassInstalled = false;
+        return;
+    }
+
+    if (!RemoveWindowSubclass(target, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this))) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_INVALID_PARAMETER && error != ERROR_SUCCESS) {
+            LogLastError(L"RemoveWindowSubclass(status bar)", error);
+        }
+    }
+
+    m_statusBarSubclassInstalled = false;
+}
+
+LRESULT CExplorerBHO::HandleStatusBarMessage(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool* handled) {
+    if (handled) {
+        *handled = false;
+    }
+
+    if (msg == WM_NCDESTROY) {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+        RemoveStatusBarSubclass(hwnd);
+        if (hwnd == m_statusBar) {
+            m_statusBar = nullptr;
+            m_statusBarThemeValid = false;
+            m_statusBarBackgroundColor = CLR_DEFAULT;
+            m_statusBarTextColor = CLR_DEFAULT;
+            m_statusBarChromeSample.reset();
+        }
+        if (handled) {
+            *handled = true;
+        }
+        return result;
+    }
+
+    if (!m_statusBarThemeValid || IsSystemHighContrastActive()) {
+        return 0;
+    }
+
+    auto paintBackground = [&](HDC dc, const RECT& paintRect) {
+        if (!dc) {
+            return;
+        }
+
+        auto fillSolid = [&](HDC targetDc, const RECT& rect, COLORREF color) {
+            if (color == CLR_DEFAULT) {
+                FillRect(targetDc, &rect, GetSysColorBrush(COLOR_3DFACE));
+                return;
+            }
+            HBRUSH brush = CreateSolidBrush(color);
+            if (!brush) {
+                FillRect(targetDc, &rect, GetSysColorBrush(COLOR_3DFACE));
+                return;
+            }
+            FillRect(targetDc, &rect, brush);
+            DeleteObject(brush);
+        };
+
+        COLORREF fallback = m_statusBarBackgroundColor;
+        if (fallback == CLR_DEFAULT) {
+            fallback = GetSysColor(COLOR_3DFACE);
+        }
+
+        COLORREF top = fallback;
+        COLORREF bottom = fallback;
+        if (m_statusBarChromeSample) {
+            top = m_statusBarChromeSample->topColor;
+            bottom = m_statusBarChromeSample->bottomColor;
+        }
+        if (top == CLR_DEFAULT) {
+            top = fallback;
+        }
+        if (bottom == CLR_DEFAULT) {
+            bottom = fallback;
+        }
+
+        if (top == bottom) {
+            fillSolid(dc, paintRect, top);
+            return;
+        }
+
+        TRIVERTEX vertices[2]{};
+        vertices[0].x = paintRect.left;
+        vertices[0].y = paintRect.top;
+        vertices[0].Red = static_cast<COLOR16>(GetRValue(top) * 0x101);
+        vertices[0].Green = static_cast<COLOR16>(GetGValue(top) * 0x101);
+        vertices[0].Blue = static_cast<COLOR16>(GetBValue(top) * 0x101);
+        vertices[0].Alpha = 0xFFFF;
+        vertices[1].x = paintRect.right;
+        vertices[1].y = paintRect.bottom;
+        vertices[1].Red = static_cast<COLOR16>(GetRValue(bottom) * 0x101);
+        vertices[1].Green = static_cast<COLOR16>(GetGValue(bottom) * 0x101);
+        vertices[1].Blue = static_cast<COLOR16>(GetBValue(bottom) * 0x101);
+        vertices[1].Alpha = 0xFFFF;
+        GRADIENT_RECT gradientRect{0, 1};
+
+        if (!GradientFill(dc, vertices, 2, &gradientRect, 1, GRADIENT_FILL_RECT_V)) {
+            fillSolid(dc, paintRect, top);
+        }
+    };
+
+    switch (msg) {
+        case WM_ERASEBKGND: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (!dc) {
+                break;
+            }
+            RECT rect{};
+            if (!GetClientRect(hwnd, &rect)) {
+                break;
+            }
+            paintBackground(dc, rect);
+            if (handled) {
+                *handled = true;
+            }
+            return TRUE;
+        }
+        case WM_PRINTCLIENT: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (dc) {
+                RECT rect{};
+                if (lParam) {
+                    rect = *reinterpret_cast<RECT*>(lParam);
+                } else {
+                    GetClientRect(hwnd, &rect);
+                }
+                paintBackground(dc, rect);
+            }
+            const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (handled) {
+                *handled = true;
+            }
+            return result;
+        }
+        case WM_PAINT: {
+            if (wParam) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                RECT rect{};
+                if (lParam) {
+                    rect = *reinterpret_cast<RECT*>(lParam);
+                } else {
+                    GetClientRect(hwnd, &rect);
+                }
+                paintBackground(dc, rect);
+                const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                if (handled) {
+                    *handled = true;
+                }
+                return result;
+            }
+            PAINTSTRUCT ps{};
+            HDC dc = BeginPaint(hwnd, &ps);
+            if (dc) {
+                RECT rect = ps.rcPaint;
+                if (IsRectEmpty(&rect)) {
+                    GetClientRect(hwnd, &rect);
+                }
+                paintBackground(dc, rect);
+            }
+            const LRESULT result = DefSubclassProc(hwnd, msg, reinterpret_cast<WPARAM>(dc), lParam);
+            if (dc) {
+                EndPaint(hwnd, &ps);
+            }
+            if (handled) {
+                *handled = true;
+            }
+            return result;
+        }
+        default:
+            break;
+    }
+
+    return 0;
 }
 
 void CExplorerBHO::UpdateStatusBarTheme() {
@@ -2402,21 +2661,19 @@ void CExplorerBHO::UpdateStatusBarTheme() {
 
     if (!IsWindowOwnedByThisExplorer(m_statusBar)) {
         LogMessage(LogLevel::Warning, L"Status bar theme update aborted: handle no longer owned (hwnd=%p)", m_statusBar);
+        RemoveStatusBarSubclass(m_statusBar);
         ResetStatusBarTheme(m_statusBar);
         m_statusBar = nullptr;
         return;
     }
 
+    InstallStatusBarSubclass();
+
     if (IsSystemHighContrastActive()) {
-        if (m_statusBarBackgroundApplied) {
+        if (m_statusBarThemeValid) {
             LogMessage(LogLevel::Info, L"Status bar theme disabled for high contrast (hwnd=%p)", m_statusBar);
-            SendMessageW(m_statusBar, SB_SETBKCOLOR, 0, CLR_DEFAULT);
-            InvalidateRect(m_statusBar, nullptr, TRUE);
         }
-        m_statusBarThemeValid = false;
-        m_statusBarBackgroundApplied = false;
-        m_statusBarBackgroundColor = CLR_DEFAULT;
-        m_statusBarTextColor = CLR_DEFAULT;
+        ResetStatusBarTheme(m_statusBar);
         return;
     }
 
@@ -2466,15 +2723,10 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     }
 
     if (!backgroundCandidate.has_value()) {
-        if (m_statusBarThemeValid || m_statusBarBackgroundApplied) {
+        if (m_statusBarThemeValid) {
             LogMessage(LogLevel::Warning, L"Status bar theme reset: failed to sample toolbar chrome (hwnd=%p)", m_statusBar);
-            SendMessageW(m_statusBar, SB_SETBKCOLOR, 0, CLR_DEFAULT);
-            InvalidateRect(m_statusBar, nullptr, TRUE);
         }
-        m_statusBarThemeValid = false;
-        m_statusBarBackgroundApplied = false;
-        m_statusBarBackgroundColor = CLR_DEFAULT;
-        m_statusBarTextColor = CLR_DEFAULT;
+        ResetStatusBarTheme(m_statusBar);
         return;
     }
 
@@ -2484,24 +2736,36 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
     const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
 
-    if (!backgroundChanged && !textChanged) {
+    bool chromeChanged = false;
+    ToolbarChromeSample chromeForStorage{background, background};
+    if (chrome) {
+        chromeForStorage = *chrome;
+    }
+    if (!m_statusBarChromeSample.has_value()) {
+        chromeChanged = true;
+    } else {
+        chromeChanged = m_statusBarChromeSample->topColor != chromeForStorage.topColor ||
+                        m_statusBarChromeSample->bottomColor != chromeForStorage.bottomColor;
+    }
+
+    if (!backgroundChanged && !textChanged && !chromeChanged) {
         return;
     }
 
     if (backgroundChanged) {
-        const COLORREF previous = static_cast<COLORREF>(SendMessageW(m_statusBar, SB_SETBKCOLOR, 0, background));
-        LogMessage(LogLevel::Info, L"Status bar theme updated (hwnd=%p previous=0x%08X new=0x%08X)", m_statusBar, previous,
-                   background);
-        m_statusBarBackgroundApplied = true;
+        LogMessage(LogLevel::Info, L"Status bar theme background updated (hwnd=%p new=0x%08X)", m_statusBar, background);
     }
 
-    if (backgroundChanged || textChanged) {
-        InvalidateRect(m_statusBar, nullptr, TRUE);
+    if (textChanged) {
+        LogMessage(LogLevel::Info, L"Status bar theme text color updated (hwnd=%p new=0x%08X)", m_statusBar, text);
     }
 
     m_statusBarThemeValid = true;
     m_statusBarBackgroundColor = background;
     m_statusBarTextColor = text;
+    m_statusBarChromeSample = chromeForStorage;
+
+    InvalidateRect(m_statusBar, nullptr, TRUE);
 }
 
 void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
@@ -3088,6 +3352,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     ResetGlowSurfaces();
 
     if (m_statusBar) {
+        RemoveStatusBarSubclass();
         ResetStatusBarTheme();
         m_statusBar = nullptr;
     }
@@ -4005,6 +4270,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 HWND child = reinterpret_cast<HWND>(lParam);
                 if (child && child == m_statusBar) {
                     LogMessage(LogLevel::Info, L"Explorer status bar WM_DESTROY observed (hwnd=%p)", child);
+                    RemoveStatusBarSubclass(child);
                     ResetStatusBarTheme(child);
                     m_statusBar = nullptr;
                 }
@@ -4116,6 +4382,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                         if (m_statusBarTextColor != CLR_DEFAULT) {
                             ::SetTextColor(customDraw->hdc, m_statusBarTextColor);
                         }
+                        ::SetBkMode(customDraw->hdc, TRANSPARENT);
                         if (m_statusBarBackgroundColor != CLR_DEFAULT) {
                             ::SetBkColor(customDraw->hdc, m_statusBarBackgroundColor);
                         }
@@ -7562,6 +7829,22 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 
         self->UnregisterGlowSurface(hwnd);
         RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(refData);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    bool handled = false;
+    LRESULT result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, &handled);
+    if (handled) {
+        return result;
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
