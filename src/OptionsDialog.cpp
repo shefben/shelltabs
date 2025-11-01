@@ -3302,6 +3302,8 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
                             ? BeginDeferWindowPos(static_cast<int>(childCount))
                             : nullptr;
     const bool attemptDefer = deferHandle != nullptr;
+    constexpr UINT repositionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
+
     for (const auto& placement : data->customizationChildPlacements) {
         if (!IsWindow(placement.hwnd)) {
             continue;
@@ -3311,17 +3313,17 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
         const int targetY = placement.rect.top - data->customizationScrollPos;
         if (deferHandle) {
             HDWP nextHandle = DeferWindowPos(deferHandle, placement.hwnd, nullptr, placement.rect.left,
-                                            targetY, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+                                            targetY, width, height, repositionFlags);
             if (!nextHandle) {
                 deferHandle = nullptr;
                 SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
-                             SWP_NOZORDER | SWP_NOACTIVATE);
+                             repositionFlags);
             } else {
                 deferHandle = nextHandle;
             }
         } else {
             SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
+                         repositionFlags);
         }
     }
     if (deferHandle) {
