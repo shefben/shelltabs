@@ -4,11 +4,11 @@
 
 #include "ExplorerThemeUtils.h"
 #include "ShellTabsListView.h"
+#include "DirectUiHooks.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdlib>
-#include <mutex>
 #include <utility>
 #include <vector>
 #include <string>
@@ -17,8 +17,6 @@
 
 #include <dwmapi.h>
 #include <gdiplus.h>
-#include <UIAutomation.h>
-#include <oleacc.h>
 #include <commctrl.h>
 #include <uxtheme.h>
 #include <vssym32.h>
@@ -37,125 +35,7 @@ bool ApproximatelyEqual(int lhs, int rhs, int tolerance) {
     return std::abs(lhs - rhs) <= tolerance;
 }
 
-Microsoft::WRL::ComPtr<IUIAutomation> GetAutomationInstance() {
-    static std::once_flag automationInitFlag;
-    static Microsoft::WRL::ComPtr<IUIAutomation> automation;
-    static HRESULT automationInitResult = E_FAIL;
-
-    std::call_once(automationInitFlag, []() {
-        Microsoft::WRL::ComPtr<IUIAutomation> instance;
-        const HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
-                                            IID_PPV_ARGS(&instance));
-        if (SUCCEEDED(hr)) {
-            automation = std::move(instance);
-            automationInitResult = S_OK;
-        } else {
-            automation.Reset();
-            automationInitResult = hr;
-        }
-    });
-
-    if (FAILED(automationInitResult)) {
-        return nullptr;
-    }
-
-    return automation;
-}
-
-void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
-                                const RECT& clientRect, std::vector<RECT>& rectangles);
-
 bool MatchesClass(HWND hwnd, const wchar_t* className);
-
-void AppendDirectUiRectangle(IUIAutomationElement* element, HWND host, const RECT& clientRect,
-                             std::vector<RECT>& rectangles) {
-    if (!element || !host || !IsWindow(host)) {
-        return;
-    }
-
-    RECT bounding{};
-    if (FAILED(element->get_CurrentBoundingRectangle(&bounding))) {
-        return;
-    }
-
-    if (bounding.right <= bounding.left || bounding.bottom <= bounding.top) {
-        return;
-    }
-
-    BOOL offscreen = FALSE;
-    const HRESULT offscreenHr = element->get_CurrentIsOffscreen(&offscreen);
-    if (FAILED(offscreenHr) || offscreen) {
-        return;
-    }
-
-    POINT points[2] = {{bounding.left, bounding.top}, {bounding.right, bounding.bottom}};
-    MapWindowPoints(nullptr, host, points, 2);
-
-    RECT local = {points[0].x, points[0].y, points[1].x, points[1].y};
-    RECT clipped{};
-    if (!IntersectRect(&clipped, &local, &clientRect)) {
-        return;
-    }
-
-    if (clipped.right <= clipped.left || clipped.bottom <= clipped.top) {
-        return;
-    }
-
-    const auto duplicate = std::find_if(rectangles.begin(), rectangles.end(), [&](const RECT& existing) {
-        return EqualRect(&existing, &clipped);
-    });
-
-    if (duplicate == rectangles.end()) {
-        rectangles.push_back(clipped);
-    }
-}
-
-void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
-                                const RECT& clientRect, std::vector<RECT>& rectangles) {
-    if (!element || !walker) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<IUIAutomationElement> child;
-    HRESULT hr = walker->GetFirstChildElement(element, &child);
-    if (FAILED(hr)) {
-        return;
-    }
-
-    while (child) {
-        AppendDirectUiRectangle(child.Get(), host, clientRect, rectangles);
-        CollectDirectUiDescendants(child.Get(), walker, host, clientRect, rectangles);
-
-        Microsoft::WRL::ComPtr<IUIAutomationElement> next;
-        hr = walker->GetNextSiblingElement(child.Get(), &next);
-        if (FAILED(hr)) {
-            break;
-        }
-        child = std::move(next);
-    }
-}
-
-bool EnumerateDirectUiRectangles(HWND host, const RECT& clientRect, std::vector<RECT>& rectangles) {
-    rectangles.clear();
-
-    auto automation = GetAutomationInstance();
-    if (!automation) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IUIAutomationElement> root;
-    if (FAILED(automation->ElementFromHandle(host, &root)) || !root) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IUIAutomationTreeWalker> walker;
-    if (FAILED(automation->get_ControlViewWalker(&walker)) || !walker) {
-        return false;
-    }
-
-    CollectDirectUiDescendants(root.Get(), walker.Get(), host, clientRect, rectangles);
-    return true;
-}
 
 RECT MapScreenRectToWindow(HWND hwnd, const RECT& rect) {
     POINT points[2] = {{rect.left, rect.top}, {rect.right, rect.bottom}};
@@ -1519,8 +1399,24 @@ protected:
             paintRect = intersect;
         }
 
+        if (DirectUiHooks::Instance().PaintHost(hwnd, clientRect, [&](const std::vector<RECT>& rectangles) {
+                PaintRectangles(targetDc, clientRect, paintRect, colors, rectangles);
+            })) {
+            return;
+        }
+
         std::vector<RECT> highlightRects;
-        if (!EnumerateDirectUiRectangles(hwnd, clientRect, highlightRects)) {
+        if (!DirectUiHooks::Instance().EnumerateRectangles(hwnd, clientRect, highlightRects)) {
+            return;
+        }
+
+        PaintRectangles(targetDc, clientRect, paintRect, colors, highlightRects);
+    }
+
+private:
+    void PaintRectangles(HDC targetDc, const RECT& clientRect, const RECT& paintRect, const GlowColorSet& colors,
+                         const std::vector<RECT>& rectangles) const {
+        if (rectangles.empty()) {
             return;
         }
 
@@ -1528,8 +1424,8 @@ protected:
         const int toleranceY = ScaleByDpi(2, DpiY());
 
         std::vector<RECT> filteredRects;
-        filteredRects.reserve(highlightRects.size());
-        for (const RECT& rect : highlightRects) {
+        filteredRects.reserve(rectangles.size());
+        for (const RECT& rect : rectangles) {
             RECT intersection{};
             if (!IntersectRect(&intersection, &rect, &paintRect)) {
                 continue;
