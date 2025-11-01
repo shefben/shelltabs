@@ -10,6 +10,21 @@
 #include <cwctype>
 #include <limits>
 
+#ifndef ListView_FindItemW
+static int ListView_FindItemW(HWND hwnd, int start, const LVFINDINFOW* findInfo) {
+    return static_cast<int>(SendMessageW(
+        hwnd, LVM_FINDITEMW, static_cast<WPARAM>(start),
+        reinterpret_cast<LPARAM>(findInfo)));
+}
+#endif
+
+#ifndef TreeView_GetItemW
+static BOOL TreeView_GetItemW(HWND hwnd, TVITEMEXW* item) {
+    return static_cast<BOOL>(
+        SendMessageW(hwnd, TVM_GETITEMW, 0, reinterpret_cast<LPARAM>(item)));
+}
+#endif
+
 namespace shelltabs {
 
 std::wstring NormalizePaneHighlightKey(const std::wstring& path) {
