@@ -52,6 +52,16 @@ struct TabProgressView {
     bool operator!=(const TabProgressView& other) const noexcept { return !(*this == other); }
 };
 
+inline double ClampProgress(double value) noexcept {
+    if (value < 0.0) {
+        return 0.0;
+    }
+    if (value > 1.0) {
+        return 1.0;
+    }
+    return value;
+}
+
 struct TabInfo {
     UniquePidl pidl;
     std::wstring name;
