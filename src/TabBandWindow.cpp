@@ -1471,19 +1471,45 @@ bool TabBandWindow::BandHasRebarGrip() const {
 void TabBandWindow::UpdateRebarColors() {
         if (!m_parentRebar || !IsWindow(m_parentRebar)) return;
 
-        // Revert to defaults so bands are transparent to the bar we paint.
-        // Do NOT set RB_SETBKCOLOR or a custom COLORSCHEME in dark;
-	// themed rebars ignore parts of it and it triggers extra invalidation.
-	const int count = (int)SendMessageW(m_parentRebar, RB_GETBANDCOUNT, 0, 0);
-	for (int i = 0; i < count; ++i) {
-		REBARBANDINFOW bi{ sizeof(bi) };
-		bi.fMask = RBBIM_COLORS;
-		bi.clrBack = CLR_DEFAULT; // transparent to bar
-		bi.clrFore = CLR_DEFAULT;
-		SendMessageW(m_parentRebar, RB_SETBANDINFO, i, (LPARAM)&bi);
-	}
+        RebarColorScheme desired{};
+        desired.background = CLR_DEFAULT;  // transparent to the rebar we paint
+        desired.foreground = CLR_DEFAULT;
 
-        RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
+        if (m_lastRebarColors && *m_lastRebarColors == desired) {
+                return;
+        }
+
+        const int count = static_cast<int>(SendMessageW(m_parentRebar, RB_GETBANDCOUNT, 0, 0));
+        if (count <= 0) {
+                return;
+        }
+
+        bool applied = false;
+        for (int i = 0; i < count; ++i) {
+                REBARBANDINFOW bi{ sizeof(bi) };
+                bi.fMask = RBBIM_COLORS;
+                bi.clrBack = desired.background;
+                bi.clrFore = desired.foreground;
+                if (SendMessageW(m_parentRebar, RB_SETBANDINFO, i, reinterpret_cast<LPARAM>(&bi))) {
+                        applied = true;
+                }
+        }
+
+        if (applied) {
+                m_lastRebarColors = desired;
+                m_rebarNeedsRepaint = true;
+        }
+}
+
+void TabBandWindow::FlushRebarRepaint() {
+        if (!m_rebarNeedsRepaint) {
+                return;
+        }
+        HWND rebar = m_parentRebar;
+        if (rebar && IsWindow(rebar)) {
+                RedrawWindow(rebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
+        }
+        m_rebarNeedsRepaint = false;
 }
 
 
@@ -1491,6 +1517,8 @@ void TabBandWindow::InvalidateRebarIntegration() {
         m_rebarIntegrationDirty = true;
         m_lastIntegratedRebar = nullptr;
         m_lastIntegratedFrame = nullptr;
+        m_lastRebarColors.reset();
+        m_rebarNeedsRepaint = false;
 }
 
 bool TabBandWindow::NeedsRebarIntegration() const {
@@ -2196,12 +2224,11 @@ void TabBandWindow::InstallRebarDarkSubclass() {
         SetWindowTheme(m_parentRebar, L"Explorer", nullptr);  // was nullptr, which destabilized the band site
         ApplyImmersiveDarkMode(m_parentRebar, m_darkMode && !m_highContrast);
 
-	if (SetWindowSubclass(m_parentRebar, RebarSubclassProc, 0,
-		reinterpret_cast<DWORD_PTR>(this))) {
-		m_rebarSubclassed = true;
-		// Gentle repaint: no frame, no children, and no erase
-		RedrawWindow(m_parentRebar, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
-	}
+        if (SetWindowSubclass(m_parentRebar, RebarSubclassProc, 0,
+                reinterpret_cast<DWORD_PTR>(this))) {
+                m_rebarSubclassed = true;
+                m_rebarNeedsRepaint = true;
+        }
 }
 
 void TabBandWindow::AdjustBandHeightToRow() {
@@ -2279,13 +2306,12 @@ void TabBandWindow::RefreshTheme() {
     InvalidateRebarIntegration();
     EnsureRebarIntegration();
     AdjustBandHeightToRow();
-        if (m_parentRebar) {
+    if (m_parentRebar) {
         InstallRebarDarkSubclass();   // NEW: we own the bar bg now
-        UpdateRebarColors();  // NEW
-	}
+    }
 
-        UpdateAccentColor();
-        ResetThemePalette();
+    UpdateAccentColor();
+    ResetThemePalette();
 
         const auto openTheme = [&](const wchar_t* classList, const wchar_t* operation) -> HTHEME {
             SetLastError(ERROR_SUCCESS);
@@ -2322,13 +2348,17 @@ void TabBandWindow::RefreshTheme() {
             }
         }
 
-        m_tabTheme = tabTheme;
-        m_rebarTheme = rebarTheme;
-        m_windowTheme = windowTheme;
-        UpdateThemePalette();
-        UpdateToolbarMetrics();
-        UpdateNewTabButtonTheme();
-        RebuildLayout();
+    m_tabTheme = tabTheme;
+    m_rebarTheme = rebarTheme;
+    m_windowTheme = windowTheme;
+    UpdateThemePalette();
+    if (m_parentRebar) {
+        UpdateRebarColors();
+    }
+    FlushRebarRepaint();
+    UpdateToolbarMetrics();
+    UpdateNewTabButtonTheme();
+    RebuildLayout();
 
 }
 
@@ -2623,12 +2653,14 @@ void TabBandWindow::RefreshRebarMetrics() {
         const COLORREF barBk = m_themePalette.rebarBackground; // explicit, even in light
         SendMessageW(m_parentRebar, RB_SETBKCOLOR, 0, static_cast<LPARAM>(barBk));
 
-	REBARBANDINFOW colorInfo{ sizeof(colorInfo) };
-	colorInfo.fMask = RBBIM_COLORS;
-	colorInfo.clrFore = CLR_DEFAULT;
-	colorInfo.clrBack = barBk;
-	SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex,
-		reinterpret_cast<LPARAM>(&colorInfo));
+        REBARBANDINFOW colorInfo{ sizeof(colorInfo) };
+        colorInfo.fMask = RBBIM_COLORS;
+        colorInfo.clrFore = CLR_DEFAULT;
+        colorInfo.clrBack = barBk;
+        if (SendMessageW(m_parentRebar, RB_SETBANDINFO, m_rebarBandIndex,
+                reinterpret_cast<LPARAM>(&colorInfo))) {
+                m_lastRebarColors = RebarColorScheme{barBk, CLR_DEFAULT};
+        }
 
 	// Tone down etched highlights so the bar doesn't glow in dark mode.
 	COLORSCHEME cs{};
@@ -2658,6 +2690,8 @@ void TabBandWindow::EnsureRebarIntegration() {
                 m_rebarBandIndex = -1;
                 m_rebarSubclassed = false;
                 m_rebarIntegrationDirty = true;
+                m_lastRebarColors.reset();
+                m_rebarNeedsRepaint = false;
         }
 
         const bool hasValidRebar = m_parentRebar && IsWindow(m_parentRebar);
@@ -2671,6 +2705,8 @@ void TabBandWindow::EnsureRebarIntegration() {
                 m_lastIntegratedRebar = nullptr;
                 m_lastIntegratedFrame = nullptr;
                 m_rebarIntegrationDirty = true;
+                m_lastRebarColors.reset();
+                m_rebarNeedsRepaint = false;
                 return;
         }
 
@@ -2698,6 +2734,7 @@ void TabBandWindow::EnsureRebarIntegration() {
                 UpdateThemePalette();
                 UpdateRebarColors();
                 UpdateNewTabButtonTheme();
+                FlushRebarRepaint();
                 InvalidateRect(m_hwnd, nullptr, TRUE);
         }
 
