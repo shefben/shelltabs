@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cwchar>
 #include <malloc.h>
 #include <memory>
@@ -63,6 +64,8 @@ constexpr SIZE kFolderPreviewSize = {64, 64};
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
 constexpr int kContextDialogWidth = 360;
 constexpr int kContextDialogHeight = 430;
+
+size_t gContextMenuTemplateControlCount = 0;
 
 struct PreviewBitmapResult {
     UINT64 token = 0;
@@ -253,6 +256,8 @@ struct OptionsDialogData {
     int customizationWheelRemainder = 0;
     SIZE customizationClientSize{0, 0};
     bool customizationPlacementsValid = false;
+    std::vector<ChildPlacement> contextChildPlacements;
+    bool contextPlacementsValid = false;
     std::vector<std::vector<size_t>> contextTreePaths;
     std::vector<HTREEITEM> contextTreeItems;
     std::vector<size_t> contextSelectionPath;
@@ -2251,7 +2256,6 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 36;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kContextDialogWidth;
@@ -2263,11 +2267,18 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     AppendWord(data, 9);
     AppendString(data, L"Segoe UI");
 
-    auto addButton = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text, DWORD style) {
+    size_t controlCount = 0;
+
+    auto appendControl = [&]() -> DLGITEMTEMPLATE* {
         AlignDialogBuffer(data);
         size_t offset = data.size();
         data.resize(offset + sizeof(DLGITEMTEMPLATE));
-        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        ++controlCount;
+        return reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    };
+
+    auto addButton = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text, DWORD style) {
+        auto* item = appendControl();
         item->style = style;
         item->dwExtendedStyle = 0;
         item->x = static_cast<short>(x);
@@ -2282,10 +2293,7 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     };
 
     auto addStatic = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text, DWORD style) {
-        AlignDialogBuffer(data);
-        size_t offset = data.size();
-        data.resize(offset + sizeof(DLGITEMTEMPLATE));
-        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        auto* item = appendControl();
         item->style = style;
         item->dwExtendedStyle = 0;
         item->x = static_cast<short>(x);
@@ -2300,10 +2308,7 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     };
 
     auto addEdit = [&](int controlId, int x, int y, int cx, int cy, DWORD style) {
-        AlignDialogBuffer(data);
-        size_t offset = data.size();
-        data.resize(offset + sizeof(DLGITEMTEMPLATE));
-        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        auto* item = appendControl();
         item->style = style;
         item->dwExtendedStyle = WS_EX_CLIENTEDGE;
         item->x = static_cast<short>(x);
@@ -2318,10 +2323,7 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     };
 
     auto addCombo = [&](int controlId, int x, int y, int cx, int cy) {
-        AlignDialogBuffer(data);
-        size_t offset = data.size();
-        data.resize(offset + sizeof(DLGITEMTEMPLATE));
-        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        auto* item = appendControl();
         item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
         item->dwExtendedStyle = WS_EX_CLIENTEDGE;
         item->x = static_cast<short>(x);
@@ -2335,10 +2337,7 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
         AppendWord(data, 0);
     };
 
-    AlignDialogBuffer(data);
-    size_t offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* tree = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    auto* tree = appendControl();
     tree->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | TVS_HASBUTTONS | TVS_LINESATROOT |
                   TVS_SHOWSELALWAYS;
     tree->dwExtendedStyle = WS_EX_CLIENTEDGE;
@@ -2418,10 +2417,7 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     addButton(IDC_CONTEXT_EXTENSION_ADD, detailX + detailWidth - 58, 346, 58, 14, L"Add",
               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
 
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* list = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    auto* list = appendControl();
     list->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LBS_NOTIFY | LBS_HASSTRINGS |
                   LBS_NOINTEGRALHEIGHT | WS_VSCROLL;
     list->dwExtendedStyle = WS_EX_CLIENTEDGE;
@@ -2437,6 +2433,9 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
 
     addButton(IDC_CONTEXT_EXTENSION_REMOVE, detailX + detailWidth - 58, 366, 58, 14, L"Remove",
               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+
+    dlg->cdit = static_cast<WORD>(controlCount);
+    gContextMenuTemplateControlCount = controlCount;
 
     return data;
 }
@@ -3227,12 +3226,12 @@ void UpdateSelectedFolderBackgroundPreview(HWND hwnd, OptionsDialogData* data) {
 
 struct PlacementCaptureContext {
     HWND parent = nullptr;
-    OptionsDialogData* data = nullptr;
+    std::vector<ChildPlacement>* placements = nullptr;
 };
 
 BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     auto* context = reinterpret_cast<PlacementCaptureContext*>(param);
-    if (!context || !context->data) {
+    if (!context || !context->placements) {
         return TRUE;
     }
     if (!IsWindow(child)) {
@@ -3261,7 +3260,7 @@ BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     placement.rect.top = topLeft.y;
     placement.rect.right = bottomRight.x;
     placement.rect.bottom = bottomRight.y;
-    context->data->customizationChildPlacements.push_back(placement);
+    context->placements->push_back(placement);
     return TRUE;
 }
 
@@ -3271,7 +3270,7 @@ void CaptureCustomizationChildPlacements(HWND hwnd, OptionsDialogData* data) {
     }
     data->customizationChildPlacements.clear();
     data->customizationContentHeight = 0;
-    PlacementCaptureContext context{hwnd, data};
+    PlacementCaptureContext context{hwnd, &data->customizationChildPlacements};
     EnumChildWindows(hwnd, &CaptureChildPlacementProc, reinterpret_cast<LPARAM>(&context));
     const int scrollOffset = data->customizationScrollPos;
     for (auto& placement : data->customizationChildPlacements) {
@@ -3281,6 +3280,30 @@ void CaptureCustomizationChildPlacements(HWND hwnd, OptionsDialogData* data) {
             std::max(data->customizationContentHeight, static_cast<int>(placement.rect.bottom));
     }
     data->customizationPlacementsValid = true;
+}
+
+bool RefreshContextMenuLayoutCache(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return false;
+    }
+    data->contextChildPlacements.clear();
+    PlacementCaptureContext context{hwnd, &data->contextChildPlacements};
+    EnumChildWindows(hwnd, &CaptureChildPlacementProc, reinterpret_cast<LPARAM>(&context));
+    data->contextPlacementsValid = true;
+
+#ifndef NDEBUG
+    const size_t placementCount = data->contextChildPlacements.size();
+    if (gContextMenuTemplateControlCount != 0 && placementCount != gContextMenuTemplateControlCount) {
+        LogMessage(LogLevel::Warning,
+                   L"Context menu template declared %llu controls but enumerated %llu windows",
+                   static_cast<unsigned long long>(gContextMenuTemplateControlCount),
+                   static_cast<unsigned long long>(placementCount));
+        assert(placementCount == gContextMenuTemplateControlCount &&
+               "Context menu control count mismatch");
+    }
+#endif
+
+    return true;
 }
 
 void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data);
@@ -5365,6 +5388,7 @@ INT_PTR CALLBACK ContextMenuPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             RefreshContextMenuTree(hwnd, data, nullptr);
             PopulateContextMenuDetailControls(hwnd, data);
             UpdateContextMenuButtonStates(hwnd, data);
+            RefreshContextMenuLayoutCache(hwnd, data);
             return TRUE;
         }
         case WM_COMMAND: {
