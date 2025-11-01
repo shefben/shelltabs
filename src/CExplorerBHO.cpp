@@ -2418,6 +2418,56 @@ void CExplorerBHO::ResetGlowSurfaces() {
     m_glowSurfaces.clear();
 }
 
+namespace {
+
+bool IsValidStatusBarWindow(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+    if (!IsWindowVisible(hwnd)) {
+        return false;
+    }
+    RECT rc = {};
+    if (!GetClientRect(hwnd, &rc)) {
+        return false;
+    }
+    return rc.right > rc.left && rc.bottom > rc.top;
+}
+
+HWND FindVisibleStatusBarDescendant(HWND parent) {
+    if (!parent || !IsWindow(parent)) {
+        return nullptr;
+    }
+
+    for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (MatchesClass(child, STATUSCLASSNAMEW) && IsValidStatusBarWindow(child)) {
+            return child;
+        }
+
+        if (HWND found = FindVisibleStatusBarDescendant(child)) {
+            return found;
+        }
+    }
+
+    return nullptr;
+}
+
+HWND ResolveStatusBarWindow(IShellBrowser* shellBrowser, HWND frame) {
+    HWND statusBar = nullptr;
+    if (shellBrowser && SUCCEEDED(shellBrowser->GetControlWindow(FCW_STATUS, &statusBar)) &&
+        IsValidStatusBarWindow(statusBar)) {
+        return statusBar;
+    }
+
+    if (!frame || !IsWindow(frame)) {
+        return nullptr;
+    }
+
+    return FindVisibleStatusBarDescendant(frame);
+}
+
+}  // namespace
+
 void CExplorerBHO::UpdateGlowSurfaceTargets() {
     std::unordered_set<HWND, HandleHasher> active;
 
@@ -2440,12 +2490,9 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
     }
 
     HWND frame = GetTopLevelExplorerWindow();
-    HWND statusBarCandidate = nullptr;
-    if (frame && IsWindow(frame)) {
-        statusBarCandidate = FindDescendantWindow(frame, STATUSCLASSNAMEW);
-        if (statusBarCandidate && !IsWindowOwnedByThisExplorer(statusBarCandidate)) {
-            statusBarCandidate = nullptr;
-        }
+    HWND statusBarCandidate = ResolveStatusBarWindow(m_shellBrowser.Get(), frame);
+    if (statusBarCandidate && !IsWindowOwnedByThisExplorer(statusBarCandidate)) {
+        statusBarCandidate = nullptr;
     }
 
     if (statusBarCandidate != m_statusBar) {
