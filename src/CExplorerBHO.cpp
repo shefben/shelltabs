@@ -6925,75 +6925,74 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             }
 
             if (textRect.right > textRect.left) {
-                    Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
-                                             static_cast<Gdiplus::REAL>(textRect.top),
-                                             static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
-                                             static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
+                Gdiplus::RectF textRectF(static_cast<Gdiplus::REAL>(textRect.left),
+                                         static_cast<Gdiplus::REAL>(textRect.top),
+                                         static_cast<Gdiplus::REAL>(textRect.right - textRect.left),
+                                         static_cast<Gdiplus::REAL>(textRect.bottom - textRect.top));
 
-                    COLORREF textFontStartRgb = buttonFontStartRgb;
-                    COLORREF textFontEndRgb = buttonFontEndRgb;
-                    if (m_useCustomBreadcrumbFontColors) {
-                        textFontStartRgb = sampleFontGradientAtX(textRect.left);
-                        textFontEndRgb = sampleFontGradientAtX(textRect.right);
-                    }
-                    const Gdiplus::Color brightFontStart = computeBrightFontColorFn(textFontStartRgb);
-                    const Gdiplus::Color textBrightFontEnd = computeBrightFontColorFn(textFontEndRgb);
-                    buttonTextPaintStart = computeOpaqueFontColorFn(brightFontStart, true);
-                    buttonTextPaintEnd = computeOpaqueFontColorFn(textBrightFontEnd, false);
+                COLORREF textFontStartRgb = buttonFontStartRgb;
+                COLORREF textFontEndRgb = buttonFontEndRgb;
+                if (m_useCustomBreadcrumbFontColors) {
+                    textFontStartRgb = sampleFontGradientAtX(textRect.left);
+                    textFontEndRgb = sampleFontGradientAtX(textRect.right);
+                }
+                const Gdiplus::Color brightFontStart = computeBrightFontColorFn(textFontStartRgb);
+                const Gdiplus::Color textBrightFontEnd = computeBrightFontColorFn(textFontEndRgb);
+                buttonTextPaintStart = computeOpaqueFontColorFn(brightFontStart, true);
+                buttonTextPaintEnd = computeOpaqueFontColorFn(textBrightFontEnd, false);
 
-                    if (buttonTextAlpha > 0) {
-                        if (buttonUseFontGradient) {
-                            const auto previousHint = graphics.GetTextRenderingHint();
-                            const auto previousMode = graphics.GetCompositingMode();
-                            const auto previousPixelOffset = graphics.GetPixelOffsetMode();
-                            const auto previousSmoothing = graphics.GetSmoothingMode();
+                if (buttonTextAlpha > 0) {
+                    if (buttonUseFontGradient) {
+                        const auto previousHint = graphics.GetTextRenderingHint();
+                        const auto previousMode = graphics.GetCompositingMode();
+                        const auto previousPixelOffset = graphics.GetPixelOffsetMode();
+                        const auto previousSmoothing = graphics.GetSmoothingMode();
 
-                            graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
-                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-                            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-                            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                        graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+                        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+                        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
 
-                            Gdiplus::LinearGradientBrush textBrush(
-                                textRectF,
-                                buttonTextPaintStart,
-                                buttonTextPaintEnd,
-                                Gdiplus::LinearGradientModeHorizontal);
-                            textBrush.SetGammaCorrection(TRUE);
+                        Gdiplus::LinearGradientBrush textBrush(
+                            textRectF,
+                            buttonTextPaintStart,
+                            buttonTextPaintEnd,
+                            Gdiplus::LinearGradientModeHorizontal);
+                        textBrush.SetGammaCorrection(TRUE);
 
-                            bool renderedWithPath = false;
-                            Gdiplus::FontFamily fontFamily;
-                            if (font.GetFamily(&fontFamily) == Gdiplus::Ok) {
-                                Gdiplus::GraphicsPath textPath;
-                                if (textPath.AddString(text.c_str(), static_cast<INT>(text.size()), &fontFamily,
-                                                       font.GetStyle(), font.GetSize(), textRectF, &format) ==
-                                    Gdiplus::Ok) {
-                                    graphics.FillPath(&textBrush, &textPath);
-                                    renderedWithPath = true;
-                                }
+                        bool renderedWithPath = false;
+                        Gdiplus::FontFamily fontFamily;
+                        if (font.GetFamily(&fontFamily) == Gdiplus::Ok) {
+                            Gdiplus::GraphicsPath textPath;
+                            if (textPath.AddString(text.c_str(), static_cast<INT>(text.size()), &fontFamily,
+                                                   font.GetStyle(), font.GetSize(), textRectF, &format) ==
+                                Gdiplus::Ok) {
+                                graphics.FillPath(&textBrush, &textPath);
+                                renderedWithPath = true;
                             }
+                        }
 
-                            if (!renderedWithPath) {
-                                graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
-                                                    &textBrush);
-                            }
-
-                            graphics.SetSmoothingMode(previousSmoothing);
-                            graphics.SetPixelOffsetMode(previousPixelOffset);
-                            graphics.SetCompositingMode(previousMode);
-                            graphics.SetTextRenderingHint(previousHint);
-                        } else {
-                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-                            const BYTE avgRed = AverageColorChannel(brightFontStart.GetR(), textBrightFontEnd.GetR());
-                            const BYTE avgGreen = AverageColorChannel(brightFontStart.GetG(), textBrightFontEnd.GetG());
-                            const BYTE avgBlue = AverageColorChannel(brightFontStart.GetB(), textBrightFontEnd.GetB());
-                            Gdiplus::Color solidColor = computeOpaqueFontColorFn(
-                                Gdiplus::Color(buttonTextAlpha, avgRed, avgGreen, avgBlue), true);
-                            Gdiplus::SolidBrush textBrush(solidColor);
+                        if (!renderedWithPath) {
                             graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
                                                 &textBrush);
                         }
-                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+
+                        graphics.SetSmoothingMode(previousSmoothing);
+                        graphics.SetPixelOffsetMode(previousPixelOffset);
+                        graphics.SetCompositingMode(previousMode);
+                        graphics.SetTextRenderingHint(previousHint);
+                    } else {
+                        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+                        const BYTE avgRed = AverageColorChannel(brightFontStart.GetR(), textBrightFontEnd.GetR());
+                        const BYTE avgGreen = AverageColorChannel(brightFontStart.GetG(), textBrightFontEnd.GetG());
+                        const BYTE avgBlue = AverageColorChannel(brightFontStart.GetB(), textBrightFontEnd.GetB());
+                        Gdiplus::Color solidColor = computeOpaqueFontColorFn(
+                            Gdiplus::Color(buttonTextAlpha, avgRed, avgGreen, avgBlue), true);
+                        Gdiplus::SolidBrush textBrush(solidColor);
+                        graphics.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, textRectF, &format,
+                                            &textBrush);
                     }
+                    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
                 }
             }
         }
@@ -7005,12 +7004,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
             const int arrowRight = buttonRect.right - 6;
             auto computeArrowTextColor = [&](int sampleX, bool useStart) {
                 const COLORREF sampleRgb = sampleFontGradientAtX(sampleX);
-                const BYTE adjustedRed = applyBrightness(GetRValue(sampleRgb));
-                const BYTE adjustedGreen = applyBrightness(GetGValue(sampleRgb));
-                const BYTE adjustedBlue = applyBrightness(GetBValue(sampleRgb));
-                const Gdiplus::Color brightColor = BrightenBreadcrumbColor(
-                    Gdiplus::Color(buttonTextAlpha, adjustedRed, adjustedGreen, adjustedBlue), buttonIsHot,
-                    buttonIsPressed, highlightBackgroundColor);
+                const Gdiplus::Color brightColor = computeBrightFontColorFn(sampleRgb);
                 return computeOpaqueFontColorFn(brightColor, useStart);
             };
             arrowTextStart = computeArrowTextColor(arrowLeft, true);
