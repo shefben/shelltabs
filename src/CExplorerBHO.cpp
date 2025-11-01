@@ -2520,6 +2520,8 @@ void CExplorerBHO::RequestHeaderGlowRepaint() const {
         }
         entry.second->RequestRepaint();
     }
+}
+
 ExplorerGlowSurface* CExplorerBHO::ResolveGlowSurface(HWND hwnd) {
     auto it = m_glowSurfaces.find(hwnd);
     if (it == m_glowSurfaces.end()) {
