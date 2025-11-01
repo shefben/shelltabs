@@ -338,6 +338,7 @@ private:
     RECT m_clientRect{};
     std::vector<TabViewItem> m_tabData;
     std::unordered_map<TabLocation, size_t, TabLocationHash, TabLocationEqual> m_tabLocationIndex;
+    uint32_t m_tabLayoutVersion = 0;
     std::vector<VisualItem> m_items;
     std::vector<RECT> m_progressRects;
     std::vector<size_t> m_activeProgressIndices;
@@ -467,6 +468,9 @@ private:
     void CancelPreviewRequest();
     void RefreshProgressState();
     void RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs);
+    void RefreshProgressState(const TabProgressUpdatePayload* payload);
+    void RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs,
+                              const TabProgressUpdatePayload* payload);
     void UpdateProgressAnimationState();
     bool AnyProgressActive() const;
     void HandleProgressTimer();
@@ -529,6 +533,7 @@ private:
     const VisualItem* FindLastGroupHeader() const;
     const VisualItem* FindVisualForHit(const HitInfo& hit) const;
     size_t FindTabDataIndex(TabLocation location) const;
+    size_t FindGroupHeaderIndex(int groupIndex) const;
     void RebuildTabLocationIndex();
     TabPaintMetrics ComputeTabPaintMetrics(const VisualItem& item) const;
     bool ComputeProgressBounds(const VisualItem& item, const TabPaintMetrics& metrics, RECT* out) const;

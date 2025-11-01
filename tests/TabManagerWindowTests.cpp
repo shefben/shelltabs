@@ -147,6 +147,89 @@ bool TestCollectProgressSnapshot() {
     return true;
 }
 
+bool TestProgressUpdateDeltas() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    shelltabs::TabInfo first{};
+    first.name = L"One";
+    first.tooltip = L"One";
+    manager.InsertTab(first, 0, 0, true);
+
+    shelltabs::TabInfo second{};
+    second.name = L"Two";
+    second.tooltip = L"Two";
+    auto secondLocation = manager.InsertTab(second, 0, 1, false);
+
+    auto* secondTab = manager.Get(secondLocation);
+    if (!secondTab) {
+        PrintFailure(L"TestProgressUpdateDeltas", L"Failed to retrieve second tab");
+        return false;
+    }
+
+#if defined(SHELLTABS_BUILD_TESTS)
+    manager.m_pendingProgressUpdates.clear();
+    manager.m_lastProgressUpdatesForTest.clear();
+#endif
+
+    if (!manager.ApplyProgress(secondLocation, secondTab, 0.5, 1234)) {
+        PrintFailure(L"TestProgressUpdateDeltas", L"ApplyProgress did not report a change");
+        return false;
+    }
+    manager.NotifyProgressListeners();
+
+#if defined(SHELLTABS_BUILD_TESTS)
+    if (manager.m_lastProgressUpdatesForTest.size() != 1) {
+        PrintFailure(L"TestProgressUpdateDeltas", L"Expected a single progress update entry");
+        return false;
+    }
+    const auto& progressEntry = manager.m_lastProgressUpdatesForTest.front();
+    if (progressEntry.type != shelltabs::TabViewItemType::kTab ||
+        progressEntry.location.groupIndex != secondLocation.groupIndex ||
+        progressEntry.location.tabIndex != secondLocation.tabIndex) {
+        PrintFailure(L"TestProgressUpdateDeltas", L"Progress entry location mismatch");
+        return false;
+    }
+    if (!progressEntry.progress.visible || progressEntry.progress.indeterminate ||
+        std::abs(progressEntry.progress.fraction - 0.5) > 1e-4) {
+        PrintFailure(L"TestProgressUpdateDeltas", L"Progress entry state mismatch");
+        return false;
+    }
+#endif
+
+#if defined(SHELLTABS_BUILD_TESTS)
+    manager.m_lastProgressUpdatesForTest.clear();
+#endif
+    manager.SetSelectedLocation(secondLocation);
+
+#if defined(SHELLTABS_BUILD_TESTS)
+    bool sawHeader = false;
+    bool sawTab = false;
+    for (const auto& entry : manager.m_lastProgressUpdatesForTest) {
+        if (entry.type == shelltabs::TabViewItemType::kGroupHeader) {
+            if (entry.location.groupIndex != secondLocation.groupIndex || entry.location.tabIndex != -1) {
+                PrintFailure(L"TestProgressUpdateDeltas", L"Header entry location mismatch");
+                return false;
+            }
+            sawHeader = true;
+        } else if (entry.type == shelltabs::TabViewItemType::kTab) {
+            if (entry.location.groupIndex != secondLocation.groupIndex ||
+                entry.location.tabIndex != secondLocation.tabIndex) {
+                PrintFailure(L"TestProgressUpdateDeltas", L"Selection tab entry location mismatch");
+                return false;
+            }
+            sawTab = true;
+        }
+    }
+    if (!sawHeader || !sawTab) {
+        PrintFailure(L"TestProgressUpdateDeltas", L"Missing expected selection delta entries");
+        return false;
+    }
+#endif
+
+    return true;
+}
+
 bool TestGroupAggregateMaintenance() {
     shelltabs::TabManager manager;
     manager.Clear();
@@ -412,6 +495,7 @@ int wmain() {
         {L"TestDestructorClearsRegistration", &TestDestructorClearsRegistration},
         {L"TestStressOpenCloseWindows", &TestStressOpenCloseWindows},
         {L"TestCollectProgressSnapshot", &TestCollectProgressSnapshot},
+        {L"TestProgressUpdateDeltas", &TestProgressUpdateDeltas},
         {L"TestGroupAggregateMaintenance", &TestGroupAggregateMaintenance},
         {L"TestLookupAfterMovesAndRemovals", &TestLookupAfterMovesAndRemovals},
         {L"TestActivationOrderSnapshot", &TestActivationOrderSnapshot},

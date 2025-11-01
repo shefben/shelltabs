@@ -124,6 +124,11 @@ struct TabProgressSnapshotEntry {
 
 using TabProgressSnapshot = std::vector<TabProgressSnapshotEntry>;
 
+struct TabProgressUpdatePayload {
+    uint32_t layoutVersion = 0;
+    std::vector<TabProgressSnapshotEntry> entries;
+};
+
 class TabManager {
 public:
     struct ExplorerWindowId {
@@ -194,6 +199,8 @@ public:
     std::vector<TabLocation> ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
     bool HasActiveProgress() const;
 
+    uint32_t GetLayoutVersion() const noexcept { return m_layoutVersion; }
+
     void ToggleGroupCollapsed(int groupIndex);
     void SetGroupCollapsed(int groupIndex, bool collapsed);
     void HideTab(TabLocation location);
@@ -231,8 +238,16 @@ private:
     TabLocation ResolveFromIndex(const std::wstring& key, PCIDLIST_ABSOLUTE pidl, bool requireVisible) const;
     TabLocation ScanForPidl(PCIDLIST_ABSOLUTE pidl) const;
     TabLocation ScanForPath(const std::wstring& path) const;
-    bool ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now);
-    bool ClearProgress(TabInfo* tab);
+    struct ProgressUpdateKey {
+        TabViewItemType type = TabViewItemType::kGroupHeader;
+        TabLocation location;
+    };
+
+    void QueueProgressUpdate(TabViewItemType type, TabLocation location);
+    bool BuildProgressEntry(const ProgressUpdateKey& key, TabProgressSnapshotEntry* entry) const;
+    void MarkLayoutDirty() noexcept;
+    bool ApplyProgress(TabLocation location, TabInfo* tab, std::optional<double> fraction, ULONGLONG now);
+    bool ClearProgress(TabLocation location, TabInfo* tab);
     void UpdateSelectionActivation(TabLocation previousSelection);
     void RecalculateNextActivationOrdinal();
     void NormalizePinnedOrder(TabGroup& group);
@@ -273,6 +288,12 @@ private:
     ULONGLONG m_lastActivationTickSeen = 0;
     ExplorerWindowId m_windowId{};
     std::unordered_map<std::wstring, std::vector<TabLocation>> m_locationIndex;
+    std::vector<ProgressUpdateKey> m_pendingProgressUpdates;
+    uint32_t m_layoutVersion = 1;
+#if defined(SHELLTABS_BUILD_TESTS)
+    std::vector<TabProgressSnapshotEntry> m_lastProgressUpdatesForTest;
+    uint32_t m_lastProgressLayoutVersionForTest = 0;
+#endif
     ActivationList m_activationOrder;
     std::unordered_map<uint64_t, ActivationList::iterator> m_activationLookup;
 
