@@ -6016,12 +6016,12 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     m_glowCoordinator.Configure(options);
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
-    m_breadcrumbGradientTransparency = std::clamp(options.breadcrumbGradientTransparency, 0, 100);
-    m_breadcrumbFontBrightness = std::clamp(options.breadcrumbFontBrightness, 0, 100);
+    m_breadcrumbGradientTransparency = std::clamp<int>(options.breadcrumbGradientTransparency, 0, 100);
+    m_breadcrumbFontBrightness = std::clamp<int>(options.breadcrumbFontBrightness, 0, 100);
     m_breadcrumbHighlightAlphaMultiplier =
-        std::clamp(options.breadcrumbHighlightAlphaMultiplier, 0, 200);
+        std::clamp<int>(options.breadcrumbHighlightAlphaMultiplier, 0, 200);
     m_breadcrumbDropdownAlphaMultiplier =
-        std::clamp(options.breadcrumbDropdownAlphaMultiplier, 0, 200);
+        std::clamp<int>(options.breadcrumbDropdownAlphaMultiplier, 0, 200);
     m_useCustomBreadcrumbGradientColors = options.useCustomBreadcrumbGradientColors;
     m_breadcrumbGradientStartColor = options.breadcrumbGradientStartColor;
     m_breadcrumbGradientEndColor = options.breadcrumbGradientEndColor;
@@ -6177,8 +6177,8 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
 
-    const int highlightAlphaMultiplier = std::clamp(m_breadcrumbHighlightAlphaMultiplier, 0, 200);
-    const int dropdownAlphaMultiplier = std::clamp(m_breadcrumbDropdownAlphaMultiplier, 0, 200);
+    const int highlightAlphaMultiplier = std::clamp<int>(m_breadcrumbHighlightAlphaMultiplier, 0, 200);
+    const int dropdownAlphaMultiplier = std::clamp<int>(m_breadcrumbDropdownAlphaMultiplier, 0, 200);
     auto scaleAlpha = [](BYTE alpha, int multiplier) -> BYTE {
         if (multiplier <= 0) {
             return 0;
@@ -6188,7 +6188,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         }
         const int scaled = static_cast<int>(alpha) * multiplier;
         const int result = (scaled + 50) / 100;
-        return static_cast<BYTE>(std::clamp(result, 0, 255));
+        return static_cast<BYTE>(std::clamp<int>(result, 0, 255));
     };
 
     auto drawDropdownArrow = [&](const RECT& buttonRect, bool hot, bool pressed, BYTE textAlphaValue,
@@ -6315,9 +6315,9 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
     format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
-    const int gradientTransparency = std::clamp(m_breadcrumbGradientTransparency, 0, 100);
+    const int gradientTransparency = std::clamp<int>(m_breadcrumbGradientTransparency, 0, 100);
     const int gradientOpacityPercent = 100 - gradientTransparency;
-    const int fontBrightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
+    const int fontBrightness = std::clamp<int>(m_breadcrumbFontBrightness, 0, 100);
     const BYTE textAlphaBase = 255;
 
     bool buttonIsPressed = false;
@@ -6425,7 +6425,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         if (gradientEndX <= gradientStartX) {
             return x <= gradientStartX ? m_breadcrumbFontGradientStartColor : m_breadcrumbFontGradientEndColor;
         }
-        const int clamped = std::clamp(x, gradientStartX, gradientEndX);
+        const int clamped = std::clamp<int>(x, gradientStartX, gradientEndX);
         const double position = static_cast<double>(clamped - gradientStartX) /
                                 static_cast<double>(gradientEndX - gradientStartX);
         auto interpolateChannel = [&](BYTE start, BYTE end) -> BYTE {
@@ -6542,7 +6542,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                 graphics.FillRectangle(&overlayBrush, rectF);
                 auto blendOverlayChannel = [&](BYTE base, BYTE overlay) -> BYTE {
                     const int blended = static_cast<int>(std::lround(base + (overlay - base) * (overlayAlpha / 255.0)));
-                    return static_cast<BYTE>(std::clamp(blended, 0, 255));
+                    return static_cast<BYTE>(std::clamp<int>(blended, 0, 255));
                 };
                 backgroundSolidColor = Gdiplus::Color(
                     255, blendOverlayChannel(backgroundSolidColor.GetR(), overlayColor.GetR()),
@@ -6773,7 +6773,7 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
     if (span > 0) {
         fraction = static_cast<double>(position - range.iLow) / static_cast<double>(span);
     }
-    fraction = std::clamp(fraction, 0.0, 1.0);
+    fraction = std::clamp<double>(fraction, 0.0, 1.0);
 
     const LONG width = inner.right - inner.left;
     if (fraction > 0.0 && width > 0) {
@@ -6898,7 +6898,7 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
         if (copied < 0) {
             copied = 0;
         }
-        text.resize(static_cast<size_t>(std::clamp(copied, 0, length)));
+        text.resize(static_cast<size_t>(std::clamp<int>(copied, 0, length)));
     }
 
     RECT formatRect = client;
@@ -6982,14 +6982,14 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
                               std::min(255, GetBValue(gradientEnd) + 10));
         }
     }
-    const int brightness = std::clamp(m_breadcrumbFontBrightness, 0, 100);
+    const int brightness = std::clamp<int>(m_breadcrumbFontBrightness, 0, 100);
 
     const COLORREF previousTextColor = GetTextColor(dc);
     const int previousBkMode = SetBkMode(dc, TRANSPARENT);
 
     auto applyBrightness = [&](BYTE channel) -> BYTE {
         const int boosted = channel + ((255 - channel) * brightness) / 100;
-        return static_cast<BYTE>(std::clamp(boosted, 0, 255));
+        return static_cast<BYTE>(std::clamp<int>(boosted, 0, 255));
     };
 
     auto interpolateChannel = [&](BYTE start, BYTE end, double position) -> BYTE {
@@ -7052,8 +7052,8 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
     const double scaledLeftBound = static_cast<double>(scaledFormatRect.left);
     const double scaledRightBound = static_cast<double>(scaledFormatRect.right);
 
-    gradientLeft = std::clamp(gradientLeft, scaledLeftBound, scaledRightBound);
-    gradientRight = std::clamp(gradientRight, scaledLeftBound, scaledRightBound);
+    gradientLeft = std::clamp<double>(gradientLeft, scaledLeftBound, scaledRightBound);
+    gradientRight = std::clamp<double>(gradientRight, scaledLeftBound, scaledRightBound);
 
     if (gradientRight <= gradientLeft) {
         gradientLeft = scaledLeftBound;
@@ -7085,7 +7085,7 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
         } else {
             const double centerX = character.x + character.width / 2.0;
             double position = (centerX - gradientLeft) / gradientWidth;
-            position = std::clamp(position, 0.0, 1.0);
+            position = std::clamp<double>(position, 0.0, 1.0);
 
             const BYTE red = applyBrightness(
                 interpolateChannel(GetRValue(gradientStart), GetRValue(gradientEnd), position));
