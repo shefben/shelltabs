@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <cwctype>
+#include <limits>
 
 namespace shelltabs {
 
@@ -47,13 +48,174 @@ void CollectSubscribers(std::vector<HWND>& listViews, std::vector<HWND>& treeVie
     pruneAndCollect(g_treeViewSubscribers, treeViews);
 }
 
-void DispatchInvalidations(const std::vector<HWND>& handles, HighlightPaneType paneType) {
+bool InvalidateListViewTargets(HWND listView, const PaneHighlightInvalidationTargets& targets) {
+    if (!listView || !IsWindow(listView)) {
+        return false;
+    }
+
+    if (targets.invalidateAll) {
+        InvalidateRect(listView, nullptr, FALSE);
+        return true;
+    }
+
+    if (targets.items.empty()) {
+        return false;
+    }
+
+    int minIndex = std::numeric_limits<int>::max();
+    int maxIndex = std::numeric_limits<int>::min();
+    RECT invalidRect{};
+    bool hasInvalidRect = false;
+
+    for (const auto& target : targets.items) {
+        if (!target.pidl) {
+            return false;
+        }
+
+        LVFINDINFOW find{};
+        find.flags = LVFI_PARAM;
+        find.lParam = reinterpret_cast<LPARAM>(target.pidl);
+
+        const int index = ListView_FindItemW(listView, -1, &find);
+        if (index < 0) {
+            return false;
+        }
+
+        minIndex = std::min(minIndex, index);
+        maxIndex = std::max(maxIndex, index);
+
+        RECT itemRect{};
+        if (ListView_GetItemRect(listView, index, &itemRect, LVIR_BOUNDS)) {
+            if (hasInvalidRect) {
+                UnionRect(&invalidRect, &invalidRect, &itemRect);
+            } else {
+                invalidRect = itemRect;
+                hasInvalidRect = true;
+            }
+        }
+    }
+
+    if (minIndex == std::numeric_limits<int>::max() || maxIndex == std::numeric_limits<int>::min()) {
+        return false;
+    }
+
+    ListView_RedrawItems(listView, minIndex, maxIndex);
+
+    if (hasInvalidRect) {
+        InvalidateRect(listView, &invalidRect, FALSE);
+    } else {
+        InvalidateRect(listView, nullptr, FALSE);
+    }
+    return true;
+}
+
+HTREEITEM ResolveTreeTarget(HWND treeView, const PaneHighlightInvalidationItem& target) {
+    if (target.treeItem) {
+        return target.treeItem;
+    }
+
+    if (!treeView || !IsWindow(treeView) || !target.pidl) {
+        return nullptr;
+    }
+
+    TVITEMEXW item{};
+    item.mask = TVIF_PARAM;
+
+    for (HTREEITEM current = TreeView_GetRoot(treeView); current;) {
+        item.hItem = current;
+        if (TreeView_GetItemW(treeView, &item)) {
+            if (reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam) == target.pidl) {
+                return current;
+            }
+        }
+
+        HTREEITEM child = TreeView_GetChild(treeView, current);
+        if (child) {
+            current = child;
+            continue;
+        }
+
+        while (current && !TreeView_GetNextSibling(treeView, current)) {
+            current = TreeView_GetParent(treeView, current);
+        }
+
+        if (current) {
+            current = TreeView_GetNextSibling(treeView, current);
+        }
+    }
+
+    return nullptr;
+}
+
+bool InvalidateTreeViewTargets(HWND treeView, const PaneHighlightInvalidationTargets& targets) {
+    if (!treeView || !IsWindow(treeView)) {
+        return false;
+    }
+
+    if (targets.invalidateAll) {
+        InvalidateRect(treeView, nullptr, FALSE);
+        return true;
+    }
+
+    if (targets.items.empty()) {
+        return false;
+    }
+
+    RECT invalidRect{};
+    bool hasRect = false;
+
+    for (const auto& target : targets.items) {
+        HTREEITEM item = ResolveTreeTarget(treeView, target);
+        if (!item) {
+            return false;
+        }
+
+        RECT itemRect{};
+        if (target.includeTreeBranch) {
+            if (TryGetTreeItemRect(treeView, item, &itemRect)) {
+                RECT clientRect{};
+                if (GetClientRect(treeView, &clientRect)) {
+                    RECT branchRect{clientRect.left, itemRect.top, clientRect.right, clientRect.bottom};
+                    if (hasRect) {
+                        UnionRect(&invalidRect, &invalidRect, &branchRect);
+                    } else {
+                        invalidRect = branchRect;
+                        hasRect = true;
+                    }
+                    continue;
+                }
+            }
+            return false;
+        }
+
+        if (!TryGetTreeItemRect(treeView, item, &itemRect)) {
+            return false;
+        }
+
+        if (hasRect) {
+            UnionRect(&invalidRect, &invalidRect, &itemRect);
+        } else {
+            invalidRect = itemRect;
+            hasRect = true;
+        }
+    }
+
+    if (!hasRect) {
+        return false;
+    }
+
+    InvalidateRect(treeView, &invalidRect, FALSE);
+    return true;
+}
+
+void DispatchInvalidations(const std::vector<HWND>& handles, HighlightPaneType paneType,
+                           const PaneHighlightInvalidationTargets& targets) {
     const PaneHighlightInvalidationCallback callback =
         g_invalidationCallback.load(std::memory_order_acquire);
 
     for (HWND hwnd : handles) {
         if (callback) {
-            callback(hwnd, paneType);
+            callback(hwnd, paneType, targets);
             continue;
         }
 
@@ -61,13 +223,27 @@ void DispatchInvalidations(const std::vector<HWND>& handles, HighlightPaneType p
             continue;
         }
 
-        InvalidateRect(hwnd, nullptr, FALSE);
+        bool handled = false;
+        switch (paneType) {
+            case HighlightPaneType::ListView:
+                handled = InvalidateListViewTargets(hwnd, targets);
+                break;
+            case HighlightPaneType::TreeView:
+                handled = InvalidateTreeViewTargets(hwnd, targets);
+                break;
+        }
+
+        if (!handled) {
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
     }
 }
 
-void NotifyHighlightObservers(const std::vector<HWND>& listViews, const std::vector<HWND>& treeViews) {
-    DispatchInvalidations(listViews, HighlightPaneType::ListView);
-    DispatchInvalidations(treeViews, HighlightPaneType::TreeView);
+void NotifyHighlightObservers(const std::vector<HWND>& listViews, const std::vector<HWND>& treeViews,
+                              const PaneHighlightInvalidationTargets& listTargets,
+                              const PaneHighlightInvalidationTargets& treeTargets) {
+    DispatchInvalidations(listViews, HighlightPaneType::ListView, listTargets);
+    DispatchInvalidations(treeViews, HighlightPaneType::TreeView, treeTargets);
 }
 
 bool TryGetTreeItemRect(HWND treeView, HTREEITEM item, RECT* rect) {
@@ -343,7 +519,9 @@ bool PaneHookRouter::HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result)
     return false;
 }
 
-void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight) {
+void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight,
+                           const PaneHighlightInvalidationTargets& listViewTargets,
+                           const PaneHighlightInvalidationTargets& treeViewTargets) {
     std::wstring normalized = NormalizePaneHighlightKey(path);
     if (normalized.empty()) {
         return;
@@ -358,10 +536,12 @@ void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highli
         CollectSubscribers(listViews, treeViews);
     }
 
-    NotifyHighlightObservers(listViews, treeViews);
+    NotifyHighlightObservers(listViews, treeViews, listViewTargets, treeViewTargets);
 }
 
-void UnregisterPaneHighlight(const std::wstring& path) {
+void UnregisterPaneHighlight(const std::wstring& path,
+                             const PaneHighlightInvalidationTargets& listViewTargets,
+                             const PaneHighlightInvalidationTargets& treeViewTargets) {
     std::wstring normalized = NormalizePaneHighlightKey(path);
     if (normalized.empty()) {
         return;
@@ -378,12 +558,17 @@ void UnregisterPaneHighlight(const std::wstring& path) {
         CollectSubscribers(listViews, treeViews);
     }
 
-    NotifyHighlightObservers(listViews, treeViews);
+    NotifyHighlightObservers(listViews, treeViews, listViewTargets, treeViewTargets);
 }
 
 void ClearPaneHighlights() {
     std::vector<HWND> listViews;
     std::vector<HWND> treeViews;
+
+    PaneHighlightInvalidationTargets listTargets;
+    listTargets.invalidateAll = true;
+    PaneHighlightInvalidationTargets treeTargets;
+    treeTargets.invalidateAll = true;
 
     {
         std::scoped_lock lock(g_highlightMutex);
@@ -395,7 +580,7 @@ void ClearPaneHighlights() {
         CollectSubscribers(listViews, treeViews);
     }
 
-    NotifyHighlightObservers(listViews, treeViews);
+    NotifyHighlightObservers(listViews, treeViews, listTargets, treeTargets);
 }
 
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight) {

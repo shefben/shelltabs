@@ -6,8 +6,10 @@
 
 #include <windows.h>
 #include <CommCtrl.h>
+#include <ShlObj.h>
 
 #include <string>
+#include <vector>
 
 namespace shelltabs {
 
@@ -18,12 +20,24 @@ struct PaneHighlight {
     COLORREF backgroundColor = 0;
 };
 
+struct PaneHighlightInvalidationItem {
+    PCIDLIST_ABSOLUTE pidl = nullptr;
+    HTREEITEM treeItem = nullptr;
+    bool includeTreeBranch = false;
+};
+
+struct PaneHighlightInvalidationTargets {
+    std::vector<PaneHighlightInvalidationItem> items;
+    bool invalidateAll = false;
+};
+
 enum class HighlightPaneType {
     ListView,
     TreeView,
 };
 
-using PaneHighlightInvalidationCallback = void (*)(HWND hwnd, HighlightPaneType paneType);
+using PaneHighlightInvalidationCallback = void (*)(HWND hwnd, HighlightPaneType paneType,
+                                                   const PaneHighlightInvalidationTargets& targets);
 
 class PaneHighlightProvider {
 public:
@@ -53,8 +67,12 @@ private:
     HWND m_treeView = nullptr;
 };
 
-void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight);
-void UnregisterPaneHighlight(const std::wstring& path);
+void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight,
+                           const PaneHighlightInvalidationTargets& listViewTargets = {},
+                           const PaneHighlightInvalidationTargets& treeViewTargets = {});
+void UnregisterPaneHighlight(const std::wstring& path,
+                             const PaneHighlightInvalidationTargets& listViewTargets = {},
+                             const PaneHighlightInvalidationTargets& treeViewTargets = {});
 void ClearPaneHighlights();
 bool TryGetPaneHighlight(const std::wstring& path, PaneHighlight* highlight);
 std::wstring NormalizePaneHighlightKey(const std::wstring& path);
