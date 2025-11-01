@@ -95,7 +95,6 @@ protected:
     virtual bool UsesCustomDraw() const noexcept;
     virtual void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) = 0;
     void PaintInternal(HDC targetDc, const RECT& clipRect);
-    bool ShouldUseHookedRendering();
 
 private:
     static LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -111,7 +110,6 @@ private:
     bool m_subclassInstalled = false;
     UINT m_dpiX = 96;
     UINT m_dpiY = 96;
-    bool m_hookedRenderingActive = false;
 };
 
 std::unique_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKind kind,

@@ -8,9 +8,6 @@
 
 namespace shelltabs {
 
-enum class ExplorerSurfaceKind;
-struct GlowColorSet;
-
 class ExplorerGlowCoordinator;
 
 class ThemeHooks {
@@ -22,7 +19,6 @@ public:
     void NotifyCoordinatorUpdated();
 
     bool IsActive() const noexcept;
-    bool IsSurfaceHookActive(ExplorerSurfaceKind kind) const noexcept;
 
 private:
     using DrawThemeBackgroundFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, LPCRECT, LPCRECT);
@@ -40,15 +36,12 @@ private:
                                               UINT edge, UINT flags, LPRECT contentRect);
 
     bool OnDrawThemeBackground(HTHEME theme, HDC dc, int partId, int stateId, LPCRECT rect, LPCRECT clipRect);
-    bool OnDrawThemeEdge(HTHEME theme, HDC dc, int partId, int stateId, LPCRECT rect, UINT edge, UINT flags,
-                         LPRECT contentRect);
+    bool OnDrawThemeEdge(int partId) const;
 
     void UpdateActivationLocked();
     bool InstallLocked();
     void UninstallLocked();
     bool HookModuleImportsLocked(HMODULE module);
-    bool ResolveColorsForHook(ExplorerSurfaceKind kind, GlowColorSet& colors);
-    bool ExpectHookFor(ExplorerSurfaceKind kind) const noexcept;
 
     struct PatchedImport {
         HMODULE module = nullptr;
@@ -61,14 +54,6 @@ private:
 
     ExplorerGlowCoordinator* m_coordinator = nullptr;
     bool m_active = false;
-
-    bool m_expectScrollbar = false;
-    bool m_expectToolbar = false;
-    bool m_expectRebar = false;
-
-    bool m_scrollbarHookEngaged = false;
-    bool m_toolbarHookEngaged = false;
-    bool m_rebarHookEngaged = false;
 
     std::vector<PatchedImport> m_backgroundPatches;
     std::vector<PatchedImport> m_edgePatches;
