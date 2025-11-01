@@ -72,6 +72,14 @@ struct TabGroup {
     bool hasCustomOutline = false;
     COLORREF outlineColor = RGB(0, 120, 215);
     TabGroupOutlineStyle outlineStyle = TabGroupOutlineStyle::kSolid;
+    size_t visibleCount = 0;
+    size_t hiddenCount = 0;
+    int lastActivatedTabIndex = -1;
+    uint64_t lastActivationOrdinal = 0;
+    ULONGLONG lastActivatedTick = 0;
+    int lastVisibleActivatedTabIndex = -1;
+    uint64_t lastVisibleActivationOrdinal = 0;
+    ULONGLONG lastVisibleActivatedTick = 0;
 };
 
 struct TabViewItem {
@@ -215,6 +223,16 @@ private:
     void RecalculateNextActivationOrdinal();
     void NormalizePinnedOrder(TabGroup& group);
     void RebuildIndices();
+    static bool IsBetterActivation(uint64_t candidateOrdinal, ULONGLONG candidateTick, int candidateIndex,
+                                   uint64_t bestOrdinal, ULONGLONG bestTick, int bestIndex) noexcept;
+    static void ResetGroupAggregates(TabGroup& group) noexcept;
+    static void AccumulateGroupAggregates(TabGroup& group, const TabInfo& tab, int tabIndex) noexcept;
+    static void RefreshGroupAggregates(TabGroup& group) noexcept;
+    void HandleTabInserted(TabGroup& group, int tabIndex);
+    void HandleTabRemoved(TabGroup& group, int tabIndex, bool wasHidden);
+    void HandleTabVisibilityChanged(TabGroup& group, int tabIndex, bool wasHidden, bool isHidden);
+    void HandleTabActivationUpdated(TabGroup& group, int tabIndex);
+    int FindBestActivatedTabIndex(const TabGroup& group, bool includeHidden, int excludeTabIndex) const;
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
