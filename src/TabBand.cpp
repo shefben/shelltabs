@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <stop_token>
 
 #include <objbase.h>
 
@@ -157,6 +158,18 @@ bool LoadOptionsStoreForContext(const wchar_t* context, OptionsStore& store) {
     return true;
 }
 }
+
+struct TabBand::InitializationResult {
+    uint64_t sequence = 0;
+    bool groupStoreLoaded = false;
+    bool optionsLoaded = false;
+    ShellTabsOptions options{};
+    bool sessionStoreAvailable = false;
+    bool lastSessionUnclean = false;
+    bool shouldRestoreSession = false;
+    bool hasSessionData = false;
+    SessionData sessionData;
+};
 
 TabBand::TabBand() : m_refCount(1), m_processedGroupStoreGeneration(0) {
     ModuleAddRef();
@@ -1733,10 +1746,12 @@ void TabBand::EnsureWindow() {
     auto window = std::make_unique<TabBandWindow>(this);
     if (window->Create(parent)) {
         m_window = std::move(window);
-        EnsureOptionsLoaded();
         TabBandDockMode preferred = m_requestedDockMode;
         if (preferred == TabBandDockMode::kAutomatic) {
-            preferred = m_options.tabDockMode;
+            TabBandDockMode optionDock = m_optionsLoaded ? m_options.tabDockMode : TabBandDockMode::kAutomatic;
+            if (optionDock != TabBandDockMode::kAutomatic) {
+                preferred = optionDock;
+            }
         }
         if (preferred == TabBandDockMode::kAutomatic) {
             preferred = TabBandDockMode::kTop;
@@ -1769,12 +1784,20 @@ void TabBand::EnsureOptionsLoaded() const {
 
 void TabBand::DisconnectSite() {
     LogMessage(LogLevel::Info, L"TabBand::DisconnectSite (this=%p)", this);
+    CancelInitializationWorker();
+    m_backgroundInitializationActive = false;
+    m_sessionPersistenceReady = false;
+    m_pendingGroupSeed.reset();
+    m_pendingStandaloneSeed = false;
     SaveSession();
     StopSessionFlushTimer();
     if (m_sessionMarkerActive && m_sessionStore) {
         m_sessionStore->ClearSessionMarker();
     }
     m_sessionMarkerActive = false;
+    if (m_sessionStore) {
+        m_sessionStore->SetMarkerReady(false);
+    }
     m_tabs.ClearWindowId();
     for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
         if (const TabGroup* group = m_tabs.GetGroup(groupIndex)) {
@@ -1812,6 +1835,16 @@ void TabBand::DisconnectSite() {
 
 void TabBand::InitializeTabs() {
     LogScope scope(L"TabBand::InitializeTabs");
+    CancelInitializationWorker();
+    StopSessionFlushTimer();
+    m_backgroundInitializationActive = false;
+    m_sessionPersistenceReady = false;
+    if (m_sessionStore) {
+        m_sessionStore->SetMarkerReady(false);
+    }
+    m_sessionMarkerActive = false;
+    m_lastSessionUnclean = false;
+
     for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
         if (const TabGroup* group = m_tabs.GetGroup(groupIndex)) {
             CancelPendingPreviewForGroup(*group);
@@ -1822,75 +1855,42 @@ void TabBand::InitializeTabs() {
     }
     m_tabs.Clear();
 
+    m_pendingGroupSeed.reset();
+    m_pendingStandaloneSeed = false;
+    m_hadPendingSeed = false;
+
     std::shared_ptr<PendingWindowSeed> pendingSeed = DequeuePendingWindowSeed();
-
-    auto& groupStore = GroupStore::Instance();
-    LoadGroupStoreForContext(L"TabBand::InitializeTabs failed to load saved groups", groupStore);
-    EnsureSessionStore();
-    EnsureOptionsLoaded();
-    if (m_requestedDockMode == TabBandDockMode::kAutomatic) {
-        m_requestedDockMode = m_options.tabDockMode;
-    }
-    if (m_sessionStore) {
-        m_lastSessionUnclean = m_sessionStore->WasPreviousSessionUnclean();
-        m_sessionStore->MarkSessionActive();
-        m_sessionMarkerActive = true;
-        StartSessionFlushTimer();
-    } else {
-        m_lastSessionUnclean = false;
-    }
-
-    bool shouldRestore = true;
-    if (m_lastSessionUnclean && !m_options.reopenOnCrash) {
-        shouldRestore = false;
-    }
     if (pendingSeed) {
-        shouldRestore = false;
-    }
-
-    bool restored = false;
-    if (shouldRestore) {
-        restored = RestoreSession();
-    }
-
-    bool handledPendingSeed = false;
-    if (pendingSeed && pendingSeed->type == WindowSeedType::Group) {
-        if (!pendingSeed->group.tabs.empty()) {
-            std::vector<TabGroup> groups;
-            groups.emplace_back(std::move(pendingSeed->group));
-            m_tabs.Restore(std::move(groups), 0, 0, m_tabs.NextGroupSequence());
-            handledPendingSeed = true;
-        }
-    }
-
-    if (!handledPendingSeed) {
-        if (!restored || m_tabs.TotalTabCount() == 0) {
-            UniquePidl pidl = QueryCurrentFolder();
-            if (pidl) {
-                std::wstring name = GetDisplayName(pidl.get());
-                if (name.empty()) {
-                    name = L"Tab";
-                }
-                TabLocation location = m_tabs.Add(std::move(pidl), name, name, true);
-                if (location.IsValid()) {
-                    if (!pendingSeed || pendingSeed->type == WindowSeedType::StandaloneTab) {
-                        m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
-                    }
-                }
-                LogMessage(LogLevel::Info, L"TabBand::InitializeTabs seeded new tab %ls", name.c_str());
-            }
+        if (pendingSeed->type == WindowSeedType::Group) {
+            m_pendingGroupSeed = std::move(pendingSeed->group);
         } else {
-            const TabLocation selection = m_tabs.SelectedLocation();
-            if (selection.IsValid()) {
-                const bool previousRestoring = m_restoringSession;
-                m_restoringSession = true;
-                NavigateToTab(selection);
-                m_restoringSession = previousRestoring;
-            }
+            m_pendingStandaloneSeed = true;
         }
     }
 
-    SyncAllSavedGroups();
+    EnsureSessionStore();
+
+    UniquePidl placeholder = QueryCurrentFolder();
+    if (placeholder) {
+        std::wstring name = GetDisplayName(placeholder.get());
+        if (name.empty()) {
+            name = L"Tab";
+        }
+        const bool hideHeader = !pendingSeed || pendingSeed->type == WindowSeedType::StandaloneTab;
+        TabLocation location = m_tabs.Add(std::move(placeholder), name, name, true);
+        if (location.IsValid() && hideHeader) {
+            m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
+        }
+        LogMessage(LogLevel::Info, L"TabBand::InitializeTabs seeded placeholder tab %ls", name.c_str());
+    }
+
+    const bool hasPendingSeed = static_cast<bool>(pendingSeed);
+    m_hadPendingSeed = hasPendingSeed;
+    const uint64_t sequence = ++m_initializationSequence;
+    m_backgroundInitializationActive = true;
+    m_initializationThread = std::jthread([this, sequence, hasPendingSeed](std::stop_token stopToken) {
+        RunBackgroundInitialization(std::move(stopToken), sequence, hasPendingSeed);
+    });
 }
 
 void TabBand::UpdateTabsUI() {
@@ -1927,7 +1927,9 @@ void TabBand::EnsureSessionStore() {
 
     LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
     m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
-    StartSessionFlushTimer();
+    if (m_sessionStore) {
+        m_sessionStore->SetMarkerReady(false);
+    }
 }
 
 bool TabBand::RestoreSession() {
@@ -1941,12 +1943,18 @@ bool TabBand::RestoreSession() {
         return false;
     }
 
+    return RestoreSessionFromData(data);
+}
+
+bool TabBand::RestoreSessionFromData(const SessionData& data) {
     LogMessage(LogLevel::Info, L"TabBand::RestoreSession loaded %llu groups",
                static_cast<unsigned long long>(data.groups.size()));
 
     m_dockMode = data.dockMode;
     if (m_dockMode == TabBandDockMode::kAutomatic) {
-        EnsureOptionsLoaded();
+        if (!m_optionsLoaded) {
+            EnsureOptionsLoaded();
+        }
         m_dockMode = m_options.tabDockMode;
     }
     m_requestedDockMode = m_dockMode;
@@ -2030,6 +2038,10 @@ bool TabBand::RestoreSession() {
 
 void TabBand::SaveSession() {
     if (m_restoringSession) {
+        return;
+    }
+
+    if (!m_sessionPersistenceReady) {
         return;
     }
 
@@ -3043,6 +3055,204 @@ void TabBand::SyncAllSavedGroups() const {
     for (int i = 0; i < groupCount; ++i) {
         SyncSavedGroup(i);
     }
+}
+
+void TabBand::CancelInitializationWorker() {
+    if (m_initializationThread.joinable()) {
+        m_initializationThread.request_stop();
+        m_initializationThread.join();
+        m_initializationThread = std::jthread();
+    }
+    m_backgroundInitializationActive = false;
+}
+
+void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t sequence, bool hasPendingSeed) {
+    LogMessage(LogLevel::Info, L"TabBand::RunBackgroundInitialization begin (this=%p, seq=%llu)", this,
+               static_cast<unsigned long long>(sequence));
+
+    auto result = std::make_unique<InitializationResult>();
+    result->sequence = sequence;
+
+    if (stopToken.stop_requested()) {
+        return;
+    }
+
+    auto& groupStore = GroupStore::Instance();
+    result->groupStoreLoaded =
+        LoadGroupStoreForContext(L"TabBand::InitializeTabs async failed to load saved groups", groupStore);
+
+    if (stopToken.stop_requested()) {
+        return;
+    }
+
+    ShellTabsOptions optionsSnapshot = m_options;
+    auto& optionsStore = OptionsStore::Instance();
+    if (LoadOptionsStoreForContext(L"TabBand::InitializeTabs async failed to load options", optionsStore)) {
+        optionsSnapshot = optionsStore.Get();
+        result->optionsLoaded = true;
+    }
+    result->options = optionsSnapshot;
+
+    if (stopToken.stop_requested()) {
+        return;
+    }
+
+    SessionStore* sessionStore = m_sessionStore.get();
+    if (sessionStore && result->groupStoreLoaded) {
+        result->sessionStoreAvailable = true;
+        sessionStore->SetMarkerReady(true);
+        result->lastSessionUnclean = sessionStore->WasPreviousSessionUnclean();
+        bool reopenOnCrash = result->optionsLoaded ? optionsSnapshot.reopenOnCrash : m_options.reopenOnCrash;
+        bool shouldRestore = !hasPendingSeed;
+        if (result->lastSessionUnclean && !reopenOnCrash) {
+            shouldRestore = false;
+        }
+        result->shouldRestoreSession = shouldRestore;
+        if (shouldRestore && !stopToken.stop_requested()) {
+            SessionData data;
+            if (sessionStore->Load(data)) {
+                result->sessionData = std::move(data);
+                result->hasSessionData = true;
+            } else {
+                LogMessage(LogLevel::Warning, L"TabBand::RunBackgroundInitialization failed to load session data");
+            }
+        }
+    }
+
+    if (stopToken.stop_requested()) {
+        return;
+    }
+
+    PostInitializationResult(std::move(result));
+}
+
+void TabBand::PostInitializationResult(std::unique_ptr<InitializationResult> result) {
+    if (!result) {
+        return;
+    }
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    if (!hwnd) {
+        return;
+    }
+    auto* payload = result.release();
+    if (!PostMessageW(hwnd, WM_SHELLTABS_INITIALIZATION_COMPLETE, 0,
+                      reinterpret_cast<LPARAM>(payload))) {
+        delete payload;
+    }
+}
+
+void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> result) {
+    if (!result) {
+        return;
+    }
+    if (result->sequence != m_initializationSequence) {
+        return;
+    }
+
+    LogMessage(LogLevel::Info, L"TabBand::HandleInitializationResult applying sequence %llu",
+               static_cast<unsigned long long>(result->sequence));
+
+    m_backgroundInitializationActive = false;
+
+    const bool hadOptions = m_optionsLoaded;
+    ShellTabsOptions previousOptions = m_options;
+    if (result->optionsLoaded) {
+        m_options = result->options;
+        m_optionsLoaded = true;
+        if (hadOptions && previousOptions != m_options) {
+            ApplyOptionsChanges(previousOptions);
+        }
+    }
+
+    if (m_optionsLoaded && m_requestedDockMode == TabBandDockMode::kAutomatic) {
+        m_requestedDockMode = m_options.tabDockMode;
+    }
+    if (m_window) {
+        TabBandDockMode preferred = m_requestedDockMode;
+        if (preferred == TabBandDockMode::kAutomatic && m_optionsLoaded) {
+            preferred = m_options.tabDockMode;
+        }
+        if (preferred == TabBandDockMode::kAutomatic) {
+            preferred = TabBandDockMode::kTop;
+        }
+        m_window->SetPreferredDockMode(preferred);
+    }
+
+    if (result->sessionStoreAvailable) {
+        m_lastSessionUnclean = result->lastSessionUnclean;
+    } else {
+        m_lastSessionUnclean = false;
+    }
+
+    m_tabs.Clear();
+
+    bool restored = false;
+    if (result->shouldRestoreSession && result->hasSessionData) {
+        restored = RestoreSessionFromData(result->sessionData);
+    }
+
+    bool handledPendingSeed = false;
+    if (!restored && m_pendingGroupSeed && !m_pendingGroupSeed->tabs.empty()) {
+        std::vector<TabGroup> groups;
+        groups.emplace_back(std::move(*m_pendingGroupSeed));
+        m_tabs.Restore(std::move(groups), 0, 0, m_tabs.NextGroupSequence());
+        handledPendingSeed = true;
+    }
+    m_pendingGroupSeed.reset();
+
+    bool pendingStandalone = m_pendingStandaloneSeed;
+    m_pendingStandaloneSeed = false;
+
+    if (!handledPendingSeed) {
+        if (!restored || m_tabs.TotalTabCount() == 0) {
+            UniquePidl pidl = QueryCurrentFolder();
+            if (pidl) {
+                std::wstring name = GetDisplayName(pidl.get());
+                if (name.empty()) {
+                    name = L"Tab";
+                }
+                const bool hideHeader = !m_hadPendingSeed || pendingStandalone;
+                TabLocation location = m_tabs.Add(std::move(pidl), name, name, true);
+                if (location.IsValid() && hideHeader) {
+                    m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
+                }
+                LogMessage(LogLevel::Info, L"TabBand::InitializeTabs hydrated tab %ls", name.c_str());
+            }
+        } else {
+            const TabLocation selection = m_tabs.SelectedLocation();
+            if (selection.IsValid()) {
+                const bool previousRestoring = m_restoringSession;
+                m_restoringSession = true;
+                NavigateToTab(selection);
+                m_restoringSession = previousRestoring;
+            }
+        }
+    }
+
+    if (result->groupStoreLoaded) {
+        SyncAllSavedGroups();
+    }
+
+    if (result->sessionStoreAvailable) {
+        m_sessionPersistenceReady = true;
+        if (m_sessionStore) {
+            m_sessionStore->SetMarkerReady(true);
+            if (!m_sessionMarkerActive) {
+                m_sessionStore->MarkSessionActive();
+                m_sessionMarkerActive = true;
+            }
+        }
+        StartSessionFlushTimer();
+    } else {
+        m_sessionPersistenceReady = false;
+        if (m_sessionStore) {
+            m_sessionStore->SetMarkerReady(false);
+        }
+    }
+
+    m_hadPendingSeed = false;
+
+    UpdateTabsUI();
 }
 
 }  // namespace shelltabs

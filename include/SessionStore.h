@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <atomic>
 
 #include "OptionsStore.h"
 #include "TabManager.h"
@@ -68,11 +69,14 @@ public:
     bool WasPreviousSessionUnclean() const;
     void MarkSessionActive() const;
     void ClearSessionMarker() const;
+    void SetMarkerReady(bool ready) const;
+    bool MarkerReady() const noexcept;
 
 private:
     std::wstring m_storagePath;
     mutable std::optional<std::wstring> m_lastSerializedSnapshot;
     mutable bool m_pendingCheckpointCleanup = false;
+    mutable std::atomic<bool> m_markerReady = false;
 };
 
 }  // namespace shelltabs

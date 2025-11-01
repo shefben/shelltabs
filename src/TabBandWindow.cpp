@@ -5972,6 +5972,14 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->HandlePreviewReady(static_cast<uint64_t>(wParam));
                 return 0;
             }
+            case WM_SHELLTABS_INITIALIZATION_COMPLETE: {
+                auto* payload = reinterpret_cast<TabBand::InitializationResult*>(lParam);
+                std::unique_ptr<TabBand::InitializationResult> result(payload);
+                if (self->m_owner && result) {
+                    self->m_owner->HandleInitializationResult(std::move(result));
+                }
+                return 0;
+            }
             case WM_COPYDATA: {
                 auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
                 if (!data || data->dwData != SHELLTABS_COPYDATA_OPEN_FOLDER || data->cbData == 0 ||

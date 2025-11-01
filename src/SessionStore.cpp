@@ -109,6 +109,18 @@ std::wstring BuildCheckpointPath(const std::wstring& storagePath) {
     return storagePath + kCheckpointSuffix;
 }
 
+}  // namespace
+
+void SessionStore::SetMarkerReady(bool ready) const {
+    m_markerReady.store(ready, std::memory_order_release);
+}
+
+bool SessionStore::MarkerReady() const noexcept {
+    return m_markerReady.load(std::memory_order_acquire);
+}
+
+namespace {
+
 uint64_t ComputeChecksum(std::wstring_view payload) {
     static_assert(sizeof(wchar_t) == 2, "SessionStore assumes UTF-16 wchar_t");
     uint64_t hash = 1469598103934665603ull;  // FNV-1a offset basis
@@ -470,6 +482,10 @@ std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
 }
 
 bool SessionStore::WasPreviousSessionUnclean() const {
+    if (!MarkerReady()) {
+        return false;
+    }
+
     const std::wstring markerPath = BuildMarkerPath(m_storagePath);
     if (!markerPath.empty()) {
         auto& state = GetSessionMarkerState();
@@ -506,6 +522,10 @@ bool SessionStore::WasPreviousSessionUnclean() const {
 }
 
 void SessionStore::MarkSessionActive() const {
+    if (!MarkerReady()) {
+        return;
+    }
+
     const std::wstring markerPath = BuildMarkerPath(m_storagePath);
     if (markerPath.empty()) {
         return;
