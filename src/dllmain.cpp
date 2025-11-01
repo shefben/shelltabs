@@ -4,8 +4,6 @@
 #include <ShlGuid.h>
 #include <ShlObj.h>
 #include <cwchar>
-#include <array>
-#include <comcat.h>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -549,82 +547,6 @@ HRESULT RegisterInprocServer(const std::wstring& modulePath, const std::wstring&
     return S_OK;
 }
 
-HRESULT RegisterDeskBandKey(const std::wstring& clsidString, const wchar_t* friendlyName) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\DeskBand\\" + clsidString;
-    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
-
-    return WriteWithMachinePreference(
-        [&](const RegistryTarget& target) -> HRESULT {
-            ScopedRegKey key;
-            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            hr = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            hr = WriteRegistryStringValue(key.get(), L"MenuText", friendlyName);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            return WriteRegistryStringValue(key.get(), L"HelpText", friendlyName);
-        });
-}
-
-HRESULT RegisterExplorerBar(const std::wstring& clsidString, const wchar_t* friendlyName) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Internet Explorer\\Explorer Bars\\" + clsidString;
-    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
-
-    return WriteWithMachinePreference(
-        [&](const RegistryTarget& target) -> HRESULT {
-            ScopedRegKey key;
-            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            hr = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            hr = WriteRegistryStringValue(key.get(), L"MenuText", friendlyName);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            return WriteRegistryStringValue(key.get(), L"HelpText", friendlyName);
-        },
-        /*allowUserFallback=*/false);
-}
-
-HRESULT RegisterToolbarValue(const std::wstring& clsidString, const wchar_t* friendlyName) {
-    constexpr const wchar_t* kToolbarKey = L"Software\\Microsoft\\Internet Explorer\\Toolbar";
-    constexpr const wchar_t* kShellBrowserKey =
-        L"Software\\Microsoft\\Internet Explorer\\Toolbar\\ShellBrowser";
-
-    DeleteRegistryValueForTargets(UserTargets(), kToolbarKey, clsidString, /*ignoreAccessDenied=*/true);
-    DeleteRegistryValueForTargets(UserTargets(), kShellBrowserKey, clsidString,
-                                  /*ignoreAccessDenied=*/true);
-
-    auto writeValue = [&](const std::wstring& keyPath) -> HRESULT {
-        return WriteWithMachinePreference(
-            [&](const RegistryTarget& target) -> HRESULT {
-                ScopedRegKey key;
-                HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
-                if (FAILED(hr)) {
-                    return hr;
-                }
-                return WriteRegistryStringValue(key.get(), clsidString.c_str(), friendlyName);
-            },
-            /*allowUserFallback=*/false);
-    };
-
-    HRESULT hr = writeValue(kToolbarKey);
-    if (FAILED(hr)) {
-        return hr;
-    }
-    return writeValue(kShellBrowserKey);
-}
-
 HRESULT RegisterBrowserHelper(const std::wstring& clsidString, const wchar_t* friendlyName) {
     const std::wstring keyPath =
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\" + clsidString;
@@ -887,53 +809,14 @@ HRESULT UnregisterOpenFolderCommand() {
     return S_OK;
 }
 
-HRESULT ClearExplorerBandCache() {
-    constexpr std::array<const wchar_t*, 2> kCacheKeys = {
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Discardable\\PostSetup\\Component Categories\\{00021493-0000-0000-C000-000000000046}\\Enum",
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Discardable\\PostSetup\\Component Categories\\{00021494-0000-0000-C000-000000000046}\\Enum",
-    };
-
-    for (const auto* path : kCacheKeys) {
-        const LONG status = RegDeleteTreeW(HKEY_CURRENT_USER, path);
-        if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND) {
-            return HRESULT_FROM_WIN32(status);
-        }
-    }
-
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
-    return S_OK;
-}
-
 HRESULT UnregisterApprovedExtension(const std::wstring& clsidString) {
     constexpr const wchar_t* kApprovedKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved";
     return DeleteRegistryValueEverywhere(kApprovedKey, clsidString, /*ignoreAccessDenied=*/true);
 }
 
-HRESULT UnregisterToolbarValue(const std::wstring& clsidString) {
-    constexpr const wchar_t* kToolbarKey = L"Software\\Microsoft\\Internet Explorer\\Toolbar";
-    constexpr const wchar_t* kShellBrowserKey =
-        L"Software\\Microsoft\\Internet Explorer\\Toolbar\\ShellBrowser";
-
-    HRESULT hr = DeleteRegistryValueEverywhere(kToolbarKey, clsidString, /*ignoreAccessDenied=*/true);
-    if (FAILED(hr)) {
-        return hr;
-    }
-    return DeleteRegistryValueEverywhere(kShellBrowserKey, clsidString, /*ignoreAccessDenied=*/true);
-}
-
 HRESULT UnregisterBrowserHelper(const std::wstring& clsidString) {
     const std::wstring keyPath =
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\" + clsidString;
-    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
-}
-
-HRESULT UnregisterExplorerBar(const std::wstring& clsidString) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Internet Explorer\\Explorer Bars\\" + clsidString;
-    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
-}
-
-HRESULT UnregisterDeskBandKey(const std::wstring& clsidString) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\DeskBand\\" + clsidString;
     return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
 }
 
