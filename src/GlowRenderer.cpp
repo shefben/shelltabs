@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <vector>
 #include <dwmapi.h>
 #include <gdiplus.h>
 #include <uxtheme.h>
@@ -47,6 +48,244 @@ RECT GetClientRectSafe(HWND hwnd) {
     return rect;
 }
 
+void AddClippedRect(const RECT& rect, const RECT& bounds, std::vector<RECT>& out) {
+    if (rect.right <= rect.left || rect.bottom <= rect.top) {
+        return;
+    }
+    RECT clipped{};
+    if (IntersectRect(&clipped, &rect, &bounds)) {
+        if (clipped.right > clipped.left && clipped.bottom > clipped.top) {
+            out.push_back(clipped);
+        }
+    }
+}
+
+void AppendFrameRegionRects(const RECT& outer, const RECT& inner, const RECT& bounds,
+                            std::vector<RECT>& out) {
+    if (outer.left >= outer.right || outer.top >= outer.bottom) {
+        return;
+    }
+
+    RECT normalizedInner = inner;
+    if (normalizedInner.left < outer.left || normalizedInner.top < outer.top ||
+        normalizedInner.right > outer.right || normalizedInner.bottom > outer.bottom ||
+        normalizedInner.left >= normalizedInner.right || normalizedInner.top >= normalizedInner.bottom) {
+        AddClippedRect(outer, bounds, out);
+        return;
+    }
+
+    RECT top{outer.left, outer.top, outer.right, normalizedInner.top};
+    AddClippedRect(top, bounds, out);
+
+    RECT bottom{outer.left, normalizedInner.bottom, outer.right, outer.bottom};
+    AddClippedRect(bottom, bounds, out);
+
+    RECT left{outer.left, normalizedInner.top, normalizedInner.left, normalizedInner.bottom};
+    AddClippedRect(left, bounds, out);
+
+    RECT right{normalizedInner.right, normalizedInner.top, outer.right, normalizedInner.bottom};
+    AddClippedRect(right, bounds, out);
+}
+
+std::vector<RECT> CollectListViewGlowRects(HWND hwnd, const ExplorerGlowRenderer::SurfaceState& state) {
+    std::vector<RECT> rects;
+    RECT clientRect = GetClientRectSafe(hwnd);
+    if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
+        return rects;
+    }
+
+    const int lineThickness = ScaleByDpi(1, state.dpiY);
+    const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, state.dpiY));
+
+    auto addRect = [&](const RECT& rect) { AddClippedRect(rect, clientRect, rects); };
+
+    if (HWND header = ListView_GetHeader(hwnd); header && IsWindow(header)) {
+        const int columnCount = Header_GetItemCount(header);
+        for (int index = 0; index < columnCount; ++index) {
+            RECT headerRect{};
+            if (!Header_GetItemRect(header, index, &headerRect)) {
+                continue;
+            }
+            MapWindowPoints(header, hwnd, reinterpret_cast<POINT*>(&headerRect), 2);
+            const int lineLeft = headerRect.right - lineThickness;
+            const int haloLeft = lineLeft - (haloThickness - lineThickness) / 2;
+            RECT haloRect{haloLeft, clientRect.top, haloLeft + haloThickness, clientRect.bottom};
+            addRect(haloRect);
+            RECT lineRect{lineLeft, clientRect.top, lineLeft + lineThickness, clientRect.bottom};
+            addRect(lineRect);
+        }
+    }
+
+    const int topIndex = static_cast<int>(SendMessageW(hwnd, LVM_GETTOPINDEX, 0, 0));
+    const int countPerPage = static_cast<int>(SendMessageW(hwnd, LVM_GETCOUNTPERPAGE, 0, 0));
+    const int totalCount = ListView_GetItemCount(hwnd);
+    const int endIndex = std::min(totalCount, topIndex + countPerPage + 1);
+
+    for (int index = topIndex; index < endIndex; ++index) {
+        RECT itemRect{};
+        if (!ListView_GetItemRect(hwnd, index, &itemRect, LVIR_BOUNDS)) {
+            continue;
+        }
+        if (itemRect.bottom <= itemRect.top) {
+            continue;
+        }
+        const int y = itemRect.bottom - lineThickness;
+        const int haloTop = y - (haloThickness - lineThickness) / 2;
+        RECT haloRect{clientRect.left, haloTop, clientRect.right, haloTop + haloThickness};
+        addRect(haloRect);
+        RECT lineRect{clientRect.left, y, clientRect.right, y + lineThickness};
+        addRect(lineRect);
+    }
+
+    if (GetFocus() == hwnd) {
+        const int focused = ListView_GetNextItem(hwnd, -1, LVNI_FOCUSED);
+        if (focused >= 0) {
+            RECT focusRect{};
+            if (ListView_GetItemRect(hwnd, focused, &focusRect, LVIR_BOUNDS)) {
+                RECT inner = focusRect;
+                InflateRect(&inner, -ScaleByDpi(1, state.dpiX), -ScaleByDpi(1, state.dpiY));
+                RECT frame = inner;
+                InflateRect(&frame, lineThickness, lineThickness);
+                RECT halo = inner;
+                InflateRect(&halo, haloThickness, haloThickness);
+                AppendFrameRegionRects(halo, inner, clientRect, rects);
+                AppendFrameRegionRects(frame, inner, clientRect, rects);
+            }
+        }
+    }
+
+    return rects;
+}
+
+std::vector<RECT> CollectHeaderGlowRects(HWND hwnd, const ExplorerGlowRenderer::SurfaceState& state) {
+    std::vector<RECT> rects;
+    RECT clientRect = GetClientRectSafe(hwnd);
+    if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
+        return rects;
+    }
+
+    const int lineThickness = ScaleByDpi(1, state.dpiY);
+    const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, state.dpiY));
+
+    auto addRect = [&](const RECT& rect) { AddClippedRect(rect, clientRect, rects); };
+
+    const int width = clientRect.right - clientRect.left;
+    const int bottom = clientRect.bottom - lineThickness;
+    const int haloBottom = bottom - (haloThickness - lineThickness) / 2;
+    RECT haloRect{clientRect.left, haloBottom, clientRect.left + width, haloBottom + haloThickness};
+    addRect(haloRect);
+    RECT lineRect{clientRect.left, bottom, clientRect.left + width, bottom + lineThickness};
+    addRect(lineRect);
+
+    const int itemCount = Header_GetItemCount(hwnd);
+    for (int index = 0; index < itemCount; ++index) {
+        RECT itemRect{};
+        if (!Header_GetItemRect(hwnd, index, &itemRect)) {
+            continue;
+        }
+        const int lineLeft = itemRect.right - lineThickness;
+        const int haloLeft = lineLeft - (haloThickness - lineThickness) / 2;
+        RECT itemHalo{haloLeft, clientRect.top, haloLeft + haloThickness, clientRect.bottom};
+        addRect(itemHalo);
+        RECT itemLine{lineLeft, clientRect.top, lineLeft + lineThickness, clientRect.bottom};
+        addRect(itemLine);
+    }
+
+    return rects;
+}
+
+std::vector<RECT> CollectRebarGlowRects(HWND hwnd, const ExplorerGlowRenderer::SurfaceState& state) {
+    std::vector<RECT> rects;
+    RECT clientRect = GetClientRectSafe(hwnd);
+    if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
+        return rects;
+    }
+
+    const int lineThickness = ScaleByDpi(1, state.dpiY);
+    const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, state.dpiY));
+
+    auto addRect = [&](const RECT& rect) { AddClippedRect(rect, clientRect, rects); };
+
+    const int bandCount = static_cast<int>(SendMessageW(hwnd, RB_GETBANDCOUNT, 0, 0));
+    for (int index = 0; index < bandCount - 1; ++index) {
+        RECT bandRect{};
+        if (!SendMessageW(hwnd, RB_GETRECT, index, reinterpret_cast<LPARAM>(&bandRect))) {
+            continue;
+        }
+        const int lineLeft = bandRect.right - lineThickness;
+        const int haloLeft = lineLeft - (haloThickness - lineThickness) / 2;
+        RECT haloRect{haloLeft, clientRect.top, haloLeft + haloThickness, clientRect.bottom};
+        addRect(haloRect);
+        RECT lineRect{lineLeft, clientRect.top, lineLeft + lineThickness, clientRect.bottom};
+        addRect(lineRect);
+    }
+
+    const int width = clientRect.right - clientRect.left;
+    const int topHalo = clientRect.top;
+    RECT topRect{clientRect.left, topHalo, clientRect.left + width, topHalo + haloThickness};
+    addRect(topRect);
+    RECT topLine{clientRect.left, clientRect.top, clientRect.left + width, clientRect.top + lineThickness};
+    addRect(topLine);
+
+    const int bottomLine = clientRect.bottom - lineThickness;
+    const int bottomHalo = bottomLine - (haloThickness - lineThickness) / 2;
+    RECT bottomHaloRect{clientRect.left, bottomHalo, clientRect.left + width, bottomHalo + haloThickness};
+    addRect(bottomHaloRect);
+    RECT bottomLineRect{clientRect.left, bottomLine, clientRect.left + width, bottomLine + lineThickness};
+    addRect(bottomLineRect);
+
+    return rects;
+}
+
+std::vector<RECT> CollectToolbarGlowRects(HWND hwnd, const ExplorerGlowRenderer::SurfaceState& state) {
+    std::vector<RECT> rects;
+    RECT clientRect = GetClientRectSafe(hwnd);
+    if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
+        return rects;
+    }
+
+    const int lineThickness = ScaleByDpi(1, state.dpiY);
+    const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, state.dpiY));
+
+    auto addRect = [&](const RECT& rect) { AddClippedRect(rect, clientRect, rects); };
+
+    const int buttonCount = static_cast<int>(SendMessageW(hwnd, TB_BUTTONCOUNT, 0, 0));
+    for (int index = 0; index < buttonCount; ++index) {
+        RECT itemRect{};
+        if (!SendMessageW(hwnd, TB_GETITEMRECT, index, reinterpret_cast<LPARAM>(&itemRect))) {
+            continue;
+        }
+        const int lineLeft = itemRect.right - lineThickness;
+        const int haloLeft = lineLeft - (haloThickness - lineThickness) / 2;
+        RECT haloRect{haloLeft, clientRect.top, haloLeft + haloThickness, clientRect.bottom};
+        addRect(haloRect);
+        RECT lineRect{lineLeft, clientRect.top, lineLeft + lineThickness, clientRect.bottom};
+        addRect(lineRect);
+    }
+
+    return rects;
+}
+
+std::vector<RECT> CollectFramedGlowRects(HWND hwnd, const ExplorerGlowRenderer::SurfaceState& state) {
+    std::vector<RECT> rects;
+    RECT clientRect = GetClientRectSafe(hwnd);
+    if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
+        return rects;
+    }
+
+    RECT inner = clientRect;
+    InflateRect(&inner, -ScaleByDpi(2, state.dpiX), -ScaleByDpi(2, state.dpiY));
+    RECT frame = inner;
+    InflateRect(&frame, ScaleByDpi(1, state.dpiX), ScaleByDpi(1, state.dpiY));
+    RECT halo = inner;
+    InflateRect(&halo, ScaleByDpi(3, state.dpiX), ScaleByDpi(3, state.dpiY));
+
+    AppendFrameRegionRects(halo, inner, clientRect, rects);
+    AppendFrameRegionRects(frame, inner, clientRect, rects);
+
+    return rects;
+}
+
 }  // namespace
 
 ExplorerGlowRenderer::ExplorerGlowRenderer() = default;
@@ -80,7 +319,7 @@ void ExplorerGlowRenderer::InvalidateRegisteredSurfaces() const {
     for (const auto& entry : m_surfaces) {
         HWND hwnd = entry.first;
         if (hwnd && IsWindow(hwnd)) {
-            InvalidateRect(hwnd, nullptr, FALSE);
+            InvalidateSurface(hwnd, entry.second);
         }
     }
 }
@@ -88,14 +327,34 @@ void ExplorerGlowRenderer::InvalidateRegisteredSurfaces() const {
 void ExplorerGlowRenderer::HandleThemeChanged(HWND hwnd) {
     UpdateAccentColor();
     if (hwnd && IsWindow(hwnd)) {
-        InvalidateRect(hwnd, nullptr, FALSE);
+        auto it = m_surfaces.find(hwnd);
+        if (it != m_surfaces.end()) {
+            InvalidateSurface(hwnd, it->second);
+        } else {
+            RECT rect = GetClientRectSafe(hwnd);
+            if (rect.right > rect.left && rect.bottom > rect.top) {
+                InvalidateRect(hwnd, &rect, FALSE);
+            } else {
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
     }
 }
 
 void ExplorerGlowRenderer::HandleSettingChanged(HWND hwnd) {
     UpdateAccentColor();
     if (hwnd && IsWindow(hwnd)) {
-        InvalidateRect(hwnd, nullptr, FALSE);
+        auto it = m_surfaces.find(hwnd);
+        if (it != m_surfaces.end()) {
+            InvalidateSurface(hwnd, it->second);
+        } else {
+            RECT rect = GetClientRectSafe(hwnd);
+            if (rect.right > rect.left && rect.bottom > rect.top) {
+                InvalidateRect(hwnd, &rect, FALSE);
+            } else {
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
     }
 }
 
@@ -189,6 +448,48 @@ void ExplorerGlowRenderer::UpdateAccentColor() {
         m_accentColor = RGB((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
     } else {
         m_accentColor = GetSysColor(COLOR_HOTLIGHT);
+    }
+}
+
+void ExplorerGlowRenderer::InvalidateSurface(HWND hwnd, const SurfaceState& state) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    std::vector<RECT> rects;
+    switch (state.kind) {
+        case ExplorerSurfaceKind::ListView:
+            rects = CollectListViewGlowRects(hwnd, state);
+            break;
+        case ExplorerSurfaceKind::Header:
+            rects = CollectHeaderGlowRects(hwnd, state);
+            break;
+        case ExplorerSurfaceKind::Rebar:
+            rects = CollectRebarGlowRects(hwnd, state);
+            break;
+        case ExplorerSurfaceKind::Toolbar:
+            rects = CollectToolbarGlowRects(hwnd, state);
+            break;
+        case ExplorerSurfaceKind::Edit:
+        case ExplorerSurfaceKind::DirectUi:
+            rects = CollectFramedGlowRects(hwnd, state);
+            break;
+        default:
+            break;
+    }
+
+    if (rects.empty()) {
+        RECT client = GetClientRectSafe(hwnd);
+        if (client.right > client.left && client.bottom > client.top) {
+            InvalidateRect(hwnd, &client, FALSE);
+        } else {
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return;
+    }
+
+    for (const RECT& rect : rects) {
+        InvalidateRect(hwnd, &rect, FALSE);
     }
 }
 
@@ -306,6 +607,12 @@ void ExplorerGlowRenderer::PaintListView(HWND hwnd, const SurfaceState& state, H
     RECT paintRect = clipRect;
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         paintRect = clientRect;
+    } else {
+        RECT intersect{};
+        if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            return;
+        }
+        paintRect = intersect;
     }
 
     HDC bufferDc = nullptr;
@@ -319,6 +626,8 @@ void ExplorerGlowRenderer::PaintListView(HWND hwnd, const SurfaceState& state, H
 
     BufferedPaintClear(buffer, nullptr);
     Gdiplus::Graphics graphics(bufferDc);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
+                                -static_cast<Gdiplus::REAL>(paintRect.top));
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
     const int lineThickness = ScaleByDpi(1, state.dpiY);
@@ -333,6 +642,9 @@ void ExplorerGlowRenderer::PaintListView(HWND hwnd, const SurfaceState& state, H
                 continue;
             }
             MapWindowPoints(header, hwnd, reinterpret_cast<POINT*>(&headerRect), 2);
+            if (headerRect.right <= paintRect.left || headerRect.left >= paintRect.right) {
+                continue;
+            }
             const int lineLeft = headerRect.right - lineThickness;
             const int haloLeft = lineLeft - (haloThickness - lineThickness) / 2;
             const int height = clientRect.bottom - clientRect.top;
@@ -356,6 +668,9 @@ void ExplorerGlowRenderer::PaintListView(HWND hwnd, const SurfaceState& state, H
         if (itemRect.bottom <= itemRect.top) {
             continue;
         }
+        if (itemRect.top >= paintRect.bottom || itemRect.bottom <= paintRect.top) {
+            continue;
+        }
         const int y = itemRect.bottom - lineThickness;
         const int haloTop = y - (haloThickness - lineThickness) / 2;
         Gdiplus::Rect haloRect(clientRect.left, haloTop, clientRect.right - clientRect.left, haloThickness);
@@ -370,14 +685,17 @@ void ExplorerGlowRenderer::PaintListView(HWND hwnd, const SurfaceState& state, H
         if (focused >= 0) {
             RECT focusRect{};
             if (ListView_GetItemRect(hwnd, focused, &focusRect, LVIR_BOUNDS)) {
-                RECT inner = focusRect;
-                InflateRect(&inner, -ScaleByDpi(1, state.dpiX), -ScaleByDpi(1, state.dpiY));
-                RECT frame = inner;
-                InflateRect(&frame, lineThickness, lineThickness);
-                RECT halo = inner;
-                InflateRect(&halo, haloThickness, haloThickness);
-                FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha);
-                FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha);
+                RECT visible{};
+                if (IntersectRect(&visible, &focusRect, &paintRect)) {
+                    RECT inner = focusRect;
+                    InflateRect(&inner, -ScaleByDpi(1, state.dpiX), -ScaleByDpi(1, state.dpiY));
+                    RECT frame = inner;
+                    InflateRect(&frame, lineThickness, lineThickness);
+                    RECT halo = inner;
+                    InflateRect(&halo, haloThickness, haloThickness);
+                    FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha);
+                    FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha);
+                }
             }
         }
     }
@@ -399,6 +717,12 @@ void ExplorerGlowRenderer::PaintHeader(HWND hwnd, const SurfaceState& state, HDC
     RECT paintRect = clipRect;
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         paintRect = clientRect;
+    } else {
+        RECT intersect{};
+        if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            return;
+        }
+        paintRect = intersect;
     }
 
     HDC bufferDc = nullptr;
@@ -412,6 +736,8 @@ void ExplorerGlowRenderer::PaintHeader(HWND hwnd, const SurfaceState& state, HDC
 
     BufferedPaintClear(buffer, nullptr);
     Gdiplus::Graphics graphics(bufferDc);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
+                                -static_cast<Gdiplus::REAL>(paintRect.top));
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
     const int lineThickness = ScaleByDpi(1, state.dpiY);
@@ -429,6 +755,9 @@ void ExplorerGlowRenderer::PaintHeader(HWND hwnd, const SurfaceState& state, HDC
     for (int index = 0; index < itemCount; ++index) {
         RECT itemRect{};
         if (!Header_GetItemRect(hwnd, index, &itemRect)) {
+            continue;
+        }
+        if (itemRect.right <= paintRect.left || itemRect.left >= paintRect.right) {
             continue;
         }
         const int lineLeft = itemRect.right - lineThickness;
@@ -456,6 +785,12 @@ void ExplorerGlowRenderer::PaintRebar(HWND hwnd, const SurfaceState& state, HDC 
     RECT paintRect = clipRect;
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         paintRect = clientRect;
+    } else {
+        RECT intersect{};
+        if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            return;
+        }
+        paintRect = intersect;
     }
 
     HDC bufferDc = nullptr;
@@ -469,6 +804,8 @@ void ExplorerGlowRenderer::PaintRebar(HWND hwnd, const SurfaceState& state, HDC 
 
     BufferedPaintClear(buffer, nullptr);
     Gdiplus::Graphics graphics(bufferDc);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
+                                -static_cast<Gdiplus::REAL>(paintRect.top));
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
     const int lineThickness = ScaleByDpi(1, state.dpiY);
@@ -478,6 +815,9 @@ void ExplorerGlowRenderer::PaintRebar(HWND hwnd, const SurfaceState& state, HDC 
     for (int index = 0; index < bandCount - 1; ++index) {
         RECT bandRect{};
         if (!SendMessageW(hwnd, RB_GETRECT, index, reinterpret_cast<LPARAM>(&bandRect))) {
+            continue;
+        }
+        if (bandRect.right <= paintRect.left || bandRect.left >= paintRect.right) {
             continue;
         }
         const int lineLeft = bandRect.right - lineThickness;
@@ -519,6 +859,12 @@ void ExplorerGlowRenderer::PaintToolbar(HWND hwnd, const SurfaceState& state, HD
     RECT paintRect = clipRect;
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         paintRect = clientRect;
+    } else {
+        RECT intersect{};
+        if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            return;
+        }
+        paintRect = intersect;
     }
 
     HDC bufferDc = nullptr;
@@ -532,6 +878,8 @@ void ExplorerGlowRenderer::PaintToolbar(HWND hwnd, const SurfaceState& state, HD
 
     BufferedPaintClear(buffer, nullptr);
     Gdiplus::Graphics graphics(bufferDc);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
+                                -static_cast<Gdiplus::REAL>(paintRect.top));
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
     const int lineThickness = ScaleByDpi(1, state.dpiY);
@@ -541,6 +889,9 @@ void ExplorerGlowRenderer::PaintToolbar(HWND hwnd, const SurfaceState& state, HD
     for (int index = 0; index < buttonCount; ++index) {
         RECT itemRect{};
         if (!SendMessageW(hwnd, TB_GETITEMRECT, index, reinterpret_cast<LPARAM>(&itemRect))) {
+            continue;
+        }
+        if (itemRect.right <= paintRect.left || itemRect.left >= paintRect.right) {
             continue;
         }
         const int lineLeft = itemRect.right - lineThickness;
@@ -568,6 +919,12 @@ void ExplorerGlowRenderer::PaintEdit(HWND hwnd, const SurfaceState& state, HDC t
     RECT paintRect = clipRect;
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         paintRect = clientRect;
+    } else {
+        RECT intersect{};
+        if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            return;
+        }
+        paintRect = intersect;
     }
 
     HDC bufferDc = nullptr;
@@ -581,6 +938,8 @@ void ExplorerGlowRenderer::PaintEdit(HWND hwnd, const SurfaceState& state, HDC t
 
     BufferedPaintClear(buffer, nullptr);
     Gdiplus::Graphics graphics(bufferDc);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
+                                -static_cast<Gdiplus::REAL>(paintRect.top));
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
     RECT inner = clientRect;
@@ -606,6 +965,12 @@ void ExplorerGlowRenderer::PaintDirectUi(HWND hwnd, const SurfaceState& state, H
     RECT paintRect = clipRect;
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         paintRect = clientRect;
+    } else {
+        RECT intersect{};
+        if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            return;
+        }
+        paintRect = intersect;
     }
 
     HDC bufferDc = nullptr;
@@ -619,6 +984,8 @@ void ExplorerGlowRenderer::PaintDirectUi(HWND hwnd, const SurfaceState& state, H
 
     BufferedPaintClear(buffer, nullptr);
     Gdiplus::Graphics graphics(bufferDc);
+    graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
+                                -static_cast<Gdiplus::REAL>(paintRect.top));
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
     RECT inner = clientRect;

@@ -2127,6 +2127,7 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
     if (m_glowSurfaceKinds.erase(hwnd) > 0) {
         m_glowRenderer.UnregisterSurface(hwnd);
     }
+    m_pendingPaintClips.erase(hwnd);
 }
 
 void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active) {
@@ -2139,6 +2140,7 @@ void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher
                                      reinterpret_cast<UINT_PTR>(this));
             }
             m_glowRenderer.UnregisterSurface(target);
+            m_pendingPaintClips.erase(target);
             it = m_glowSurfaceKinds.erase(it);
         } else {
             ++it;
@@ -2158,6 +2160,7 @@ void CExplorerBHO::ResetGlowSurfaces() {
         m_glowRenderer.UnregisterSurface(target);
     }
     m_glowSurfaceKinds.clear();
+    m_pendingPaintClips.clear();
 }
 
 void CExplorerBHO::UpdateGlowSurfaceTargets() {
@@ -2226,29 +2229,64 @@ void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
         return;
     }
 
-    RECT client{};
-    if (!GetClientRect(hwnd, &client)) {
-        return;
-    }
-
     HDC targetDc = nullptr;
+    bool releaseDc = false;
     if (msg == WM_PAINT) {
         if (wParam) {
             targetDc = reinterpret_cast<HDC>(wParam);
         } else {
             targetDc = GetDC(hwnd);
+            releaseDc = true;
         }
     } else if (msg == WM_PRINTCLIENT) {
         targetDc = reinterpret_cast<HDC>(wParam);
     }
 
     if (!targetDc) {
+        m_pendingPaintClips.erase(hwnd);
         return;
     }
 
-    m_glowRenderer.PaintSurface(hwnd, it->second, targetDc, client);
+    RECT clipRect{0, 0, 0, 0};
+    bool hasClip = false;
+
+    auto pending = m_pendingPaintClips.find(hwnd);
+    if (pending != m_pendingPaintClips.end()) {
+        if (pending->second.hasClip && !IsRectEmpty(&pending->second.clip)) {
+            clipRect = pending->second.clip;
+            hasClip = true;
+        }
+        m_pendingPaintClips.erase(pending);
+    }
+
+    if (!hasClip) {
+        RECT dcClip{};
+        const int regionType = GetClipBox(targetDc, &dcClip);
+        if (regionType != ERROR && regionType != NULLREGION && !IsRectEmpty(&dcClip)) {
+            clipRect = dcClip;
+            hasClip = true;
+        }
+    }
+
+    if (!hasClip) {
+        if (!GetClientRect(hwnd, &clipRect) || IsRectEmpty(&clipRect)) {
+            if (releaseDc) {
+                ReleaseDC(hwnd, targetDc);
+            }
+            return;
+        }
+    } else if (IsRectEmpty(&clipRect)) {
+        if (releaseDc) {
+            ReleaseDC(hwnd, targetDc);
+        }
+        return;
+    }
+
+    m_glowRenderer.PaintSurface(hwnd, it->second, targetDc, clipRect);
 
     if (msg == WM_PAINT && wParam == 0) {
+        ReleaseDC(hwnd, targetDc);
+    } else if (releaseDc) {
         ReleaseDC(hwnd, targetDc);
     }
 }
@@ -3295,6 +3333,45 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     const bool handlesBackground = isListView || isDirectUi || isListViewHost;
     const bool isShellViewWindow = (hwnd == m_shellViewWindow);
     const bool isGlowSurface = (m_glowSurfaceKinds.find(hwnd) != m_glowSurfaceKinds.end());
+
+    if (isGlowSurface && (msg == WM_PAINT || msg == WM_PRINTCLIENT)) {
+        PendingPaintInfo info{};
+        if (msg == WM_PAINT) {
+            if (wParam) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                if (dc) {
+                    RECT clip{};
+                    const int regionType = GetClipBox(dc, &clip);
+                    if (regionType != ERROR && regionType != NULLREGION) {
+                        info.hasClip = true;
+                        info.clip = clip;
+                    }
+                }
+            } else {
+                RECT update{};
+                if (GetUpdateRect(hwnd, &update, FALSE)) {
+                    info.hasClip = true;
+                    info.clip = update;
+                }
+            }
+        } else if (msg == WM_PRINTCLIENT) {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            if (dc) {
+                RECT clip{};
+                const int regionType = GetClipBox(dc, &clip);
+                if (regionType != ERROR && regionType != NULLREGION) {
+                    info.hasClip = true;
+                    info.clip = clip;
+                }
+            }
+        }
+
+        if (info.hasClip) {
+            m_pendingPaintClips[hwnd] = info;
+        } else {
+            m_pendingPaintClips.erase(hwnd);
+        }
+    }
 
     if (msg == WM_TIMER && m_explorerPaneRetryPending && wParam == m_explorerPaneRetryTimerId) {
         CancelExplorerPaneRetry();

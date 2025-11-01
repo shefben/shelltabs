@@ -107,6 +107,11 @@ struct ShellTabsOptions;
                         std::wstring cacheKey;
                 };
 
+                struct PendingPaintInfo {
+                        bool hasClip = false;
+                        RECT clip = {0, 0, 0, 0};
+                };
+
                 struct TreeItemPidlResolution {
                         UniquePidl owned;
                         PCIDLIST_ABSOLUTE raw = nullptr;
@@ -297,6 +302,7 @@ struct ShellTabsOptions;
                 bool m_treeViewSubclassInstalled = false;
                 std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
                 std::unordered_map<HWND, ExplorerSurfaceKind, HandleHasher> m_glowSurfaceKinds;
+                std::unordered_map<HWND, PendingPaintInfo, HandleHasher> m_pendingPaintClips;
                 bool m_explorerPaneRetryPending = false;
                 UINT_PTR m_explorerPaneRetryTimerId = 0;
                 bool m_loggedExplorerPanesReady = false;
