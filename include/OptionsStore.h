@@ -2,10 +2,52 @@
 
 #include <windows.h>
 
+#include "IconCache.h"
+
 #include <string>
 #include <vector>
 
 namespace shelltabs {
+
+enum class ContextMenuInsertionAnchor {
+    kDefault = 0,
+    kTop,
+    kBottom,
+    kBeforeShellItems,
+    kAfterShellItems,
+};
+
+enum class ContextMenuItemType {
+    kCommand = 0,
+    kSubmenu,
+    kSeparator,
+};
+
+struct ContextMenuSelectionRule {
+    int minimumSelection = 0;
+    int maximumSelection = 0;  // 0 == unlimited
+};
+
+struct ContextMenuItemScope {
+    bool includeAllFiles = true;
+    bool includeAllFolders = true;
+    std::vector<std::wstring> extensions;
+};
+
+struct ContextMenuItem {
+    ContextMenuItemType type = ContextMenuItemType::kCommand;
+    std::wstring label;
+    std::wstring iconSource;
+    std::wstring commandTemplate;
+    ContextMenuItemScope scope;
+    ContextMenuSelectionRule selection;
+    ContextMenuInsertionAnchor anchor = ContextMenuInsertionAnchor::kDefault;
+    std::vector<ContextMenuItem> children;
+};
+
+IconCache::Reference ResolveContextMenuIcon(const std::wstring& iconSource, UINT iconFlags);
+std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource);
+std::vector<std::wstring> NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions);
 
 struct CachedImageMetadata {
     std::wstring cachedImagePath;
@@ -90,6 +132,7 @@ struct ShellTabsOptions {
     bool enableFolderBackgrounds = false;
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
+    std::vector<ContextMenuItem> contextMenuItems;
     TabBandDockMode tabDockMode = TabBandDockMode::kAutomatic;
     NewTabTemplate newTabTemplate = NewTabTemplate::kDuplicateCurrent;
     std::wstring newTabCustomPath;
@@ -129,6 +172,21 @@ inline bool operator!=(const GlowSurfaceOptions& left, const GlowSurfaceOptions&
 
 bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept;
 inline bool operator!=(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const ContextMenuSelectionRule& left, const ContextMenuSelectionRule& right) noexcept;
+inline bool operator!=(const ContextMenuSelectionRule& left, const ContextMenuSelectionRule& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const ContextMenuItemScope& left, const ContextMenuItemScope& right) noexcept;
+inline bool operator!=(const ContextMenuItemScope& left, const ContextMenuItemScope& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const ContextMenuItem& left, const ContextMenuItem& right) noexcept;
+inline bool operator!=(const ContextMenuItem& left, const ContextMenuItem& right) noexcept {
     return !(left == right);
 }
 
