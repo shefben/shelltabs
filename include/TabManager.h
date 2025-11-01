@@ -214,7 +214,11 @@ private:
     void UpdateSelectionActivation(TabLocation previousSelection);
     void RecalculateNextActivationOrdinal();
     void NormalizePinnedOrder(TabGroup& group);
-    void RebuildIndices();
+    void RebuildLocationIndex();
+    void IndexInsertTab(const TabInfo& tab, TabLocation location);
+    void IndexEraseTab(const TabInfo& tab, TabLocation location);
+    void IndexShiftGroupIndices(int startGroupIndex, int delta);
+    void IndexShiftTabIndices(int groupIndex, int startTabIndex, int delta);
 
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
