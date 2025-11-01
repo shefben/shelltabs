@@ -71,6 +71,9 @@ public:
 
     void RequestRepaint() const;
 
+    bool SupportsImmediatePainting() const noexcept;
+    bool PaintImmediately(HDC targetDc, const RECT& clipRect);
+
     virtual bool HandleNotify(const NMHDR& header, LRESULT* result);
 
 protected:

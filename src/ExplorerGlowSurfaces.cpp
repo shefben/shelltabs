@@ -818,6 +818,30 @@ void ExplorerGlowSurface::RequestRepaint() const {
     }
 }
 
+bool ExplorerGlowSurface::SupportsImmediatePainting() const noexcept {
+    return !UsesCustomDraw();
+}
+
+bool ExplorerGlowSurface::PaintImmediately(HDC targetDc, const RECT& clipRect) {
+    if (!SupportsImmediatePainting() || !targetDc) {
+        return false;
+    }
+    if (!IsAttached()) {
+        return false;
+    }
+    if (!Coordinator().ShouldRenderSurface(Kind())) {
+        return false;
+    }
+
+    RECT bounds = clipRect;
+    if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+        return false;
+    }
+
+    PaintInternal(targetDc, bounds);
+    return true;
+}
+
 bool ExplorerGlowSurface::HandleNotify(const NMHDR&, LRESULT*) { return false; }
 
 void ExplorerGlowSurface::OnAttached() {}

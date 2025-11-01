@@ -2492,14 +2492,13 @@ void CExplorerBHO::UpdateStatusBarTheme() {
 }
 
 void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
-    auto it = m_glowSurfaceKinds.find(hwnd);
-    if (it == m_glowSurfaceKinds.end()) {
+    auto it = m_glowSurfaces.find(hwnd);
+    if (it == m_glowSurfaces.end() || !it->second) {
         return;
     }
-    if (!m_glowRenderer.ShouldRender()) {
-        return;
-    }
-    if (!m_glowRenderer.ShouldRenderSurface(it->second)) {
+
+    ExplorerGlowSurface* surface = it->second.get();
+    if (!surface->SupportsImmediatePainting()) {
         return;
     }
 
@@ -2510,34 +2509,30 @@ void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
             targetDc = reinterpret_cast<HDC>(wParam);
         } else {
             targetDc = GetDC(hwnd);
-            releaseDc = true;
+            releaseDc = (targetDc != nullptr);
         }
     } else if (msg == WM_PRINTCLIENT) {
         targetDc = reinterpret_cast<HDC>(wParam);
     }
 
     if (!targetDc) {
-        m_pendingPaintClips.erase(hwnd);
+        if (releaseDc) {
+            ReleaseDC(hwnd, targetDc);
+        }
         return;
     }
 
     RECT clipRect{0, 0, 0, 0};
     bool hasClip = false;
 
-    auto pending = m_pendingPaintClips.find(hwnd);
-    if (pending != m_pendingPaintClips.end()) {
-        if (pending->second.hasClip && !IsRectEmpty(&pending->second.clip)) {
-            clipRect = pending->second.clip;
-            hasClip = true;
-        }
-        m_pendingPaintClips.erase(pending);
+    if (GetClipBox(targetDc, &clipRect) != ERROR && !IsRectEmpty(&clipRect)) {
+        hasClip = true;
     }
 
-    if (!hasClip) {
-        RECT dcClip{};
-        const int regionType = GetClipBox(targetDc, &dcClip);
-        if (regionType != ERROR && regionType != NULLREGION && !IsRectEmpty(&dcClip)) {
-            clipRect = dcClip;
+    if (!hasClip && msg == WM_PAINT && wParam == 0) {
+        RECT update{};
+        if (GetUpdateRect(hwnd, &update, FALSE) && !IsRectEmpty(&update)) {
+            clipRect = update;
             hasClip = true;
         }
     }
@@ -2549,18 +2544,11 @@ void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
             }
             return;
         }
-    } else if (IsRectEmpty(&clipRect)) {
-        if (releaseDc) {
-            ReleaseDC(hwnd, targetDc);
-        }
-        return;
     }
 
-    m_glowRenderer.PaintSurface(hwnd, it->second, targetDc, clipRect);
+    surface->PaintImmediately(targetDc, clipRect);
 
-    if (msg == WM_PAINT && wParam == 0) {
-        ReleaseDC(hwnd, targetDc);
-    } else if (releaseDc) {
+    if (releaseDc) {
         ReleaseDC(hwnd, targetDc);
     }
 }
@@ -3970,18 +3958,15 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             break;
         }
-	    case WM_PRINTCLIENT: {
-			// When LVS_EX_TRANSPARENTBKGND is set, the list view prints its client area via this message.
-			// Draw the background first, then allow the default procedure to render items.
-		    if (handlesBackground) {
-		        HDC dc = reinterpret_cast<HDC>(wParam);
-		        if (dc) {
-			        DrawFolderBackground(hwnd, dc);		
-		        }
-			    // Do not set *result here so the default processing continues.
-	        }
-		    break;
-		}
+        case WM_PRINTCLIENT: {
+            if (handlesBackground) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                if (dc) {
+                    DrawFolderBackground(hwnd, dc);
+                }
+            }
+            break;
+        }
         case WM_PAINT: {
             if (handlesBackground) {
                 if (wParam) {
@@ -4022,58 +4007,50 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             break;
         }
         case WM_THEMECHANGED:
-        case WM_SETTINGCHANGE: {
+        case WM_SETTINGCHANGE:
+        case WM_DWMCOLORIZATIONCOLORCHANGED: {
             if (handlesBackground) {
                 InvalidateRect(hwnd, nullptr, TRUE);
             }
             if (isListView) {
                 RefreshListViewAccentState();
-                ClearListViewBackgroundImage();
+                if (msg != WM_DWMCOLORIZATIONCOLORCHANGED) {
+                    ClearListViewBackgroundImage();
+                }
             }
-            bool themeUpdated = false;
+
+            bool paletteUpdated = false;
             if (msg == WM_THEMECHANGED) {
-                themeUpdated = m_glowCoordinator.HandleThemeChanged();
+                paletteUpdated = m_glowCoordinator.HandleThemeChanged();
             } else {
-                themeUpdated = m_glowCoordinator.HandleSettingChanged();
+                paletteUpdated = m_glowCoordinator.HandleSettingChanged();
             }
-            if (themeUpdated) {
+
+            if (paletteUpdated) {
                 for (auto& entry : m_glowSurfaces) {
                     if (entry.second) {
                         entry.second->RequestRepaint();
                     }
                 }
             } else if (isGlowSurface) {
-                auto it = m_glowSurfaces.find(hwnd);
-                if (it != m_glowSurfaces.end() && it->second) {
-                    it->second->RequestRepaint();
-                }
-        case WM_DWMCOLORIZATIONCOLORCHANGED: {
-            if (msg == WM_THEMECHANGED || msg == WM_SETTINGCHANGE) {
-                if (handlesBackground) {
-                    InvalidateRect(hwnd, nullptr, TRUE);
-                }
-                if (isListView) {
-                    RefreshListViewAccentState();
-                    ClearListViewBackgroundImage();
-                }
-                if (isGlowSurface) {
-                    if (msg == WM_THEMECHANGED) {
-                        m_glowRenderer.HandleThemeChanged(hwnd);
-                    } else {
-                        m_glowRenderer.HandleSettingChanged(hwnd);
-                    }
-                }
-            } else if (msg == WM_DWMCOLORIZATIONCOLORCHANGED) {
-                if (isListView) {
-                    RefreshListViewAccentState();
+                auto glow = m_glowSurfaces.find(hwnd);
+                if (glow != m_glowSurfaces.end() && glow->second) {
+                    glow->second->RequestRepaint();
                 }
             }
+
             UpdateStatusBarTheme();
             break;
         }
         case WM_DPICHANGED: {
+            if (handlesBackground) {
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
             if (isGlowSurface) {
-                m_glowRenderer.HandleDpiChanged(hwnd, LOWORD(wParam), HIWORD(wParam));
+                auto glow = m_glowSurfaces.find(hwnd);
+                if (glow != m_glowSurfaces.end() && glow->second) {
+                    glow->second->RequestRepaint();
+                }
             }
             break;
         }

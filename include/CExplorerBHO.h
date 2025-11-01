@@ -210,6 +210,7 @@ struct ShellTabsOptions;
                 void ResetNamespaceTreeControl();
                 void InvalidateNamespaceTreeControl() const;
                 bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
+                void HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam);
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
                 void ClearFolderBackgrounds();
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
