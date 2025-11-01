@@ -65,6 +65,8 @@ Microsoft::WRL::ComPtr<IUIAutomation> GetAutomationInstance() {
 void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
                                 const RECT& clientRect, std::vector<RECT>& rectangles);
 
+bool MatchesClass(HWND hwnd, const wchar_t* className);
+
 void AppendDirectUiRectangle(IUIAutomationElement* element, HWND host, const RECT& clientRect,
                              std::vector<RECT>& rectangles) {
     if (!element || !host || !IsWindow(host)) {
@@ -161,6 +163,15 @@ RECT MapScreenRectToWindow(HWND hwnd, const RECT& rect) {
     return {points[0].x, points[0].y, points[1].x, points[1].y};
 }
 
+bool GetHeaderItem(HWND header, int index, HDITEMW* item) {
+    if (!header || !item) {
+        return false;
+    }
+    const LRESULT result = SendMessageW(header, HDM_GETITEMW, static_cast<WPARAM>(index),
+                                        reinterpret_cast<LPARAM>(item));
+    return result != FALSE;
+}
+
 HWND FindEditHostWindow(HWND edit) {
     if (!edit || !IsWindow(edit)) {
         return nullptr;
@@ -183,6 +194,12 @@ struct EditSiblingContext {
     int verticalTolerance = 0;
     LONG minimumOverlap = 0;
     std::vector<RECT>* results = nullptr;
+};
+
+struct ToolbarHitTestInfo {
+    HWND hwnd = nullptr;
+    POINT pt{};
+    UINT flags = 0;
 };
 
 BOOL CALLBACK EnumSiblingEditProc(HWND child, LPARAM param) {
@@ -681,7 +698,7 @@ private:
         item.mask = HDI_FORMAT | HDI_TEXT;
         item.pszText = text.data();
         item.cchTextMax = static_cast<int>(text.size());
-        if (!Header_GetItemW(header, columnIndex, &item)) {
+        if (!GetHeaderItem(header, columnIndex, &item)) {
             return false;
         }
 
@@ -691,7 +708,7 @@ private:
                 text.assign(text.size() * 2, L'\0');
                 item.pszText = text.data();
                 item.cchTextMax = static_cast<int>(text.size());
-                if (!Header_GetItemW(header, columnIndex, &item)) {
+                if (!GetHeaderItem(header, columnIndex, &item)) {
                     break;
                 }
                 length = std::wcslen(text.c_str());
@@ -731,9 +748,9 @@ private:
         if (hasSortArrow) {
             arrowRect = textRect;
             const int arrowWidth = ScaleByDpi(12, DpiX());
-            arrowRect.left = std::max(textRect.left, textRect.right - arrowWidth);
+            arrowRect.left = std::max<LONG>(textRect.left, textRect.right - arrowWidth);
             arrowRect.right = textRect.right;
-            textRect.right = std::max(textRect.left, arrowRect.left - ScaleByDpi(4, DpiX()));
+            textRect.right = std::max<LONG>(textRect.left, arrowRect.left - ScaleByDpi(4, DpiX()));
         }
 
         if (textRect.right <= textRect.left) {
@@ -747,7 +764,9 @@ private:
         TEXTMETRICW metrics{};
         GetTextMetricsW(custom.hdc, &metrics);
         const int textHeight = metrics.tmHeight > 0 ? metrics.tmHeight : (textRect.bottom - textRect.top);
-        const int verticalOffset = std::max(0, ((textRect.bottom - textRect.top) - textHeight) / 2);
+        const LONG availableHeight = textRect.bottom - textRect.top;
+        const LONG calculatedOffset = (availableHeight - static_cast<LONG>(textHeight)) / 2;
+        const int verticalOffset = static_cast<int>(std::max<LONG>(0, calculatedOffset));
         const int textBaseline = textRect.top + verticalOffset;
 
         std::vector<double> characterWidths(text.size(), 0.0);
@@ -771,7 +790,8 @@ private:
             const int offset = static_cast<int>(std::max(0.0, (static_cast<double>(available) - totalWidth) / 2.0));
             textStartX += offset;
         } else if ((item.fmt & HDF_RIGHT) != 0) {
-            textStartX = std::max(textRect.left, textRect.right - static_cast<int>(std::ceil(totalWidth)));
+            textStartX = static_cast<int>(std::max<LONG>(textRect.left,
+                                                        textRect.right - static_cast<LONG>(std::ceil(totalWidth))));
         }
 
         struct CharacterMetrics {
@@ -885,7 +905,7 @@ private:
         RECT arrowRect = overrideRect ? *overrideRect : custom.rc;
         const int padding = ScaleByDpi(8, DpiX());
         arrowRect.right = custom.rc.right - padding;
-        arrowRect.left = std::max(custom.rc.left, arrowRect.right - ScaleByDpi(12, DpiX()));
+        arrowRect.left = std::max<LONG>(custom.rc.left, arrowRect.right - ScaleByDpi(12, DpiX()));
         arrowRect.top = custom.rc.top + padding / 2;
         arrowRect.bottom = custom.rc.bottom - padding / 2;
         if (arrowRect.right <= arrowRect.left || arrowRect.bottom <= arrowRect.top) {
@@ -895,8 +915,8 @@ private:
         const bool ascending = (item.fmt & HDF_SORTUP) != 0;
         const int centerX = arrowRect.left + (arrowRect.right - arrowRect.left) / 2;
         const int centerY = arrowRect.top + (arrowRect.bottom - arrowRect.top) / 2;
-        const int halfWidth = std::max(1, (arrowRect.right - arrowRect.left) / 2);
-        const int height = std::max(2, (arrowRect.bottom - arrowRect.top) / 2);
+        const int halfWidth = std::max<int>(1, static_cast<int>((arrowRect.right - arrowRect.left) / 2));
+        const int height = std::max<int>(2, static_cast<int>((arrowRect.bottom - arrowRect.top) / 2));
 
         POINT points[3];
         if (ascending) {
@@ -1173,7 +1193,8 @@ private:
             return false;
         }
 
-        TBHITTESTINFOW hit{};
+        ToolbarHitTestInfo hit{};
+        hit.hwnd = hwnd;
         hit.pt.x = rect.left + (rect.right - rect.left) / 2;
         hit.pt.y = rect.top + (rect.bottom - rect.top) / 2;
 
