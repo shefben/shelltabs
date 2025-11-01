@@ -12,6 +12,7 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <memory>
 
 
 namespace shelltabs {
@@ -404,6 +405,7 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
     }
 
     EnsureVisibleSelection();
+    MarkLayoutDirty();
     IndexInsertTab(location);
     UpdateSelectionActivation(previousSelection);
     return location;
@@ -463,6 +465,7 @@ void TabManager::Remove(TabLocation location) {
         }
     }
 
+    MarkLayoutDirty();
     EnsureVisibleSelection();
     UpdateSelectionActivation(previousSelection);
 }
@@ -522,6 +525,7 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
         }
     }
 
+    MarkLayoutDirty();
     EnsureVisibleSelection();
 
     UpdateSelectionActivation(previousSelection);
@@ -562,6 +566,7 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
 
     EnsureVisibleSelection();
 
+    MarkLayoutDirty();
     IndexInsertTab({groupIndex, insertIndex});
     UpdateSelectionActivation(previousSelection);
     return {groupIndex, insertIndex};
@@ -586,6 +591,7 @@ std::optional<TabGroup> TabManager::TakeGroup(int groupIndex) {
     }
 
     EnsureDefaultGroup();
+    MarkLayoutDirty();
     EnsureVisibleSelection();
 
     return removed;
@@ -610,6 +616,7 @@ int TabManager::InsertGroup(TabGroup group, int insertIndex) {
     }
 
     EnsureVisibleSelection();
+    MarkLayoutDirty();
     IndexShiftGroups(insertIndex, 1);
     IndexInsertGroup(insertIndex);
     return insertIndex;
@@ -628,6 +635,7 @@ void TabManager::Clear() {
     m_nextActivationOrdinal = 1;
     EnsureDefaultGroup();
     m_locationIndex.clear();
+    MarkLayoutDirty();
 }
 
 void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence) {
@@ -647,6 +655,7 @@ void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int se
     RecalculateNextActivationOrdinal();
     EnsureVisibleSelection();
     RebuildIndices();
+    MarkLayoutDirty();
 }
 
 std::vector<TabViewItem> TabManager::BuildView() const {
@@ -798,13 +807,34 @@ void TabManager::UnregisterProgressListener(HWND hwnd) {
 }
 
 void TabManager::NotifyProgressListeners() {
-    if (m_progressListeners.empty()) {
+    if (m_pendingProgressUpdates.empty() && m_progressListeners.empty()) {
         return;
     }
+
+    std::vector<TabProgressSnapshotEntry> updates;
+    updates.reserve(m_pendingProgressUpdates.size());
+    for (const auto& key : m_pendingProgressUpdates) {
+        TabProgressSnapshotEntry entry;
+        if (BuildProgressEntry(key, &entry)) {
+            updates.emplace_back(std::move(entry));
+        }
+    }
+    m_pendingProgressUpdates.clear();
+
+#if defined(SHELLTABS_BUILD_TESTS)
+    m_lastProgressUpdatesForTest = updates;
+    m_lastProgressLayoutVersionForTest = m_layoutVersion;
+#endif
+
+    if (updates.empty() || m_progressListeners.empty()) {
+        return;
+    }
+
     const UINT message = GetProgressUpdateMessage();
     if (message == 0) {
         return;
     }
+
     auto it = m_progressListeners.begin();
     while (it != m_progressListeners.end()) {
         HWND hwnd = *it;
@@ -812,8 +842,87 @@ void TabManager::NotifyProgressListeners() {
             it = m_progressListeners.erase(it);
             continue;
         }
-        PostMessageW(hwnd, message, 0, 0);
+
+        auto payload = std::make_unique<TabProgressUpdatePayload>();
+        payload->layoutVersion = m_layoutVersion;
+        payload->entries = updates;
+        const WPARAM count = static_cast<WPARAM>(payload->entries.size());
+        auto* rawPayload = payload.release();
+        if (!PostMessageW(hwnd, message, count, reinterpret_cast<LPARAM>(rawPayload))) {
+            delete rawPayload;
+            it = m_progressListeners.erase(it);
+            continue;
+        }
         ++it;
+    }
+}
+
+void TabManager::QueueProgressUpdate(TabViewItemType type, TabLocation location) {
+    if (type == TabViewItemType::kTab) {
+        if (!location.IsValid()) {
+            return;
+        }
+    } else {
+        if (location.groupIndex < 0) {
+            return;
+        }
+        location.tabIndex = -1;
+    }
+
+    auto it = std::find_if(m_pendingProgressUpdates.begin(), m_pendingProgressUpdates.end(),
+                           [&](const ProgressUpdateKey& existing) {
+                               return existing.type == type &&
+                                      existing.location.groupIndex == location.groupIndex &&
+                                      existing.location.tabIndex == location.tabIndex;
+                           });
+    if (it == m_pendingProgressUpdates.end()) {
+        ProgressUpdateKey key;
+        key.type = type;
+        key.location = location;
+        m_pendingProgressUpdates.push_back(key);
+    }
+}
+
+bool TabManager::BuildProgressEntry(const ProgressUpdateKey& key, TabProgressSnapshotEntry* entry) const {
+    if (!entry) {
+        return false;
+    }
+
+    entry->type = key.type;
+    entry->location = key.location;
+    entry->progress = {};
+    entry->lastActivatedTick = 0;
+    entry->activationOrdinal = 0;
+
+    if (key.type == TabViewItemType::kGroupHeader) {
+        const auto* group = GetGroup(key.location.groupIndex);
+        if (!group || !group->headerVisible) {
+            return false;
+        }
+        entry->lastActivatedTick = group->lastActivatedTick;
+        entry->activationOrdinal = group->lastActivationOrdinal;
+        return true;
+    }
+
+    const auto* tab = Get(key.location);
+    if (!tab || tab->hidden) {
+        return false;
+    }
+    entry->lastActivatedTick = tab->lastActivatedTick;
+    entry->activationOrdinal = tab->activationOrdinal;
+    if (tab->progress.active) {
+        entry->progress.visible = true;
+        entry->progress.indeterminate = tab->progress.indeterminate;
+        entry->progress.fraction =
+            tab->progress.indeterminate ? 0.0 : ClampProgress(tab->progress.fraction);
+    }
+    return true;
+}
+
+void TabManager::MarkLayoutDirty() noexcept {
+    ++m_layoutVersion;
+    if (m_layoutVersion == 0) {
+        ++m_layoutVersion;
     }
 }
 
@@ -1067,7 +1176,8 @@ void TabManager::IndexRemoveGroup(int groupIndex, const TabGroup& group) {
     IndexShiftGroups(groupIndex + 1, -1);
 }
 
-bool TabManager::ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now) {
+bool TabManager::ApplyProgress(TabLocation location, TabInfo* tab, std::optional<double> fraction,
+                               ULONGLONG now) {
     if (!tab) {
         return false;
     }
@@ -1095,10 +1205,13 @@ bool TabManager::ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULO
         }
     }
     state.lastUpdateTick = now;
+    if (changed) {
+        QueueProgressUpdate(TabViewItemType::kTab, location);
+    }
     return changed;
 }
 
-bool TabManager::ClearProgress(TabInfo* tab) {
+bool TabManager::ClearProgress(TabLocation location, TabInfo* tab) {
     if (!tab) {
         return false;
     }
@@ -1106,6 +1219,7 @@ bool TabManager::ClearProgress(TabInfo* tab) {
         return false;
     }
     tab->progress = {};
+    QueueProgressUpdate(TabViewItemType::kTab, location);
     return true;
 }
 
@@ -1342,8 +1456,10 @@ void TabManager::UpdateSelectionActivation(TabLocation previousSelection) {
     TabGroup* group = GetGroup(current.groupIndex);
     if (group) {
         HandleTabActivationUpdated(*group, current.tabIndex);
+        QueueProgressUpdate(TabViewItemType::kGroupHeader, {current.groupIndex, -1});
     }
 
+    QueueProgressUpdate(TabViewItemType::kTab, current);
     NotifyProgressListeners();
 }
 
@@ -1380,7 +1496,7 @@ void TabManager::TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<do
     if (!tab) {
         return;
     }
-    if (ApplyProgress(tab, fraction, now)) {
+    if (ApplyProgress(location, tab, fraction, now)) {
         NotifyProgressListeners();
     }
 }
@@ -1398,7 +1514,7 @@ void TabManager::ClearFolderOperation(PCIDLIST_ABSOLUTE folder) {
     if (!tab) {
         return;
     }
-    if (ClearProgress(tab)) {
+    if (ClearProgress(location, tab)) {
         NotifyProgressListeners();
     }
 }
@@ -1415,6 +1531,7 @@ std::vector<TabLocation> TabManager::ExpireFolderOperations(ULONGLONG now, ULONG
             if (now >= tab.progress.lastUpdateTick && (now - tab.progress.lastUpdateTick) > timeoutMs) {
                 tab.progress = {};
                 expired.push_back({static_cast<int>(g), static_cast<int>(t)});
+                QueueProgressUpdate(TabViewItemType::kTab, {static_cast<int>(g), static_cast<int>(t)});
             }
         }
     }
@@ -1441,6 +1558,7 @@ void TabManager::ToggleGroupCollapsed(int groupIndex) {
         return;
     }
     group->collapsed = !group->collapsed;
+    MarkLayoutDirty();
     if (!group->collapsed) {
         EnsureVisibleSelection();
     }
@@ -1451,7 +1569,11 @@ void TabManager::SetGroupCollapsed(int groupIndex, bool collapsed) {
     if (!group) {
         return;
     }
+    if (group->collapsed == collapsed) {
+        return;
+    }
     group->collapsed = collapsed;
+    MarkLayoutDirty();
     if (!collapsed) {
         EnsureVisibleSelection();
     }
@@ -1470,6 +1592,9 @@ void TabManager::HideTab(TabLocation location) {
     const bool wasHidden = tab->hidden;
     tab->hidden = true;
     HandleTabVisibilityChanged(*group, location.tabIndex, wasHidden, true);
+    if (!wasHidden) {
+        MarkLayoutDirty();
+    }
     if (m_selectedGroup == location.groupIndex && m_selectedTab == location.tabIndex) {
         EnsureVisibleSelection();
         UpdateSelectionActivation(previousSelection);
@@ -1489,6 +1614,9 @@ void TabManager::UnhideTab(TabLocation location) {
     const bool wasHidden = tab->hidden;
     tab->hidden = false;
     HandleTabVisibilityChanged(*group, location.tabIndex, wasHidden, false);
+    if (wasHidden) {
+        MarkLayoutDirty();
+    }
     if (m_selectedGroup < 0 || m_selectedGroup >= static_cast<int>(m_groups.size())) {
         m_selectedGroup = location.groupIndex;
         m_selectedTab = location.tabIndex;
@@ -1503,10 +1631,17 @@ void TabManager::UnhideAllInGroup(int groupIndex) {
         return;
     }
     const TabLocation previousSelection = SelectedLocation();
+    bool anyChanged = false;
     for (auto& tab : group->tabs) {
+        if (tab.hidden) {
+            anyChanged = true;
+        }
         tab.hidden = false;
     }
     RefreshGroupAggregates(*group);
+    if (anyChanged) {
+        MarkLayoutDirty();
+    }
     if (m_selectedGroup < 0 || m_selectedGroup >= static_cast<int>(m_groups.size())) {
         m_selectedGroup = groupIndex;
         m_selectedTab = group->tabs.empty() ? -1 : 0;
@@ -1562,6 +1697,7 @@ int TabManager::CreateGroupAfter(int groupIndex, std::wstring name, bool headerV
     }
 
     EnsureDefaultGroup();
+    MarkLayoutDirty();
     EnsureVisibleSelection();
     IndexShiftGroups(insertIndex, 1);
 
@@ -1643,6 +1779,7 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
         ++m_selectedTab;
     }
 
+    MarkLayoutDirty();
     EnsureVisibleSelection();
 }
 
@@ -1725,6 +1862,7 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
         m_selectedGroup = selectedGroup;
     }
 
+    MarkLayoutDirty();
     EnsureVisibleSelection();
 }
 
@@ -1738,6 +1876,7 @@ void TabManager::EnsureDefaultGroup() {
     group.headerVisible = true;
     ResetGroupAggregates(group);
     m_groups.emplace_back(std::move(group));
+    MarkLayoutDirty();
     if (m_selectedGroup < 0) {
         m_selectedGroup = 0;
         m_selectedTab = -1;
@@ -1762,6 +1901,7 @@ void TabManager::SetGroupHeaderVisible(int groupIndex, bool visible) {
         return;
     }
     group->headerVisible = visible;
+    MarkLayoutDirty();
     if (!visible && group->collapsed) {
         group->collapsed = false;
     }

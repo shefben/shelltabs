@@ -791,6 +791,11 @@ void TabBandWindow::RebuildTabLocationIndex() {
 
 void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_tabData = items;
+    if (auto* manager = ResolveManager(); manager) {
+        m_tabLayoutVersion = manager->GetLayoutVersion();
+    } else {
+        m_tabLayoutVersion = 0;
+    }
     RebuildTabLocationIndex();
     m_contextHit = {};
     ClearExplorerContext();
@@ -4088,15 +4093,156 @@ void TabBandWindow::CancelPreviewRequest() {
 }
 
 void TabBandWindow::RefreshProgressState() {
-    RefreshProgressState({});
+    RefreshProgressState({}, nullptr);
 }
 
 void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs) {
+    RefreshProgressState(prioritizedTabs, nullptr);
+}
+
+void TabBandWindow::RefreshProgressState(const TabProgressUpdatePayload* payload) {
+    RefreshProgressState({}, payload);
+}
+
+void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& prioritizedTabs,
+                                         const TabProgressUpdatePayload* payload) {
     auto* manager = ResolveManager();
     if (!manager) {
         if (!m_tabData.empty()) {
             SetTabs({});
+            m_tabLayoutVersion = 0;
+            UpdateProgressAnimationState();
         }
+        return;
+    }
+
+    const uint32_t layoutVersion = manager->GetLayoutVersion();
+
+    TabProgressUpdatePayload synthesized;
+    if (!payload && !prioritizedTabs.empty() && layoutVersion == m_tabLayoutVersion) {
+        synthesized.layoutVersion = layoutVersion;
+        synthesized.entries.reserve(prioritizedTabs.size());
+        for (const auto& location : prioritizedTabs) {
+            const auto* tab = manager->Get(location);
+            if (!tab || tab->hidden) {
+                continue;
+            }
+            TabProgressSnapshotEntry entry;
+            entry.type = TabViewItemType::kTab;
+            entry.location = location;
+            entry.lastActivatedTick = tab->lastActivatedTick;
+            entry.activationOrdinal = tab->activationOrdinal;
+            if (tab->progress.active) {
+                entry.progress.visible = true;
+                entry.progress.indeterminate = tab->progress.indeterminate;
+                entry.progress.fraction =
+                    tab->progress.indeterminate ? 0.0 : ClampProgress(tab->progress.fraction);
+            }
+            synthesized.entries.emplace_back(std::move(entry));
+        }
+        if (!synthesized.entries.empty()) {
+            payload = &synthesized;
+        }
+    }
+
+    auto applyPayload = [&](const TabProgressUpdatePayload* updatePayload) -> bool {
+        if (!updatePayload) {
+            return false;
+        }
+        if (updatePayload->layoutVersion != m_tabLayoutVersion) {
+            return false;
+        }
+
+        bool resyncNeeded = false;
+        bool changed = false;
+        std::vector<size_t> progressChanged;
+        progressChanged.reserve(updatePayload->entries.size());
+
+        for (const auto& entry : updatePayload->entries) {
+            size_t index = kInvalidIndex;
+            if (entry.type == TabViewItemType::kGroupHeader) {
+                index = FindGroupHeaderIndex(entry.location.groupIndex);
+            } else {
+                index = FindTabDataIndex(entry.location);
+            }
+
+            if (index == kInvalidIndex || index >= m_tabData.size() ||
+                m_tabData[index].type != entry.type) {
+                resyncNeeded = true;
+                break;
+            }
+
+            auto& data = m_tabData[index];
+            bool entryChanged = false;
+            if (data.lastActivatedTick != entry.lastActivatedTick ||
+                data.activationOrdinal != entry.activationOrdinal) {
+                data.lastActivatedTick = entry.lastActivatedTick;
+                data.activationOrdinal = entry.activationOrdinal;
+                entryChanged = true;
+            }
+
+            if (data.progress != entry.progress) {
+                data.progress = entry.progress;
+                if (entry.type == TabViewItemType::kTab) {
+                    progressChanged.push_back(index);
+                }
+                entryChanged = true;
+            }
+
+            if (index < m_items.size()) {
+                auto& visual = m_items[index].data;
+                if (visual.lastActivatedTick != entry.lastActivatedTick ||
+                    visual.activationOrdinal != entry.activationOrdinal) {
+                    visual.lastActivatedTick = entry.lastActivatedTick;
+                    visual.activationOrdinal = entry.activationOrdinal;
+                    entryChanged = true;
+                }
+                if (visual.progress != entry.progress) {
+                    visual.progress = entry.progress;
+                }
+            }
+
+            changed |= entryChanged;
+        }
+
+        if (resyncNeeded) {
+            return false;
+        }
+
+        std::vector<size_t> priorityIndices;
+        priorityIndices.reserve(prioritizedTabs.size());
+        for (const auto& location : prioritizedTabs) {
+            const size_t index = FindTabDataIndex(location);
+            if (index != kInvalidIndex) {
+                priorityIndices.push_back(index);
+            }
+        }
+
+        for (size_t index : priorityIndices) {
+            if (std::find(progressChanged.begin(), progressChanged.end(), index) ==
+                progressChanged.end()) {
+                progressChanged.push_back(index);
+            }
+        }
+
+        if (!progressChanged.empty()) {
+            InvalidateProgressForIndices(progressChanged);
+        } else if (changed && m_hwnd) {
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        }
+
+        UpdateProgressAnimationState();
+        return true;
+    };
+
+    if (applyPayload(payload)) {
+        return;
+    }
+
+    if (layoutVersion != m_tabLayoutVersion) {
+        SetTabs(manager->BuildView());
+        m_tabLayoutVersion = layoutVersion;
+        UpdateProgressAnimationState();
         return;
     }
 
@@ -4121,6 +4267,8 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
     }
     if (layoutMismatch) {
         SetTabs(manager->BuildView());
+        m_tabLayoutVersion = layoutVersion;
+        UpdateProgressAnimationState();
         return;
     }
 
@@ -4159,7 +4307,8 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
 
     for (size_t index : priorityIndices) {
         if (index < snapshot.size() &&
-            std::find(progressChanged.begin(), progressChanged.end(), index) == progressChanged.end()) {
+            std::find(progressChanged.begin(), progressChanged.end(), index) ==
+                progressChanged.end()) {
             progressChanged.push_back(index);
         }
     }
@@ -6058,6 +6207,20 @@ size_t TabBandWindow::FindTabDataIndex(TabLocation location) const {
     return it->second;
 }
 
+size_t TabBandWindow::FindGroupHeaderIndex(int groupIndex) const {
+    if (groupIndex < 0) {
+        return kInvalidIndex;
+    }
+    for (size_t i = 0; i < m_tabData.size(); ++i) {
+        const auto& item = m_tabData[i];
+        if (item.type == TabViewItemType::kGroupHeader &&
+            item.location.groupIndex == groupIndex) {
+            return i;
+        }
+    }
+    return kInvalidIndex;
+}
+
 const TabBandWindow::VisualItem* TabBandWindow::FindLastGroupHeader() const {
     for (auto it = m_items.rbegin(); it != m_items.rend(); ++it) {
         if (it->data.type == TabViewItemType::kGroupHeader) {
@@ -6131,7 +6294,13 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         }
         const UINT progressMessage = GetProgressUpdateMessage();
         if (progressMessage != 0 && message == progressMessage) {
-            self->RefreshProgressState();
+            std::unique_ptr<TabProgressUpdatePayload> payload(
+                reinterpret_cast<TabProgressUpdatePayload*>(lParam));
+            if (payload) {
+                self->RefreshProgressState(payload.get());
+            } else {
+                self->RefreshProgressState();
+            }
             return 0;
         }
         if (self->m_shellNotifyMessage != 0 && message == self->m_shellNotifyMessage) {
