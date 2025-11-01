@@ -97,6 +97,7 @@ public:
 private:
     struct VisualItem {
         TabViewItem data;
+        uint64_t stableId = 0;
         RECT bounds{};
         bool firstInGroup = false;
         int badgeWidth = 0;
@@ -201,6 +202,85 @@ private:
         TabBandWindow* source = nullptr;
     };
 
+    struct BrushHandle {
+        BrushHandle() = default;
+        explicit BrushHandle(HBRUSH value) noexcept : handle(value) {}
+        BrushHandle(const BrushHandle&) = delete;
+        BrushHandle& operator=(const BrushHandle&) = delete;
+        BrushHandle(BrushHandle&& other) noexcept : handle(other.handle) { other.handle = nullptr; }
+        BrushHandle& operator=(BrushHandle&& other) noexcept {
+            if (this != &other) {
+                Reset();
+                handle = other.handle;
+                other.handle = nullptr;
+            }
+            return *this;
+        }
+        ~BrushHandle() { Reset(); }
+
+        void Reset(HBRUSH value = nullptr) noexcept {
+            if (handle && handle != value) {
+                DeleteObject(handle);
+            }
+            handle = value;
+        }
+
+        [[nodiscard]] HBRUSH Get() const noexcept { return handle; }
+        explicit operator bool() const noexcept { return handle != nullptr; }
+
+    private:
+        HBRUSH handle = nullptr;
+    };
+
+    struct PenHandle {
+        PenHandle() = default;
+        explicit PenHandle(HPEN value) noexcept : handle(value) {}
+        PenHandle(const PenHandle&) = delete;
+        PenHandle& operator=(const PenHandle&) = delete;
+        PenHandle(PenHandle&& other) noexcept : handle(other.handle) { other.handle = nullptr; }
+        PenHandle& operator=(PenHandle&& other) noexcept {
+            if (this != &other) {
+                Reset();
+                handle = other.handle;
+                other.handle = nullptr;
+            }
+            return *this;
+        }
+        ~PenHandle() { Reset(); }
+
+        void Reset(HPEN value = nullptr) noexcept {
+            if (handle && handle != value) {
+                DeleteObject(handle);
+            }
+            handle = value;
+        }
+
+        [[nodiscard]] HPEN Get() const noexcept { return handle; }
+        explicit operator bool() const noexcept { return handle != nullptr; }
+
+    private:
+        HPEN handle = nullptr;
+    };
+
+    struct PenKey {
+        COLORREF color = 0;
+        int width = 1;
+        int style = PS_SOLID;
+
+        bool operator==(const PenKey& other) const noexcept {
+            return color == other.color && width == other.width && style == other.style;
+        }
+    };
+
+    struct PenKeyHash {
+        size_t operator()(const PenKey& key) const noexcept {
+            size_t hash = std::hash<DWORD>{}(key.color);
+            hash ^= std::hash<int>{}(key.width) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+            hash ^= std::hash<int>{}(key.style) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+            return hash;
+        }
+    };
+
     struct CachedGroupOutlines {
         std::vector<GroupOutline> outlines;
         bool valid = false;
@@ -281,13 +361,13 @@ private:
     ThemeNotifier m_themeNotifier;
     ThemeNotifier::ThemeColors m_themeColors;
         bool m_rebarSubclassed = false;
-        bool m_rebarIntegrationDirty = true;
-        HWND m_lastIntegratedRebar = nullptr;
-        HWND m_lastIntegratedFrame = nullptr;
         struct EmptyIslandPlus {
                 int   groupIndex = -1;
                 RECT  rect{};   // click target for "+"
-        };
+	};
+        bool m_rebarIntegrationDirty = true;
+        HWND m_lastIntegratedRebar = nullptr;
+        HWND m_lastIntegratedFrame = nullptr;
 
 	// Render-time cache of empty-island "+" hit targets
 	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
@@ -311,6 +391,8 @@ private:
         UINT m_cachedCloseButtonDpi = 0;
 
         mutable CachedGroupOutlines m_groupOutlineCache;
+        mutable std::unordered_map<COLORREF, BrushHandle> m_brushCache;
+        mutable std::unordered_map<PenKey, PenHandle, PenKeyHash> m_penCache;
 
         // Utilities
         // Helpers
@@ -437,6 +519,9 @@ private:
     void UpdateThemePalette();
     void UpdateToolbarMetrics();
     void HandleDpiChanged(UINT dpiX, UINT dpiY, const RECT* suggestedRect);
+    [[nodiscard]] HBRUSH GetCachedBrush(COLORREF color) const;
+    [[nodiscard]] HPEN GetCachedPen(COLORREF color, int width = 1, int style = PS_SOLID) const;
+    void ClearGdiCache();
 
     void UpdateDropHoverState(const HitInfo& hit, bool hasFileData);
     void ClearDropHoverState();
