@@ -31,6 +31,8 @@ std::unordered_set<HWND> g_listViewSubscribers;
 std::unordered_set<HWND> g_treeViewSubscribers;
 std::atomic<PaneHighlightInvalidationCallback> g_invalidationCallback = nullptr;
 
+bool TryGetTreeItemRect(HWND treeView, HTREEITEM item, RECT* rect);
+
 void CollectSubscribers(std::vector<HWND>& listViews, std::vector<HWND>& treeViews) {
     auto pruneAndCollect = [&](std::unordered_set<HWND>& subscribers, std::vector<HWND>& collected) {
         for (auto it = subscribers.begin(); it != subscribers.end();) {
