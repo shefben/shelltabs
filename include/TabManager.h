@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 #include <functional>
+#include <list>
 #include <mutex>
 #include <unordered_map>
 
@@ -62,6 +63,7 @@ struct TabInfo {
     TabProgressState progress;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
+    uint64_t activationEpoch = 0;
 
     void RefreshNormalizedLookupKey();
 };
@@ -213,6 +215,15 @@ public:
     int NextGroupSequence() const noexcept { return m_groupSequence; }
 
 private:
+    struct ActivationEntry {
+        TabLocation location;
+        uint64_t ordinal = 0;
+        ULONGLONG tick = 0;
+        uint64_t epoch = 0;
+    };
+
+    using ActivationList = std::list<ActivationEntry>;
+
     void EnsureDefaultGroup();
     void EnsureVisibleSelection();
     void NotifyProgressListeners();
@@ -226,12 +237,20 @@ private:
     void RecalculateNextActivationOrdinal();
     void NormalizePinnedOrder(TabGroup& group);
     void RebuildIndices();
+    void RebuildActivationOrder();
     void IndexInsertTab(TabLocation location);
     void IndexRemoveTab(TabLocation location, const TabInfo& tab);
     void IndexInsertGroup(int groupIndex);
     void IndexRemoveGroup(int groupIndex, const TabGroup& group);
     void IndexShiftTabs(int groupIndex, int startTabIndex, int delta);
     void IndexShiftGroups(int startGroupIndex, int delta);
+    void ActivationInsertTab(TabLocation location);
+    void ActivationRemoveTab(TabLocation location);
+    void ActivationShiftTabs(int groupIndex, int startTabIndex, int delta);
+    void ActivationShiftGroups(int startGroupIndex, int delta);
+    void ActivationUpdateTab(TabLocation location);
+    static bool ActivationPrecedes(const ActivationEntry& lhs, const ActivationEntry& rhs) noexcept;
+    static uint64_t EncodeActivationKey(TabLocation location) noexcept;
     static bool IsBetterActivation(uint64_t candidateOrdinal, ULONGLONG candidateTick, int candidateIndex,
                                    uint64_t bestOrdinal, ULONGLONG bestTick, int bestIndex) noexcept;
     static void ResetGroupAggregates(TabGroup& group) noexcept;
@@ -249,8 +268,13 @@ private:
     int m_groupSequence = 1;
     std::vector<HWND> m_progressListeners;
     uint64_t m_nextActivationOrdinal = 1;
+    uint64_t m_activationEpoch = 0;
+    uint64_t m_lastActivationOrdinalSeen = 0;
+    ULONGLONG m_lastActivationTickSeen = 0;
     ExplorerWindowId m_windowId{};
     std::unordered_map<std::wstring, std::vector<TabLocation>> m_locationIndex;
+    ActivationList m_activationOrder;
+    std::unordered_map<uint64_t, ActivationList::iterator> m_activationLookup;
 
     static std::mutex s_windowMutex;
     static std::unordered_map<ExplorerWindowId, TabManager*, ExplorerWindowIdHash> s_windowMap;
