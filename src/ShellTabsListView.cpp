@@ -85,7 +85,7 @@ bool ShellTabsListView::Initialize(HWND parent, IFolderView2* folderView, Highli
     m_folderView = folderView;
     m_highlightResolver = std::move(resolver);
 
-    if (!CreateWindow(parent)) {
+    if (!CreateHostWindow(parent)) {
         return false;
     }
 
@@ -108,7 +108,7 @@ bool ShellTabsListView::Initialize(HWND parent, IFolderView2* folderView, Highli
     return true;
 }
 
-bool ShellTabsListView::CreateWindow(HWND parent) {
+bool ShellTabsListView::CreateHostWindow(HWND parent) {
     if (m_window && IsWindow(m_window)) {
         if (parent && GetParent(m_window) != parent) {
             SetParent(m_window, parent);

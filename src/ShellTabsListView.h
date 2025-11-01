@@ -1,7 +1,15 @@
 #pragma once
 
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0700
+#endif
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+
+#ifndef NOMINMAX
+#define NOMINMAX
 #endif
 
 #include <windows.h>
@@ -54,7 +62,7 @@ private:
     static ShellTabsListView* FromWindow(HWND hwnd);
     static ShellTabsListView* FromListView(HWND hwnd);
 
-    bool CreateWindow(HWND parent);
+    bool CreateHostWindow(HWND parent);
     bool EnsureListView();
     void DestroyListView();
     void OnSize(int width, int height);
