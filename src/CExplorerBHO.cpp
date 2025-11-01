@@ -729,6 +729,39 @@ double ComputeColorLuminance(COLORREF color) {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+double ComputeContrastRatio(double a, double b) {
+    const double lighter = std::max(a, b);
+    const double darker = std::min(a, b);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
+    const double topLuminance = ComputeColorLuminance(topColor);
+    const double bottomLuminance = ComputeColorLuminance(bottomColor);
+
+    const double contrastBlackTop = ComputeContrastRatio(topLuminance, 0.0);
+    const double contrastBlackBottom = ComputeContrastRatio(bottomLuminance, 0.0);
+    const double contrastWhiteTop = ComputeContrastRatio(topLuminance, 1.0);
+    const double contrastWhiteBottom = ComputeContrastRatio(bottomLuminance, 1.0);
+
+    const double minContrastBlack = std::min(contrastBlackTop, contrastBlackBottom);
+    const double minContrastWhite = std::min(contrastWhiteTop, contrastWhiteBottom);
+
+    constexpr double kMinimumReadableContrast = 4.5;
+    const bool blackReadable = minContrastBlack >= kMinimumReadableContrast;
+    const bool whiteReadable = minContrastWhite >= kMinimumReadableContrast;
+
+    if (blackReadable != whiteReadable) {
+        return blackReadable ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    }
+
+    if (blackReadable && whiteReadable) {
+        return minContrastBlack >= minContrastWhite ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    }
+
+    return minContrastBlack >= minContrastWhite ? RGB(0, 0, 0) : RGB(255, 255, 255);
+}
+
 COLORREF ChooseAccentTextColor(COLORREF accent) {
     return ComputeColorLuminance(accent) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
 }
@@ -2918,7 +2951,8 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     }
 
     std::optional<COLORREF> backgroundCandidate;
-    std::optional<COLORREF> textCandidate;
+    COLORREF gradientTop = CLR_DEFAULT;
+    COLORREF gradientBottom = CLR_DEFAULT;
 
     if (chrome) {
         auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
@@ -2929,13 +2963,14 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         };
 
         const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
-        const double luminance = ComputeColorLuminance(background);
         backgroundCandidate = background;
-        textCandidate = luminance > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+        gradientTop = chrome->topColor;
+        gradientBottom = chrome->bottomColor;
     } else if (IsAppDarkModePreferred()) {
         LogMessage(LogLevel::Info, L"Status bar theme fallback to dark preference (hwnd=%p)", m_statusBar);
         backgroundCandidate = RGB(32, 32, 32);
-        textCandidate = RGB(241, 241, 241);
+        gradientTop = backgroundCandidate.value();
+        gradientBottom = backgroundCandidate.value();
     }
 
     if (!backgroundCandidate.has_value()) {
@@ -2947,7 +2982,14 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     }
 
     const COLORREF background = backgroundCandidate.value();
-    const COLORREF text = textCandidate.value_or(RGB(0, 0, 0));
+
+    auto resolveGradientColor = [&](COLORREF color) -> COLORREF {
+        return color == CLR_DEFAULT ? background : color;
+    };
+
+    const COLORREF resolvedTop = resolveGradientColor(gradientTop);
+    const COLORREF resolvedBottom = resolveGradientColor(gradientBottom);
+    const COLORREF text = ChooseStatusBarTextColor(resolvedTop, resolvedBottom);
 
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
     const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
