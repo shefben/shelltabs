@@ -58,9 +58,12 @@ struct TabInfo {
     bool hidden = false;
     bool pinned = false;
     std::wstring path;
+    std::wstring normalizedLookupKey;
     TabProgressState progress;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
+
+    void RefreshNormalizedLookupKey();
 };
 
 struct TabGroup {
