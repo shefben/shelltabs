@@ -3235,6 +3235,9 @@ BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     if (!IsWindow(child)) {
         return TRUE;
     }
+    if (GetParent(child) != context->parent) {
+        return TRUE;
+    }
     wchar_t className[32];
     if (GetClassNameW(child, className, ARRAYSIZE(className))) {
         if (_wcsicmp(className, L"ScrollBar") == 0) {
@@ -3316,22 +3319,33 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
         if (!IsWindow(placement.hwnd)) {
             continue;
         }
-        const int width = placement.rect.right - placement.rect.left;
-        const int height = placement.rect.bottom - placement.rect.top;
-        const int targetY = placement.rect.top - data->customizationScrollPos;
+        RECT targetRect = placement.rect;
+        targetRect.top -= data->customizationScrollPos;
+        targetRect.bottom -= data->customizationScrollPos;
+
+        POINT topLeft{targetRect.left, targetRect.top};
+        POINT bottomRight{targetRect.right, targetRect.bottom};
+        HWND childParent = GetParent(placement.hwnd);
+        if (childParent && childParent != hwnd) {
+            MapWindowPoints(hwnd, childParent, &topLeft, 1);
+            MapWindowPoints(hwnd, childParent, &bottomRight, 1);
+        }
+        const int width = bottomRight.x - topLeft.x;
+        const int height = bottomRight.y - topLeft.y;
+        const int targetX = topLeft.x;
+        const int targetY = topLeft.y;
         if (deferHandle) {
-            HDWP nextHandle = DeferWindowPos(deferHandle, placement.hwnd, nullptr, placement.rect.left,
-                                            targetY, width, height, repositionFlags);
+            HDWP nextHandle =
+                DeferWindowPos(deferHandle, placement.hwnd, nullptr, targetX, targetY, width, height,
+                               repositionFlags);
             if (!nextHandle) {
                 deferHandle = nullptr;
-                SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
-                             repositionFlags);
+                SetWindowPos(placement.hwnd, nullptr, targetX, targetY, width, height, repositionFlags);
             } else {
                 deferHandle = nextHandle;
             }
         } else {
-            SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
-                         repositionFlags);
+            SetWindowPos(placement.hwnd, nullptr, targetX, targetY, width, height, repositionFlags);
         }
     }
     if (deferHandle) {
