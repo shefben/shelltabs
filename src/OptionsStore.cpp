@@ -557,49 +557,49 @@ IconCache::Reference ResolveContextMenuIcon(const std::wstring& iconSource, UINT
 
     return IconCache::Instance().Acquire(normalizedSource, iconFlags, [path, iconIndex, requestLarge, requestSmall,
                                                                       wantLarge, wantSmall]() -> HICON {
-        HICON large = nullptr;
-        HICON small = nullptr;
-        const UINT extracted = ExtractIconExW(path.c_str(), iconIndex, requestLarge ? &large : nullptr,
-                                              requestSmall ? &small : nullptr, 1);
+        HICON largeIcon = nullptr;
+        HICON smallIcon = nullptr;
+        const UINT extracted = ExtractIconExW(path.c_str(), iconIndex, requestLarge ? &largeIcon : nullptr,
+                                              requestSmall ? &smallIcon : nullptr, 1);
         if (extracted == 0) {
-            if (large) {
-                DestroyIcon(large);
+            if (largeIcon) {
+                DestroyIcon(largeIcon);
             }
-            if (small) {
-                DestroyIcon(small);
+            if (smallIcon) {
+                DestroyIcon(smallIcon);
             }
             return nullptr;
         }
 
         HICON result = nullptr;
-        if (wantSmall && small) {
-            result = small;
-            if (large) {
-                DestroyIcon(large);
+        if (wantSmall && smallIcon) {
+            result = smallIcon;
+            if (largeIcon) {
+                DestroyIcon(largeIcon);
             }
-        } else if (wantLarge && large) {
-            result = large;
-            if (small) {
-                DestroyIcon(small);
+        } else if (wantLarge && largeIcon) {
+            result = largeIcon;
+            if (smallIcon) {
+                DestroyIcon(smallIcon);
             }
-        } else if (large) {
-            result = large;
-            if (small) {
-                DestroyIcon(small);
+        } else if (largeIcon) {
+            result = largeIcon;
+            if (smallIcon) {
+                DestroyIcon(smallIcon);
             }
-        } else if (small) {
-            result = small;
+        } else if (smallIcon) {
+            result = smallIcon;
         }
 
         if (!result) {
-            if (large) {
-                DestroyIcon(large);
+            if (largeIcon) {
+                DestroyIcon(largeIcon);
             }
-            if (small) {
-                DestroyIcon(small);
+            if (smallIcon) {
+                DestroyIcon(smallIcon);
             }
-        } else if (result != small && small) {
-            DestroyIcon(small);
+        } else if (result != smallIcon && smallIcon) {
+            DestroyIcon(smallIcon);
         }
 
         return result;
