@@ -11,6 +11,14 @@ namespace {
 std::mutex g_treeRegistryMutex;
 std::unordered_map<HWND, ShellTabsTreeView*> g_treeRegistry;
 
+BOOL GetTreeViewItemWide(HWND treeView, TVITEMEXW* item) {
+    if (!treeView || !item) {
+        return FALSE;
+    }
+    return static_cast<BOOL>(
+        SendMessageW(treeView, TVM_GETITEMW, 0, reinterpret_cast<LPARAM>(item)));
+}
+
 bool TryGetTreeItemRectInternal(HWND treeView, HTREEITEM item, RECT* rect) {
     if (!treeView || !item || !rect) {
         return false;
@@ -261,7 +269,7 @@ bool ShellTabsTreeView::ResolveHighlight(HTREEITEM item, PaneHighlight* highligh
     TVITEMEXW treeItem{};
     treeItem.mask = TVIF_PARAM;
     treeItem.hItem = item;
-    if (!TreeView_GetItemW(m_treeView, &treeItem)) {
+    if (!GetTreeViewItemWide(m_treeView, &treeItem)) {
         return false;
     }
 
@@ -379,7 +387,7 @@ HTREEITEM ShellTabsTreeView::ResolveTargetItem(const PaneHighlightInvalidationIt
 
     for (HTREEITEM current = TreeView_GetRoot(m_treeView); current;) {
         item.hItem = current;
-        if (TreeView_GetItemW(m_treeView, &item)) {
+        if (GetTreeViewItemWide(m_treeView, &item)) {
             if (reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam) == target.pidl) {
                 return current;
             }

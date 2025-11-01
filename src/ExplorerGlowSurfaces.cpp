@@ -993,6 +993,7 @@ void ExplorerGlowSurface::PaintInternal(HDC targetDc, const RECT& clipRect) {
 
 LRESULT CALLBACK ExplorerGlowSurface::SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR subclassId, DWORD_PTR refData) {
+    UNREFERENCED_PARAMETER(subclassId);
     auto* self = reinterpret_cast<ExplorerGlowSurface*>(refData);
     if (!self) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
