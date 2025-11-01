@@ -211,7 +211,7 @@ struct ShellTabsOptions;
                 void RefreshListViewAccentState();
                 void EnsureListViewSubclass();
                 void EnsureListViewHostSubclass(HWND hostWindow);
-                void RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
+                bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
                 void UnregisterGlowSurface(HWND hwnd);
                 void UpdateGlowSurfaceTargets();
                 void PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active);

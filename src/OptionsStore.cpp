@@ -108,8 +108,9 @@ struct GlowSurfaceMapping {
     bool supportsExplorerAccent;
 };
 
-constexpr std::array<GlowSurfaceMapping, 5> kGlowSurfaceMappings = {{{L"header", &GlowSurfacePalette::header, false},
+constexpr std::array<GlowSurfaceMapping, 6> kGlowSurfaceMappings = {{{L"header", &GlowSurfacePalette::header, false},
                                                                      {L"list_view", &GlowSurfacePalette::listView, true},
+                                                                     {L"direct_ui", &GlowSurfacePalette::directUi, true},
                                                                      {L"toolbar", &GlowSurfacePalette::toolbar, false},
                                                                      {L"rebar", &GlowSurfacePalette::rebar, false},
                                                                      {L"edits", &GlowSurfacePalette::edits, false}}};
@@ -229,6 +230,7 @@ void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options) {
     applyLegacy(options.glowPalette.rebar, false);
     applyLegacy(options.glowPalette.edits, false);
     applyLegacy(options.glowPalette.listView, true);
+    applyLegacy(options.glowPalette.directUi, true);
 }
 
 void UpdateLegacyGlowSettingsFromPalette(ShellTabsOptions& options) {
@@ -523,6 +525,9 @@ bool OptionsStore::Load(std::wstring* errorContext) {
                             surface->gradientEndColor =
                                 ParseColorValue(tokens[5], surface->gradientEndColor);
                         }
+                        if (tokens.size() >= 7) {
+                            surface->enabled = ParseBool(tokens[6]);
+                        }
                     }
                 }
             }
@@ -763,6 +768,8 @@ bool OptionsStore::Save() const {
         content += ColorToHexString(surface->gradientStartColor);
         content += L"|";
         content += ColorToHexString(surface->gradientEndColor);
+        content += L"|";
+        content += surface->enabled ? L"1" : L"0";
         content += L"\n";
     }
     content += kTabSelectedColorToken;
@@ -846,14 +853,15 @@ bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& 
 }
 
 bool operator==(const GlowSurfaceOptions& left, const GlowSurfaceOptions& right) noexcept {
-    return left.mode == right.mode && left.solidColor == right.solidColor &&
+    return left.enabled == right.enabled && left.mode == right.mode && left.solidColor == right.solidColor &&
            left.gradientStartColor == right.gradientStartColor &&
            left.gradientEndColor == right.gradientEndColor;
 }
 
 bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept {
     return left.header == right.header && left.listView == right.listView &&
-           left.toolbar == right.toolbar && left.rebar == right.rebar && left.edits == right.edits;
+           left.directUi == right.directUi && left.toolbar == right.toolbar && left.rebar == right.rebar &&
+           left.edits == right.edits;
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {

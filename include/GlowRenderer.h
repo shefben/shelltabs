@@ -37,7 +37,8 @@ public:
     void HandleSettingChanged(HWND hwnd);
     void HandleDpiChanged(HWND hwnd, UINT dpiX, UINT dpiY);
 
-    bool ShouldRender() const noexcept { return m_glowEnabled && !m_highContrastActive; }
+    bool ShouldRender() const noexcept { return m_glowEnabled; }
+    bool ShouldRenderSurface(ExplorerSurfaceKind kind) const noexcept;
 
     void PaintSurface(HWND hwnd, ExplorerSurfaceKind kind, HDC targetDc, const RECT& clipRect);
 
@@ -61,6 +62,7 @@ private:
 
     void EnsureSurfaceState(HWND hwnd, ExplorerSurfaceKind kind);
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
+    const GlowSurfaceOptions* ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept;
     void UpdateAccentColor();
     void InvalidateSurface(HWND hwnd, const SurfaceState& state) const;
     bool RefreshAccessibilityState();
