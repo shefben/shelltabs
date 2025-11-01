@@ -72,6 +72,8 @@ constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
 constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
 constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_background";
+constexpr UINT_PTR kAddressEditRedrawTimerId = 0x53445257;  // 'SRDW'
+constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
 
 std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
@@ -4346,6 +4348,9 @@ bool CExplorerBHO::InstallAddressEditSubclass(HWND editWindow) {
     if (SetWindowSubclass(editWindow, &CExplorerBHO::AddressEditSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
         m_addressEditWindow = editWindow;
         m_addressEditSubclassInstalled = true;
+        ResetAddressEditStateCache();
+        RefreshAddressEditFont(editWindow);
+        RefreshAddressEditState(editWindow, true, true, true, true);
         LogMessage(LogLevel::Info, L"Installed address edit gradient subclass on hwnd=%p", editWindow);
         return true;
     }
@@ -4356,11 +4361,14 @@ bool CExplorerBHO::InstallAddressEditSubclass(HWND editWindow) {
 
 void CExplorerBHO::RemoveAddressEditSubclass() {
     if (m_addressEditWindow && m_addressEditSubclassInstalled) {
+        ResetAddressEditStateCache();
         if (IsWindow(m_addressEditWindow)) {
             RemoveWindowSubclass(m_addressEditWindow, &CExplorerBHO::AddressEditSubclassProc,
                                  reinterpret_cast<UINT_PTR>(this));
             InvalidateRect(m_addressEditWindow, nullptr, TRUE);
         }
+    } else {
+        ResetAddressEditStateCache();
     }
     m_addressEditWindow = nullptr;
     m_addressEditSubclassInstalled = false;
@@ -4375,7 +4383,149 @@ void CExplorerBHO::RequestAddressEditRedraw(HWND hwnd) const {
         return;
     }
 
-    RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    if (m_addressEditRedrawPending) {
+        if (m_addressEditRedrawTimerActive) {
+            if (!SetTimer(hwnd, kAddressEditRedrawTimerId, kAddressEditRedrawCoalesceDelayMs, nullptr)) {
+                m_addressEditRedrawTimerActive = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
+        return;
+    }
+
+    m_addressEditRedrawPending = true;
+
+    if (SetTimer(hwnd, kAddressEditRedrawTimerId, kAddressEditRedrawCoalesceDelayMs, nullptr)) {
+        m_addressEditRedrawTimerActive = true;
+        return;
+    }
+
+    m_addressEditRedrawTimerActive = false;
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+void CExplorerBHO::ResetAddressEditStateCache() {
+    if (m_addressEditWindow && m_addressEditRedrawTimerActive) {
+        KillTimer(m_addressEditWindow, kAddressEditRedrawTimerId);
+    }
+
+    m_addressEditRedrawTimerActive = false;
+    m_addressEditRedrawPending = false;
+    m_addressEditCachedText.clear();
+    m_addressEditCachedSelStart = 0;
+    m_addressEditCachedSelEnd = 0;
+    m_addressEditCachedHasFocus = false;
+    m_addressEditCachedThemeActive = IsThemeActive() != FALSE;
+    m_addressEditCachedFont = nullptr;
+}
+
+bool CExplorerBHO::RefreshAddressEditState(HWND hwnd, bool updateText, bool updateSelection,
+                                           bool updateFocus, bool updateTheme) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    bool changed = false;
+    if (updateText) {
+        changed |= RefreshAddressEditText(hwnd);
+    }
+    if (updateSelection) {
+        changed |= RefreshAddressEditSelection(hwnd);
+    }
+    if (updateFocus) {
+        changed |= RefreshAddressEditFocus(hwnd);
+    }
+    if (updateTheme) {
+        changed |= RefreshAddressEditTheme();
+    }
+
+    return changed;
+}
+
+bool CExplorerBHO::RefreshAddressEditText(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    int length = GetWindowTextLengthW(hwnd);
+    if (length < 0) {
+        length = 0;
+    }
+
+    std::wstring text;
+    if (length > 0) {
+        text.resize(static_cast<size_t>(length) + 1);
+        int copied = GetWindowTextW(hwnd, text.data(), length + 1);
+        if (copied < 0) {
+            copied = 0;
+        }
+        text.resize(static_cast<size_t>(copied));
+    }
+
+    if (text != m_addressEditCachedText) {
+        m_addressEditCachedText = std::move(text);
+        return true;
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::RefreshAddressEditSelection(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    DWORD selectionStart = 0;
+    DWORD selectionEnd = 0;
+    SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selectionStart),
+                 reinterpret_cast<LPARAM>(&selectionEnd));
+
+    if (selectionStart != m_addressEditCachedSelStart || selectionEnd != m_addressEditCachedSelEnd) {
+        m_addressEditCachedSelStart = selectionStart;
+        m_addressEditCachedSelEnd = selectionEnd;
+        return true;
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::RefreshAddressEditFocus(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    bool hasFocus = GetFocus() == hwnd;
+    if (hasFocus != m_addressEditCachedHasFocus) {
+        m_addressEditCachedHasFocus = hasFocus;
+        return true;
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::RefreshAddressEditTheme() {
+    bool themeActive = IsThemeActive() != FALSE;
+    if (themeActive != m_addressEditCachedThemeActive) {
+        m_addressEditCachedThemeActive = themeActive;
+        return true;
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::RefreshAddressEditFont(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        m_addressEditCachedFont = nullptr;
+        return false;
+    }
+
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    if (font != m_addressEditCachedFont) {
+        m_addressEditCachedFont = font;
+        return true;
+    }
+
+    return false;
 }
 
 void CExplorerBHO::UpdateAddressEditSubclass() {
@@ -5749,12 +5899,25 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
+    auto requestOnStateChange = [&](bool updateText, bool updateSelection, bool updateFocus, bool updateTheme) {
+        bool changed = self->RefreshAddressEditState(hwnd, updateText, updateSelection, updateFocus, updateTheme);
+        if (self->m_breadcrumbFontGradientEnabled && changed) {
+            self->RequestAddressEditRedraw(hwnd);
+        }
+    };
+
     switch (msg) {
-        case WM_PAINT:
+        case WM_PAINT: {
+            if (self->m_addressEditRedrawTimerActive) {
+                KillTimer(hwnd, kAddressEditRedrawTimerId);
+                self->m_addressEditRedrawTimerActive = false;
+            }
+            self->m_addressEditRedrawPending = false;
             if (self->HandleAddressEditPaint(hwnd)) {
                 return 0;
             }
             break;
+        }
         case WM_PRINTCLIENT: {
             if (!self->m_handlingAddressEditPrintClient &&
                 self->m_breadcrumbFontGradientEnabled && self->m_useCustomBreadcrumbFontColors) {
@@ -5765,21 +5928,35 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
             }
             break;
         }
+        case WM_TIMER:
+            if (wParam == kAddressEditRedrawTimerId) {
+                KillTimer(hwnd, kAddressEditRedrawTimerId);
+                self->m_addressEditRedrawTimerActive = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            break;
         case WM_SETTEXT:
         case EM_REPLACESEL:
-        case EM_SETSEL:
         case WM_CUT:
         case WM_PASTE:
         case WM_UNDO:
-        case WM_CLEAR:
+        case WM_CLEAR: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            requestOnStateChange(true, true, false, false);
+            return result;
+        }
+        case EM_SETSEL: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            requestOnStateChange(false, true, false, false);
+            return result;
+        }
         case WM_THEMECHANGED:
         case WM_SETTINGCHANGE:
-        case WM_SETFONT:
         case WM_SETFOCUS:
         case WM_KILLFOCUS:
         case WM_CHAR:
         case WM_KEYDOWN:
-        case WM_KEYUP:
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
         case WM_LBUTTONDBLCLK:
@@ -5787,13 +5964,63 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
         case WM_RBUTTONUP:
         case WM_MBUTTONDOWN:
         case WM_MBUTTONUP:
-        case WM_MOUSEWHEEL:
         case WM_MOUSEMOVE: {
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-            if (msg == WM_MOUSEMOVE && (wParam & (MK_LBUTTON | MK_MBUTTON | MK_RBUTTON)) == 0) {
-                return result;
+
+            switch (msg) {
+                case WM_SETTEXT:
+                case EM_REPLACESEL:
+                case WM_CUT:
+                case WM_PASTE:
+                case WM_UNDO:
+                case WM_CLEAR:
+                    requestOnStateChange(true, true, false, false);
+                    break;
+                case WM_THEMECHANGED:
+                case WM_SETTINGCHANGE:
+                    requestOnStateChange(false, false, false, true);
+                    break;
+                case WM_SETFOCUS:
+                case WM_KILLFOCUS:
+                    requestOnStateChange(false, false, true, false);
+                    break;
+                case WM_CHAR:
+                    requestOnStateChange(true, true, false, false);
+                    break;
+                case WM_KEYDOWN: {
+                    bool updateText = (wParam == VK_BACK || wParam == VK_DELETE);
+                    requestOnStateChange(updateText, true, false, false);
+                    break;
+                }
+                case WM_LBUTTONDOWN:
+                case WM_LBUTTONUP:
+                case WM_LBUTTONDBLCLK:
+                case WM_RBUTTONDOWN:
+                case WM_RBUTTONUP:
+                case WM_MBUTTONDOWN:
+                case WM_MBUTTONUP:
+                    requestOnStateChange(false, true, false, false);
+                    break;
+                case WM_MOUSEMOVE:
+                    if ((wParam & (MK_LBUTTON | MK_MBUTTON | MK_RBUTTON)) != 0) {
+                        requestOnStateChange(false, true, false, false);
+                    }
+                    break;
+                case EM_SETSEL:
+                    requestOnStateChange(false, true, false, false);
+                    break;
+                default:
+                    break;
             }
-            self->RequestAddressEditRedraw(hwnd);
+
+            return result;
+        }
+        case WM_SETFONT: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            bool fontChanged = self->RefreshAddressEditFont(hwnd);
+            if (self->m_breadcrumbFontGradientEnabled && fontChanged) {
+                self->RequestAddressEditRedraw(hwnd);
+            }
             return result;
         }
         case WM_NCDESTROY:

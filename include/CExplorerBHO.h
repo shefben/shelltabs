@@ -145,6 +145,14 @@ struct ShellTabsOptions;
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
                 void RequestAddressEditRedraw(HWND hwnd) const;
+                void ResetAddressEditStateCache();
+                bool RefreshAddressEditState(HWND hwnd, bool updateText, bool updateSelection,
+                                             bool updateFocus, bool updateTheme);
+                bool RefreshAddressEditText(HWND hwnd);
+                bool RefreshAddressEditSelection(HWND hwnd);
+                bool RefreshAddressEditFocus(HWND hwnd);
+                bool RefreshAddressEditTheme();
+                bool RefreshAddressEditFont(HWND hwnd);
                 bool EnsureProgressGradientResources();
                 void DestroyProgressGradientResources();
                 void UpdateExplorerViewSubclass();
@@ -279,7 +287,15 @@ struct ShellTabsOptions;
                 HWND m_addressEditWindow = nullptr;
                 bool m_addressEditSubclassInstalled = false;
                 bool m_handlingAddressEditPrintClient = false;
-		bool m_breadcrumbHookRegistered = false;
+                mutable bool m_addressEditRedrawPending = false;
+                mutable bool m_addressEditRedrawTimerActive = false;
+                std::wstring m_addressEditCachedText;
+                DWORD m_addressEditCachedSelStart = 0;
+                DWORD m_addressEditCachedSelEnd = 0;
+                bool m_addressEditCachedHasFocus = false;
+                bool m_addressEditCachedThemeActive = false;
+                HFONT m_addressEditCachedFont = nullptr;
+                bool m_breadcrumbHookRegistered = false;
 		enum class BreadcrumbLogState {
 			Unknown,
 			Disabled,
