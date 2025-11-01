@@ -13,6 +13,7 @@
 #include <dwmapi.h>
 #include <gdiplus.h>
 #include <UIAutomation.h>
+#include <oleacc.h>
 #include <commctrl.h>
 #include <uxtheme.h>
 #include <windowsx.h>
@@ -1008,6 +1009,108 @@ protected:
     }
 };
 
+class ScrollBarGlowSurface : public ExplorerGlowSurface {
+public:
+    using ExplorerGlowSurface::ExplorerGlowSurface;
+
+protected:
+    void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) override {
+        HWND hwnd = Handle();
+        if (!hwnd || !IsWindow(hwnd)) {
+            return;
+        }
+
+        RECT clientRect = GetClientRectSafe(hwnd);
+        if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
+            return;
+        }
+
+        SCROLLBARINFO info{};
+        info.cbSize = sizeof(info);
+        if (!GetScrollBarInfo(hwnd, OBJID_CLIENT, &info)) {
+            return;
+        }
+
+        if (info.rgstate[0] & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_OFFSCREEN | STATE_SYSTEM_UNAVAILABLE)) {
+            return;
+        }
+
+        RECT trackRect = info.rcTrack;
+        RECT thumbRect = info.rcThumb;
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&trackRect), 2);
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&thumbRect), 2);
+
+        if (trackRect.right <= trackRect.left || trackRect.bottom <= trackRect.top) {
+            return;
+        }
+
+        RECT effectiveClip{};
+        if (!IntersectRect(&effectiveClip, &clipRect, &clientRect)) {
+            effectiveClip = clientRect;
+        }
+
+        const bool vertical = (trackRect.bottom - trackRect.top) >= (trackRect.right - trackRect.left);
+        const int crossExtent = vertical ? (trackRect.right - trackRect.left) : (trackRect.bottom - trackRect.top);
+        const UINT crossDpi = vertical ? DpiX() : DpiY();
+        const UINT alongDpi = vertical ? DpiY() : DpiX();
+
+        const int baseLine = ScaleByDpi(2, crossDpi);
+        const int lineThickness = std::clamp(baseLine, 1, std::max(crossExtent, 1));
+        const int haloPadding = std::max(lineThickness, ScaleByDpi(3, crossDpi));
+        const int thumbAlongPadding = ScaleByDpi(6, alongDpi);
+
+        Gdiplus::Graphics graphics(targetDc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+        RECT trackHalo = trackRect;
+        if (vertical) {
+            InflateRect(&trackHalo, haloPadding, 0);
+        } else {
+            InflateRect(&trackHalo, 0, haloPadding);
+        }
+        RECT trackHaloClip{};
+        if (IntersectRect(&trackHaloClip, &trackHalo, &effectiveClip) && !IsRectEmpty(&trackHaloClip)) {
+            FillGradientRect(graphics, colors, RectToGdiplus(trackHaloClip), kHaloAlpha);
+        }
+
+        RECT lineRect = trackRect;
+        if (vertical) {
+            const int center = trackRect.left + ((trackRect.right - trackRect.left) - lineThickness) / 2;
+            lineRect.left = center;
+            lineRect.right = center + lineThickness;
+        } else {
+            const int center = trackRect.top + ((trackRect.bottom - trackRect.top) - lineThickness) / 2;
+            lineRect.top = center;
+            lineRect.bottom = center + lineThickness;
+        }
+        RECT lineClip{};
+        if (IntersectRect(&lineClip, &lineRect, &effectiveClip) && !IsRectEmpty(&lineClip)) {
+            FillGradientRect(graphics, colors, RectToGdiplus(lineClip), kLineAlpha);
+        }
+
+        const bool thumbVisible =
+            !(info.rgstate[3] & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_OFFSCREEN | STATE_SYSTEM_UNAVAILABLE));
+        if (thumbVisible && thumbRect.right > thumbRect.left && thumbRect.bottom > thumbRect.top) {
+            RECT thumbHalo = thumbRect;
+            if (vertical) {
+                InflateRect(&thumbHalo, haloPadding, thumbAlongPadding);
+            } else {
+                InflateRect(&thumbHalo, thumbAlongPadding, haloPadding);
+            }
+
+            RECT thumbHaloClip{};
+            if (IntersectRect(&thumbHaloClip, &thumbHalo, &effectiveClip) && !IsRectEmpty(&thumbHaloClip)) {
+                FillGradientRect(graphics, colors, RectToGdiplus(thumbHaloClip), kFrameHaloAlpha);
+            }
+
+            RECT thumbClip{};
+            if (IntersectRect(&thumbClip, &thumbRect, &effectiveClip) && !IsRectEmpty(&thumbClip)) {
+                FillGradientRect(graphics, colors, RectToGdiplus(thumbClip), kFrameAlpha);
+            }
+        }
+    }
+};
+
 }  // namespace
 
 ExplorerGlowCoordinator::ExplorerGlowCoordinator() = default;
@@ -1089,6 +1192,8 @@ const GlowSurfaceOptions* ExplorerGlowCoordinator::ResolveSurfaceOptions(Explore
             return &m_palette.toolbar;
         case ExplorerSurfaceKind::Edit:
             return &m_palette.edits;
+        case ExplorerSurfaceKind::Scrollbar:
+            return &m_palette.scrollbars;
         case ExplorerSurfaceKind::DirectUi:
             return &m_palette.directUi;
         default:
@@ -1370,6 +1475,8 @@ std::unique_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKin
             return std::make_unique<ToolbarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::Edit:
             return std::make_unique<EditGlowSurface>(kind, coordinator);
+        case ExplorerSurfaceKind::Scrollbar:
+            return std::make_unique<ScrollBarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::DirectUi:
             return std::make_unique<DirectUiGlowSurface>(kind, coordinator);
         default:
