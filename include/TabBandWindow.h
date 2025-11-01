@@ -158,6 +158,7 @@ private:
         size_t moved = 0;
         size_t updated = 0;
         std::vector<RECT> invalidRects;
+        std::vector<size_t> removedIndices;
     };
 
     struct RedrawMetrics {
@@ -316,8 +317,8 @@ private:
         bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
         void DrawEmptyIslandPluses(HDC dc) const;
         LayoutResult BuildLayoutItems(const std::vector<TabViewItem>& items);
-        LayoutDiffStats ComputeLayoutDiff(const std::vector<VisualItem>& oldItems,
-                                          const std::vector<VisualItem>& newItems) const;
+        LayoutDiffStats ComputeLayoutDiff(std::vector<VisualItem>& oldItems,
+                                          std::vector<VisualItem>& newItems) const;
         void DestroyVisualItemResources(std::vector<VisualItem>& items);
         void RecordRedrawDuration(double milliseconds, bool incremental);
 
@@ -457,6 +458,9 @@ private:
 
     class BandDropTarget;
     friend class BandDropTarget;
+#if defined(SHELLTABS_BUILD_TESTS)
+    friend struct TabBandWindowDiffTestHarness;
+#endif
 
     static constexpr UINT_PTR kDropHoverTimerId = 0x5348;  // 'SH'
     static constexpr UINT_PTR kSessionFlushTimerId = 0x5346;  // 'SF'

@@ -215,6 +215,31 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         uuid
     )
 
+    add_executable(ShellTabsTabBandWindowDiffTests
+        tests/TabBandWindowDiffTests.cpp
+    )
+
+    target_include_directories(ShellTabsTabBandWindowDiffTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsTabBandWindowDiffTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+        SHELLTABS_BUILD_TESTS
+    )
+
+    target_link_libraries(ShellTabsTabBandWindowDiffTests PRIVATE
+        ShellTabs
+        shlwapi
+        shell32
+        ole32
+        oleaut32
+        comctl32
+    )
+
     add_executable(ShellTabsGuardTests
         tests/UtilitiesGuardTests.cpp
     )

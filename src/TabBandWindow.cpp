@@ -831,7 +831,6 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
 
     std::vector<VisualItem> oldItems;
     oldItems.swap(m_items);
-    DestroyVisualItemResources(oldItems);
 
     HideDragOverlay(true);
     HidePreviewWindow(false);
@@ -850,6 +849,19 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     RebuildProgressRectCache();
     RebuildGroupOutlineCache();
     m_lastRowCount = normalizedRowCount;
+
+    if (!diff.removedIndices.empty()) {
+        std::vector<VisualItem> removed;
+        removed.reserve(diff.removedIndices.size());
+        for (size_t index : diff.removedIndices) {
+            if (index < oldItems.size()) {
+                removed.emplace_back(std::move(oldItems[index]));
+            }
+        }
+        if (!removed.empty()) {
+            DestroyVisualItemResources(removed);
+        }
+    }
 
     bool topologyChanged = diff.inserted > 0 || diff.removed > 0 || rowCountChanged;
     if (topologyChanged) {
@@ -1315,8 +1327,8 @@ void TabBandWindow::RebuildLayout() {
     }
 }
 
-TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
-    const std::vector<VisualItem>& oldItems, const std::vector<VisualItem>& newItems) const {
+TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<VisualItem>& oldItems,
+                                                                std::vector<VisualItem>& newItems) const {
     LayoutDiffStats stats;
 
     if (!m_hwnd) {
@@ -1347,7 +1359,8 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
         }
     };
 
-    for (const auto& item : newItems) {
+    for (size_t newIndex = 0; newIndex < newItems.size(); ++newIndex) {
+        auto& item = newItems[newIndex];
         const auto key = MakeKey(item.data);
         auto it = oldMap.find(key);
         if (it == oldMap.end() || it->second.empty()) {
@@ -1359,18 +1372,28 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
         const size_t oldIndex = it->second.back();
         it->second.pop_back();
         consumed[oldIndex] = true;
-        const VisualItem& oldItem = oldItems[oldIndex];
+        VisualItem& oldItem = oldItems[oldIndex];
+        VisualItem& newItem = item;
 
-        const bool moved = !EqualRect(&oldItem.bounds, &item.bounds);
-        const bool metadataChanged = oldItem.firstInGroup != item.firstInGroup ||
-                                     oldItem.badgeWidth != item.badgeWidth ||
-                                     oldItem.hasGroupHeader != item.hasGroupHeader ||
-                                     oldItem.collapsedPlaceholder != item.collapsedPlaceholder ||
-                                     oldItem.indicatorHandle != item.indicatorHandle ||
-                                     (item.hasGroupHeader &&
-                                      !EquivalentTabViewItem(oldItem.groupHeader, item.groupHeader));
+        if (oldItem.icon) {
+            if (newItem.icon) {
+                newItem.icon.Reset();
+            }
+            newItem.icon = std::move(oldItem.icon);
+            newItem.iconWidth = oldItem.iconWidth;
+            newItem.iconHeight = oldItem.iconHeight;
+        }
 
-        const bool contentChanged = !EquivalentTabViewItem(oldItem.data, item.data) || metadataChanged;
+        const bool moved = !EqualRect(&oldItem.bounds, &newItem.bounds);
+        const bool metadataChanged = oldItem.firstInGroup != newItem.firstInGroup ||
+                                     oldItem.badgeWidth != newItem.badgeWidth ||
+                                     oldItem.hasGroupHeader != newItem.hasGroupHeader ||
+                                     oldItem.collapsedPlaceholder != newItem.collapsedPlaceholder ||
+                                     oldItem.indicatorHandle != newItem.indicatorHandle ||
+                                     (newItem.hasGroupHeader &&
+                                      !EquivalentTabViewItem(oldItem.groupHeader, newItem.groupHeader));
+
+        const bool contentChanged = !EquivalentTabViewItem(oldItem.data, newItem.data) || metadataChanged;
 
         if (moved) {
             ++stats.moved;
@@ -1381,7 +1404,7 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
         if (moved || contentChanged) {
             RECT unionRect{};
             RECT oldRect = NormalizeRect(oldItem.bounds);
-            RECT newRect = NormalizeRect(item.bounds);
+            RECT newRect = NormalizeRect(newItem.bounds);
             UnionRect(&unionRect, &oldRect, &newRect);
             enqueueRect(unionRect);
         }
@@ -1391,6 +1414,7 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
         if (!consumed[i]) {
             ++stats.removed;
             enqueueRect(oldItems[i].bounds);
+            stats.removedIndices.push_back(i);
         }
     }
 
