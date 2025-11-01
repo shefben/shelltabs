@@ -31,6 +31,7 @@
 
 #include <wrl/client.h>
 
+#include "ExplorerGlowSurfaces.h"
 #include "GlowRenderer.h"
 #include "OptionsStore.h"
 #include "PaneHooks.h"
@@ -117,11 +118,6 @@ struct ShellTabsOptions;
                         std::wstring cacheKey;
                         uint64_t generation = 0;
                         bool active = false;
-                };
-
-                struct PendingPaintInfo {
-                        bool hasClip = false;
-                        RECT clip = {0, 0, 0, 0};
                 };
 
                 struct TreeItemPidlResolution {
@@ -308,7 +304,6 @@ struct ShellTabsOptions;
                 void ResetStatusBarTheme(HWND statusBar = nullptr);
                 void PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active);
                 void ResetGlowSurfaces();
-                void HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam);
                 bool AttachListView(HWND listView);
                 void DetachListView();
                 void DetachListViewHosts();
@@ -402,8 +397,7 @@ struct ShellTabsOptions;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
                 std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
-                std::unordered_map<HWND, ExplorerSurfaceKind, HandleHasher> m_glowSurfaceKinds;
-                std::unordered_map<HWND, PendingPaintInfo, HandleHasher> m_pendingPaintClips;
+                std::unordered_map<HWND, std::unique_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
                 bool m_watchListViewCreation = false;
                 bool m_watchTreeViewCreation = false;
                 HWND m_statusBar = nullptr;
@@ -422,7 +416,7 @@ struct ShellTabsOptions;
                 bool m_loggedListViewMissing = false;
                 bool m_loggedTreeViewMissing = false;
                 PaneHookRouter m_paneHooks;
-                ExplorerGlowRenderer m_glowRenderer;
+                ExplorerGlowCoordinator m_glowCoordinator;
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
                 Microsoft::WRL::ComPtr<NamespaceTreeCustomDrawSink> m_namespaceTreeCustomDrawSink;
                 DWORD m_namespaceTreeCustomDrawCookie = 0;
