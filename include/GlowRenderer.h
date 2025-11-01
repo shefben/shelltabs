@@ -62,6 +62,7 @@ private:
     void EnsureSurfaceState(HWND hwnd, ExplorerSurfaceKind kind);
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
     void UpdateAccentColor();
+    void InvalidateSurface(HWND hwnd, const SurfaceState& state) const;
     bool RefreshAccessibilityState();
 
     void PaintListView(HWND hwnd, const SurfaceState& state, HDC targetDc, const RECT& clipRect,
