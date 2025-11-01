@@ -149,6 +149,111 @@ bool EnumerateDirectUiRectangles(HWND host, const RECT& clientRect, std::vector<
     return true;
 }
 
+RECT MapScreenRectToWindow(HWND hwnd, const RECT& rect) {
+    POINT points[2] = {{rect.left, rect.top}, {rect.right, rect.bottom}};
+    MapWindowPoints(nullptr, hwnd, points, 2);
+    return {points[0].x, points[0].y, points[1].x, points[1].y};
+}
+
+HWND FindEditHostWindow(HWND edit) {
+    if (!edit || !IsWindow(edit)) {
+        return nullptr;
+    }
+
+    HWND current = GetParent(edit);
+    while (current && IsWindow(current)) {
+        if (MatchesClass(current, L"ReBarWindow32") || MatchesClass(current, L"DirectUIHWND")) {
+            return current;
+        }
+        current = GetParent(current);
+    }
+
+    return GetParent(edit);
+}
+
+struct EditSiblingContext {
+    HWND reference = nullptr;
+    RECT referenceRect{};
+    int verticalTolerance = 0;
+    LONG minimumOverlap = 0;
+    std::vector<RECT>* results = nullptr;
+};
+
+BOOL CALLBACK EnumSiblingEditProc(HWND child, LPARAM param) {
+    auto* context = reinterpret_cast<EditSiblingContext*>(param);
+    if (!context || !context->results) {
+        return TRUE;
+    }
+
+    if (!MatchesClass(child, L"Edit") || !IsWindowVisible(child)) {
+        return TRUE;
+    }
+
+    RECT rect{};
+    if (!GetWindowRect(child, &rect)) {
+        return TRUE;
+    }
+
+    if (rect.right <= rect.left || rect.bottom <= rect.top) {
+        return TRUE;
+    }
+
+    const LONG topDiff = std::abs(rect.top - context->referenceRect.top);
+    const LONG bottomDiff = std::abs(rect.bottom - context->referenceRect.bottom);
+    const LONG overlapTop = std::max(rect.top, context->referenceRect.top);
+    const LONG overlapBottom = std::min(rect.bottom, context->referenceRect.bottom);
+    const LONG overlap = overlapBottom - overlapTop;
+
+    if (topDiff > context->verticalTolerance || bottomDiff > context->verticalTolerance) {
+        if (overlap < context->minimumOverlap) {
+            return TRUE;
+        }
+    }
+
+    const auto duplicate = std::find_if(context->results->begin(), context->results->end(),
+                                        [&](const RECT& existing) { return EqualRect(&existing, &rect); });
+    if (duplicate != context->results->end()) {
+        return TRUE;
+    }
+
+    context->results->push_back(rect);
+    return TRUE;
+}
+
+void CollectSiblingEditRects(HWND editHwnd, const RECT& referenceRect, int verticalTolerance,
+                             std::vector<RECT>& rects) {
+    rects.clear();
+
+    HWND host = FindEditHostWindow(editHwnd);
+    if (!host || !IsWindow(host)) {
+        rects.push_back(referenceRect);
+        return;
+    }
+
+    EditSiblingContext context;
+    context.reference = editHwnd;
+    context.referenceRect = referenceRect;
+    context.verticalTolerance = verticalTolerance;
+    const LONG referenceHeight = referenceRect.bottom - referenceRect.top;
+    context.minimumOverlap = std::max<LONG>(referenceHeight / 2, 1);
+    context.results = &rects;
+
+    EnumChildWindows(host, EnumSiblingEditProc, reinterpret_cast<LPARAM>(&context));
+
+    if (rects.empty()) {
+        rects.push_back(referenceRect);
+        return;
+    }
+
+    const auto selfIt = std::find_if(rects.begin(), rects.end(), [&](const RECT& rect) {
+        return EqualRect(&rect, &referenceRect);
+    });
+
+    if (selfIt == rects.end()) {
+        rects.push_back(referenceRect);
+    }
+}
+
 int ScaleByDpi(int value, UINT dpi) {
     if (dpi == 0) {
         dpi = 96;
@@ -178,7 +283,7 @@ RECT GetClientRectSafe(HWND hwnd) {
 }
 
 void FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
-                      const Gdiplus::Rect& rect, BYTE alpha) {
+                      const Gdiplus::Rect& rect, BYTE alpha, float angle = 90.0f) {
     if (!colors.valid || rect.Width <= 0 || rect.Height <= 0) {
         return;
     }
@@ -194,7 +299,7 @@ void FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
         return;
     }
 
-    Gdiplus::LinearGradientBrush brush(rect, start, end, 90.0f);
+    Gdiplus::LinearGradientBrush brush(rect, start, end, angle);
     graphics.FillRectangle(&brush, rect);
 }
 
@@ -203,7 +308,8 @@ Gdiplus::Rect RectToGdiplus(const RECT& rect) {
 }
 
 void FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
-                     const RECT& outerRect, const RECT& innerRect, BYTE alpha) {
+                     const RECT& outerRect, const RECT& innerRect, BYTE alpha,
+                     float angle = 90.0f) {
     if (outerRect.left >= outerRect.right || outerRect.top >= outerRect.bottom) {
         return;
     }
@@ -221,7 +327,7 @@ void FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
     }
 
     const Gdiplus::Rect outer(outerRect.left, outerRect.top, width, height);
-    FillGradientRect(graphics, colors, outer, alpha);
+    FillGradientRect(graphics, colors, outer, alpha, angle);
 
     const LONG innerWidth = std::max<LONG>(clippedInner.right - clippedInner.left, 0);
     const LONG innerHeight = std::max<LONG>(clippedInner.bottom - clippedInner.top, 0);
@@ -232,7 +338,7 @@ void FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
     Gdiplus::Region innerRegion(Gdiplus::Rect(clippedInner.left, clippedInner.top, innerWidth,
                                               innerHeight));
     graphics.ExcludeClip(&innerRegion);
-    FillGradientRect(graphics, colors, outer, alpha);
+    FillGradientRect(graphics, colors, outer, alpha, angle);
     graphics.ResetClip();
 }
 
@@ -945,15 +1051,108 @@ protected:
                                     -static_cast<Gdiplus::REAL>(paintRect.top));
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
-        RECT inner = clientRect;
-        InflateRect(&inner, -ScaleByDpi(1, DpiX()), -ScaleByDpi(1, DpiY()));
-        RECT frame = inner;
-        InflateRect(&frame, ScaleByDpi(1, DpiX()), ScaleByDpi(1, DpiY()));
-        RECT halo = inner;
-        InflateRect(&halo, ScaleByDpi(3, DpiX()), ScaleByDpi(3, DpiY()));
+        const int frameThicknessX = ScaleByDpi(1, DpiX());
+        const int frameThicknessY = ScaleByDpi(1, DpiY());
+        const int haloThicknessX = ScaleByDpi(3, DpiX());
+        const int haloThicknessY = ScaleByDpi(3, DpiY());
 
-        FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha);
-        FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha);
+        RECT inner = clientRect;
+        InflateRect(&inner, -frameThicknessX, -frameThicknessY);
+        RECT frame = clientRect;
+        RECT halo = inner;
+        InflateRect(&halo, haloThicknessX, haloThicknessY);
+
+        bool mergedPainted = false;
+        if (inner.right > inner.left && inner.bottom > inner.top) {
+            RECT selfScreenRect{};
+            if (GetWindowRect(hwnd, &selfScreenRect)) {
+                std::vector<RECT> siblingScreenRects;
+                const int verticalTolerance = ScaleByDpi(6, DpiY());
+                CollectSiblingEditRects(hwnd, selfScreenRect, verticalTolerance, siblingScreenRects);
+
+                std::vector<RECT> siblingLocalRects;
+                siblingLocalRects.reserve(siblingScreenRects.size());
+                for (const RECT& rect : siblingScreenRects) {
+                    siblingLocalRects.push_back(MapScreenRectToWindow(hwnd, rect));
+                }
+
+                if (!siblingLocalRects.empty()) {
+                    std::sort(siblingLocalRects.begin(), siblingLocalRects.end(),
+                              [](const RECT& lhs, const RECT& rhs) {
+                                  if (lhs.left == rhs.left) {
+                                      return lhs.top < rhs.top;
+                                  }
+                                  return lhs.left < rhs.left;
+                              });
+
+                    RECT mergedLocal = siblingLocalRects.front();
+                    for (size_t index = 1; index < siblingLocalRects.size(); ++index) {
+                        const RECT& candidate = siblingLocalRects[index];
+                        mergedLocal.left = std::min(mergedLocal.left, candidate.left);
+                        mergedLocal.top = std::min(mergedLocal.top, candidate.top);
+                        mergedLocal.right = std::max(mergedLocal.right, candidate.right);
+                        mergedLocal.bottom = std::max(mergedLocal.bottom, candidate.bottom);
+                    }
+
+                    if (mergedLocal.right > mergedLocal.left && mergedLocal.bottom > mergedLocal.top) {
+                        auto fillClippedRect = [&](RECT rect, BYTE alpha, float angle) {
+                            RECT clipped{};
+                            if (!IntersectRect(&clipped, &rect, &paintRect)) {
+                                return;
+                            }
+                            if (clipped.right <= clipped.left || clipped.bottom <= clipped.top) {
+                                return;
+                            }
+                            FillGradientRect(graphics, colors, RectToGdiplus(clipped), alpha, angle);
+                        };
+
+                        const float horizontalAngle = 0.0f;
+                        const float verticalAngle = 90.0f;
+
+                        RECT topHaloRect = {mergedLocal.left - haloThicknessX, inner.top - haloThicknessY,
+                                            mergedLocal.right + haloThicknessX, inner.top};
+                        RECT bottomHaloRect = {mergedLocal.left - haloThicknessX, inner.bottom,
+                                               mergedLocal.right + haloThicknessX,
+                                               inner.bottom + haloThicknessY};
+                        fillClippedRect(topHaloRect, kFrameHaloAlpha, horizontalAngle);
+                        fillClippedRect(bottomHaloRect, kFrameHaloAlpha, horizontalAngle);
+
+                        RECT topFrameRect = {mergedLocal.left, inner.top - frameThicknessY, mergedLocal.right,
+                                             inner.top};
+                        RECT bottomFrameRect = {mergedLocal.left, inner.bottom, mergedLocal.right,
+                                                inner.bottom + frameThicknessY};
+                        fillClippedRect(topFrameRect, kFrameAlpha, horizontalAngle);
+                        fillClippedRect(bottomFrameRect, kFrameAlpha, horizontalAngle);
+
+                        for (const RECT& rect : siblingLocalRects) {
+                            RECT leftHaloRect = {rect.left - haloThicknessX, inner.top - haloThicknessY,
+                                                 rect.left + haloThicknessX,
+                                                 inner.bottom + haloThicknessY};
+                            RECT rightHaloRect = {rect.right - haloThicknessX, inner.top - haloThicknessY,
+                                                  rect.right + haloThicknessX,
+                                                  inner.bottom + haloThicknessY};
+                            fillClippedRect(leftHaloRect, kFrameHaloAlpha, verticalAngle);
+                            fillClippedRect(rightHaloRect, kFrameHaloAlpha, verticalAngle);
+
+                            RECT leftFrameRect = {rect.left, inner.top - frameThicknessY,
+                                                  rect.left + frameThicknessX,
+                                                  inner.bottom + frameThicknessY};
+                            RECT rightFrameRect = {rect.right - frameThicknessX, inner.top - frameThicknessY,
+                                                   rect.right, inner.bottom + frameThicknessY};
+                            fillClippedRect(leftFrameRect, kFrameAlpha, verticalAngle);
+                            fillClippedRect(rightFrameRect, kFrameAlpha, verticalAngle);
+                        }
+
+                        mergedPainted = true;
+                    }
+                }
+            }
+        }
+
+        if (!mergedPainted) {
+            FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha);
+            FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha);
+        }
 
         EndBufferedPaint(buffer, TRUE);
     }
