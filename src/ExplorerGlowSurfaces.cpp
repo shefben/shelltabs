@@ -834,6 +834,13 @@ public:
     using ExplorerGlowSurface::ExplorerGlowSurface;
 
 protected:
+    void OnAttached() override {
+        HWND hwnd = Handle();
+        if (hwnd && IsWindow(hwnd)) {
+            SetWindowTheme(hwnd, L"", L"");
+        }
+    }
+
     void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) override {
         HWND hwnd = Handle();
         if (!MatchesClass(hwnd, L"Edit")) {
@@ -1380,12 +1387,55 @@ std::optional<LRESULT> ExplorerGlowSurface::HandleMessage(HWND hwnd, UINT msg, W
             OnSettingsChanged();
             break;
         }
+        case WM_NCPAINT:
+            if (Kind() == ExplorerSurfaceKind::Edit) {
+                HRGN updateRegion = reinterpret_cast<HRGN>(wParam);
+                const bool hasValidRegion = updateRegion && updateRegion != reinterpret_cast<HRGN>(1);
+                const UINT dcFlags = DCX_WINDOW | DCX_CACHE | DCX_CLIPSIBLINGS | DCX_CLIPCHILDREN |
+                                     (hasValidRegion ? DCX_INTERSECTRGN : 0);
+                HDC targetDc = GetDCEx(hwnd, hasValidRegion ? updateRegion : nullptr, dcFlags);
+                if (targetDc) {
+                    if (Coordinator().ShouldRenderSurface(Kind())) {
+                        RECT clip{};
+                        if (GetClipBox(targetDc, &clip) == ERROR || IsRectEmpty(&clip)) {
+                            clip = GetClientRectSafe(hwnd);
+                        }
+                        if (!IsRectEmpty(&clip)) {
+                            PaintInternal(targetDc, clip);
+                        }
+                    }
+                    ReleaseDC(hwnd, targetDc);
+                }
+
+                if (hasValidRegion) {
+                    ValidateRgn(hwnd, updateRegion);
+                } else {
+                    ValidateRect(hwnd, nullptr);
+                }
+                return 0;
+            }
+            break;
         case WM_PAINT:
             if (!UsesCustomDraw()) {
                 return HandlePaintMessage(hwnd, msg, wParam, lParam);
             }
             break;
         case WM_PRINTCLIENT:
+            if (Kind() == ExplorerSurfaceKind::Edit) {
+                HDC targetDc = reinterpret_cast<HDC>(wParam);
+                if (targetDc) {
+                    if (Coordinator().ShouldRenderSurface(Kind())) {
+                        RECT clip{};
+                        if (GetClipBox(targetDc, &clip) == ERROR || IsRectEmpty(&clip)) {
+                            clip = GetClientRectSafe(hwnd);
+                        }
+                        if (!IsRectEmpty(&clip)) {
+                            PaintInternal(targetDc, clip);
+                        }
+                    }
+                }
+                return 0;
+            }
             if (!UsesCustomDraw()) {
                 return HandlePrintClient(hwnd, wParam, lParam);
             }
