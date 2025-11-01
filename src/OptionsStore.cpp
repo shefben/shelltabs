@@ -12,6 +12,7 @@
 #include <cwchar>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -58,11 +59,11 @@ std::wstring FormatLoadError(std::wstring message, DWORD error) {
     return message;
 }
 
-int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fallback) {
+int ParseIntInRange(std::wstring_view token, int minimum, int maximum, int fallback) {
     if (token.empty()) {
         return fallback;
     }
-    int value = _wtoi(token.c_str());
+    int value = ParseInt(token);
     if (value < minimum) {
         return minimum;
     }
@@ -72,13 +73,14 @@ int ParseIntInRange(const std::wstring& token, int minimum, int maximum, int fal
     return value;
 }
 
-COLORREF ParseColorValue(const std::wstring& token, COLORREF fallback) {
+COLORREF ParseColorValue(std::wstring_view token, COLORREF fallback) {
     if (token.empty()) {
         return fallback;
     }
 
     unsigned int parsed = 0;
-    if (swscanf_s(token.c_str(), L"%x", &parsed) != 1) {
+    const std::wstring buffer(token);
+    if (swscanf_s(buffer.c_str(), L"%x", &parsed) != 1) {
         return fallback;
     }
 
@@ -112,12 +114,12 @@ constexpr std::array<GlowSurfaceMapping, 5> kGlowSurfaceMappings = {{{L"header",
                                                                      {L"rebar", &GlowSurfacePalette::rebar, false},
                                                                      {L"edits", &GlowSurfacePalette::edits, false}}};
 
-const GlowSurfaceMapping* FindGlowSurfaceMapping(const std::wstring& token, size_t* index) {
+const GlowSurfaceMapping* FindGlowSurfaceMapping(std::wstring_view token, size_t* index) {
     if (token.empty()) {
         return nullptr;
     }
     for (size_t i = 0; i < kGlowSurfaceMappings.size(); ++i) {
-        if (_wcsicmp(token.c_str(), kGlowSurfaceMappings[i].token) == 0) {
+        if (EqualsIgnoreCase(token, kGlowSurfaceMappings[i].token)) {
             if (index) {
                 *index = i;
             }
@@ -142,17 +144,17 @@ const GlowSurfaceOptions* GetGlowSurfaceOptions(const ShellTabsOptions* options,
     return &(options->glowPalette.*(mapping.member));
 }
 
-GlowSurfaceMode ParseGlowMode(const std::wstring& token, GlowSurfaceMode fallback) {
+GlowSurfaceMode ParseGlowMode(std::wstring_view token, GlowSurfaceMode fallback) {
     if (token.empty()) {
         return fallback;
     }
-    if (_wcsicmp(token.c_str(), L"accent") == 0) {
+    if (EqualsIgnoreCase(token, L"accent")) {
         return GlowSurfaceMode::kExplorerAccent;
     }
-    if (_wcsicmp(token.c_str(), L"solid") == 0) {
+    if (EqualsIgnoreCase(token, L"solid")) {
         return GlowSurfaceMode::kSolid;
     }
-    if (_wcsicmp(token.c_str(), L"gradient") == 0) {
+    if (EqualsIgnoreCase(token, L"gradient")) {
         return GlowSurfaceMode::kGradient;
     }
     return fallback;
@@ -316,15 +318,15 @@ bool OptionsStore::Load(std::wstring* errorContext) {
     std::array<bool, kGlowSurfaceMappings.size()> glowSurfaceSpecified{};
     glowSurfaceSpecified.fill(false);
     bool anyGlowSurfaceToken = false;
-    ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring>& tokens) {
+    ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring_view>& tokens) {
         if (tokens.empty()) {
             return true;
         }
 
-        const std::wstring& header = tokens[0];
+        const std::wstring_view header = tokens[0];
         if (header == kVersionToken) {
             if (tokens.size() >= 2) {
-                version = _wtoi(tokens[1].c_str());
+                version = ParseInt(tokens[1]);
                 if (version < 1) {
                     version = 1;
                 }

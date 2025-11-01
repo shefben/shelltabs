@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <mutex>
+#include <string_view>
 #include <unordered_map>
 #include <cwctype>
 #include <cwchar>
@@ -108,7 +109,7 @@ std::wstring BuildCheckpointPath(const std::wstring& storagePath) {
     return storagePath + kCheckpointSuffix;
 }
 
-uint64_t ComputeChecksum(const std::wstring& payload) {
+uint64_t ComputeChecksum(std::wstring_view payload) {
     static_assert(sizeof(wchar_t) == 2, "SessionStore assumes UTF-16 wchar_t");
     uint64_t hash = 1469598103934665603ull;  // FNV-1a offset basis
     constexpr uint64_t kPrime = 1099511628211ull;
@@ -159,25 +160,25 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
         return SessionFileStatus::kEmpty;
     }
 
-    std::wstring payload = content;
+    std::wstring_view contentView{content};
+    std::wstring_view payload = contentView;
     bool checksumPresent = false;
     bool checksumValid = true;
 
-    const size_t newline = content.find(L'\n');
+    const size_t newline = contentView.find(L'\n');
     if (newline != std::wstring::npos) {
-        std::wstring headerLine = Trim(content.substr(0, newline));
+        std::wstring_view headerLine = TrimView(contentView.substr(0, newline));
         if (!headerLine.empty()) {
             auto headerTokens = Split(headerLine, L'|');
             for (auto& token : headerTokens) {
-                token = Trim(token);
+                token = TrimView(token);
             }
             if (!headerTokens.empty() && headerTokens.front() == kChecksumToken) {
                 checksumPresent = true;
-                payload = content.substr(newline + 1);
+                payload = contentView.substr(newline + 1);
                 if (headerTokens.size() >= 2) {
-                    wchar_t* end = nullptr;
-                    const uint64_t expected = _wcstoui64(headerTokens[1].c_str(), &end, 10);
-                    if (end == headerTokens[1].c_str()) {
+                    uint64_t expected = 0;
+                    if (!TryParseUint64(headerTokens[1], &expected)) {
                         checksumValid = false;
                     } else {
                         const uint64_t actual = ComputeChecksum(payload);
@@ -189,11 +190,11 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
             }
         }
     } else {
-        std::wstring headerLine = Trim(content);
+        std::wstring_view headerLine = TrimView(contentView);
         if (!headerLine.empty() && headerLine.rfind(kChecksumToken, 0) == 0) {
             checksumPresent = true;
             checksumValid = false;
-            payload.clear();
+            payload = {};
         }
     }
 
@@ -213,17 +214,17 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
     SessionGroup* currentGroup = nullptr;
 
     const bool parsed = ParseConfigLines(payload, kCommentChar, L'|',
-                                         [&](const std::vector<std::wstring>& tokens) {
+                                         [&](const std::vector<std::wstring_view>& tokens) {
                                              if (tokens.empty()) {
                                                  return true;
                                              }
 
-                                             const std::wstring& header = tokens.front();
+                                             const std::wstring_view header = tokens.front();
                                              if (header == kVersionToken) {
                                                  if (tokens.size() < 2) {
                                                      return false;
                                                  }
-                                                 version = std::max(1, _wtoi(tokens[1].c_str()));
+                                                 version = std::max(1, ParseInt(tokens[1]));
                                                  if (version > 6) {
                                                      return false;
                                                  }
@@ -233,15 +234,15 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
 
                                              if (header == kSelectedToken) {
                                                  if (tokens.size() >= 3) {
-                                                     parsedData.selectedGroup = _wtoi(tokens[1].c_str());
-                                                     parsedData.selectedTab = _wtoi(tokens[2].c_str());
+                                                     parsedData.selectedGroup = ParseInt(tokens[1]);
+                                                     parsedData.selectedTab = ParseInt(tokens[2]);
                                                  }
                                                  return true;
                                              }
 
                                              if (header == kSequenceToken) {
                                                  if (tokens.size() >= 2) {
-                                                     parsedData.groupSequence = std::max(1, _wtoi(tokens[1].c_str()));
+                                                     parsedData.groupSequence = std::max(1, ParseInt(tokens[1]));
                                                  }
                                                  return true;
                                              }
@@ -256,13 +257,14 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                              if (header == kUndoToken) {
                                                  SessionClosedSet undo;
                                                  if (tokens.size() >= 5) {
-                                                     undo.groupIndex = _wtoi(tokens[1].c_str());
+                                                     undo.groupIndex = ParseInt(tokens[1]);
                                                      undo.groupRemoved = ParseBool(tokens[2]);
-                                                     undo.selectionIndex = _wtoi(tokens[3].c_str());
+                                                     undo.selectionIndex = ParseInt(tokens[3]);
                                                      undo.hasGroupInfo = ParseBool(tokens[4]);
                                                      size_t index = 5;
                                                      if (undo.hasGroupInfo && tokens.size() > index) {
-                                                         undo.groupInfo.name = tokens[index++];
+                                                         const std::wstring_view nameToken = tokens[index++];
+                                                         undo.groupInfo.name.assign(nameToken.begin(), nameToken.end());
                                                          if (tokens.size() > index) {
                                                              undo.groupInfo.collapsed = ParseBool(tokens[index++]);
                                                          }
@@ -273,15 +275,19 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                              undo.groupInfo.hasOutline = ParseBool(tokens[index++]);
                                                          }
                                                          if (tokens.size() > index) {
+                                                             const std::wstring colorToken(tokens[index++]);
                                                              undo.groupInfo.outlineColor =
-                                                                 ParseColor(tokens[index++], undo.groupInfo.outlineColor);
+                                                                 ParseColor(colorToken, undo.groupInfo.outlineColor);
                                                          }
                                                          if (tokens.size() > index) {
+                                                             const std::wstring outlineToken(tokens[index++]);
                                                              undo.groupInfo.outlineStyle =
-                                                                 ParseOutlineStyle(tokens[index++], undo.groupInfo.outlineStyle);
+                                                                 ParseOutlineStyle(outlineToken, undo.groupInfo.outlineStyle);
                                                          }
                                                          if (tokens.size() > index) {
-                                                             undo.groupInfo.savedGroupId = tokens[index++];
+                                                             const std::wstring_view groupIdToken = tokens[index++];
+                                                             undo.groupInfo.savedGroupId.assign(groupIdToken.begin(),
+                                                                                                groupIdToken.end());
                                                          }
                                                      }
                                                  }
@@ -296,14 +302,16 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                  SessionClosedTab entry;
                                                  size_t index = 1;
                                                  if (tokens.size() > index) {
-                                                     entry.index = _wtoi(tokens[index].c_str());
+                                                     entry.index = ParseInt(tokens[index]);
                                                      ++index;
                                                  }
                                                  if (tokens.size() > index) {
-                                                     entry.tab.name = tokens[index++];
+                                                     const std::wstring_view nameToken = tokens[index++];
+                                                     entry.tab.name.assign(nameToken.begin(), nameToken.end());
                                                  }
                                                  if (tokens.size() > index) {
-                                                     entry.tab.tooltip = tokens[index++];
+                                                     const std::wstring_view tooltipToken = tokens[index++];
+                                                     entry.tab.tooltip.assign(tooltipToken.begin(), tooltipToken.end());
                                                  }
                                                  if (tokens.size() > index) {
                                                      entry.tab.hidden = ParseBool(tokens[index]);
@@ -314,7 +322,8 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                      ++index;
                                                  }
                                                  if (tokens.size() > index) {
-                                                     entry.tab.path = tokens[index];
+                                                     const std::wstring_view pathToken = tokens[index];
+                                                     entry.tab.path.assign(pathToken.begin(), pathToken.end());
                                                  }
                                                  parsedData.lastClosed->tabs.emplace_back(std::move(entry));
                                                  return true;
@@ -349,11 +358,15 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                          ++index;
                                                      }
                                                      if (tokens.size() > index) {
-                                                         group.outlineColor = ParseColor(tokens[index], group.outlineColor);
+                                                         const std::wstring outlineColorToken(tokens[index]);
+                                                         group.outlineColor =
+                                                             ParseColor(outlineColorToken, group.outlineColor);
                                                          ++index;
                                                      }
                                                      if (version >= 4 && tokens.size() > index) {
-                                                         group.outlineStyle = ParseOutlineStyle(tokens[index], group.outlineStyle);
+                                                         const std::wstring outlineStyleToken(tokens[index]);
+                                                         group.outlineStyle =
+                                                             ParseOutlineStyle(outlineStyleToken, group.outlineStyle);
                                                          ++index;
                                                      }
                                                      if (tokens.size() > index) {
@@ -378,13 +391,15 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                                  size_t index = 5;
                                                  if (version >= 5) {
                                                      if (tokens.size() > index) {
-                                                         tab.lastActivatedTick =
-                                                             _wcstoui64(tokens[index].c_str(), nullptr, 10);
+                                                         uint64_t tick = 0;
+                                                         TryParseUint64(tokens[index], &tick);
+                                                         tab.lastActivatedTick = static_cast<ULONGLONG>(tick);
                                                          ++index;
                                                      }
                                                      if (tokens.size() > index) {
-                                                         tab.activationOrdinal =
-                                                             _wcstoui64(tokens[index].c_str(), nullptr, 10);
+                                                         uint64_t ordinal = 0;
+                                                         TryParseUint64(tokens[index], &ordinal);
+                                                         tab.activationOrdinal = ordinal;
                                                          ++index;
                                                      }
                                                      if (version >= 6 && tokens.size() > index) {

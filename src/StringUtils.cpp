@@ -2,25 +2,50 @@
 
 #include "OptionsStore.h"
 
+#include <algorithm>
 #include <cwchar>
+#include <cwctype>
+#include <limits>
 
 namespace shelltabs {
 
-std::wstring Trim(const std::wstring& value) {
-    const size_t begin = value.find_first_not_of(L" \t\r\n");
-    if (begin == std::wstring::npos) {
+namespace {
+
+constexpr std::wstring_view kWhitespace = L" \t\r\n";
+
+}  // namespace
+
+bool EqualsIgnoreCase(std::wstring_view lhs, std::wstring_view rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        if (std::towlower(static_cast<wint_t>(lhs[i])) != std::towlower(static_cast<wint_t>(rhs[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::wstring_view TrimView(std::wstring_view value) {
+    const size_t begin = value.find_first_not_of(kWhitespace);
+    if (begin == std::wstring_view::npos) {
         return {};
     }
-    const size_t end = value.find_last_not_of(L" \t\r\n");
+    const size_t end = value.find_last_not_of(kWhitespace);
     return value.substr(begin, end - begin + 1);
 }
 
-std::vector<std::wstring> Split(const std::wstring& value, wchar_t delimiter) {
-    std::vector<std::wstring> parts;
+std::wstring Trim(std::wstring_view value) {
+    return std::wstring(TrimView(value));
+}
+
+std::vector<std::wstring_view> Split(std::wstring_view value, wchar_t delimiter) {
+    std::vector<std::wstring_view> parts;
     size_t start = 0;
     while (start <= value.size()) {
         const size_t pos = value.find(delimiter, start);
-        if (pos == std::wstring::npos) {
+        if (pos == std::wstring_view::npos) {
             parts.emplace_back(value.substr(start));
             break;
         }
@@ -30,7 +55,7 @@ std::vector<std::wstring> Split(const std::wstring& value, wchar_t delimiter) {
     return parts;
 }
 
-bool ParseBool(const std::wstring& token) {
+bool ParseBool(std::wstring_view token) {
     if (token.empty()) {
         return false;
     }
@@ -42,34 +67,98 @@ bool ParseBool(const std::wstring& token) {
         return false;
     }
 
-    if (_wcsicmp(token.c_str(), L"true") == 0 || _wcsicmp(token.c_str(), L"yes") == 0 ||
-        _wcsicmp(token.c_str(), L"on") == 0) {
+    if (EqualsIgnoreCase(token, L"true") || EqualsIgnoreCase(token, L"yes") ||
+        EqualsIgnoreCase(token, L"on")) {
         return true;
     }
 
-    if (_wcsicmp(token.c_str(), L"false") == 0 || _wcsicmp(token.c_str(), L"no") == 0 ||
-        _wcsicmp(token.c_str(), L"off") == 0) {
+    if (EqualsIgnoreCase(token, L"false") || EqualsIgnoreCase(token, L"no") ||
+        EqualsIgnoreCase(token, L"off")) {
         return false;
     }
 
     return false;
 }
 
-TabBandDockMode ParseDockMode(const std::wstring& token) {
+int ParseInt(std::wstring_view token) {
+    if (token.empty()) {
+        return 0;
+    }
+
+    bool negative = false;
+    size_t index = 0;
+    if (token[index] == L'+') {
+        ++index;
+    } else if (token[index] == L'-') {
+        negative = true;
+        ++index;
+    }
+
+    long long value = 0;
+    constexpr long long kIntMax = static_cast<long long>(std::numeric_limits<int>::max());
+    constexpr long long kIntMin = static_cast<long long>(std::numeric_limits<int>::min());
+    for (; index < token.size(); ++index) {
+        const wchar_t ch = token[index];
+        if (ch < L'0' || ch > L'9') {
+            break;
+        }
+        value = value * 10 + (ch - L'0');
+        if (!negative && value > kIntMax) {
+            return std::numeric_limits<int>::max();
+        }
+        if (negative && -value < kIntMin) {
+            return std::numeric_limits<int>::min();
+        }
+    }
+
+    if (negative) {
+        value = -value;
+    }
+    if (value > kIntMax) {
+        return std::numeric_limits<int>::max();
+    }
+    if (value < kIntMin) {
+        return std::numeric_limits<int>::min();
+    }
+    return static_cast<int>(value);
+}
+
+bool TryParseUint64(std::wstring_view token, uint64_t* valueOut) {
+    if (!valueOut || token.empty()) {
+        return false;
+    }
+
+    uint64_t value = 0;
+    for (wchar_t ch : token) {
+        if (ch < L'0' || ch > L'9') {
+            return false;
+        }
+        const uint64_t digit = static_cast<uint64_t>(ch - L'0');
+        if (value > (std::numeric_limits<uint64_t>::max() - digit) / 10) {
+            return false;
+        }
+        value = value * 10 + digit;
+    }
+
+    *valueOut = value;
+    return true;
+}
+
+TabBandDockMode ParseDockMode(std::wstring_view token) {
     if (token.empty()) {
         return TabBandDockMode::kAutomatic;
     }
 
-    if (_wcsicmp(token.c_str(), L"top") == 0) {
+    if (EqualsIgnoreCase(token, L"top")) {
         return TabBandDockMode::kTop;
     }
-    if (_wcsicmp(token.c_str(), L"bottom") == 0) {
+    if (EqualsIgnoreCase(token, L"bottom")) {
         return TabBandDockMode::kBottom;
     }
-    if (_wcsicmp(token.c_str(), L"left") == 0) {
+    if (EqualsIgnoreCase(token, L"left")) {
         return TabBandDockMode::kLeft;
     }
-    if (_wcsicmp(token.c_str(), L"right") == 0) {
+    if (EqualsIgnoreCase(token, L"right")) {
         return TabBandDockMode::kRight;
     }
 
@@ -91,18 +180,18 @@ std::wstring DockModeToString(TabBandDockMode mode) {
     }
 }
 
-NewTabTemplate ParseNewTabTemplate(const std::wstring& token) {
+NewTabTemplate ParseNewTabTemplate(std::wstring_view token) {
     if (token.empty()) {
         return NewTabTemplate::kDuplicateCurrent;
     }
 
-    if (_wcsicmp(token.c_str(), L"this_pc") == 0 || _wcsicmp(token.c_str(), L"thispc") == 0) {
+    if (EqualsIgnoreCase(token, L"this_pc") || EqualsIgnoreCase(token, L"thispc")) {
         return NewTabTemplate::kThisPc;
     }
-    if (_wcsicmp(token.c_str(), L"custom_path") == 0 || _wcsicmp(token.c_str(), L"custom") == 0) {
+    if (EqualsIgnoreCase(token, L"custom_path") || EqualsIgnoreCase(token, L"custom")) {
         return NewTabTemplate::kCustomPath;
     }
-    if (_wcsicmp(token.c_str(), L"saved_group") == 0 || _wcsicmp(token.c_str(), L"group") == 0) {
+    if (EqualsIgnoreCase(token, L"saved_group") || EqualsIgnoreCase(token, L"group")) {
         return NewTabTemplate::kSavedGroup;
     }
 

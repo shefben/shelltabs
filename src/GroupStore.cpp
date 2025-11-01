@@ -107,15 +107,15 @@ bool GroupStore::Load(std::wstring* errorContext) {
     SavedGroup* currentGroup = nullptr;
     int version = 1;
 
-    ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring>& tokens) {
+    ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring_view>& tokens) {
         if (tokens.empty()) {
             return true;
         }
 
-        const std::wstring& header = tokens[0];
+        const std::wstring_view header = tokens[0];
         if (header == kVersionToken) {
             if (tokens.size() >= 2) {
-                version = _wtoi(tokens[1].c_str());
+                version = ParseInt(tokens[1]);
                 if (version < 1) {
                     version = 1;
                 }
@@ -130,9 +130,12 @@ bool GroupStore::Load(std::wstring* errorContext) {
             }
             SavedGroup group;
             group.name = tokens[1];
-            group.color = ParseColor(tokens[2], RGB(0, 120, 215));
+            const std::wstring colorToken(tokens[2]);
+            group.color = ParseColor(colorToken, RGB(0, 120, 215));
             if (version >= 2 && tokens.size() >= 4) {
-                group.outlineStyle = ParseOutlineStyle(tokens[3], TabGroupOutlineStyle::kSolid);
+                const std::wstring outlineToken(tokens[3]);
+                group.outlineStyle =
+                    ParseOutlineStyle(outlineToken, TabGroupOutlineStyle::kSolid);
             }
             m_groups.emplace_back(std::move(group));
             currentGroup = &m_groups.back();
