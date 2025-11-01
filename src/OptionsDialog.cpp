@@ -5610,7 +5610,8 @@ int CALLBACK OptionsSheetCallback(HWND hwnd, UINT message, LPARAM) {
 
 OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage,
                                      const wchar_t* focusSavedGroupId, bool editFocusedGroup) {
-    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES};
+    INITCOMMONCONTROLSEX icc{
+        sizeof(icc), ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES};
     InitCommonControlsEx(&icc);
 
     OptionsDialogResult result;
