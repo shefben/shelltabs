@@ -3900,7 +3900,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
 
     const bool isListView = (hwnd == m_listView);
     const bool isDirectUiHost = (hwnd == m_directUiView);
-    const bool isDirectUiClass = MatchesClass(hwnd, L"DirectUIHWND");
     const bool isListViewHost = (m_listViewHostSubclassed.find(hwnd) != m_listViewHostSubclassed.end());
     const bool isShellViewWindow = (hwnd == m_shellViewWindow);
     const bool isGlowSurface = (m_glowSurfaces.find(hwnd) != m_glowSurfaces.end());

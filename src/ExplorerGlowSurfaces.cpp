@@ -572,8 +572,10 @@ private:
         const int lineThickness = ScaleByDpi(1, DpiY());
         const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, DpiY()));
 
-        const bool verticalOrientation =
-            (GetWindowLongPtrW(hwnd, GWL_STYLE) & RBS_VERTICAL) == RBS_VERTICAL;
+        const LONG_PTR rebarStyle = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        const bool verticalOrientation = ((rebarStyle & CCS_VERT) == CCS_VERT) ||
+                                          ((clientRect.bottom - clientRect.top) >
+                                           (clientRect.right - clientRect.left));
         const int rowTolerance = ScaleByDpi(2, verticalOrientation ? DpiX() : DpiY());
 
         const UINT bandCount = static_cast<UINT>(SendMessageW(hwnd, RB_GETBANDCOUNT, 0, 0));
@@ -752,7 +754,8 @@ private:
 
         const LONG_PTR toolbarStyle = GetWindowLongPtrW(hwnd, GWL_STYLE);
         const bool verticalOrientation = ((toolbarStyle & CCS_VERT) == CCS_VERT) ||
-                                         ((toolbarStyle & TBSTYLE_VERTICAL) == TBSTYLE_VERTICAL);
+                                          ((clientRect.bottom - clientRect.top) >
+                                           (clientRect.right - clientRect.left));
 
         const int buttonCount = static_cast<int>(SendMessageW(hwnd, TB_BUTTONCOUNT, 0, 0));
         for (int index = 0; index < buttonCount; ++index) {
@@ -760,7 +763,13 @@ private:
             if (!SendMessageW(hwnd, TB_GETBUTTON, index, reinterpret_cast<LPARAM>(&button))) {
                 continue;
             }
-            if ((button.fsState & (TBSTATE_HIDDEN | TBSTATE_INVISIBLE)) != 0) {
+            const bool isHidden = (button.fsState & TBSTATE_HIDDEN) != 0;
+#if defined(TBSTATE_INVISIBLE)
+            const bool isInvisible = (button.fsState & TBSTATE_INVISIBLE) != 0;
+#else
+            const bool isInvisible = false;
+#endif
+            if (isHidden || isInvisible) {
                 continue;
             }
             if ((button.fsStyle & TBSTYLE_SEP) == 0) {
@@ -1035,8 +1044,36 @@ protected:
             return;
         }
 
-        RECT trackRect = info.rcTrack;
-        RECT thumbRect = info.rcThumb;
+        RECT scrollRect = info.rcScrollBar;
+        if (scrollRect.right <= scrollRect.left || scrollRect.bottom <= scrollRect.top) {
+            return;
+        }
+
+        RECT trackRect = scrollRect;
+        RECT thumbRect = scrollRect;
+        const bool infoVertical =
+            (scrollRect.bottom - scrollRect.top) >= (scrollRect.right - scrollRect.left);
+        if (infoVertical) {
+            const LONG adjustedTop = std::min(trackRect.bottom, trackRect.top + info.dxyLineButton);
+            const LONG adjustedBottom = std::max(adjustedTop, trackRect.bottom - info.dxyLineButton);
+            trackRect.top = adjustedTop;
+            trackRect.bottom = adjustedBottom;
+
+            const LONG thumbTop = std::clamp(info.xyThumbTop, trackRect.top, trackRect.bottom);
+            const LONG thumbBottom = std::clamp(info.xyThumbBottom, thumbTop, trackRect.bottom);
+            thumbRect.top = thumbTop;
+            thumbRect.bottom = thumbBottom;
+        } else {
+            const LONG adjustedLeft = std::min(trackRect.right, trackRect.left + info.dxyLineButton);
+            const LONG adjustedRight = std::max(adjustedLeft, trackRect.right - info.dxyLineButton);
+            trackRect.left = adjustedLeft;
+            trackRect.right = adjustedRight;
+
+            const LONG thumbLeft = std::clamp(info.xyThumbTop, trackRect.left, trackRect.right);
+            const LONG thumbRight = std::clamp(info.xyThumbBottom, thumbLeft, trackRect.right);
+            thumbRect.left = thumbLeft;
+            thumbRect.right = thumbRight;
+        }
         MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&trackRect), 2);
         MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&thumbRect), 2);
 
@@ -1049,7 +1086,7 @@ protected:
             effectiveClip = clientRect;
         }
 
-        const bool vertical = (trackRect.bottom - trackRect.top) >= (trackRect.right - trackRect.left);
+        const bool vertical = infoVertical;
         const int crossExtent = vertical ? (trackRect.right - trackRect.left) : (trackRect.bottom - trackRect.top);
         const UINT crossDpi = vertical ? DpiX() : DpiY();
         const UINT alongDpi = vertical ? DpiY() : DpiX();
