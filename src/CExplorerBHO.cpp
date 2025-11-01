@@ -537,14 +537,6 @@ COLORREF ChooseAccentTextColor(COLORREF accent) {
     return ComputeColorLuminance(accent) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
 }
 
-bool IsSystemHighContrastActive() {
-    HIGHCONTRASTW info{sizeof(info)};
-    if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(info), &info, FALSE)) {
-        return false;
-    }
-    return (info.dwFlags & HCF_HIGHCONTRASTON) != 0;
-}
-
 constexpr wchar_t kOpenInNewTabLabel[] = L"Open in new tab";
 constexpr int kProgressGradientSampleWidth = 256;
 

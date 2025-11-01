@@ -1,5 +1,7 @@
 #include "GlowRenderer.h"
 
+#include "ExplorerThemeUtils.h"
+
 #include <algorithm>
 #include <array>
 #include <dwmapi.h>
@@ -54,6 +56,7 @@ ExplorerGlowRenderer::ExplorerGlowRenderer() = default;
 void ExplorerGlowRenderer::Configure(const ShellTabsOptions& options) {
     m_glowEnabled = options.enableNeonGlow;
     m_palette = options.glowPalette;
+    RefreshAccessibilityState();
     UpdateAccentColor();
 }
 
@@ -86,16 +89,24 @@ void ExplorerGlowRenderer::InvalidateRegisteredSurfaces() const {
 }
 
 void ExplorerGlowRenderer::HandleThemeChanged(HWND hwnd) {
+    const bool accessibilityChanged = RefreshAccessibilityState();
     UpdateAccentColor();
     if (hwnd && IsWindow(hwnd)) {
         InvalidateRect(hwnd, nullptr, FALSE);
     }
+    if (accessibilityChanged) {
+        InvalidateRegisteredSurfaces();
+    }
 }
 
 void ExplorerGlowRenderer::HandleSettingChanged(HWND hwnd) {
+    const bool accessibilityChanged = RefreshAccessibilityState();
     UpdateAccentColor();
     if (hwnd && IsWindow(hwnd)) {
         InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    if (accessibilityChanged) {
+        InvalidateRegisteredSurfaces();
     }
 }
 
@@ -127,7 +138,7 @@ void ExplorerGlowRenderer::EnsureSurfaceState(HWND hwnd, ExplorerSurfaceKind kin
 
 ExplorerGlowRenderer::GlowColorSet ExplorerGlowRenderer::ResolveColors(ExplorerSurfaceKind kind) const {
     GlowColorSet colors{};
-    if (!m_glowEnabled) {
+    if (!ShouldRender()) {
         return colors;
     }
 
@@ -192,9 +203,22 @@ void ExplorerGlowRenderer::UpdateAccentColor() {
     }
 }
 
+bool ExplorerGlowRenderer::RefreshAccessibilityState() {
+    const bool isHighContrast = IsSystemHighContrastActive();
+    if (m_highContrastActive != isHighContrast) {
+        m_highContrastActive = isHighContrast;
+        return true;
+    }
+    return false;
+}
+
 void ExplorerGlowRenderer::PaintSurface(HWND hwnd, ExplorerSurfaceKind kind, HDC targetDc,
                                         const RECT& clipRect) {
     if (!hwnd || !targetDc) {
+        return;
+    }
+
+    if (!ShouldRender()) {
         return;
     }
 

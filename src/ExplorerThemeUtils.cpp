@@ -44,5 +44,13 @@ std::optional<COLORREF> SampleAverageColor(HDC dc, const RECT& rect) {
     return RGB(totalRed / count, totalGreen / count, totalBlue / count);
 }
 
+bool IsSystemHighContrastActive() {
+    HIGHCONTRASTW info{sizeof(info)};
+    if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(info), &info, FALSE)) {
+        return false;
+    }
+    return (info.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
 }  // namespace shelltabs
 
