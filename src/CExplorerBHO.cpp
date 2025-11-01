@@ -44,6 +44,7 @@
 #include "Module.h"
 #include "Notifications.h"
 #include "OptionsStore.h"
+#include "DirectUiHooks.h"
 #include "ShellTabsTreeView.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"
@@ -2471,6 +2472,10 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
     LogMessage(LogLevel::Info, L"Registered glow surface %ls (hwnd=%p)", DescribeSurfaceKind(kind), hwnd);
     m_glowSurfaces.emplace(hwnd, std::move(surface));
 
+    if (kind == ExplorerSurfaceKind::DirectUi) {
+        DirectUiHooks::Instance().RegisterHost(hwnd);
+    }
+
     if (kind == ExplorerSurfaceKind::Scrollbar) {
         if (m_glowCoordinator.ShouldRenderSurface(kind)) {
             EnsureScrollbarTransparency(hwnd);
@@ -2504,6 +2509,10 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
         m_scrollbarGlowSubclassed.erase(target);
         RestoreScrollbarTransparency(target);
         InvalidateRect(target, nullptr, FALSE);
+    }
+
+    if (it->second && it->second->Kind() == ExplorerSurfaceKind::DirectUi) {
+        DirectUiHooks::Instance().UnregisterHost(hwnd);
     }
 
     if (it->second) {
