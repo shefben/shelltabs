@@ -66,20 +66,6 @@ struct PreviewBitmapResult {
     HBITMAP bitmap = nullptr;
 };
 
-struct GlowSurfaceControlMapping {
-    int controlId = 0;
-    GlowSurfaceOptions GlowSurfacePalette::*member = nullptr;
-};
-
-constexpr std::array<GlowSurfaceControlMapping, 6> kGlowSurfaceControlMappings = {{
-    {IDC_GLOW_SURFACE_LISTVIEW, &GlowSurfacePalette::listView},
-    {IDC_GLOW_SURFACE_HEADER, &GlowSurfacePalette::header},
-    {IDC_GLOW_SURFACE_REBAR, &GlowSurfacePalette::rebar},
-    {IDC_GLOW_SURFACE_TOOLBAR, &GlowSurfacePalette::toolbar},
-    {IDC_GLOW_SURFACE_EDIT, &GlowSurfacePalette::edits},
-    {IDC_GLOW_SURFACE_DIRECTUI, &GlowSurfacePalette::directUi},
-}};
-
 enum ControlIds : int {
     IDC_MAIN_REOPEN = 5001,
     IDC_MAIN_PERSIST = 5002,
@@ -179,6 +165,20 @@ enum ControlIds : int {
     IDC_EDITOR_STYLE_LABEL = 5208,
     IDC_EDITOR_STYLE_COMBO = 5209,
 };
+
+struct GlowSurfaceControlMapping {
+    int controlId = 0;
+    GlowSurfaceOptions GlowSurfacePalette::*member = nullptr;
+};
+
+constexpr std::array<GlowSurfaceControlMapping, 6> kGlowSurfaceControlMappings = {{
+    {IDC_GLOW_SURFACE_LISTVIEW, &GlowSurfacePalette::listView},
+    {IDC_GLOW_SURFACE_HEADER, &GlowSurfacePalette::header},
+    {IDC_GLOW_SURFACE_REBAR, &GlowSurfacePalette::rebar},
+    {IDC_GLOW_SURFACE_TOOLBAR, &GlowSurfacePalette::toolbar},
+    {IDC_GLOW_SURFACE_EDIT, &GlowSurfacePalette::edits},
+    {IDC_GLOW_SURFACE_DIRECTUI, &GlowSurfacePalette::directUi},
+}};
 
 struct ChildPlacement {
     HWND hwnd = nullptr;

@@ -572,7 +572,8 @@ bool OptionsStore::Load(std::wstring* errorContext) {
 
         if (header == kFolderBackgroundUniversalToken) {
             if (tokens.size() >= 2) {
-                const std::wstring cachePath = NormalizeCachePath(tokens[1], storageDirectory);
+                const std::wstring cachePath =
+                    NormalizeCachePath(std::wstring(tokens[1]), storageDirectory);
                 if (!cachePath.empty()) {
                     m_options.universalFolderBackgroundImage.cachedImagePath = cachePath;
                     if (tokens.size() >= 3) {
@@ -586,9 +587,10 @@ bool OptionsStore::Load(std::wstring* errorContext) {
         if (header == kFolderBackgroundEntryToken) {
             if (tokens.size() >= 3) {
                 FolderBackgroundEntry entry;
-                entry.folderPath = NormalizeFileSystemPath(tokens[1]);
+                entry.folderPath = NormalizeFileSystemPath(std::wstring(tokens[1]));
                 if (!entry.folderPath.empty()) {
-                    entry.image.cachedImagePath = NormalizeCachePath(tokens[2], storageDirectory);
+                    entry.image.cachedImagePath =
+                        NormalizeCachePath(std::wstring(tokens[2]), storageDirectory);
                     if (!entry.image.cachedImagePath.empty()) {
                         if (tokens.size() >= 4) {
                             entry.image.displayName = tokens[3];
