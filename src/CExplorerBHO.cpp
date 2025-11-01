@@ -814,7 +814,13 @@ std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
-    m_glowCoordinator.Configure(OptionsStore::Instance().Get());
+
+    auto& store = OptionsStore::Instance();
+    store.Load();
+    const ShellTabsOptions options = store.Get();
+    ModuleInitialize();
+    ModuleOnOptionsChanged(options);
+    m_glowCoordinator.Configure(options);
 
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
@@ -4276,8 +4282,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             bool paletteUpdated = false;
             if (msg == WM_THEMECHANGED) {
                 paletteUpdated = m_glowCoordinator.HandleThemeChanged();
+                ModuleOnThemeChanged();
             } else {
                 paletteUpdated = m_glowCoordinator.HandleSettingChanged();
+                ModuleOnSettingChanged();
             }
 
             if (paletteUpdated) {
@@ -6282,6 +6290,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     const COLORREF previousBreadcrumbGradientStart = m_breadcrumbGradientStartColor;
     const COLORREF previousBreadcrumbGradientEnd = m_breadcrumbGradientEndColor;
     m_glowCoordinator.Configure(options);
+    ModuleOnOptionsChanged(options);
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
     m_breadcrumbGradientTransparency = std::clamp<int>(options.breadcrumbGradientTransparency, 0, 100);

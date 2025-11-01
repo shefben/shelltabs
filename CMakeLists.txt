@@ -49,6 +49,7 @@ add_library(ShellTabs SHARED
     src/ShellTabsTreeView.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
+    src/ThemeHooks.cpp
     src/resource.rc
 )
 
@@ -99,6 +100,7 @@ target_link_libraries(ShellTabs PRIVATE
     uiautomationcore
     runtimeobject
     wtsapi32
+    psapi
 )
 
 set_target_properties(ShellTabs PROPERTIES

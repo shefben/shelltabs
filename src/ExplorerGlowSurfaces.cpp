@@ -4,6 +4,7 @@
 
 #include "ExplorerThemeUtils.h"
 #include "ShellTabsListView.h"
+#include "ThemeHooks.h"
 
 #include <algorithm>
 #include <array>
@@ -2114,6 +2115,9 @@ LRESULT ExplorerGlowSurface::HandlePrintClient(HWND hwnd, WPARAM wParam, LPARAM 
 }
 
 void ExplorerGlowSurface::PaintInternal(HDC targetDc, const RECT& clipRect) {
+    if (ThemeHooksOverrideSurface(Kind())) {
+        return;
+    }
     GlowColorSet colors = Coordinator().ResolveColors(Kind());
     if (!colors.valid) {
         return;

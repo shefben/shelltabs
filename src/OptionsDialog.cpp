@@ -1535,6 +1535,7 @@ void ApplyCustomizationPreview(HWND pageWindow, OptionsDialogData* data) {
 
     UpdateGlowPaletteFromLegacySettings(data->workingOptions);
     OptionsStore::Instance().Set(data->workingOptions);
+    ModuleOnOptionsChanged(data->workingOptions);
     data->previewOptionsBroadcasted = true;
     ForceExplorerUIRefresh(GetParent(pageWindow));
 }
@@ -5763,6 +5764,7 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
             }
         }
         store.Set(data.workingOptions);
+        ModuleOnOptionsChanged(data.workingOptions);
         store.Save();
         if (result.optionsChanged) {
             ForceExplorerUIRefresh(parent);
@@ -5830,6 +5832,7 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
         result.optionsChanged = false;
         if (data.previewOptionsBroadcasted) {
             store.Set(data.originalOptions);
+            ModuleOnOptionsChanged(data.originalOptions);
             ForceExplorerUIRefresh(parent);
         }
         for (const auto& path : data.createdCachedImagePaths) {
