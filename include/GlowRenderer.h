@@ -64,6 +64,8 @@ private:
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
     const GlowSurfaceOptions* ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept;
     void UpdateAccentColor();
+    void InvalidateSurface(HWND hwnd, const SurfaceState& state) const;
+    bool RefreshAccessibilityState();
 
     void PaintListView(HWND hwnd, const SurfaceState& state, HDC targetDc, const RECT& clipRect,
                        const GlowColorSet& colors);
@@ -86,6 +88,7 @@ private:
     std::unordered_map<HWND, SurfaceState, HandleHasher> m_surfaces;
     GlowSurfacePalette m_palette{};
     bool m_glowEnabled = false;
+    bool m_highContrastActive = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
 };
 
