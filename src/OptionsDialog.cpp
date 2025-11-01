@@ -38,6 +38,7 @@
 #include "Logging.h"
 #include "Module.h"
 #include "OptionsStore.h"
+#include "resource.h"
 #include "StringUtils.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"

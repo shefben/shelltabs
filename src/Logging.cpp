@@ -34,6 +34,8 @@ constexpr wchar_t kLogDirectory[] = L"ShellTabs\\Logs";
 
 std::wstring_view LevelToString(LogLevel level) {
     switch (level) {
+        case LogLevel::Verbose:
+            return L"VERB";
         case LogLevel::Info:
             return L"INFO";
         case LogLevel::Warning:

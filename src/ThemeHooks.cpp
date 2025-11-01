@@ -118,13 +118,19 @@ void PaintTrack(Gdiplus::Graphics& graphics, const GlowColorSet& colors, const R
 
     RECT lineRect = rect;
     if (vertical) {
-        const int lineThickness = std::clamp(ScaleByDpi(2, dpiX), 1, std::max(rect.right - rect.left, 1));
-        const int center = rect.left + ((rect.right - rect.left) - lineThickness) / 2;
+        const LONG width = rect.right - rect.left;
+        const LONG available = std::max<LONG>(width, 1);
+        const LONG lineThickness =
+            std::clamp<LONG>(static_cast<LONG>(ScaleByDpi(2, dpiX)), 1, available);
+        const LONG center = rect.left + (width - lineThickness) / 2;
         lineRect.left = center;
         lineRect.right = center + lineThickness;
     } else {
-        const int lineThickness = std::clamp(ScaleByDpi(2, dpiY), 1, std::max(rect.bottom - rect.top, 1));
-        const int center = rect.top + ((rect.bottom - rect.top) - lineThickness) / 2;
+        const LONG height = rect.bottom - rect.top;
+        const LONG available = std::max<LONG>(height, 1);
+        const LONG lineThickness =
+            std::clamp<LONG>(static_cast<LONG>(ScaleByDpi(2, dpiY)), 1, available);
+        const LONG center = rect.top + (height - lineThickness) / 2;
         lineRect.top = center;
         lineRect.bottom = center + lineThickness;
     }
