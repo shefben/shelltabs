@@ -726,10 +726,19 @@ Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
                           blendChannel(color.GetG(), blendGreen), blendChannel(color.GetB(), blendBlue));
 }
 
+double SrgbChannelToLinear(BYTE channel) {
+    const double srgb = static_cast<double>(channel) / 255.0;
+    if (srgb <= 0.04045) {
+        return srgb / 12.92;
+    }
+
+    return std::pow((srgb + 0.055) / 1.055, 2.4);
+}
+
 double ComputeColorLuminance(COLORREF color) {
-    const double r = static_cast<double>(GetRValue(color)) / 255.0;
-    const double g = static_cast<double>(GetGValue(color)) / 255.0;
-    const double b = static_cast<double>(GetBValue(color)) / 255.0;
+    const double r = SrgbChannelToLinear(GetRValue(color));
+    const double g = SrgbChannelToLinear(GetGValue(color));
+    const double b = SrgbChannelToLinear(GetBValue(color));
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
@@ -743,10 +752,13 @@ COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
     const double topLuminance = ComputeColorLuminance(topColor);
     const double bottomLuminance = ComputeColorLuminance(bottomColor);
 
-    const double contrastBlackTop = ComputeContrastRatio(topLuminance, 0.0);
-    const double contrastBlackBottom = ComputeContrastRatio(bottomLuminance, 0.0);
-    const double contrastWhiteTop = ComputeContrastRatio(topLuminance, 1.0);
-    const double contrastWhiteBottom = ComputeContrastRatio(bottomLuminance, 1.0);
+    const double blackLuminance = ComputeColorLuminance(RGB(0, 0, 0));
+    const double whiteLuminance = ComputeColorLuminance(RGB(255, 255, 255));
+
+    const double contrastBlackTop = ComputeContrastRatio(topLuminance, blackLuminance);
+    const double contrastBlackBottom = ComputeContrastRatio(bottomLuminance, blackLuminance);
+    const double contrastWhiteTop = ComputeContrastRatio(topLuminance, whiteLuminance);
+    const double contrastWhiteBottom = ComputeContrastRatio(bottomLuminance, whiteLuminance);
 
     const double minContrastBlack = std::min(contrastBlackTop, contrastBlackBottom);
     const double minContrastWhite = std::min(contrastWhiteTop, contrastWhiteBottom);
