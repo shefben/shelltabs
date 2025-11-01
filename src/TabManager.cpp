@@ -94,8 +94,19 @@ std::wstring BuildLookupKey(PCIDLIST_ABSOLUTE pidl, const std::wstring& storedPa
 }
 
 std::wstring BuildLookupKey(const TabInfo& tab) {
+    if (!tab.normalizedLookupKey.empty()) {
+        return tab.normalizedLookupKey;
+    }
     return BuildLookupKey(tab.pidl.get(), tab.path);
 }
+
+}  // namespace
+
+void TabInfo::RefreshNormalizedLookupKey() {
+    normalizedLookupKey = BuildLookupKey(pidl.get(), path);
+}
+
+namespace {
 
 bool LocationLess(const TabLocation& lhs, const TabLocation& rhs) noexcept {
     if (lhs.groupIndex != rhs.groupIndex) {
@@ -383,6 +394,7 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
         canonicalPath = GetParsingName(info.pidl.get());
     }
     info.path = std::move(canonicalPath);
+    info.RefreshNormalizedLookupKey();
 
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
     const int desiredIndex = info.pinned ? CountLeadingPinned(group)
@@ -530,6 +542,8 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
 
     const TabLocation previousSelection = SelectedLocation();
 
+    tab.RefreshNormalizedLookupKey();
+
     if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = std::clamp(groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
     }
@@ -600,6 +614,11 @@ int TabManager::InsertGroup(TabGroup group, int insertIndex) {
 
     const auto position = m_groups.begin() + insertIndex;
     m_groups.insert(position, std::move(group));
+    for (auto& tab : m_groups[static_cast<size_t>(insertIndex)].tabs) {
+        if (tab.normalizedLookupKey.empty()) {
+            tab.RefreshNormalizedLookupKey();
+        }
+    }
     RefreshGroupAggregates(m_groups[static_cast<size_t>(insertIndex)]);
 
     if (m_selectedGroup >= insertIndex) {
@@ -965,10 +984,13 @@ TabLocation TabManager::ScanForPath(const std::wstring& path) const {
 void TabManager::RebuildIndices() {
     m_locationIndex.clear();
     for (size_t g = 0; g < m_groups.size(); ++g) {
-        const auto& group = m_groups[g];
+        auto& group = m_groups[g];
         for (size_t t = 0; t < group.tabs.size(); ++t) {
-            const auto& tab = group.tabs[t];
-            const std::wstring key = BuildLookupKey(tab);
+            auto& tab = group.tabs[t];
+            if (tab.normalizedLookupKey.empty()) {
+                tab.RefreshNormalizedLookupKey();
+            }
+            const std::wstring& key = tab.normalizedLookupKey;
             if (key.empty()) {
                 continue;
             }
@@ -1015,7 +1037,7 @@ void TabManager::IndexInsertTab(TabLocation location) {
     if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
         return;
     }
-    const auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
     if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
         return;
     }
@@ -1317,6 +1339,9 @@ void TabManager::RefreshGroupAggregates(TabGroup& group) noexcept {
 }
 
 void TabManager::NormalizePinnedOrder(TabGroup& group) {
+    for (auto& tab : group.tabs) {
+        tab.RefreshNormalizedLookupKey();
+    }
     std::stable_partition(group.tabs.begin(), group.tabs.end(), [](const TabInfo& tab) { return tab.pinned; });
     RefreshGroupAggregates(group);
 }

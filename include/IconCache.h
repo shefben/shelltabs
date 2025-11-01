@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -20,6 +21,7 @@ std::wstring BuildIconCacheFamilyKey(PCIDLIST_ABSOLUTE pidl, const std::wstring&
 class IconCache {
 private:
     struct Entry;
+    using FamilyIndex = std::multimap<std::wstring, Entry*>;
 
 public:
     class Reference {
@@ -56,6 +58,11 @@ public:
     void InvalidatePidl(PCIDLIST_ABSOLUTE pidl);
     void InvalidatePath(const std::wstring& path);
     void LogStatsNow();
+#if defined(SHELLTABS_BUILD_TESTS)
+    void DebugSetCapacity(size_t capacity);
+    size_t DebugGetLastFamilyInvalidationCount();
+    void DebugResetLastFamilyInvalidationCount();
+#endif
 
 private:
     IconCache() = default;
@@ -67,6 +74,7 @@ private:
         SIZE metrics{0, 0};
         size_t refCount = 0;
         std::list<std::wstring>::iterator lruIt;
+        FamilyIndex::iterator familyIt{};
         bool stale = false;
         bool hasMetrics = false;
     };
@@ -87,6 +95,7 @@ private:
     void TrimLocked(std::vector<HICON>* destroyList);
 
     std::unordered_map<std::wstring, std::unique_ptr<Entry>> m_entries;
+    FamilyIndex m_familyIndex;
     std::list<std::wstring> m_lru;
     std::mutex m_mutex;
     size_t m_capacity = 128;
@@ -95,6 +104,9 @@ private:
     uint64_t m_evictions = 0;
     uint64_t m_requestsSinceLog = 0;
     uint64_t m_nextToken = 1;
+#if defined(SHELLTABS_BUILD_TESTS)
+    size_t m_debugLastFamilyInvalidationCount = 0;
+#endif
 };
 
 }  // namespace shelltabs

@@ -59,7 +59,8 @@ bool ParseConfigLines(std::wstring_view content, wchar_t commentChar, wchar_t de
     return true;
 }
 
-}  // namespace shelltabs
 int ParseInt(std::wstring_view token);
 bool TryParseUint64(std::wstring_view token, uint64_t* valueOut);
+
+}  // namespace shelltabs
 
