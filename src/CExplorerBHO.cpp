@@ -6502,19 +6502,31 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
 
         if (hot || pressed) {
             const float highlightWidth = arrowWidth + 6.0f;
-            const float highlightHeight = rectHeight > 4.0f ? (rectHeight - 4.0f) : 4.0f;
-            Gdiplus::RectF highlightRect(centerX - highlightWidth / 2.0f,
-                                         static_cast<Gdiplus::REAL>(buttonRect.top + 2),
-                                         highlightWidth,
-                                         highlightHeight);
-            const BYTE highlightAlpha = scaleAlpha(static_cast<BYTE>(pressed ? 160 : 130),
-                                                   highlightAlphaMultiplier);
-            const Gdiplus::Color highlightBase(highlightAlpha, brightFontEndColor.GetR(),
-                                               brightFontEndColor.GetG(), brightFontEndColor.GetB());
-            Gdiplus::Color highlightColor =
-                BrightenBreadcrumbColor(highlightBase, hot, pressed, highlightColorRef);
-            Gdiplus::SolidBrush highlightBrush(highlightColor);
-            graphics.FillRectangle(&highlightBrush, highlightRect);
+            constexpr Gdiplus::REAL kHighlightVerticalDeflate = 1.0f;
+            const Gdiplus::REAL buttonHeight = static_cast<Gdiplus::REAL>(rectHeight);
+            Gdiplus::REAL highlightTop = static_cast<Gdiplus::REAL>(buttonRect.top) + kHighlightVerticalDeflate;
+            Gdiplus::REAL highlightHeight = buttonHeight - (kHighlightVerticalDeflate * 2.0f);
+            if (highlightHeight < 0.0f) {
+                highlightHeight = 0.0f;
+            }
+            if (highlightHeight < 4.0f) {
+                highlightHeight = std::min<Gdiplus::REAL>(4.0f, buttonHeight);
+                const Gdiplus::REAL highlightMid =
+                    static_cast<Gdiplus::REAL>(buttonRect.top) + (buttonHeight / 2.0f);
+                highlightTop = highlightMid - (highlightHeight / 2.0f);
+            }
+            if (highlightHeight > 0.0f) {
+                Gdiplus::RectF highlightRect(centerX - highlightWidth / 2.0f, highlightTop, highlightWidth,
+                                             highlightHeight);
+                const BYTE highlightAlpha = scaleAlpha(static_cast<BYTE>(pressed ? 160 : 130),
+                                                       highlightAlphaMultiplier);
+                const Gdiplus::Color highlightBase(highlightAlpha, brightFontEndColor.GetR(),
+                                                   brightFontEndColor.GetG(), brightFontEndColor.GetB());
+                Gdiplus::Color highlightColor =
+                    BrightenBreadcrumbColor(highlightBase, hot, pressed, highlightColorRef);
+                Gdiplus::SolidBrush highlightBrush(highlightColor);
+                graphics.FillRectangle(&highlightBrush, highlightRect);
+            }
         }
 
         Gdiplus::PointF arrow[3] = {
@@ -6788,6 +6800,17 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
                              static_cast<Gdiplus::REAL>(buttonRect.top),
                              static_cast<Gdiplus::REAL>(buttonRect.right - buttonRect.left),
                              static_cast<Gdiplus::REAL>(buttonRect.bottom - buttonRect.top));
+
+        // Deflate the painted area to leave the native outline pixels untouched. Keep
+        // the original buttonRect unmodified so hit-testing continues to use the
+        // Explorer-provided bounds.
+        constexpr Gdiplus::REAL kBreadcrumbVerticalDeflate = 1.0f;
+        const Gdiplus::REAL verticalDeflate =
+            std::min<Gdiplus::REAL>(kBreadcrumbVerticalDeflate, rectF.Height / 2.0f);
+        if (verticalDeflate > 0.0f) {
+            rectF.Y += verticalDeflate;
+            rectF.Height = std::max<Gdiplus::REAL>(0.0f, rectF.Height - (verticalDeflate * 2.0f));
+        }
 
         BYTE baseAlpha = 200;
         if (buttonIsPressed) {
