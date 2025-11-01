@@ -667,6 +667,8 @@ bool HasSeparatorAbove(const std::vector<ContextMenuItem>& root, const std::vect
     return previous.type == ContextMenuItemType::kSeparator;
 }
 
+void PopulateContextMenuDetailControls(HWND page, OptionsDialogData* data);
+
 bool ToggleSeparatorAbove(HWND page, OptionsDialogData* data, bool ensure) {
     if (!data || !data->contextSelectionValid) {
         return false;
