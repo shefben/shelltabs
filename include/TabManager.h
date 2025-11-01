@@ -96,7 +96,10 @@ struct TabViewItem {
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
     bool pinned = false;
+    uint64_t stableId = 0;
 };
+
+uint64_t ComputeTabViewStableId(const TabViewItem& item) noexcept;
 
 struct TabProgressSnapshotEntry {
     TabViewItemType type = TabViewItemType::kGroupHeader;

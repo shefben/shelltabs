@@ -97,6 +97,7 @@ public:
 private:
     struct VisualItem {
         TabViewItem data;
+        uint64_t stableId = 0;
         RECT bounds{};
         bool firstInGroup = false;
         int badgeWidth = 0;

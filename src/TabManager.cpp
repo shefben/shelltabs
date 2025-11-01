@@ -8,12 +8,23 @@
 #include <cmath>
 #include <cwchar>
 #include <cwctype>
+#include <functional>
 #include <limits>
 #include <numeric>
 #include <optional>
 
 
 namespace shelltabs {
+
+namespace {
+uint64_t HashCombine64(uint64_t seed, uint64_t value) noexcept {
+    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
+}
+
+uint64_t HashWideString64(const std::wstring& value) noexcept {
+    return std::hash<std::wstring>{}(value);
+}
+}  // namespace
 
 namespace {
 constexpr wchar_t kDefaultGroupNamePrefix[] = L"Island ";
@@ -86,6 +97,29 @@ std::wstring BuildLookupKey(const TabInfo& tab) {
     return BuildLookupKey(tab.pidl.get(), tab.path);
 }
 }  // namespace
+
+uint64_t ComputeTabViewStableId(const TabViewItem& item) noexcept {
+    uint64_t hash = static_cast<uint64_t>(item.type);
+    if (item.type == TabViewItemType::kTab) {
+        uint64_t ordinal = item.activationOrdinal != 0 ? item.activationOrdinal : item.lastActivatedTick;
+        if (ordinal == 0 && item.pidl) {
+            ordinal = reinterpret_cast<uint64_t>(item.pidl);
+        }
+        hash = HashCombine64(hash, ordinal);
+        hash = HashCombine64(hash, HashWideString64(item.savedGroupId));
+        hash = HashCombine64(hash, HashWideString64(item.path));
+        hash = HashCombine64(hash, HashWideString64(item.name));
+    } else {
+        const int groupIndex = item.location.groupIndex >= 0 ? item.location.groupIndex : 0;
+        hash = HashCombine64(hash, static_cast<uint64_t>(groupIndex));
+        hash = HashCombine64(hash, HashWideString64(item.savedGroupId));
+        hash = HashCombine64(hash, HashWideString64(item.name));
+    }
+    if (hash == 0) {
+        hash = 1;  // reserve 0 for "unknown" identifiers
+    }
+    return hash;
+}
 
 std::mutex TabManager::s_windowMutex;
 std::unordered_map<TabManager::ExplorerWindowId, TabManager*, TabManager::ExplorerWindowIdHash>
@@ -643,6 +677,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             header.headerVisible = group.headerVisible;
             header.lastActivatedTick = groupLastTick;
             header.activationOrdinal = groupLastOrdinal;
+            header.stableId = ComputeTabViewStableId(header);
             items.emplace_back(std::move(header));
         }
 
@@ -679,6 +714,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
                 item.progress.fraction = tab.progress.indeterminate ? 0.0 : ClampProgress(tab.progress.fraction);
             }
 
+            item.stableId = ComputeTabViewStableId(item);
             items.emplace_back(std::move(item));
         }
     }

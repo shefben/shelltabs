@@ -122,58 +122,6 @@ TabBandDockMode DockModeFromRebarStyle(DWORD style) {
     return TabBandDockMode::kTop;
 }
 
-size_t HashCombine(size_t seed, size_t value) noexcept {
-    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2));
-}
-
-size_t HashWideString(const std::wstring& value) noexcept {
-    return std::hash<std::wstring>{}(value);
-}
-
-struct TabViewItemKey {
-    TabViewItemType type = TabViewItemType::kGroupHeader;
-    uint64_t ordinal = 0;
-    std::wstring savedGroupId;
-    std::wstring path;
-    std::wstring name;
-};
-
-struct TabViewItemKeyHash {
-    size_t operator()(const TabViewItemKey& key) const noexcept {
-        size_t hash = static_cast<size_t>(key.type);
-        hash = HashCombine(hash, static_cast<size_t>(key.ordinal));
-        hash = HashCombine(hash, HashWideString(key.savedGroupId));
-        hash = HashCombine(hash, HashWideString(key.path));
-        hash = HashCombine(hash, HashWideString(key.name));
-        return hash;
-    }
-};
-
-struct TabViewItemKeyEqual {
-    bool operator()(const TabViewItemKey& a, const TabViewItemKey& b) const noexcept {
-        return a.type == b.type && a.ordinal == b.ordinal && a.savedGroupId == b.savedGroupId &&
-               a.path == b.path && a.name == b.name;
-    }
-};
-
-TabViewItemKey MakeKey(const TabViewItem& item) {
-    TabViewItemKey key;
-    key.type = item.type;
-    if (item.type == TabViewItemType::kTab) {
-        key.ordinal = item.activationOrdinal != 0 ? item.activationOrdinal : item.lastActivatedTick;
-        if (key.ordinal == 0 && item.pidl) {
-            key.ordinal = reinterpret_cast<uint64_t>(item.pidl);
-        }
-        key.path = item.path;
-        key.name = item.name;
-    } else {
-        key.ordinal = static_cast<uint64_t>(item.location.groupIndex);
-        key.savedGroupId = item.savedGroupId;
-        key.name = item.name;
-    }
-    return key;
-}
-
 RECT NormalizeRect(const RECT& rect) noexcept {
     RECT normalized = rect;
     if (normalized.left > normalized.right) {
@@ -1116,12 +1064,13 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 				if (!try_wrap()) break;
 			}
 
-			// Emit the island's indicator handle
-			VisualItem visual;
-			visual.data = item;
-			visual.firstInGroup = true;
-			visual.collapsedPlaceholder = collapsed;
-			visual.indicatorHandle = true;
+                        // Emit the island's indicator handle
+                        VisualItem visual;
+                        visual.data = item;
+                        visual.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
+                        visual.firstInGroup = true;
+                        visual.collapsedPlaceholder = collapsed;
+                        visual.indicatorHandle = true;
                         visual.bounds = { x, rowTop(row), x + width, rowBottom(row) };
                         visual.row = row;
                         result.items.emplace_back(std::move(visual));
@@ -1138,6 +1087,8 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
                                                 // Emit a synthetic body so the island outline has a region to hug
                                                 VisualItem emptyBody;
                                                 emptyBody.data = item;               // tie to this group header
+                                                emptyBody.stableId =
+                                                    item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
                                                 emptyBody.hasGroupHeader = true;
                                                 emptyBody.groupHeader = currentHeader;
                                                 emptyBody.bounds = placeholder;
@@ -1169,11 +1120,12 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 			continue;
 		}
 
-		VisualItem visual;
-		visual.data = item;
+                VisualItem visual;
+                visual.data = item;
+                visual.stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item);
 
-		if (currentGroup != item.location.groupIndex) {
-			currentGroup = item.location.groupIndex;
+                if (currentGroup != item.location.groupIndex) {
+                        currentGroup = item.location.groupIndex;
 			headerMetadata = false;
 			expectFirstTab = true;
 			if (!result.items.empty()) {
@@ -1353,10 +1305,12 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
         return stats;
     }
 
-    std::unordered_map<TabViewItemKey, std::vector<size_t>, TabViewItemKeyHash, TabViewItemKeyEqual> oldMap;
+    std::unordered_map<uint64_t, std::vector<size_t>> oldMap;
     oldMap.reserve(oldItems.size());
     for (size_t i = 0; i < oldItems.size(); ++i) {
-        oldMap[MakeKey(oldItems[i].data)].push_back(i);
+        const uint64_t stableId = oldItems[i].stableId != 0 ? oldItems[i].stableId
+                                                            : ComputeTabViewStableId(oldItems[i].data);
+        oldMap[stableId].push_back(i);
     }
 
     std::vector<bool> consumed(oldItems.size(), false);
@@ -1376,16 +1330,56 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(
     };
 
     for (const auto& item : newItems) {
-        const auto key = MakeKey(item.data);
-        auto it = oldMap.find(key);
-        if (it == oldMap.end() || it->second.empty()) {
+        const uint64_t stableId = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item.data);
+        auto it = oldMap.find(stableId);
+        if (stableId == 0 || it == oldMap.end() || it->second.empty()) {
             ++stats.inserted;
             enqueueRect(item.bounds);
             continue;
         }
 
-        const size_t oldIndex = it->second.back();
-        it->second.pop_back();
+        auto& candidates = it->second;
+        const auto kInvalidIndex = std::numeric_limits<size_t>::max();
+        auto selectCandidate = [&](auto&& predicate) -> size_t {
+            for (size_t idx = 0; idx < candidates.size(); ++idx) {
+                const size_t candidateIndex = candidates[idx];
+                if (predicate(oldItems[candidateIndex])) {
+                    const size_t result = candidateIndex;
+                    candidates[idx] = candidates.back();
+                    candidates.pop_back();
+                    return result;
+                }
+            }
+            return kInvalidIndex;
+        };
+
+        size_t oldIndex = selectCandidate([&](const VisualItem& oldItem) {
+            return oldItem.indicatorHandle == item.indicatorHandle &&
+                   oldItem.collapsedPlaceholder == item.collapsedPlaceholder &&
+                   oldItem.hasGroupHeader == item.hasGroupHeader &&
+                   oldItem.firstInGroup == item.firstInGroup &&
+                   EquivalentTabViewItem(oldItem.data, item.data);
+        });
+
+        if (oldIndex == kInvalidIndex) {
+            oldIndex = selectCandidate([&](const VisualItem& oldItem) {
+                return oldItem.indicatorHandle == item.indicatorHandle &&
+                       oldItem.collapsedPlaceholder == item.collapsedPlaceholder &&
+                       oldItem.hasGroupHeader == item.hasGroupHeader;
+            });
+        }
+
+        if (oldIndex == kInvalidIndex) {
+            oldIndex = selectCandidate([&](const VisualItem& oldItem) {
+                return EquivalentTabViewItem(oldItem.data, item.data);
+            });
+        }
+
+        if (oldIndex == kInvalidIndex) {
+            oldIndex = candidates.back();
+            candidates.pop_back();
+        }
+
         consumed[oldIndex] = true;
         const VisualItem& oldItem = oldItems[oldIndex];
 
