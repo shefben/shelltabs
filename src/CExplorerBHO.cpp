@@ -2444,7 +2444,28 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         }
     }
 
-    if (!chrome) {
+    std::optional<COLORREF> backgroundCandidate;
+    std::optional<COLORREF> textCandidate;
+
+    if (chrome) {
+        auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
+            const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
+            const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
+            const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
+            return RGB(red, green, blue);
+        };
+
+        const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
+        const double luminance = ComputeColorLuminance(background);
+        backgroundCandidate = background;
+        textCandidate = luminance > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    } else if (IsAppDarkModePreferred()) {
+        LogMessage(LogLevel::Info, L"Status bar theme fallback to dark preference (hwnd=%p)", m_statusBar);
+        backgroundCandidate = RGB(32, 32, 32);
+        textCandidate = RGB(241, 241, 241);
+    }
+
+    if (!backgroundCandidate.has_value()) {
         if (m_statusBarThemeValid || m_statusBarBackgroundApplied) {
             LogMessage(LogLevel::Warning, L"Status bar theme reset: failed to sample toolbar chrome (hwnd=%p)", m_statusBar);
             SendMessageW(m_statusBar, SB_SETBKCOLOR, 0, CLR_DEFAULT);
@@ -2457,16 +2478,8 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         return;
     }
 
-    auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
-        const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
-        const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
-        const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
-        return RGB(red, green, blue);
-    };
-
-    const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
-    const double luminance = ComputeColorLuminance(background);
-    const COLORREF text = luminance > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    const COLORREF background = backgroundCandidate.value();
+    const COLORREF text = textCandidate.value_or(RGB(0, 0, 0));
 
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
     const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
@@ -6874,21 +6887,14 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
 
     const BOOL caretHidden = HideCaret(hwnd);
 
-    COLORREF backgroundColor = GetBkColor(dc);
-    if (backgroundColor == CLR_INVALID) {
-        backgroundColor = GetSysColor(COLOR_WINDOW);
+    LRESULT eraseResult = SendMessageW(hwnd, WM_ERASEBKGND, reinterpret_cast<WPARAM>(dc), 0);
+    if (eraseResult == 0) {
+        HBRUSH backgroundBrush = reinterpret_cast<HBRUSH>(GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND));
+        if (!backgroundBrush) {
+            backgroundBrush = GetSysColorBrush(COLOR_WINDOW);
+        }
+        FillRect(dc, &client, backgroundBrush);
     }
-    const COLORREF originalTextColor = SetTextColor(dc, backgroundColor);
-    const int originalBkMode = SetBkMode(dc, OPAQUE);
-
-    if (!m_handlingAddressEditPrintClient) {
-        m_handlingAddressEditPrintClient = true;
-        SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
-        m_handlingAddressEditPrintClient = false;
-    }
-
-    SetTextColor(dc, originalTextColor);
-    SetBkMode(dc, originalBkMode);
 
     std::wstring text;
     const int length = GetWindowTextLengthW(hwnd);
@@ -7075,6 +7081,94 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
     const COLORREF highlightTextColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
 
     RECT clipRect = scaledFormatRect;
+
+    if (hasSelection) {
+        const COLORREF highlightColor = GetSysColor(COLOR_HIGHLIGHT);
+        HBRUSH selectionBrush = CreateSolidBrush(highlightColor);
+        bool deleteSelectionBrush = true;
+        if (!selectionBrush) {
+            selectionBrush = GetSysColorBrush(COLOR_HIGHLIGHT);
+            deleteSelectionBrush = false;
+        }
+
+        TEXTMETRICW metrics{};
+        int lineHeight = 0;
+        if (GetTextMetricsW(dc, &metrics)) {
+            lineHeight = metrics.tmHeight + metrics.tmExternalLeading;
+        }
+        if (lineHeight <= 0) {
+            lineHeight = std::max<LONG>(1, scaledFormatRect.bottom - scaledFormatRect.top);
+        }
+
+        auto paintSelectionRun = [&](double startX, double endX, int top, int bottom) {
+            if (!selectionBrush) {
+                return;
+            }
+            RECT selectionRect{};
+            selectionRect.left = static_cast<LONG>(std::floor(startX));
+            selectionRect.right = static_cast<LONG>(std::ceil(endX));
+            selectionRect.top = top;
+            selectionRect.bottom = bottom;
+
+            RECT intersected{};
+            if (IntersectRect(&intersected, &selectionRect, &clipRect)) {
+                FillRect(dc, &intersected, selectionBrush);
+            }
+        };
+
+        bool runActive = false;
+        double runStartX = 0.0;
+        double runEndX = 0.0;
+        int runTop = clipRect.top;
+        int runBottom = clipRect.top;
+
+        auto flushRun = [&]() {
+            if (!runActive) {
+                return;
+            }
+            paintSelectionRun(runStartX, runEndX, runTop, runBottom);
+            runActive = false;
+        };
+
+        for (const CharacterMetrics& character : characters) {
+            const bool isSelected = character.index >= static_cast<int>(selectionStart) &&
+                                   character.index < static_cast<int>(selectionEnd);
+            if (!isSelected) {
+                flushRun();
+                continue;
+            }
+
+            const double charLeft = character.x;
+            const double charRight = character.x + character.width;
+            int charTop = static_cast<int>(std::floor(character.y));
+            int charBottom = charTop + lineHeight;
+            charTop = std::clamp(charTop, clipRect.top, clipRect.bottom);
+            charBottom = std::clamp(charBottom, clipRect.top, clipRect.bottom);
+            if (charBottom <= charTop) {
+                charBottom = std::min(clipRect.bottom, charTop + lineHeight);
+            }
+            if (charBottom <= charTop) {
+                charBottom = std::min(clipRect.bottom, charTop + 1);
+            }
+
+            if (!runActive) {
+                runActive = true;
+                runStartX = charLeft;
+                runTop = charTop;
+                runBottom = charBottom;
+            }
+
+            runEndX = charRight;
+            runTop = std::min(runTop, charTop);
+            runBottom = std::max(runBottom, charBottom);
+        }
+
+        flushRun();
+
+        if (deleteSelectionBrush && selectionBrush) {
+            DeleteObject(selectionBrush);
+        }
+    }
 
     for (const CharacterMetrics& character : characters) {
         bool isSelected = hasSelection && character.index >= static_cast<int>(selectionStart) &&
@@ -7308,8 +7402,7 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
             break;
         }
         case WM_PRINTCLIENT: {
-            if (!self->m_handlingAddressEditPrintClient &&
-                self->m_breadcrumbFontGradientEnabled && self->m_useCustomBreadcrumbFontColors) {
+            if (self->m_breadcrumbFontGradientEnabled) {
                 HDC dc = reinterpret_cast<HDC>(wParam);
                 if (self->DrawAddressEditContent(hwnd, dc)) {
                     return 0;
