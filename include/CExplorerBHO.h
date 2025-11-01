@@ -358,6 +358,9 @@ class NamespaceTreeHost;
                 void UpdateGlowSurfaceTargets();
                 void UpdateStatusBarTheme();
                 void ResetStatusBarTheme(HWND statusBar = nullptr);
+                void InstallStatusBarSubclass();
+                void RemoveStatusBarSubclass(HWND statusBar = nullptr);
+                LRESULT HandleStatusBarMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool* handled);
                 void PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active);
                 void ResetGlowSurfaces();
                 bool AttachListView(HWND listView);
@@ -378,12 +381,14 @@ class NamespaceTreeHost;
 		static LRESULT CALLBACK BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM lParam);
 		static LRESULT CALLBACK BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
 			UINT_PTR subclassId, DWORD_PTR refData);
-		static LRESULT CALLBACK ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-			UINT_PTR subclassId, DWORD_PTR refData);
-		static LRESULT CALLBACK AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-			UINT_PTR subclassId, DWORD_PTR refData);
-		static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-			UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
 
                 std::atomic<long> m_refCount;
 		Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -459,7 +464,8 @@ class NamespaceTreeHost;
                 COLORREF m_statusBarBackgroundColor = CLR_DEFAULT;
                 COLORREF m_statusBarTextColor = CLR_DEFAULT;
                 bool m_statusBarThemeValid = false;
-                bool m_statusBarBackgroundApplied = false;
+                bool m_statusBarSubclassInstalled = false;
+                std::optional<ToolbarChromeSample> m_statusBarChromeSample;
                 bool m_explorerPaneRetryPending = false;
                 UINT_PTR m_explorerPaneRetryTimerId = 0;
                 DWORD m_explorerPaneRetryDelayMs = 0;
