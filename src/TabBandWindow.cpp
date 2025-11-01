@@ -51,6 +51,30 @@ namespace shelltabs {
 
 namespace {
 
+constexpr wchar_t kNewTabButtonClassName[] = L"ShellTabsNewTabButton";
+
+LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+bool EnsureNewTabButtonClassRegistered() {
+    static bool attempted = false;
+    static bool succeeded = false;
+    if (!attempted) {
+        attempted = true;
+        WNDCLASSW wc{};
+        wc.style = CS_DBLCLKS;
+        wc.lpfnWndProc = NewTabButtonWndProc;
+        wc.hInstance = GetModuleHandleInstance();
+        wc.lpszClassName = kNewTabButtonClassName;
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        SetLastError(ERROR_SUCCESS);
+        const ATOM atom = RegisterClassW(&wc);
+        if (atom != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
+            succeeded = true;
+        }
+    }
+    return succeeded;
+}
+
 struct FontMetricsKey {
     LONG height = 0;
     LONG aveCharWidth = 0;
@@ -832,8 +856,10 @@ void TabBandWindow::Destroy() {
     m_refreshingTheme = false;
     m_windowDarkModeInitialized = false;
     m_windowDarkModeValue = false;
-    m_buttonDarkModeInitialized = false;
-    m_buttonDarkModeValue = false;
+    m_newTabButtonHot = false;
+    m_newTabButtonPressed = false;
+    m_newTabButtonKeyboardPressed = false;
+    m_newTabButtonTrackingMouse = false;
     ResetThemePalette();
     ReleaseBackBuffer();
 
@@ -3295,31 +3321,321 @@ void TabBandWindow::ClearGdiCache() {
 
 void TabBandWindow::UpdateNewTabButtonTheme() {
     if (!m_newTabButton) {
-        m_buttonDarkModeInitialized = false;
-        m_buttonDarkModeValue = false;
+        m_newTabButtonHot = false;
+        m_newTabButtonPressed = false;
+        m_newTabButtonKeyboardPressed = false;
+        m_newTabButtonTrackingMouse = false;
         return;
     }
-    // Keep the new tab button styled like Explorer's toolbar buttons; this
-    // cooperates with immersive dark mode when available.
-    SetWindowTheme(m_newTabButton, L"Explorer", nullptr);
-    const bool applyDark = m_darkMode && !m_highContrast;
-    if (!m_buttonDarkModeInitialized || m_buttonDarkModeValue != applyDark) {
-        ApplyImmersiveDarkMode(m_newTabButton, applyDark);
-        m_buttonDarkModeInitialized = true;
-        m_buttonDarkModeValue = applyDark;
+    m_newTabButtonTrackingMouse = false;
+    InvalidateRect(m_newTabButton, nullptr, TRUE);
+}
+
+void TabBandWindow::PaintNewTabButton(HWND hwnd, HDC dc) const {
+    if (!hwnd || !dc) {
+        return;
     }
 
-    LONG_PTR style = GetWindowLongPtrW(m_newTabButton, GWL_STYLE);
-    if (style) {
-        if (m_highContrast) {
-            style &= ~BS_FLAT;
-        } else {
-            style |= BS_FLAT;
-        }
-        SetWindowLongPtrW(m_newTabButton, GWL_STYLE, style);
+    RECT bounds{};
+    GetClientRect(hwnd, &bounds);
+    const int width = bounds.right - bounds.left;
+    const int height = bounds.bottom - bounds.top;
+    if (width <= 0 || height <= 0) {
+        return;
     }
-    SendMessageW(m_newTabButton, WM_SETFONT, reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
-    InvalidateRect(m_newTabButton, nullptr, FALSE);
+
+    COLORREF hostBackground = m_highContrast ? GetSysColor(COLOR_BTNFACE) : m_themePalette.rebarBackground;
+    HBRUSH hostBrush = GetCachedBrush(hostBackground);
+    if (hostBrush) {
+        FillRect(dc, &bounds, hostBrush);
+    } else {
+        FillRect(dc, &bounds, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    }
+
+    UINT dpi = 96;
+    if (hwnd) {
+        const UINT windowDpi = GetDpiForWindow(hwnd);
+        if (windowDpi != 0) {
+            dpi = windowDpi;
+        }
+    }
+
+    const int outerMargin = std::max(2, MulDiv(4, static_cast<int>(dpi), 96));
+    int squareSize = MulDiv(18, static_cast<int>(dpi), 96);
+    squareSize = std::min(squareSize, width - outerMargin * 2);
+    squareSize = std::min(squareSize, height - outerMargin * 2);
+    if (squareSize < 6) {
+        squareSize = std::min(width, height) - outerMargin * 2;
+    }
+    if (squareSize <= 0) {
+        return;
+    }
+
+    const int squareLeft = bounds.left + (width - squareSize) / 2;
+    const int squareTop = bounds.top + (height - squareSize) / 2;
+    RECT square{squareLeft, squareTop, squareLeft + squareSize, squareTop + squareSize};
+
+    COLORREF baseSquare = m_highContrast ? GetSysColor(COLOR_BTNFACE) : RGB(240, 240, 240);
+    COLORREF borderColor = m_highContrast ? GetSysColor(COLOR_WINDOWFRAME) : RGB(200, 200, 200);
+    COLORREF glyphColor = m_highContrast ? GetSysColor(COLOR_BTNTEXT) : RGB(64, 64, 64);
+
+    if (m_highContrast) {
+        if (m_newTabButtonPressed) {
+            baseSquare = GetSysColor(COLOR_HIGHLIGHT);
+            glyphColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
+            borderColor = GetSysColor(COLOR_HIGHLIGHT);
+        } else if (m_newTabButtonHot || m_newTabButtonKeyboardPressed) {
+            borderColor = GetSysColor(COLOR_HIGHLIGHT);
+        }
+    } else if (m_darkMode) {
+        baseSquare = BlendColors(RGB(255, 255, 255), RGB(70, 70, 70), 0.35);
+        borderColor = BlendColors(baseSquare, RGB(0, 0, 0), 0.4);
+        glyphColor = RGB(32, 32, 32);
+    }
+
+    if (!m_highContrast) {
+        if (m_newTabButtonPressed) {
+            baseSquare = BlendColors(baseSquare, RGB(0, 0, 0), 0.2);
+            glyphColor = BlendColors(glyphColor, RGB(0, 0, 0), 0.2);
+        } else if (m_newTabButtonHot || m_newTabButtonKeyboardPressed) {
+            baseSquare = BlendColors(baseSquare, RGB(255, 255, 255), 0.18);
+        }
+    }
+
+    int cornerRadius = std::max(2, MulDiv(3, static_cast<int>(dpi), 96));
+    cornerRadius = std::min(cornerRadius, squareSize / 2);
+    HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
+    HBRUSH fillBrush = CreateSolidBrush(baseSquare);
+    if (borderPen && fillBrush) {
+        const HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
+        const HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, fillBrush));
+        RoundRect(dc, square.left, square.top, square.right, square.bottom, cornerRadius, cornerRadius);
+        SelectObject(dc, oldBrush);
+        SelectObject(dc, oldPen);
+    }
+    if (fillBrush) {
+        DeleteObject(fillBrush);
+    }
+    if (borderPen) {
+        DeleteObject(borderPen);
+    }
+
+    const int glyphPadding = std::max(2, MulDiv(4, static_cast<int>(dpi), 96));
+    const int glyphExtent = std::max(4, squareSize - glyphPadding * 2);
+    const int glyphHalf = glyphExtent / 2;
+    const int centerX = square.left + squareSize / 2;
+    const int centerY = square.top + squareSize / 2;
+    const int glyphThickness = std::max(1, MulDiv(2, static_cast<int>(dpi), 96));
+
+    HPEN glyphPen = CreatePen(PS_SOLID, glyphThickness, glyphColor);
+    if (glyphPen) {
+        const HPEN oldPen = static_cast<HPEN>(SelectObject(dc, glyphPen));
+        MoveToEx(dc, centerX - glyphHalf, centerY, nullptr);
+        LineTo(dc, centerX + glyphHalf + 1, centerY);
+        MoveToEx(dc, centerX, centerY - glyphHalf, nullptr);
+        LineTo(dc, centerX, centerY + glyphHalf + 1);
+        SelectObject(dc, oldPen);
+        DeleteObject(glyphPen);
+    }
+
+    if (GetFocus() == hwnd) {
+        RECT focusRect = square;
+        const int inflate = std::max(1, MulDiv(2, static_cast<int>(dpi), 96));
+        InflateRect(&focusRect, inflate, inflate);
+        DrawFocusRect(dc, &focusRect);
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonMouseMove(HWND hwnd) {
+    if (!m_newTabButtonHot) {
+        m_newTabButtonHot = true;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    if (!m_newTabButtonTrackingMouse) {
+        TRACKMOUSEEVENT track{sizeof(track)};
+        track.dwFlags = TME_LEAVE;
+        track.hwndTrack = hwnd;
+        if (TrackMouseEvent(&track)) {
+            m_newTabButtonTrackingMouse = true;
+        }
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonMouseLeave(HWND hwnd) {
+    m_newTabButtonTrackingMouse = false;
+    if (m_newTabButtonHot && !m_newTabButtonPressed) {
+        m_newTabButtonHot = false;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonLButtonDown(HWND hwnd) {
+    SetFocus(hwnd);
+    SetCapture(hwnd);
+    if (!m_newTabButtonPressed || m_newTabButtonKeyboardPressed) {
+        m_newTabButtonPressed = true;
+        m_newTabButtonKeyboardPressed = false;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt) {
+    if (GetCapture() == hwnd) {
+        ReleaseCapture();
+    }
+    const bool wasPressed = m_newTabButtonPressed;
+    m_newTabButtonPressed = false;
+    m_newTabButtonKeyboardPressed = false;
+
+    RECT bounds{};
+    GetClientRect(hwnd, &bounds);
+    const bool inside = PtInRect(&bounds, pt) != 0;
+    if (!inside && m_newTabButtonHot) {
+        m_newTabButtonHot = false;
+    }
+    InvalidateRect(hwnd, nullptr, FALSE);
+    if (wasPressed && inside) {
+        TriggerNewTabButtonAction();
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonCaptureLost() {
+    if (m_newTabButtonPressed || m_newTabButtonKeyboardPressed) {
+        m_newTabButtonPressed = false;
+        m_newTabButtonKeyboardPressed = false;
+        if (m_newTabButton) {
+            InvalidateRect(m_newTabButton, nullptr, FALSE);
+        }
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonFocusChanged(HWND hwnd, bool focused) {
+    HWND parent = GetParent(hwnd);
+    if (parent) {
+        const int code = focused ? BN_SETFOCUS : BN_KILLFOCUS;
+        SendMessageW(parent, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, code), reinterpret_cast<LPARAM>(hwnd));
+    }
+    if (!focused && m_newTabButtonKeyboardPressed) {
+        m_newTabButtonPressed = false;
+        m_newTabButtonKeyboardPressed = false;
+    }
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+void TabBandWindow::HandleNewTabButtonKeyDown(HWND hwnd, UINT key, bool repeat) {
+    UNREFERENCED_PARAMETER(key);
+    if (repeat) {
+        return;
+    }
+    if (!m_newTabButtonPressed || !m_newTabButtonKeyboardPressed) {
+        m_newTabButtonPressed = true;
+        m_newTabButtonKeyboardPressed = true;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonKeyUp(HWND hwnd, UINT key) {
+    if (!m_newTabButtonKeyboardPressed) {
+        if (key == VK_RETURN) {
+            TriggerNewTabButtonAction();
+        }
+        return;
+    }
+    m_newTabButtonPressed = false;
+    m_newTabButtonKeyboardPressed = false;
+    InvalidateRect(hwnd, nullptr, FALSE);
+    TriggerNewTabButtonAction();
+}
+
+void TabBandWindow::TriggerNewTabButtonAction() {
+    if (!m_hwnd || !m_newTabButton) {
+        return;
+    }
+    SendMessageW(m_hwnd, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, BN_CLICKED), reinterpret_cast<LPARAM>(m_newTabButton));
+}
+
+LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* owner = reinterpret_cast<TabBandWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<LPCREATESTRUCTW>(lParam);
+        owner = static_cast<TabBandWindow*>(create->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(owner));
+        return owner ? TRUE : FALSE;
+    }
+
+    if (!owner) {
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    switch (message) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            if (dc) {
+                owner->PaintNewTabButton(hwnd, dc);
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_MOUSEMOVE:
+            owner->HandleNewTabButtonMouseMove(hwnd);
+            return 0;
+        case WM_MOUSELEAVE:
+            owner->HandleNewTabButtonMouseLeave(hwnd);
+            return 0;
+        case WM_LBUTTONDOWN:
+            owner->HandleNewTabButtonLButtonDown(hwnd);
+            return 0;
+        case WM_LBUTTONUP: {
+            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            owner->HandleNewTabButtonLButtonUp(hwnd, pt);
+            return 0;
+        }
+        case WM_CAPTURECHANGED:
+        case WM_CANCELMODE:
+            owner->HandleNewTabButtonCaptureLost();
+            return 0;
+        case WM_SETFOCUS:
+            owner->HandleNewTabButtonFocusChanged(hwnd, true);
+            return 0;
+        case WM_KILLFOCUS:
+            owner->HandleNewTabButtonFocusChanged(hwnd, false);
+            return 0;
+        case WM_KEYDOWN:
+            if (wParam == VK_SPACE || wParam == VK_RETURN) {
+                const bool repeat = (HIWORD(lParam) & KF_REPEAT) != 0;
+                owner->HandleNewTabButtonKeyDown(hwnd, static_cast<UINT>(wParam), repeat);
+                return 0;
+            }
+            break;
+        case WM_KEYUP:
+            if (wParam == VK_SPACE || wParam == VK_RETURN) {
+                owner->HandleNewTabButtonKeyUp(hwnd, static_cast<UINT>(wParam));
+                return 0;
+            }
+            break;
+        case WM_THEMECHANGED:
+            owner->UpdateNewTabButtonTheme();
+            return 0;
+        case WM_ENABLE:
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_GETDLGCODE:
+            return DLGC_BUTTON | DLGC_UNDEFPUSHBUTTON;
+        case WM_SETCURSOR:
+            if (LOWORD(lParam) == HTCLIENT) {
+                SetCursor(LoadCursor(nullptr, IDC_HAND));
+                return TRUE;
+            }
+            break;
+        default:
+            break;
+    }
+
+    return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
 bool TabBandWindow::IsSystemDarkMode() const {
@@ -6548,16 +6864,14 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
         }
         switch (message) {
             case WM_CREATE: {
-                self->m_newTabButton = CreateWindowExW(0, L"BUTTON", L"+",
-                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_CENTER |
-                                                           BS_VCENTER | BS_FLAT,
-                                                       0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
-                                                       GetModuleHandleInstance(), nullptr);
+                if (EnsureNewTabButtonClassRegistered()) {
+                    self->m_newTabButton = CreateWindowExW(0, kNewTabButtonClassName, L"New tab",
+                                                           WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                           0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(IDC_NEW_TAB),
+                                                           GetModuleHandleInstance(), self);
+                }
                 if (self->m_newTabButton) {
-                    SetWindowTheme(self->m_newTabButton, L"Explorer", nullptr);
-                    ApplyImmersiveDarkMode(self->m_newTabButton, self->m_darkMode);
-                    SendMessageW(self->m_newTabButton, WM_SETFONT,
-                                 reinterpret_cast<WPARAM>(GetDefaultFont()), FALSE);
+                    self->UpdateNewTabButtonTheme();
                 }
                 self->RefreshTheme();
                 DragAcceptFiles(hwnd, TRUE);
