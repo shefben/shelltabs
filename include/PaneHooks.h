@@ -45,21 +45,13 @@ enum class HighlightPaneType {
 using PaneHighlightInvalidationCallback = void (*)(HWND hwnd, HighlightPaneType paneType,
                                                    const PaneHighlightInvalidationTargets& targets);
 
-class PaneHighlightProvider {
-public:
-    virtual ~PaneHighlightProvider() = default;
-    virtual bool TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) = 0;
-};
-
 class ShellTabsTreeView;
 
 class PaneHookRouter {
 public:
-    explicit PaneHookRouter(PaneHighlightProvider* provider = nullptr);
+    PaneHookRouter();
     ~PaneHookRouter();
 
-    void SetHighlightProvider(PaneHighlightProvider* provider);
-    void SetListView(HWND listView);
     void SetTreeView(HWND treeView,
                      std::function<bool(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight)> resolver = {},
                      INameSpaceTreeControl* namespaceTree = nullptr);
@@ -68,10 +60,6 @@ public:
     bool HandleNotify(const NMHDR* header, LRESULT* result);
 
 private:
-    bool HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
-
-    PaneHighlightProvider* m_provider = nullptr;
-    HWND m_listView = nullptr;
     HWND m_treeView = nullptr;
     std::unique_ptr<ShellTabsTreeView> m_treeControl;
 };

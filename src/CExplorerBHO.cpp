@@ -79,13 +79,6 @@ using shelltabs::GetParsingName;
 using shelltabs::UniquePidl;
 using shelltabs::IconCache;
 
-struct ListViewBackgroundReadyMessage {
-    uint64_t generation = 0;
-    SIZE size{0, 0};
-    std::wstring cacheKey;
-    std::unique_ptr<Gdiplus::Bitmap> bitmap;
-};
-
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
 constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
@@ -731,7 +724,7 @@ std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
 std::mutex CExplorerBHO::s_openInNewTabTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 
-CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks(this) {
+CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
     m_glowCoordinator.Configure(OptionsStore::Instance().Get());
@@ -747,7 +740,6 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks(this) {
 
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
-    ClearListViewAccentResources();
     DestroyProgressGradientResources();
     m_glowSurfaces.clear();
     if (m_bufferedPaintInitialized) {
@@ -1389,72 +1381,6 @@ IFACEMETHODIMP CExplorerBHO::GetSite(REFIID riid, void** site) {
         []() -> HRESULT { return E_FAIL; });
 }
 
-bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) {
-    if (!listView || listView != m_listView || itemIndex < 0) {
-        return false;
-    }
-
-    auto isPidlPointerValid = [](PCIDLIST_ABSOLUTE pidl) noexcept {
-        if (!pidl) {
-            return false;
-        }
-
-        __try {
-            constexpr UINT kMaxListViewPidlSize = 64 * 1024;
-            const UINT size = ILGetSize(pidl);
-            if (size < sizeof(USHORT) || size > kMaxListViewPidlSize) {
-                return false;
-            }
-
-            const auto* tail = reinterpret_cast<const USHORT*>(
-                reinterpret_cast<const BYTE*>(pidl) + size - sizeof(USHORT));
-            return *tail == 0;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            return false;
-        }
-    };
-
-    LVITEMW listItem{};
-    listItem.mask = LVIF_PARAM;
-    listItem.iItem = itemIndex;
-    if (ListView_GetItemW(listView, &listItem)) {
-        PIDLIST_ABSOLUTE pidl = reinterpret_cast<PIDLIST_ABSOLUTE>(listItem.lParam);
-        if (isPidlPointerValid(pidl)) {
-            if (ResolveHighlightFromPidl(pidl, highlight)) {
-                return true;
-            }
-        } else if (pidl) {
-            LogMessage(LogLevel::Info,
-                L"ListView PIDL pointer invalid for item %d; retrying via IFolderView2::GetItem", itemIndex);
-        }
-    }
-
-    if (!m_shellView) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IFolderView2> folderView;
-    HRESULT hr = m_shellView.As(&folderView);
-    if (FAILED(hr) || !folderView) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IUnknown> viewItem;
-    hr = folderView->GetItem(itemIndex, IID_PPV_ARGS(&viewItem));
-    if (FAILED(hr) || !viewItem) {
-        return false;
-    }
-
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    hr = SHGetIDListFromObject(viewItem.Get(), &pidl);
-    if (FAILED(hr) || !pidl) {
-        return false;
-    }
-
-    UniquePidl absolute(pidl);
-    return ResolveHighlightFromPidl(absolute.get(), highlight);
-}
-
 CExplorerBHO::TreeItemPidlResolution CExplorerBHO::ResolveTreeViewItemPidl(HWND treeView,
                                                                            const TVITEMEXW& item) const {
     TreeItemPidlResolution resolved;
@@ -2057,7 +1983,6 @@ void CExplorerBHO::DetachListView() {
     }
 
     if (listView) {
-        ClearListViewAccentResources(listView);
         UnregisterGlowSurface(listView);
     }
 
@@ -2065,12 +1990,9 @@ void CExplorerBHO::DetachListView() {
         UnregisterGlowSurface(controlWindow);
     }
 
-    ClearListViewBackgroundImage();
-
     m_listView = nullptr;
     m_listViewSubclassInstalled = false;
     m_listViewControlWindow = nullptr;
-    m_paneHooks.SetListView(nullptr);
 
     m_listViewControl.reset();
 
@@ -2166,7 +2088,6 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     m_listViewControlWindow = controlWindow;
     m_listViewControl = std::move(control);
 
-    m_paneHooks.SetListView(nullptr);
     RegisterGlowSurface(controlWindow, ExplorerSurfaceKind::ListView, true);
     if (HWND header = ListView_GetHeader(m_listView)) {
         RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
@@ -2176,7 +2097,8 @@ bool CExplorerBHO::AttachListView(HWND listView) {
                L"Installed ShellTabs list view control (native=%p control=%p list=%p)", listView,
                controlWindow, m_listView);
 
-    ClearListViewBackgroundImage();
+    RefreshListViewControlBackground();
+    RefreshListViewAccentState();
     InvalidateRect(controlWindow, nullptr, FALSE);
     return true;
 }
@@ -3278,14 +3200,13 @@ void CExplorerBHO::InvalidateNamespaceTreeControl() const {
 }
 
 void CExplorerBHO::ClearFolderBackgrounds() {
-    CancelListViewBackgroundJob();
     m_folderBackgroundEntries.clear();
     m_folderBackgroundBitmaps.clear();
     m_universalBackgroundImagePath.clear();
     m_universalBackgroundBitmap.reset();
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
-    ClearListViewBackgroundImage();
+    RefreshListViewControlBackground();
 }
 
 std::wstring CExplorerBHO::NormalizeBackgroundKey(const std::wstring& path) const {
@@ -3340,7 +3261,7 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     }
 
     InvalidateFolderBackgroundTargets();
-    EnsureListViewBackgroundSurface(m_listView);
+    RefreshListViewControlBackground();
 }
 
 bool CExplorerBHO::EnsureFolderBackgroundBitmap(const std::wstring& key) const {
@@ -3418,59 +3339,6 @@ Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
     return nullptr;
 }
 
-bool CExplorerBHO::DrawFolderBackground(HWND hwnd, HDC dc) {
-    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        return false;
-    }
-
-    if (hwnd == m_listView) {
-        if (PaintListViewBackground(hwnd, dc)) {
-            return true;
-        }
-        // Fall back to immediate drawing if the cached surface could not be used.
-    }
-
-    if (!hwnd || !dc) {
-        return false;
-    }
-
-    Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
-    if (!background) {
-        return false;
-    }
-
-    const UINT width = background->GetWidth();
-    const UINT height = background->GetHeight();
-    if (width == 0 || height == 0) {
-        return false;
-    }
-
-    if (width > static_cast<UINT>(std::numeric_limits<INT>::max()) ||
-        height > static_cast<UINT>(std::numeric_limits<INT>::max())) {
-        return false;
-    }
-
-    RECT client{};
-    if (!GetClientRect(hwnd, &client) || client.right <= client.left || client.bottom <= client.top) {
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(dc);
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const Gdiplus::Rect destRect(client.left, client.top, client.right - client.left, client.bottom - client.top);
-    const Gdiplus::Status status =
-        graphics.DrawImage(background, destRect, 0, 0, static_cast<INT>(width),
-                           static_cast<INT>(height), Gdiplus::UnitPixel);
-    return status == Gdiplus::Ok;
-}
-
 std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
     if (!m_currentFolderKey.empty()) {
         return m_currentFolderKey;
@@ -3483,205 +3351,18 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
     return {};
 }
 
-bool CExplorerBHO::EnsureListViewBackgroundSurface(HWND listView) {
-    if (!listView || listView != m_listView || !IsWindow(listView)) {
-        return false;
-    }
-
-    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
-    RECT client{};
-    if (!GetClientRect(listView, &client) || client.right <= client.left || client.bottom <= client.top) {
-        return false;
-    }
-
-    SIZE size{client.right - client.left, client.bottom - client.top};
-    std::wstring cacheKey = ResolveBackgroundCacheKey();
-    if (cacheKey.empty()) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
-    if (!m_listViewBackgroundSurface.pending && m_listViewBackgroundSurface.bitmap &&
-        m_listViewBackgroundSurface.size.cx == size.cx &&
-        m_listViewBackgroundSurface.size.cy == size.cy && m_listViewBackgroundSurface.cacheKey == cacheKey) {
-        return true;
-    }
-
-    if (m_listViewBackgroundJobState.active && m_listViewBackgroundJobState.size.cx == size.cx &&
-        m_listViewBackgroundJobState.size.cy == size.cy && m_listViewBackgroundJobState.cacheKey == cacheKey) {
-        return m_listViewBackgroundSurface.bitmap != nullptr && !m_listViewBackgroundSurface.pending;
-    }
-
-    Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
-    if (!background) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
-    const UINT width = background->GetWidth();
-    const UINT height = background->GetHeight();
-    if (width == 0 || height == 0) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
-    auto backgroundClone = std::unique_ptr<Gdiplus::Bitmap>(background->Clone(
-        0, 0, static_cast<INT>(width), static_cast<INT>(height), background->GetPixelFormat()));
-    if (!backgroundClone || backgroundClone->GetLastStatus() != Gdiplus::Ok) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
-    m_listViewBackgroundSurface.bitmap.reset();
-    m_listViewBackgroundSurface.size = size;
-    m_listViewBackgroundSurface.cacheKey = cacheKey;
-    m_listViewBackgroundSurface.pending = true;
-
-    StartListViewBackgroundJob(size, cacheKey, std::move(backgroundClone));
-    return false;
-}
-
-void CExplorerBHO::StartListViewBackgroundJob(SIZE size, std::wstring cacheKey,
-                                              std::unique_ptr<Gdiplus::Bitmap> source) {
-    CancelListViewBackgroundJob();
-
-    if (!m_listView || !IsWindow(m_listView)) {
-        m_listViewBackgroundSurface.pending = false;
+void CExplorerBHO::RefreshListViewControlBackground() {
+    if (!m_listViewControl) {
         return;
     }
 
-    if (!source || source->GetLastStatus() != Gdiplus::Ok || size.cx <= 0 || size.cy <= 0) {
-        m_listViewBackgroundSurface.pending = false;
-        return;
-    }
-
-    const uint64_t generation = ++m_listViewBackgroundGeneration;
-    m_listViewBackgroundJobState.size = size;
-    m_listViewBackgroundJobState.cacheKey = cacheKey;
-    m_listViewBackgroundJobState.generation = generation;
-    m_listViewBackgroundJobState.active = true;
-
-    HWND target = m_listView;
-    try {
-        m_listViewBackgroundWorker = std::jthread(
-            [this, generation, size, cacheKey, target, sourceBitmap = std::move(source)](std::stop_token stopToken) mutable {
-                if (stopToken.stop_requested()) {
-                    return;
-                }
-
-                auto notifyCompletion = [&](std::unique_ptr<Gdiplus::Bitmap> bitmap) {
-                    if (stopToken.stop_requested()) {
-                        return;
-                    }
-                    if (!target || !IsWindow(target)) {
-                        return;
-                    }
-
-                    auto message = std::make_unique<ListViewBackgroundReadyMessage>();
-                    message->generation = generation;
-                    message->size = size;
-                    message->cacheKey = cacheKey;
-                    message->bitmap = std::move(bitmap);
-
-                    auto* raw = message.release();
-                    if (!PostMessageW(target, shelltabs::WM_SHELLTABS_LISTVIEW_BACKGROUND_READY,
-                                      reinterpret_cast<WPARAM>(raw), 0)) {
-                        delete raw;
-                    }
-                };
-
-                std::unique_ptr<Gdiplus::Bitmap> surface;
-                if (sourceBitmap && sourceBitmap->GetLastStatus() == Gdiplus::Ok && size.cx > 0 && size.cy > 0) {
-                    surface = std::make_unique<Gdiplus::Bitmap>(size.cx, size.cy, PixelFormat32bppARGB);
-                    if (surface && surface->GetLastStatus() == Gdiplus::Ok) {
-                        Gdiplus::Graphics graphics(surface.get());
-                        if (graphics.GetLastStatus() == Gdiplus::Ok) {
-                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-                            graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-                            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-                            const UINT srcWidth = sourceBitmap->GetWidth();
-                            const UINT srcHeight = sourceBitmap->GetHeight();
-                            if (srcWidth != 0 && srcHeight != 0 && !stopToken.stop_requested()) {
-                                const Gdiplus::Status status = graphics.DrawImage(
-                                    sourceBitmap.get(), Gdiplus::Rect(0, 0, size.cx, size.cy), 0, 0,
-                                    static_cast<INT>(srcWidth), static_cast<INT>(srcHeight), Gdiplus::UnitPixel);
-                                if (status != Gdiplus::Ok) {
-                                    surface.reset();
-                                }
-                            } else if (srcWidth == 0 || srcHeight == 0) {
-                                surface.reset();
-                            }
-                        } else {
-                            surface.reset();
-                        }
-                    }
-                }
-
-                if (stopToken.stop_requested()) {
-                    return;
-                }
-
-                notifyCompletion(std::move(surface));
-            });
-    } catch (const std::exception& ex) {
-        LogMessage(LogLevel::Warning, L"Failed to start list view background job (%s)",
-                   Utf8ToWide(ex.what()).c_str());
-        CancelListViewBackgroundJob();
-        m_listViewBackgroundSurface.pending = false;
-    }
-}
-
-void CExplorerBHO::CancelListViewBackgroundJob() {
-    if (m_listViewBackgroundWorker.joinable()) {
-        m_listViewBackgroundWorker.request_stop();
-    }
-    m_listViewBackgroundWorker = std::jthread();
-    m_listViewBackgroundJobState = {};
-}
-
-bool CExplorerBHO::PaintListViewBackground(HWND hwnd, HDC dc) {
-    if (!dc || hwnd != m_listView) {
-        return false;
-    }
-
-    if (!EnsureListViewBackgroundSurface(hwnd)) {
-        return false;
-    }
-
-    if (!m_listViewBackgroundSurface.bitmap || m_listViewBackgroundSurface.pending) {
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(dc);
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const SIZE size = m_listViewBackgroundSurface.size;
-    if (size.cx <= 0 || size.cy <= 0) {
-        return false;
-    }
-    const Gdiplus::Status status = graphics.DrawImage(
-        m_listViewBackgroundSurface.bitmap.get(), Gdiplus::Rect(0, 0, size.cx, size.cy), 0, 0, size.cx, size.cy,
-        Gdiplus::UnitPixel);
-    return status == Gdiplus::Ok;
-}
-
-void CExplorerBHO::ClearListViewBackgroundImage() {
-    CancelListViewBackgroundJob();
-    m_listViewBackgroundSurface.bitmap.reset();
-    m_listViewBackgroundSurface.size = {0, 0};
-    m_listViewBackgroundSurface.cacheKey.clear();
-    m_listViewBackgroundSurface.pending = false;
+    auto resolver = [this]() -> ShellTabsListView::BackgroundSource {
+        ShellTabsListView::BackgroundSource source{};
+        source.cacheKey = ResolveBackgroundCacheKey();
+        source.bitmap = ResolveCurrentFolderBackground();
+        return source;
+    };
+    m_listViewControl->SetBackgroundResolver(resolver);
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -3728,8 +3409,7 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
     }
 
     InvalidateFolderBackgroundTargets();
-    ClearListViewBackgroundImage();
-    EnsureListViewBackgroundSurface(m_listView);
+    RefreshListViewControlBackground();
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
@@ -3748,34 +3428,6 @@ void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     }
     requestRedraw(m_shellViewWindow);
     requestRedraw(m_frameWindow);
-}
-
-void CExplorerBHO::ClearListViewAccentResources(HWND listView) {
-    auto it = m_listViewAccentCache.find(listView);
-    if (it == m_listViewAccentCache.end()) {
-        return;
-    }
-    if (it->second.backgroundBrush) {
-        DeleteObject(it->second.backgroundBrush);
-        it->second.backgroundBrush = nullptr;
-    }
-    if (it->second.focusPen) {
-        DeleteObject(it->second.focusPen);
-        it->second.focusPen = nullptr;
-    }
-    m_listViewAccentCache.erase(it);
-}
-
-void CExplorerBHO::ClearListViewAccentResources() {
-    for (auto& entry : m_listViewAccentCache) {
-        if (entry.second.backgroundBrush) {
-            DeleteObject(entry.second.backgroundBrush);
-        }
-        if (entry.second.focusPen) {
-            DeleteObject(entry.second.focusPen);
-        }
-    }
-    m_listViewAccentCache.clear();
 }
 
 bool CExplorerBHO::ShouldUseListViewAccentColors() const {
@@ -3827,124 +3479,17 @@ bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) co
     return true;
 }
 
-bool CExplorerBHO::EnsureListViewAccentResources(HWND listView, ListViewAccentResources** resources) {
-    if (!listView) {
-        return false;
-    }
-
-    COLORREF accent = 0;
-    COLORREF text = 0;
-    if (!ResolveActiveGroupAccent(&accent, &text)) {
-        ClearListViewAccentResources(listView);
-        return false;
-    }
-
-    auto& entry = m_listViewAccentCache[listView];
-    const bool needsBrush = !entry.backgroundBrush || entry.accentColor != accent;
-    const bool needsPen = !entry.focusPen || entry.textColor != text;
-
-    if (needsBrush || needsPen) {
-        if (entry.backgroundBrush) {
-            DeleteObject(entry.backgroundBrush);
-            entry.backgroundBrush = nullptr;
-        }
-        if (entry.focusPen) {
-            DeleteObject(entry.focusPen);
-            entry.focusPen = nullptr;
-        }
-    }
-
-    if (!entry.backgroundBrush) {
-        entry.backgroundBrush = CreateSolidBrush(accent);
-        if (!entry.backgroundBrush) {
-            m_listViewAccentCache.erase(listView);
-            return false;
-        }
-    }
-
-    if (!entry.focusPen) {
-        entry.focusPen = CreatePen(PS_SOLID, 1, text);
-        if (!entry.focusPen) {
-            entry.focusPen = nullptr;
-        }
-    }
-
-    entry.accentColor = accent;
-    entry.textColor = text;
-
-    if (resources) {
-        *resources = &entry;
-    }
-    return true;
-}
-
 void CExplorerBHO::RefreshListViewAccentState() {
-    ClearListViewAccentResources();
-    if (m_listView && IsWindow(m_listView)) {
+    if (m_listViewControl) {
+        auto resolver = [this](COLORREF* accent, COLORREF* text) {
+            return ResolveActiveGroupAccent(accent, text);
+        };
+        m_listViewControl->SetAccentColorResolver(resolver);
+        m_listViewControl->SetUseAccentColors(ShouldUseListViewAccentColors());
+    } else if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, FALSE);
     }
     InvalidateNamespaceTreeControl();
-}
-
-bool CExplorerBHO::HandleListViewAccentCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result) {
-    if (!draw || !result) {
-        return false;
-    }
-    if (!m_listView || draw->nmcd.hdr.hwndFrom != m_listView) {
-        return false;
-    }
-    if (!ShouldUseListViewAccentColors()) {
-        return false;
-    }
-
-    ListViewAccentResources* resources = nullptr;
-    if (!EnsureListViewAccentResources(m_listView, &resources) || !resources) {
-        return false;
-    }
-
-    const DWORD stage = draw->nmcd.dwDrawStage;
-    if (stage == CDDS_PREPAINT) {
-        *result |= (CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT);
-        return true;
-    }
-
-    if ((stage & CDDS_SUBITEM) != 0) {
-        if (draw->iSubItem != 0) {
-            return false;
-        }
-    }
-
-    if (stage == CDDS_ITEMPREPAINT || stage == (CDDS_ITEMPREPAINT | CDDS_SUBITEM)) {
-        if ((draw->nmcd.uItemState & CDIS_SELECTED) == 0) {
-            return false;
-        }
-
-        FillRect(draw->nmcd.hdc, &draw->nmcd.rc, resources->backgroundBrush);
-        draw->clrText = resources->textColor;
-        draw->clrTextBk = resources->accentColor;
-        *result |= CDRF_NEWFONT;
-        return true;
-    }
-
-    if (stage == CDDS_ITEMPOSTPAINT) {
-        if ((draw->nmcd.uItemState & CDIS_SELECTED) == 0) {
-            return false;
-        }
-        if ((draw->nmcd.uItemState & CDIS_FOCUS) != 0 && resources->focusPen) {
-            RECT focusRect = draw->nmcd.rc;
-            if (focusRect.right > focusRect.left && focusRect.bottom > focusRect.top) {
-                InflateRect(&focusRect, -1, -1);
-                HPEN oldPen = static_cast<HPEN>(SelectObject(draw->nmcd.hdc, resources->focusPen));
-                HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(draw->nmcd.hdc, GetStockObject(HOLLOW_BRUSH)));
-                Rectangle(draw->nmcd.hdc, focusRect.left, focusRect.top, focusRect.right, focusRect.bottom);
-                SelectObject(draw->nmcd.hdc, oldBrush);
-                SelectObject(draw->nmcd.hdc, oldPen);
-            }
-        }
-        return true;
-    }
-
-    return false;
 }
 
 bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -3957,8 +3502,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     const bool isDirectUiHost = (hwnd == m_directUiView);
     const bool isDirectUiClass = MatchesClass(hwnd, L"DirectUIHWND");
     const bool isListViewHost = (m_listViewHostSubclassed.find(hwnd) != m_listViewHostSubclassed.end());
-    const bool isDirectUi = isDirectUiHost || isDirectUiClass;
-    const bool handlesBackground = isListView || isDirectUi || isListViewHost;
     const bool isShellViewWindow = (hwnd == m_shellViewWindow);
     const bool isGlowSurface = (m_glowSurfaces.find(hwnd) != m_glowSurfaces.end());
 
@@ -4008,39 +3551,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         return true;
     }
 
-    if (isListView && msg == WM_SHELLTABS_LISTVIEW_BACKGROUND_READY) {
-        std::unique_ptr<ListViewBackgroundReadyMessage> payload(
-            reinterpret_cast<ListViewBackgroundReadyMessage*>(wParam));
-        if (payload) {
-            const bool matchesGeneration =
-                payload->generation == m_listViewBackgroundJobState.generation;
-            const bool matchesSize = m_listViewBackgroundJobState.size.cx == payload->size.cx &&
-                                     m_listViewBackgroundJobState.size.cy == payload->size.cy;
-            const bool matchesKey = m_listViewBackgroundJobState.cacheKey == payload->cacheKey;
-            if (matchesGeneration && matchesSize && matchesKey) {
-                if (payload->bitmap) {
-                    m_listViewBackgroundSurface.bitmap = std::move(payload->bitmap);
-                    m_listViewBackgroundSurface.size = payload->size;
-                    m_listViewBackgroundSurface.cacheKey = std::move(payload->cacheKey);
-                    m_listViewBackgroundSurface.pending = false;
-                    if (IsWindow(m_listView)) {
-                        InvalidateRect(m_listView, nullptr, TRUE);
-                    }
-                } else {
-                    m_listViewBackgroundSurface.bitmap.reset();
-                    m_listViewBackgroundSurface.size = {0, 0};
-                    m_listViewBackgroundSurface.cacheKey.clear();
-                    m_listViewBackgroundSurface.pending = false;
-                }
-
-                m_listViewBackgroundJobState = {};
-                m_listViewBackgroundWorker = std::jthread();
-            }
-        }
-        *result = 0;
-        return true;
-    }
-
     if ((isShellViewWindow || isDirectUiHost || isListViewHost) &&
         (msg == WM_WINDOWPOSCHANGED || msg == WM_SHOWWINDOW || msg == WM_SIZE || msg == WM_PAINT)) {
         EnsureListViewSubclass();
@@ -4048,43 +3558,9 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     }
 
     switch (msg) {
-        case WM_ERASEBKGND: {
-            if (handlesBackground) {
-                HDC dc = reinterpret_cast<HDC>(wParam);
-                if (dc && DrawFolderBackground(hwnd, dc)) {
-                    *result = 1;
-                    return true;
-                }
-            }
-            break;
-        }
+        case WM_PAINT:
+        case WM_ERASEBKGND:
         case WM_PRINTCLIENT: {
-            if (handlesBackground) {
-                HDC dc = reinterpret_cast<HDC>(wParam);
-                if (dc) {
-                    DrawFolderBackground(hwnd, dc);
-                }
-            }
-            break;
-        }
-        case WM_PAINT: {
-            if (handlesBackground) {
-                if (wParam) {
-                    DrawFolderBackground(hwnd, reinterpret_cast<HDC>(wParam));
-                } else {
-                    RECT update{};
-                    if (GetUpdateRect(hwnd, &update, FALSE)) {
-                        HDC dc = GetDCEx(hwnd, nullptr, DCX_CACHE | DCX_CLIPCHILDREN | DCX_CLIPSIBLINGS | DCX_WINDOW);
-                        if (dc) {
-                            DrawFolderBackground(hwnd, dc);
-                            ReleaseDC(hwnd, dc);
-                        }
-                    }
-                }
-            }
-            if (isListView && ShouldUseListViewAccentColors()) {
-                EnsureListViewAccentResources(hwnd, nullptr);
-            }
             break;
         }
         case WM_PARENTNOTIFY: {
@@ -4109,13 +3585,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_THEMECHANGED:
         case WM_SETTINGCHANGE:
         case WM_DWMCOLORIZATIONCOLORCHANGED: {
-            if (handlesBackground) {
-                InvalidateRect(hwnd, nullptr, TRUE);
-            }
             if (isListView) {
                 RefreshListViewAccentState();
                 if (msg != WM_DWMCOLORIZATIONCOLORCHANGED) {
-                    ClearListViewBackgroundImage();
+                    RefreshListViewControlBackground();
                 }
             }
 
@@ -4143,9 +3616,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             break;
         }
         case WM_DPICHANGED: {
-            if (handlesBackground) {
-                InvalidateRect(hwnd, nullptr, TRUE);
-            }
             if (isGlowSurface) {
                 auto glow = m_glowSurfaces.find(hwnd);
                 if (glow != m_glowSurfaces.end() && glow->second) {
@@ -4155,11 +3625,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             break;
         }
         case WM_SIZE: {
-            if (handlesBackground) {
-                InvalidateRect(hwnd, nullptr, TRUE);
-            }
             if (isListView) {
-                ClearListViewBackgroundImage();
+                RefreshListViewControlBackground();
             }
             break;
         }
@@ -4174,12 +3641,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
             if (m_namespaceTreeHost && header->hwndFrom == m_namespaceTreeHost->GetWindow()) {
                 if (m_namespaceTreeHost->HandleNotify(header, result)) {
-                    handled = true;
-                }
-            }
-            if (header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
-                auto* draw = reinterpret_cast<NMLVCUSTOMDRAW*>(const_cast<NMHDR*>(header));
-                if (HandleListViewAccentCustomDraw(draw, result)) {
                     handled = true;
                 }
             }
@@ -7621,10 +7082,8 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 
     if (msg == WM_NCDESTROY) {
         if (hwnd == self->m_listView) {
-            self->ClearListViewAccentResources(hwnd);
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
-            self->m_paneHooks.SetListView(nullptr);
         } else if (hwnd == self->m_listViewControlWindow) {
             self->m_listViewControlWindow = nullptr;
             self->m_listViewControl.reset();

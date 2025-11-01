@@ -348,30 +348,10 @@ void InvalidateTreeItemBranch(HWND treeView, HTREEITEM item) {
 
 }  // namespace
 
-PaneHookRouter::PaneHookRouter(PaneHighlightProvider* provider) : m_provider(provider) {}
+PaneHookRouter::PaneHookRouter() = default;
 
 PaneHookRouter::~PaneHookRouter() {
     Reset();
-}
-
-void PaneHookRouter::SetHighlightProvider(PaneHighlightProvider* provider) {
-    m_provider = provider;
-}
-
-void PaneHookRouter::SetListView(HWND listView) {
-    if (m_listView == listView) {
-        return;
-    }
-
-    if (m_listView) {
-        UnsubscribeListViewForHighlights(m_listView);
-    }
-
-    m_listView = listView;
-
-    if (m_listView) {
-        SubscribeListViewForHighlights(m_listView);
-    }
 }
 
 void PaneHookRouter::SetTreeView(
@@ -398,7 +378,6 @@ void PaneHookRouter::SetTreeView(
 }
 
 void PaneHookRouter::Reset() {
-    SetListView(nullptr);
     SetTreeView(nullptr);
 }
 
@@ -407,72 +386,10 @@ bool PaneHookRouter::HandleNotify(const NMHDR* header, LRESULT* result) {
         return false;
     }
 
-    if (header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
-        auto* draw = reinterpret_cast<NMLVCUSTOMDRAW*>(const_cast<NMHDR*>(header));
-        return HandleListCustomDraw(draw, result);
-    }
-
     if (m_treeControl && header->hwndFrom == m_treeView) {
         if (m_treeControl->HandleNotify(header, result)) {
             return true;
         }
-    }
-
-    return false;
-}
-
-bool PaneHookRouter::HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result) {
-    if (!draw || !result) {
-        return false;
-    }
-
-    auto applyHighlight = [&](int itemIndex, bool isSubItemStage) {
-        if (!m_provider || !m_listView) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        if (itemIndex < 0) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        PaneHighlight highlight{};
-        if (!m_provider->TryGetListViewHighlight(m_listView, itemIndex, &highlight)) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        bool applied = false;
-        if (highlight.hasTextColor) {
-            draw->clrText = highlight.textColor;
-            applied = true;
-        }
-        if (highlight.hasBackgroundColor) {
-            draw->clrTextBk = highlight.backgroundColor;
-            applied = true;
-        }
-
-        *result = applied ? CDRF_NEWFONT : CDRF_DODEFAULT;
-        if (!isSubItemStage) {
-            *result |= CDRF_NOTIFYSUBITEMDRAW;
-        }
-        return true;
-    };
-
-    switch (draw->nmcd.dwDrawStage) {
-        case CDDS_PREPAINT: {
-            *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW;
-            return true;
-        }
-        case CDDS_ITEMPREPAINT:
-        case CDDS_ITEMPREPAINT | CDDS_SUBITEM: {
-            const int index = static_cast<int>(draw->nmcd.dwItemSpec);
-            const bool isSubItemStage = (draw->nmcd.dwDrawStage & CDDS_SUBITEM) != 0;
-            return applyHighlight(index, isSubItemStage);
-        }
-        default:
-            break;
     }
 
     return false;
