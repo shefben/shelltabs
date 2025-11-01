@@ -25,6 +25,12 @@ enum class ExplorerSurfaceKind {
 
 class ExplorerGlowRenderer {
 public:
+    struct SurfaceState {
+        ExplorerSurfaceKind kind = ExplorerSurfaceKind::ListView;
+        UINT dpiX = 96;
+        UINT dpiY = 96;
+    };
+
     ExplorerGlowRenderer();
 
     void Configure(const ShellTabsOptions& options);
@@ -45,12 +51,6 @@ public:
 private:
     struct HandleHasher {
         size_t operator()(HWND hwnd) const noexcept { return reinterpret_cast<size_t>(hwnd); }
-    };
-
-    struct SurfaceState {
-        ExplorerSurfaceKind kind = ExplorerSurfaceKind::ListView;
-        UINT dpiX = 96;
-        UINT dpiY = 96;
     };
 
     struct GlowColorSet {
