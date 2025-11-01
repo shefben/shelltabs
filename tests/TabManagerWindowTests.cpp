@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -300,6 +301,109 @@ bool TestLookupAfterMovesAndRemovals() {
     return true;
 }
 
+bool TestActivationOrderSnapshot() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    const auto first = manager.Add({}, L"One", L"One", false);
+    const auto second = manager.Add({}, L"Two", L"Two", false);
+    const auto third = manager.Add({}, L"Three", L"Three", false);
+
+    auto* firstTab = manager.Get(first);
+    auto* secondTab = manager.Get(second);
+    auto* thirdTab = manager.Get(third);
+    if (!firstTab || !secondTab || !thirdTab) {
+        PrintFailure(L"TestActivationOrderSnapshot", L"Failed to retrieve inserted tabs");
+        return false;
+    }
+
+    firstTab->activationOrdinal = 10;
+    firstTab->lastActivatedTick = 100;
+    firstTab->activationEpoch = 0;
+    secondTab->activationOrdinal = 20;
+    secondTab->lastActivatedTick = 300;
+    secondTab->activationEpoch = 0;
+    thirdTab->activationOrdinal = 5;
+    thirdTab->lastActivatedTick = 200;
+    thirdTab->activationEpoch = 0;
+
+    manager.RebuildIndices();
+
+    const auto fullOrder = manager.GetTabsByActivationOrder(true);
+    if (fullOrder.size() != 3 || fullOrder[0].groupIndex != second.groupIndex ||
+        fullOrder[0].tabIndex != second.tabIndex || fullOrder[1].groupIndex != first.groupIndex ||
+        fullOrder[1].tabIndex != first.tabIndex || fullOrder[2].groupIndex != third.groupIndex ||
+        fullOrder[2].tabIndex != third.tabIndex) {
+        PrintFailure(L"TestActivationOrderSnapshot", L"Unexpected MRU order for all tabs");
+        return false;
+    }
+
+    manager.HideTab(second);
+    const auto visibleOrder = manager.GetTabsByActivationOrder(false);
+    if (visibleOrder.size() != 2 || visibleOrder[0].groupIndex != first.groupIndex ||
+        visibleOrder[0].tabIndex != first.tabIndex || visibleOrder[1].groupIndex != third.groupIndex ||
+        visibleOrder[1].tabIndex != third.tabIndex) {
+        PrintFailure(L"TestActivationOrderSnapshot", L"Unexpected MRU order after filtering hidden tab");
+        return false;
+    }
+
+    return true;
+}
+
+bool TestActivationOrderWrapAndTickRegression() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    const auto first = manager.Add({}, L"First", L"First", false);
+    const auto second = manager.Add({}, L"Second", L"Second", false);
+
+    auto* firstTab = manager.Get(first);
+    auto* secondTab = manager.Get(second);
+    if (!firstTab || !secondTab) {
+        PrintFailure(L"TestActivationOrderWrapAndTickRegression", L"Failed to retrieve inserted tabs");
+        return false;
+    }
+
+    const uint64_t maxOrdinal = std::numeric_limits<uint64_t>::max();
+    firstTab->activationOrdinal = maxOrdinal;
+    firstTab->lastActivatedTick = 9000;
+    firstTab->activationEpoch = 0;
+    secondTab->activationOrdinal = maxOrdinal;
+    secondTab->lastActivatedTick = 8000;
+    secondTab->activationEpoch = 0;
+
+    manager.RebuildIndices();
+
+    manager.m_lastActivationOrdinalSeen = maxOrdinal;
+    manager.m_lastActivationTickSeen = 9000;
+    manager.m_activationEpoch = 0;
+
+    secondTab->activationOrdinal = 1;
+    secondTab->lastActivatedTick = 5;
+    manager.ActivationUpdateTab(second);
+
+    auto order = manager.GetTabsByActivationOrder(true);
+    if (order.empty() || order[0].groupIndex != second.groupIndex || order[0].tabIndex != second.tabIndex) {
+        PrintFailure(L"TestActivationOrderWrapAndTickRegression", L"Ordinal wrap did not promote updated tab");
+        return false;
+    }
+
+    manager.m_lastActivationOrdinalSeen = maxOrdinal;
+    manager.m_lastActivationTickSeen = 5000;
+
+    firstTab->activationOrdinal = maxOrdinal;
+    firstTab->lastActivatedTick = 1;
+    manager.ActivationUpdateTab(first);
+
+    order = manager.GetTabsByActivationOrder(true);
+    if (order.empty() || order[0].groupIndex != first.groupIndex || order[0].tabIndex != first.tabIndex) {
+        PrintFailure(L"TestActivationOrderWrapAndTickRegression", L"Tick regression did not promote updated tab");
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -310,6 +414,8 @@ int wmain() {
         {L"TestCollectProgressSnapshot", &TestCollectProgressSnapshot},
         {L"TestGroupAggregateMaintenance", &TestGroupAggregateMaintenance},
         {L"TestLookupAfterMovesAndRemovals", &TestLookupAfterMovesAndRemovals},
+        {L"TestActivationOrderSnapshot", &TestActivationOrderSnapshot},
+        {L"TestActivationOrderWrapAndTickRegression", &TestActivationOrderWrapAndTickRegression},
     };
 
     bool success = true;
