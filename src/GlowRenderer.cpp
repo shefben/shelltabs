@@ -508,6 +508,8 @@ void ExplorerGlowRenderer::InvalidateSurface(HWND hwnd, const SurfaceState& stat
     for (const RECT& rect : rects) {
         InvalidateRect(hwnd, &rect, FALSE);
     }
+}
+
 bool ExplorerGlowRenderer::RefreshAccessibilityState() {
     const bool isHighContrast = IsSystemHighContrastActive();
     if (m_highContrastActive != isHighContrast) {
