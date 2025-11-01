@@ -590,7 +590,7 @@ bool ShellTabsListView::HitTest(const POINT& clientPoint, HitTestResult* result)
         return false;
     }
 
-    LVHITTESTINFOW hit{};
+    LVHITTESTINFO hit{};
     hit.pt = clientPoint;
     const int index = ListView_SubItemHitTest(m_listView, &hit);
     if (index < 0) {
