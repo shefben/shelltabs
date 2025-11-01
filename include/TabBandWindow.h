@@ -69,6 +69,7 @@ public:
         kWhitespace,
         kGroupHeader,
         kTab,
+        kNewTab,
     };
 
     struct HitInfo {
@@ -80,7 +81,9 @@ public:
         bool after = false;
         bool closeButton = false;
 
-        bool IsWhitespace() const noexcept { return hit && type == HitType::kWhitespace; }
+        bool IsWhitespace() const noexcept {
+            return hit && (type == HitType::kWhitespace || type == HitType::kNewTab);
+        }
         bool IsTab() const noexcept { return hit && type == HitType::kTab && location.IsValid(); }
     };
 
@@ -154,6 +157,8 @@ private:
     struct LayoutResult {
         std::vector<VisualItem> items;
         int rowCount = 0;
+        RECT newTabBounds{};
+        bool newTabVisible = false;
     };
 
     struct VisualItemReuseContext {
@@ -390,8 +395,9 @@ private:
         bool m_rebarSubclassed = false;
         struct EmptyIslandPlus {
                 int   groupIndex = -1;
-                RECT  rect{};   // click target for "+"
-	};
+                RECT  plus{};
+                RECT  placeholder{};
+        };
         bool m_rebarIntegrationDirty = true;
         HWND m_lastIntegratedRebar = nullptr;
         HWND m_lastIntegratedFrame = nullptr;
@@ -399,7 +405,8 @@ private:
         bool m_rebarNeedsRepaint = false;
 
 	// Render-time cache of empty-island "+" hit targets
-	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
+        std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
+        RECT m_newTabBounds{};
 	// Site/browser for current Explorer window
         Microsoft::WRL::ComPtr<IUnknown> m_siteUnknown;
         Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
