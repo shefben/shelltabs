@@ -7130,6 +7130,9 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
             runActive = false;
         };
 
+        const LONG clipTop = clipRect.top;
+        const LONG clipBottom = clipRect.bottom;
+
         for (const CharacterMetrics& character : characters) {
             const bool isSelected = character.index >= static_cast<int>(selectionStart) &&
                                    character.index < static_cast<int>(selectionEnd);
@@ -7142,13 +7145,15 @@ bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
             const double charRight = character.x + character.width;
             int charTop = static_cast<int>(std::floor(character.y));
             int charBottom = charTop + lineHeight;
-            charTop = std::clamp(charTop, clipRect.top, clipRect.bottom);
-            charBottom = std::clamp(charBottom, clipRect.top, clipRect.bottom);
+            charTop = static_cast<int>(
+                std::clamp<LONG>(static_cast<LONG>(charTop), clipTop, clipBottom));
+            charBottom = static_cast<int>(
+                std::clamp<LONG>(static_cast<LONG>(charBottom), clipTop, clipBottom));
             if (charBottom <= charTop) {
-                charBottom = std::min(clipRect.bottom, charTop + lineHeight);
+                charBottom = std::min<int>(static_cast<int>(clipBottom), charTop + lineHeight);
             }
             if (charBottom <= charTop) {
-                charBottom = std::min(clipRect.bottom, charTop + 1);
+                charBottom = std::min<int>(static_cast<int>(clipBottom), charTop + 1);
             }
 
             if (!runActive) {

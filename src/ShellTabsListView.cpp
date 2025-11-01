@@ -32,6 +32,14 @@ int ListView_FindItemW(HWND hwnd, int start, const LVFINDINFOW* findInfo) {
 }
 #endif
 
+#ifndef ListView_InsertColumnW
+int ListView_InsertColumnW(HWND hwnd, int column, const LVCOLUMNW* info) {
+    return static_cast<int>(SendMessageW(
+        hwnd, LVM_INSERTCOLUMNW, static_cast<WPARAM>(column),
+        reinterpret_cast<LPARAM>(info)));
+}
+#endif
+
 bool CopyTextToBuffer(std::wstring_view text, wchar_t* buffer, int bufferChars) {
     if (!buffer || bufferChars <= 0) {
         return false;
@@ -239,7 +247,7 @@ LRESULT ShellTabsListView::OnNotify(const NMHDR* header) {
             break;
         }
         case LVN_ITEMCHANGING: {
-            auto* change = reinterpret_cast<NMLVITEMCHANGE*>(const_cast<NMHDR*>(header));
+            auto* change = reinterpret_cast<NMLISTVIEW*>(const_cast<NMHDR*>(header));
             HandleItemChanging(change);
             break;
         }
@@ -321,7 +329,7 @@ void ShellTabsListView::HandleCacheHint(const NMLVCACHEHINT* hint) {
     PruneCache(keepFrom, keepTo);
 }
 
-void ShellTabsListView::HandleItemChanging(NMLVITEMCHANGE* change) {
+void ShellTabsListView::HandleItemChanging(NMLISTVIEW* change) {
     if (!change || change->iItem < 0) {
         return;
     }

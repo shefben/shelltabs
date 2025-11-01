@@ -101,7 +101,7 @@ private:
     LRESULT OnNotify(const NMHDR* header);
     bool HandleGetDispInfo(NMLVDISPINFOW* info);
     void HandleCacheHint(const NMLVCACHEHINT* hint);
-    void HandleItemChanging(NMLVITEMCHANGE* change);
+    void HandleItemChanging(NMLISTVIEW* change);
     CachedItem* EnsureCachedItem(int index);
     void PruneCache(int keepFrom, int keepTo);
     int ResolveIconIndex(PCIDLIST_ABSOLUTE pidl) const;
