@@ -223,6 +223,12 @@ private:
     void RecalculateNextActivationOrdinal();
     void NormalizePinnedOrder(TabGroup& group);
     void RebuildIndices();
+    void IndexInsertTab(TabLocation location);
+    void IndexRemoveTab(TabLocation location, const TabInfo& tab);
+    void IndexInsertGroup(int groupIndex);
+    void IndexRemoveGroup(int groupIndex, const TabGroup& group);
+    void IndexShiftTabs(int groupIndex, int startTabIndex, int delta);
+    void IndexShiftGroups(int startGroupIndex, int delta);
     static bool IsBetterActivation(uint64_t candidateOrdinal, ULONGLONG candidateTick, int candidateIndex,
                                    uint64_t bestOrdinal, ULONGLONG bestTick, int bestIndex) noexcept;
     static void ResetGroupAggregates(TabGroup& group) noexcept;
