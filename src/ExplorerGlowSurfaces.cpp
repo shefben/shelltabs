@@ -1059,8 +1059,8 @@ protected:
             trackRect.top = adjustedTop;
             trackRect.bottom = adjustedBottom;
 
-            const LONG thumbTop = std::clamp(info.xyThumbTop, trackRect.top, trackRect.bottom);
-            const LONG thumbBottom = std::clamp(info.xyThumbBottom, thumbTop, trackRect.bottom);
+            const LONG thumbTop = std::clamp<LONG>(info.xyThumbTop, trackRect.top, trackRect.bottom);
+            const LONG thumbBottom = std::clamp<LONG>(info.xyThumbBottom, thumbTop, trackRect.bottom);
             thumbRect.top = thumbTop;
             thumbRect.bottom = thumbBottom;
         } else {
@@ -1069,8 +1069,8 @@ protected:
             trackRect.left = adjustedLeft;
             trackRect.right = adjustedRight;
 
-            const LONG thumbLeft = std::clamp(info.xyThumbTop, trackRect.left, trackRect.right);
-            const LONG thumbRight = std::clamp(info.xyThumbBottom, thumbLeft, trackRect.right);
+            const LONG thumbLeft = std::clamp<LONG>(info.xyThumbTop, trackRect.left, trackRect.right);
+            const LONG thumbRight = std::clamp<LONG>(info.xyThumbBottom, thumbLeft, trackRect.right);
             thumbRect.left = thumbLeft;
             thumbRect.right = thumbRight;
         }
