@@ -12,6 +12,8 @@ constexpr UINT WM_SHELLTABS_CLOSE_TABS_LEFT = WM_APP + 67;
 constexpr UINT WM_SHELLTABS_LISTVIEW_BACKGROUND_READY = WM_APP + 68;
 constexpr UINT WM_SHELLTABS_INITIALIZATION_COMPLETE = WM_APP + 81;
 
+constexpr ULONG_PTR SHELLTABS_COPYDATA_OPEN_FOLDER = 0x53544F46;  // 'STOF'
+
 struct OpenFolderMessagePayload {
     const wchar_t* path = nullptr;
     size_t length = 0;

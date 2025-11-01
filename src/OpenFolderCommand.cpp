@@ -22,6 +22,7 @@
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
+#include "ShellTabsMessages.h"
 #include "Utilities.h"
 
 namespace shelltabs {
