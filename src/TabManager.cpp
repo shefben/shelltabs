@@ -95,8 +95,19 @@ std::wstring BuildLookupKey(PCIDLIST_ABSOLUTE pidl, const std::wstring& storedPa
 }
 
 std::wstring BuildLookupKey(const TabInfo& tab) {
+    if (!tab.normalizedLookupKey.empty()) {
+        return tab.normalizedLookupKey;
+    }
     return BuildLookupKey(tab.pidl.get(), tab.path);
 }
+
+}  // namespace
+
+void TabInfo::RefreshNormalizedLookupKey() {
+    normalizedLookupKey = BuildLookupKey(pidl.get(), path);
+}
+
+namespace {
 
 bool LocationLess(const TabLocation& lhs, const TabLocation& rhs) noexcept {
     if (lhs.groupIndex != rhs.groupIndex) {
@@ -105,6 +116,28 @@ bool LocationLess(const TabLocation& lhs, const TabLocation& rhs) noexcept {
     return lhs.tabIndex < rhs.tabIndex;
 }
 }  // namespace
+
+bool TabManager::ActivationPrecedes(const ActivationEntry& lhs, const ActivationEntry& rhs) noexcept {
+    if (lhs.epoch != rhs.epoch) {
+        return lhs.epoch > rhs.epoch;
+    }
+    if (lhs.ordinal != rhs.ordinal) {
+        return lhs.ordinal > rhs.ordinal;
+    }
+    if (lhs.tick != rhs.tick) {
+        return lhs.tick > rhs.tick;
+    }
+    if (lhs.location.groupIndex != rhs.location.groupIndex) {
+        return lhs.location.groupIndex < rhs.location.groupIndex;
+    }
+    return lhs.location.tabIndex < rhs.location.tabIndex;
+}
+
+uint64_t TabManager::EncodeActivationKey(TabLocation location) noexcept {
+    const uint64_t groupPart = static_cast<uint64_t>(static_cast<uint32_t>(location.groupIndex));
+    const uint64_t tabPart = static_cast<uint64_t>(static_cast<uint32_t>(location.tabIndex));
+    return (groupPart << 32) | tabPart;
+}
 
 uint64_t ComputeTabViewStableId(const TabViewItem& item) noexcept {
     uint64_t hash = static_cast<uint64_t>(item.type);
@@ -320,43 +353,18 @@ TabLocation TabManager::GetLastActivatedTab(bool includeHidden) const {
 }
 
 std::vector<TabLocation> TabManager::GetTabsByActivationOrder(bool includeHidden) const {
-    struct Candidate {
-        TabLocation location;
-        uint64_t ordinal;
-        ULONGLONG tick;
-    };
-
-    std::vector<Candidate> candidates;
-    candidates.reserve(static_cast<size_t>(TotalTabCount()));
-    for (size_t g = 0; g < m_groups.size(); ++g) {
-        const auto& group = m_groups[g];
-        for (size_t t = 0; t < group.tabs.size(); ++t) {
-            const auto& tab = group.tabs[t];
-            if (!includeHidden && tab.hidden) {
-                continue;
-            }
-            candidates.push_back({{static_cast<int>(g), static_cast<int>(t)}, tab.activationOrdinal,
-                                  tab.lastActivatedTick});
-        }
-    }
-
-    std::sort(candidates.begin(), candidates.end(), [](const Candidate& lhs, const Candidate& rhs) {
-        if (lhs.ordinal != rhs.ordinal) {
-            return lhs.ordinal > rhs.ordinal;
-        }
-        if (lhs.tick != rhs.tick) {
-            return lhs.tick > rhs.tick;
-        }
-        if (lhs.location.groupIndex != rhs.location.groupIndex) {
-            return lhs.location.groupIndex < rhs.location.groupIndex;
-        }
-        return lhs.location.tabIndex < rhs.location.tabIndex;
-    });
-
     std::vector<TabLocation> order;
-    order.reserve(candidates.size());
-    for (const auto& candidate : candidates) {
-        order.emplace_back(candidate.location);
+    order.reserve(m_activationOrder.size());
+    for (const auto& entry : m_activationOrder) {
+        const TabLocation location = entry.location;
+        const TabInfo* tab = Get(location);
+        if (!tab) {
+            continue;
+        }
+        if (!includeHidden && tab->hidden) {
+            continue;
+        }
+        order.emplace_back(location);
     }
     return order;
 }
@@ -387,6 +395,7 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
         canonicalPath = GetParsingName(info.pidl.get());
     }
     info.path = std::move(canonicalPath);
+    info.RefreshNormalizedLookupKey();
 
     auto& group = m_groups[static_cast<size_t>(groupIndex)];
     const int desiredIndex = info.pinned ? CountLeadingPinned(group)
@@ -537,6 +546,8 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
 
     const TabLocation previousSelection = SelectedLocation();
 
+    tab.RefreshNormalizedLookupKey();
+
     if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = std::clamp(groupIndex, 0, static_cast<int>(m_groups.size()) - 1);
     }
@@ -609,6 +620,11 @@ int TabManager::InsertGroup(TabGroup group, int insertIndex) {
 
     const auto position = m_groups.begin() + insertIndex;
     m_groups.insert(position, std::move(group));
+    for (auto& tab : m_groups[static_cast<size_t>(insertIndex)].tabs) {
+        if (tab.normalizedLookupKey.empty()) {
+            tab.RefreshNormalizedLookupKey();
+        }
+    }
     RefreshGroupAggregates(m_groups[static_cast<size_t>(insertIndex)]);
 
     if (m_selectedGroup >= insertIndex) {
@@ -633,6 +649,11 @@ void TabManager::Clear() {
     m_selectedTab = -1;
     m_groupSequence = 1;
     m_nextActivationOrdinal = 1;
+    m_activationEpoch = 0;
+    m_lastActivationOrdinalSeen = 0;
+    m_lastActivationTickSeen = 0;
+    m_activationOrder.clear();
+    m_activationLookup.clear();
     EnsureDefaultGroup();
     m_locationIndex.clear();
     MarkLayoutDirty();
@@ -1072,16 +1093,20 @@ TabLocation TabManager::ScanForPath(const std::wstring& path) const {
 void TabManager::RebuildIndices() {
     m_locationIndex.clear();
     for (size_t g = 0; g < m_groups.size(); ++g) {
-        const auto& group = m_groups[g];
+        auto& group = m_groups[g];
         for (size_t t = 0; t < group.tabs.size(); ++t) {
-            const auto& tab = group.tabs[t];
-            const std::wstring key = BuildLookupKey(tab);
+            auto& tab = group.tabs[t];
+            if (tab.normalizedLookupKey.empty()) {
+                tab.RefreshNormalizedLookupKey();
+            }
+            const std::wstring& key = tab.normalizedLookupKey;
             if (key.empty()) {
                 continue;
             }
             m_locationIndex[key].push_back({static_cast<int>(g), static_cast<int>(t)});
         }
     }
+    RebuildActivationOrder();
 }
 
 void TabManager::IndexShiftTabs(int groupIndex, int startTabIndex, int delta) {
@@ -1095,6 +1120,7 @@ void TabManager::IndexShiftTabs(int groupIndex, int startTabIndex, int delta) {
             }
         }
     }
+    ActivationShiftTabs(groupIndex, startTabIndex, delta);
 }
 
 void TabManager::IndexShiftGroups(int startGroupIndex, int delta) {
@@ -1113,17 +1139,19 @@ void TabManager::IndexShiftGroups(int startGroupIndex, int delta) {
             std::sort(locations.begin(), locations.end(), LocationLess);
         }
     }
+    ActivationShiftGroups(startGroupIndex, delta);
 }
 
 void TabManager::IndexInsertTab(TabLocation location) {
     if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
         return;
     }
-    const auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
     if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
         return;
     }
     IndexShiftTabs(location.groupIndex, location.tabIndex, 1);
+    ActivationInsertTab(location);
     const std::wstring key = BuildLookupKey(group.tabs[static_cast<size_t>(location.tabIndex)]);
     if (key.empty()) {
         return;
@@ -1153,6 +1181,7 @@ void TabManager::IndexRemoveTab(TabLocation location, const TabInfo& tab) {
             }
         }
     }
+    ActivationRemoveTab(location);
     IndexShiftTabs(location.groupIndex, location.tabIndex + 1, -1);
 }
 
@@ -1174,6 +1203,143 @@ void TabManager::IndexRemoveGroup(int groupIndex, const TabGroup& group) {
         IndexRemoveTab({groupIndex, i}, group.tabs[static_cast<size_t>(i)]);
     }
     IndexShiftGroups(groupIndex + 1, -1);
+}
+
+void TabManager::RebuildActivationOrder() {
+    m_activationOrder.clear();
+    m_activationLookup.clear();
+    m_activationEpoch = 0;
+    m_lastActivationOrdinalSeen = 0;
+    m_lastActivationTickSeen = 0;
+
+    for (size_t g = 0; g < m_groups.size(); ++g) {
+        const auto& group = m_groups[g];
+        for (size_t t = 0; t < group.tabs.size(); ++t) {
+            const TabLocation location{static_cast<int>(g), static_cast<int>(t)};
+            ActivationInsertTab(location);
+        }
+    }
+}
+
+void TabManager::ActivationInsertTab(TabLocation location) {
+    if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
+        return;
+    }
+    auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
+        return;
+    }
+
+    TabInfo& tab = group.tabs[static_cast<size_t>(location.tabIndex)];
+    const uint64_t key = EncodeActivationKey(location);
+    auto existing = m_activationLookup.find(key);
+    if (existing != m_activationLookup.end()) {
+        m_activationOrder.erase(existing->second);
+        m_activationLookup.erase(existing);
+    }
+
+    ActivationEntry entry;
+    entry.location = location;
+    entry.ordinal = tab.activationOrdinal;
+    entry.tick = tab.lastActivatedTick;
+    entry.epoch = tab.activationEpoch;
+
+    const auto insertPos = std::find_if(m_activationOrder.begin(), m_activationOrder.end(), [&](const ActivationEntry& candidate) {
+        return ActivationPrecedes(entry, candidate);
+    });
+    auto it = m_activationOrder.insert(insertPos, std::move(entry));
+    m_activationLookup[key] = it;
+}
+
+void TabManager::ActivationRemoveTab(TabLocation location) {
+    if (location.groupIndex < 0 || location.tabIndex < 0) {
+        return;
+    }
+    const uint64_t key = EncodeActivationKey(location);
+    auto it = m_activationLookup.find(key);
+    if (it == m_activationLookup.end()) {
+        return;
+    }
+    m_activationOrder.erase(it->second);
+    m_activationLookup.erase(it);
+}
+
+void TabManager::ActivationShiftTabs(int groupIndex, int startTabIndex, int delta) {
+    if (delta == 0 || groupIndex < 0) {
+        return;
+    }
+    for (auto it = m_activationOrder.begin(); it != m_activationOrder.end(); ++it) {
+        auto& entry = *it;
+        if (entry.location.groupIndex == groupIndex && entry.location.tabIndex >= startTabIndex) {
+            const uint64_t oldKey = EncodeActivationKey(entry.location);
+            auto lookupIt = m_activationLookup.find(oldKey);
+            if (lookupIt != m_activationLookup.end()) {
+                m_activationLookup.erase(lookupIt);
+            }
+            entry.location.tabIndex += delta;
+            m_activationLookup[EncodeActivationKey(entry.location)] = it;
+        }
+    }
+}
+
+void TabManager::ActivationShiftGroups(int startGroupIndex, int delta) {
+    if (delta == 0) {
+        return;
+    }
+    for (auto it = m_activationOrder.begin(); it != m_activationOrder.end(); ++it) {
+        auto& entry = *it;
+        if (entry.location.groupIndex >= startGroupIndex) {
+            const uint64_t oldKey = EncodeActivationKey(entry.location);
+            auto lookupIt = m_activationLookup.find(oldKey);
+            if (lookupIt != m_activationLookup.end()) {
+                m_activationLookup.erase(lookupIt);
+            }
+            entry.location.groupIndex += delta;
+            m_activationLookup[EncodeActivationKey(entry.location)] = it;
+        }
+    }
+}
+
+void TabManager::ActivationUpdateTab(TabLocation location) {
+    if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
+        return;
+    }
+    auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
+        return;
+    }
+
+    TabInfo& tab = group.tabs[static_cast<size_t>(location.tabIndex)];
+    const uint64_t key = EncodeActivationKey(location);
+    ActivationEntry entry;
+    auto existing = m_activationLookup.find(key);
+    if (existing != m_activationLookup.end()) {
+        entry = *existing->second;
+        m_activationOrder.erase(existing->second);
+        m_activationLookup.erase(existing);
+    } else {
+        entry.location = location;
+    }
+
+    if (tab.activationOrdinal < m_lastActivationOrdinalSeen ||
+        (tab.activationOrdinal == m_lastActivationOrdinalSeen && tab.lastActivatedTick <= m_lastActivationTickSeen)) {
+        ++m_activationEpoch;
+    }
+
+    m_lastActivationOrdinalSeen = tab.activationOrdinal;
+    m_lastActivationTickSeen = tab.lastActivatedTick;
+
+    entry.location = location;
+    entry.ordinal = tab.activationOrdinal;
+    entry.tick = tab.lastActivatedTick;
+    entry.epoch = m_activationEpoch;
+    tab.activationEpoch = entry.epoch;
+
+    const auto insertPos = std::find_if(m_activationOrder.begin(), m_activationOrder.end(), [&](const ActivationEntry& candidate) {
+        return ActivationPrecedes(entry, candidate);
+    });
+    auto it = m_activationOrder.insert(insertPos, std::move(entry));
+    m_activationLookup[key] = it;
 }
 
 bool TabManager::ApplyProgress(TabLocation location, TabInfo* tab, std::optional<double> fraction,
@@ -1287,6 +1453,9 @@ void TabManager::RefreshGroupAggregates(TabGroup& group) noexcept {
 }
 
 void TabManager::NormalizePinnedOrder(TabGroup& group) {
+    for (auto& tab : group.tabs) {
+        tab.RefreshNormalizedLookupKey();
+    }
     std::stable_partition(group.tabs.begin(), group.tabs.end(), [](const TabInfo& tab) { return tab.pinned; });
     RefreshGroupAggregates(group);
 }
@@ -1452,6 +1621,8 @@ void TabManager::UpdateSelectionActivation(TabLocation previousSelection) {
     if (m_nextActivationOrdinal < std::numeric_limits<uint64_t>::max()) {
         ++m_nextActivationOrdinal;
     }
+
+    ActivationUpdateTab(current);
 
     TabGroup* group = GetGroup(current.groupIndex);
     if (group) {

@@ -159,18 +159,6 @@ bool LoadOptionsStoreForContext(const wchar_t* context, OptionsStore& store) {
 }
 }
 
-struct TabBand::InitializationResult {
-    uint64_t sequence = 0;
-    bool groupStoreLoaded = false;
-    bool optionsLoaded = false;
-    ShellTabsOptions options{};
-    bool sessionStoreAvailable = false;
-    bool lastSessionUnclean = false;
-    bool shouldRestoreSession = false;
-    bool hasSessionData = false;
-    SessionData sessionData;
-};
-
 TabBand::TabBand() : m_refCount(1), m_processedGroupStoreGeneration(0) {
     ModuleAddRef();
     LogMessage(LogLevel::Info, L"TabBand constructed (this=%p)", this);
@@ -2005,6 +1993,7 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
             tab.path = tabData.path;
             tab.lastActivatedTick = tabData.lastActivatedTick;
             tab.activationOrdinal = tabData.activationOrdinal;
+            tab.RefreshNormalizedLookupKey();
             group.tabs.emplace_back(std::move(tab));
         };
 
@@ -2185,10 +2174,12 @@ TabBand::ClosedGroupMetadata TabBand::CaptureGroupMetadata(const TabGroup& group
 }
 
 void TabBand::EnsureTabPath(TabInfo& tab) const {
-    if (!tab.path.empty()) {
-        return;
+    if (tab.path.empty()) {
+        tab.path = GetParsingName(tab.pidl.get());
     }
-    tab.path = GetParsingName(tab.pidl.get());
+    if (tab.normalizedLookupKey.empty()) {
+        tab.RefreshNormalizedLookupKey();
+    }
 }
 
 void TabBand::PushClosedSet(ClosedTabSet set) {
@@ -2429,6 +2420,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->tooltip = name;
             tab->hidden = false;
             tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
+            tab->RefreshNormalizedLookupKey();
             const std::wstring newKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
             if (!oldKey.empty() && oldKey != newKey) {
                 IconCache::Instance().InvalidateFamily(oldKey);
@@ -2447,6 +2439,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             tab->name = name;
             tab->tooltip = name;
             tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
+            tab->RefreshNormalizedLookupKey();
             const std::wstring newKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
             if (!oldKey.empty() && oldKey != newKey) {
                 IconCache::Instance().InvalidateFamily(oldKey);

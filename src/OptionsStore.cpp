@@ -5,11 +5,13 @@
 #include "Utilities.h"
 
 #include <Shlwapi.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <cwchar>
+#include <cwctype>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -18,6 +20,7 @@
 
 namespace shelltabs {
 namespace {
+constexpr int kCurrentOptionsVersion = 2;
 constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
@@ -48,6 +51,13 @@ constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enable
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
+constexpr wchar_t kContextMenuCommandToken[] = L"context_menu_command";
+constexpr wchar_t kContextMenuSubmenuToken[] = L"context_menu_submenu";
+constexpr wchar_t kContextMenuSeparatorToken[] = L"context_menu_separator";
+constexpr wchar_t kContextMenuEndToken[] = L"context_menu_end";
+constexpr wchar_t kContextMenuScopeDelimiter = L',';
+constexpr wchar_t kContextMenuExtensionDelimiter = L';';
+constexpr int kMaxSelectionCount = 4096;
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring FormatLoadError(std::wstring message, DWORD error) {
@@ -205,7 +215,396 @@ std::wstring NormalizeCachePath(const std::wstring& path, const std::wstring& di
     return normalized;
 }
 
+ContextMenuInsertionAnchor ParseContextMenuAnchor(std::wstring_view token) {
+    if (token.empty()) {
+        return ContextMenuInsertionAnchor::kDefault;
+    }
+    if (EqualsIgnoreCase(token, L"top")) {
+        return ContextMenuInsertionAnchor::kTop;
+    }
+    if (EqualsIgnoreCase(token, L"bottom")) {
+        return ContextMenuInsertionAnchor::kBottom;
+    }
+    if (EqualsIgnoreCase(token, L"before_shell")) {
+        return ContextMenuInsertionAnchor::kBeforeShellItems;
+    }
+    if (EqualsIgnoreCase(token, L"after_shell")) {
+        return ContextMenuInsertionAnchor::kAfterShellItems;
+    }
+    return ContextMenuInsertionAnchor::kDefault;
+}
+
+const wchar_t* ContextMenuAnchorToString(ContextMenuInsertionAnchor anchor) {
+    switch (anchor) {
+        case ContextMenuInsertionAnchor::kTop:
+            return L"top";
+        case ContextMenuInsertionAnchor::kBottom:
+            return L"bottom";
+        case ContextMenuInsertionAnchor::kBeforeShellItems:
+            return L"before_shell";
+        case ContextMenuInsertionAnchor::kAfterShellItems:
+            return L"after_shell";
+        default:
+            return L"default";
+    }
+}
+
+ContextMenuItemScope ParseContextMenuScope(std::wstring_view token) {
+    ContextMenuItemScope scope;
+    scope.includeAllFiles = true;
+    scope.includeAllFolders = true;
+
+    if (token.empty()) {
+        return scope;
+    }
+
+    scope.includeAllFiles = false;
+    scope.includeAllFolders = false;
+    bool anyToken = false;
+    for (std::wstring_view part : Split(token, kContextMenuScopeDelimiter)) {
+        const std::wstring trimmed = Trim(part);
+        if (trimmed.empty()) {
+            continue;
+        }
+        anyToken = true;
+        if (EqualsIgnoreCase(trimmed, L"all")) {
+            scope.includeAllFiles = true;
+            scope.includeAllFolders = true;
+            break;
+        }
+        if (EqualsIgnoreCase(trimmed, L"files") || EqualsIgnoreCase(trimmed, L"file")) {
+            scope.includeAllFiles = true;
+            continue;
+        }
+        if (EqualsIgnoreCase(trimmed, L"folders") || EqualsIgnoreCase(trimmed, L"folder")) {
+            scope.includeAllFolders = true;
+            continue;
+        }
+        if (EqualsIgnoreCase(trimmed, L"none")) {
+            scope.includeAllFiles = false;
+            scope.includeAllFolders = false;
+            continue;
+        }
+        if (EqualsIgnoreCase(trimmed, L"extensions") || EqualsIgnoreCase(trimmed, L"ext")) {
+            continue;
+        }
+    }
+
+    if (!anyToken) {
+        scope.includeAllFiles = true;
+        scope.includeAllFolders = true;
+    }
+
+    return scope;
+}
+
+std::wstring BuildContextMenuScopeString(const ContextMenuItemScope& scope) {
+    std::vector<std::wstring> tokens;
+    if (scope.includeAllFiles && scope.includeAllFolders && scope.extensions.empty()) {
+        tokens.emplace_back(L"all");
+    } else {
+        if (scope.includeAllFiles) {
+            tokens.emplace_back(L"files");
+        }
+        if (scope.includeAllFolders) {
+            tokens.emplace_back(L"folders");
+        }
+        if (!scope.extensions.empty()) {
+            tokens.emplace_back(L"extensions");
+        }
+        if (tokens.empty()) {
+            tokens.emplace_back(L"none");
+        }
+    }
+
+    std::wstring result;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (i > 0) {
+            result.push_back(kContextMenuScopeDelimiter);
+        }
+        result += tokens[i];
+    }
+    return result;
+}
+
+std::vector<std::wstring> ParseContextMenuExtensions(std::wstring_view token) {
+    std::vector<std::wstring> extensions;
+    if (token.empty()) {
+        return extensions;
+    }
+
+    for (std::wstring_view part : Split(token, kContextMenuExtensionDelimiter)) {
+        std::wstring trimmed = Trim(part);
+        if (trimmed.empty()) {
+            continue;
+        }
+        extensions.emplace_back(std::move(trimmed));
+    }
+
+    return NormalizeContextMenuExtensions(extensions);
+}
+
+std::wstring BuildContextMenuExtensionsToken(const std::vector<std::wstring>& extensions) {
+    const std::vector<std::wstring> normalized = NormalizeContextMenuExtensions(extensions);
+    std::wstring result;
+    for (size_t i = 0; i < normalized.size(); ++i) {
+        if (i > 0) {
+            result.push_back(kContextMenuExtensionDelimiter);
+        }
+        result += normalized[i];
+    }
+    return result;
+}
+
+int ParseSelectionCount(std::wstring_view token) {
+    if (token.empty()) {
+        return 0;
+    }
+    int value = ParseInt(token);
+    if (value <= 0) {
+        return 0;
+    }
+    if (value > kMaxSelectionCount) {
+        return kMaxSelectionCount;
+    }
+    return value;
+}
+
+void NormalizeContextMenuItem(ContextMenuItem* item) {
+    if (!item) {
+        return;
+    }
+
+    if (item->type == ContextMenuItemType::kSeparator) {
+        item->label.clear();
+        item->commandTemplate.clear();
+    } else {
+        item->label = Trim(item->label);
+        item->commandTemplate = Trim(item->commandTemplate);
+    }
+
+    item->iconSource = NormalizeContextMenuIconSource(item->iconSource);
+    item->scope.extensions = NormalizeContextMenuExtensions(item->scope.extensions);
+
+    if (item->selection.minimumSelection < 0) {
+        item->selection.minimumSelection = 0;
+    }
+    if (item->selection.maximumSelection < 0) {
+        item->selection.maximumSelection = 0;
+    }
+    if (item->selection.maximumSelection > 0 &&
+        item->selection.maximumSelection < item->selection.minimumSelection) {
+        item->selection.maximumSelection = item->selection.minimumSelection;
+    }
+}
+
+void NormalizeContextMenuItems(std::vector<ContextMenuItem>* items) {
+    if (!items) {
+        return;
+    }
+    for (auto& item : *items) {
+        NormalizeContextMenuItem(&item);
+        NormalizeContextMenuItems(&item.children);
+    }
+}
+
+void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenuItem>& items) {
+    for (const auto& item : items) {
+        switch (item.type) {
+            case ContextMenuItemType::kCommand: {
+                content += kContextMenuCommandToken;
+                content += L"|";
+                content += item.label;
+                content += L"|";
+                content += item.commandTemplate;
+                content += L"|";
+                content += NormalizeContextMenuIconSource(item.iconSource);
+                content += L"|";
+                content += ContextMenuAnchorToString(item.anchor);
+                content += L"|";
+                content += BuildContextMenuScopeString(item.scope);
+                content += L"|";
+                content += BuildContextMenuExtensionsToken(item.scope.extensions);
+                content += L"|";
+                content += std::to_wstring(std::max(item.selection.minimumSelection, 0));
+                content += L"|";
+                content += std::to_wstring(item.selection.maximumSelection > 0 ? item.selection.maximumSelection : 0);
+                content += L"\n";
+                break;
+            }
+            case ContextMenuItemType::kSubmenu: {
+                content += kContextMenuSubmenuToken;
+                content += L"|";
+                content += item.label;
+                content += L"|";
+                content += NormalizeContextMenuIconSource(item.iconSource);
+                content += L"|";
+                content += ContextMenuAnchorToString(item.anchor);
+                content += L"|";
+                content += BuildContextMenuScopeString(item.scope);
+                content += L"|";
+                content += BuildContextMenuExtensionsToken(item.scope.extensions);
+                content += L"|";
+                content += std::to_wstring(std::max(item.selection.minimumSelection, 0));
+                content += L"|";
+                content += std::to_wstring(item.selection.maximumSelection > 0 ? item.selection.maximumSelection : 0);
+                content += L"\n";
+                AppendContextMenuItems(content, item.children);
+                content += kContextMenuEndToken;
+                content += L"\n";
+                break;
+            }
+            case ContextMenuItemType::kSeparator: {
+                content += kContextMenuSeparatorToken;
+                content += L"|";
+                content += ContextMenuAnchorToString(item.anchor);
+                content += L"|";
+                content += BuildContextMenuScopeString(item.scope);
+                content += L"|";
+                content += BuildContextMenuExtensionsToken(item.scope.extensions);
+                content += L"|";
+                content += std::to_wstring(std::max(item.selection.minimumSelection, 0));
+                content += L"|";
+                content += std::to_wstring(item.selection.maximumSelection > 0 ? item.selection.maximumSelection : 0);
+                content += L"\n";
+                break;
+            }
+        }
+    }
+}
+
 }  // namespace
+
+std::vector<std::wstring> NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions) {
+    std::vector<std::wstring> normalized;
+    normalized.reserve(extensions.size());
+    for (const auto& ext : extensions) {
+        std::wstring trimmed = Trim(ext);
+        if (trimmed.empty()) {
+            continue;
+        }
+        if (!trimmed.empty() && trimmed.front() != L'.') {
+            trimmed.insert(trimmed.begin(), L'.');
+        }
+        std::transform(trimmed.begin(), trimmed.end(), trimmed.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<unsigned int>(ch)));
+        });
+        if (std::find(normalized.begin(), normalized.end(), trimmed) == normalized.end()) {
+            normalized.emplace_back(std::move(trimmed));
+        }
+    }
+
+    std::sort(normalized.begin(), normalized.end());
+    normalized.erase(std::unique(normalized.begin(), normalized.end()), normalized.end());
+    return normalized;
+}
+
+std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource) {
+    std::wstring trimmed = Trim(iconSource);
+    if (trimmed.empty()) {
+        return {};
+    }
+
+    std::wstring location = trimmed;
+    if (location.size() >= 2 && location.front() == L'"' && location.back() == L'"') {
+        location = location.substr(1, location.size() - 2);
+    }
+
+    std::vector<wchar_t> buffer(location.begin(), location.end());
+    buffer.push_back(L'\0');
+    const int iconIndex = PathParseIconLocationW(buffer.data());
+    std::wstring path(buffer.data());
+    path = Trim(path);
+
+    if (!path.empty() && IsLikelyFileSystemPath(path)) {
+        std::wstring normalizedPath = NormalizeFileSystemPath(path);
+        if (!normalizedPath.empty()) {
+            path = std::move(normalizedPath);
+        }
+    }
+
+    if (path.empty()) {
+        return {};
+    }
+
+    std::wstring result = path;
+    if (location.find(L',') != std::wstring::npos || iconIndex != 0) {
+        result += L",";
+        result += std::to_wstring(static_cast<long long>(iconIndex));
+    }
+    return result;
+}
+
+IconCache::Reference ResolveContextMenuIcon(const std::wstring& iconSource, UINT iconFlags) {
+    const std::wstring normalizedSource = NormalizeContextMenuIconSource(iconSource);
+    if (normalizedSource.empty()) {
+        return {};
+    }
+
+    std::vector<wchar_t> buffer(normalizedSource.begin(), normalizedSource.end());
+    buffer.push_back(L'\0');
+    const int iconIndex = PathParseIconLocationW(buffer.data());
+    std::wstring path(buffer.data());
+    path = Trim(path);
+    if (path.empty()) {
+        return {};
+    }
+
+    const bool wantLarge = (iconFlags & SHGFI_LARGEICON) != 0;
+    const bool wantSmall = (iconFlags & SHGFI_SMALLICON) != 0;
+    const bool requestLarge = wantLarge || !wantSmall;
+    const bool requestSmall = wantSmall || !wantLarge;
+
+    return IconCache::Instance().Acquire(normalizedSource, iconFlags, [path, iconIndex, requestLarge, requestSmall,
+                                                                      wantLarge, wantSmall]() -> HICON {
+        HICON large = nullptr;
+        HICON small = nullptr;
+        const UINT extracted = ExtractIconExW(path.c_str(), iconIndex, requestLarge ? &large : nullptr,
+                                              requestSmall ? &small : nullptr, 1);
+        if (extracted == 0) {
+            if (large) {
+                DestroyIcon(large);
+            }
+            if (small) {
+                DestroyIcon(small);
+            }
+            return nullptr;
+        }
+
+        HICON result = nullptr;
+        if (wantSmall && small) {
+            result = small;
+            if (large) {
+                DestroyIcon(large);
+            }
+        } else if (wantLarge && large) {
+            result = large;
+            if (small) {
+                DestroyIcon(small);
+            }
+        } else if (large) {
+            result = large;
+            if (small) {
+                DestroyIcon(small);
+            }
+        } else if (small) {
+            result = small;
+        }
+
+        if (!result) {
+            if (large) {
+                DestroyIcon(large);
+            }
+            if (small) {
+                DestroyIcon(small);
+            }
+        } else if (result != small && small) {
+            DestroyIcon(small);
+        }
+
+        return result;
+    });
+}
 
 void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options) {
     const bool gradient = options.useNeonGlowGradient;
@@ -320,6 +719,8 @@ bool OptionsStore::Load(std::wstring* errorContext) {
     std::array<bool, kGlowSurfaceMappings.size()> glowSurfaceSpecified{};
     glowSurfaceSpecified.fill(false);
     bool anyGlowSurfaceToken = false;
+    std::vector<std::vector<ContextMenuItem>*> contextMenuStack;
+    contextMenuStack.push_back(&m_options.contextMenuItems);
     ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring_view>& tokens) {
         if (tokens.empty()) {
             return true;
@@ -602,6 +1003,102 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kContextMenuCommandToken) {
+            if (!contextMenuStack.empty()) {
+                ContextMenuItem item;
+                item.type = ContextMenuItemType::kCommand;
+                if (tokens.size() >= 2) {
+                    item.label = Trim(tokens[1]);
+                }
+                if (tokens.size() >= 3) {
+                    item.commandTemplate = Trim(tokens[2]);
+                }
+                if (tokens.size() >= 4) {
+                    item.iconSource = std::wstring(tokens[3]);
+                }
+                if (tokens.size() >= 5) {
+                    item.anchor = ParseContextMenuAnchor(tokens[4]);
+                }
+                if (tokens.size() >= 6) {
+                    item.scope = ParseContextMenuScope(tokens[5]);
+                }
+                if (tokens.size() >= 7) {
+                    item.scope.extensions = ParseContextMenuExtensions(tokens[6]);
+                }
+                if (tokens.size() >= 8) {
+                    item.selection.minimumSelection = ParseSelectionCount(tokens[7]);
+                }
+                if (tokens.size() >= 9) {
+                    item.selection.maximumSelection = ParseSelectionCount(tokens[8]);
+                }
+                contextMenuStack.back()->push_back(std::move(item));
+            }
+            return true;
+        }
+
+        if (header == kContextMenuSubmenuToken) {
+            if (!contextMenuStack.empty()) {
+                ContextMenuItem submenu;
+                submenu.type = ContextMenuItemType::kSubmenu;
+                if (tokens.size() >= 2) {
+                    submenu.label = Trim(tokens[1]);
+                }
+                if (tokens.size() >= 3) {
+                    submenu.iconSource = std::wstring(tokens[2]);
+                }
+                if (tokens.size() >= 4) {
+                    submenu.anchor = ParseContextMenuAnchor(tokens[3]);
+                }
+                if (tokens.size() >= 5) {
+                    submenu.scope = ParseContextMenuScope(tokens[4]);
+                }
+                if (tokens.size() >= 6) {
+                    submenu.scope.extensions = ParseContextMenuExtensions(tokens[5]);
+                }
+                if (tokens.size() >= 7) {
+                    submenu.selection.minimumSelection = ParseSelectionCount(tokens[6]);
+                }
+                if (tokens.size() >= 8) {
+                    submenu.selection.maximumSelection = ParseSelectionCount(tokens[7]);
+                }
+                contextMenuStack.back()->push_back(std::move(submenu));
+                ContextMenuItem& inserted = contextMenuStack.back()->back();
+                contextMenuStack.push_back(&inserted.children);
+            }
+            return true;
+        }
+
+        if (header == kContextMenuSeparatorToken) {
+            if (!contextMenuStack.empty()) {
+                ContextMenuItem separator;
+                separator.type = ContextMenuItemType::kSeparator;
+                if (tokens.size() >= 2) {
+                    separator.anchor = ParseContextMenuAnchor(tokens[1]);
+                }
+                if (tokens.size() >= 3) {
+                    separator.scope = ParseContextMenuScope(tokens[2]);
+                }
+                if (tokens.size() >= 4) {
+                    separator.scope.extensions = ParseContextMenuExtensions(tokens[3]);
+                }
+                if (tokens.size() >= 5) {
+                    separator.selection.minimumSelection = ParseSelectionCount(tokens[4]);
+                }
+                if (tokens.size() >= 6) {
+                    separator.selection.maximumSelection = ParseSelectionCount(tokens[5]);
+                }
+                contextMenuStack.back()->push_back(std::move(separator));
+            }
+            return true;
+        }
+
+        if (header == kContextMenuEndToken) {
+            if (contextMenuStack.size() > 1) {
+                contextMenuStack.pop_back();
+            }
+            return true;
+        }
+
         if (header == kTabDockingToken) {
             if (tokens.size() >= 2) {
                 m_options.tabDockMode = ParseDockMode(tokens[1]);
@@ -611,6 +1108,8 @@ bool OptionsStore::Load(std::wstring* errorContext) {
 
         return true;
     });
+
+    NormalizeContextMenuItems(&m_options.contextMenuItems);
 
     if (anyGlowSurfaceToken) {
         ShellTabsOptions fallbackOptions = m_options;
@@ -649,6 +1148,7 @@ bool OptionsStore::Save() const {
     ShellTabsOptions persistedOptions = m_options;
     UpdateLegacyGlowSettingsFromPalette(persistedOptions);
     const_cast<OptionsStore*>(this)->m_options = persistedOptions;
+    NormalizeContextMenuItems(&const_cast<OptionsStore*>(this)->m_options.contextMenuItems);
     const ShellTabsOptions& options = const_cast<OptionsStore*>(this)->m_options;
 
     const_cast<OptionsStore*>(this)->m_storagePath = ResolveStoragePath();
@@ -669,7 +1169,7 @@ bool OptionsStore::Save() const {
         }
     }
 
-    std::wstring content = L"version|1\n";
+    std::wstring content = L"version|" + std::to_wstring(kCurrentOptionsVersion) + L"\n";
     content += kReopenToken;
     content += L"|";
     content += options.reopenOnCrash ? L"1" : L"0";
@@ -833,6 +1333,8 @@ bool OptionsStore::Save() const {
         content += L"\n";
     }
 
+    AppendContextMenuItems(content, options.contextMenuItems);
+
     content += kTabDockingToken;
     content += L"|";
     content += DockModeToString(options.tabDockMode);
@@ -844,6 +1346,23 @@ bool OptionsStore::Save() const {
 
     UpdateCachedImageUsage(options);
     return true;
+}
+
+bool operator==(const ContextMenuSelectionRule& left, const ContextMenuSelectionRule& right) noexcept {
+    return left.minimumSelection == right.minimumSelection &&
+           left.maximumSelection == right.maximumSelection;
+}
+
+bool operator==(const ContextMenuItemScope& left, const ContextMenuItemScope& right) noexcept {
+    return left.includeAllFiles == right.includeAllFiles &&
+           left.includeAllFolders == right.includeAllFolders && left.extensions == right.extensions;
+}
+
+bool operator==(const ContextMenuItem& left, const ContextMenuItem& right) noexcept {
+    return left.type == right.type && left.label == right.label &&
+           left.iconSource == right.iconSource && left.commandTemplate == right.commandTemplate &&
+           left.scope == right.scope && left.selection == right.selection && left.anchor == right.anchor &&
+           left.children == right.children;
 }
 
 bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {
@@ -897,6 +1416,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
+           left.contextMenuItems == right.contextMenuItems &&
            left.tabDockMode == right.tabDockMode &&
            left.newTabTemplate == right.newTabTemplate &&
            left.newTabCustomPath == right.newTabCustomPath &&

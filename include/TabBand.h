@@ -148,7 +148,17 @@ public:
     std::wstring GetSavedGroupId(int groupIndex) const;
 
 private:
-    struct InitializationResult;
+    struct InitializationResult {
+        uint64_t sequence = 0;
+        bool groupStoreLoaded = false;
+        bool optionsLoaded = false;
+        ShellTabsOptions options{};
+        bool sessionStoreAvailable = false;
+        bool lastSessionUnclean = false;
+        bool shouldRestoreSession = false;
+        bool hasSessionData = false;
+        SessionData sessionData;
+    };
     std::atomic<long> m_refCount;
     DWORD m_bandId = 0;
     DWORD m_viewMode = 0;

@@ -17,6 +17,8 @@
 #include <unordered_map>
 #include <vector>
 #include <atomic>
+#include <list>
+#include <iterator>
 
 #include <CommCtrl.h>
 #include <windowsx.h>
@@ -48,6 +50,105 @@ using Microsoft::WRL::ComPtr;
 namespace shelltabs {
 
 namespace {
+
+struct FontMetricsKey {
+    LONG height = 0;
+    LONG aveCharWidth = 0;
+    LONG weight = 0;
+    BYTE italic = 0;
+    BYTE pitchAndFamily = 0;
+    BYTE charSet = 0;
+
+    bool operator==(const FontMetricsKey& other) const noexcept {
+        return height == other.height && aveCharWidth == other.aveCharWidth && weight == other.weight &&
+               italic == other.italic && pitchAndFamily == other.pitchAndFamily && charSet == other.charSet;
+    }
+};
+
+struct TextWidthCacheKey {
+    std::wstring text;
+    FontMetricsKey metrics;
+
+    bool operator==(const TextWidthCacheKey& other) const noexcept {
+        return metrics == other.metrics && text == other.text;
+    }
+};
+
+struct TextWidthCacheKeyHasher {
+    size_t operator()(const TextWidthCacheKey& key) const noexcept {
+        size_t hash = std::hash<std::wstring>{}(key.text);
+        hash ^= static_cast<size_t>(key.metrics.height) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        hash ^= static_cast<size_t>(key.metrics.aveCharWidth) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        hash ^= static_cast<size_t>(key.metrics.weight) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        hash ^= static_cast<size_t>(key.metrics.italic) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        hash ^= static_cast<size_t>(key.metrics.pitchAndFamily) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        hash ^= static_cast<size_t>(key.metrics.charSet) + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        return hash;
+    }
+};
+
+class TextWidthCache {
+public:
+    explicit TextWidthCache(size_t capacity) : m_capacity(std::max<size_t>(1, capacity)) {}
+
+    bool TryGet(const std::wstring& text, const FontMetricsKey& metrics, int& width) {
+        TextWidthCacheKey lookupKey{ text, metrics };
+        auto it = m_lookup.find(lookupKey);
+        if (it == m_lookup.end()) {
+            return false;
+        }
+
+        m_entries.splice(m_entries.begin(), m_entries, it->second);
+        width = it->second->width;
+        return true;
+    }
+
+    void Put(const std::wstring& text, const FontMetricsKey& metrics, int width) {
+        TextWidthCacheKey key{ text, metrics };
+        auto it = m_lookup.find(key);
+        if (it != m_lookup.end()) {
+            it->second->width = width;
+            m_entries.splice(m_entries.begin(), m_entries, it->second);
+            return;
+        }
+
+        m_entries.emplace_front();
+        Entry& entry = m_entries.front();
+        entry.key = std::move(key);
+        entry.width = width;
+        m_lookup.emplace(entry.key, m_entries.begin());
+
+        if (m_entries.size() > m_capacity) {
+            auto last = std::prev(m_entries.end());
+            m_lookup.erase(last->key);
+            m_entries.pop_back();
+        }
+    }
+
+    void Clear() {
+        m_entries.clear();
+        m_lookup.clear();
+    }
+
+private:
+    struct Entry {
+        TextWidthCacheKey key;
+        int width = 0;
+    };
+
+    size_t m_capacity;
+    std::list<Entry> m_entries;
+    std::unordered_map<TextWidthCacheKey, std::list<Entry>::iterator, TextWidthCacheKeyHasher> m_lookup;
+};
+
+TextWidthCache& GetTextWidthCache() {
+    static TextWidthCache cache(128);
+    return cache;
+}
+
+void ClearTextWidthCache() {
+    GetTextWidthCache().Clear();
+}
 
 std::atomic<uint32_t> g_availableDockMask{0};
 std::mutex g_availableDockMaskMutex;
@@ -757,6 +858,7 @@ void TabBandWindow::Destroy() {
     m_rebarBandIndex = -1;
     InvalidateRebarIntegration();
     m_tabData.clear();
+    m_activeProgressCount = 0;
     m_tabLocationIndex.clear();
     m_nextRedrawIncremental = false;
     m_redrawMetrics = {};
@@ -796,6 +898,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     } else {
         m_tabLayoutVersion = 0;
     }
+    RecomputeActiveProgressCount();
     RebuildTabLocationIndex();
     m_contextHit = {};
     ClearExplorerContext();
@@ -1032,6 +1135,16 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
     TEXTMETRIC tm{};
     GetTextMetrics(dc, &tm);
 
+    FontMetricsKey metricsKey;
+    metricsKey.height = tm.tmHeight;
+    metricsKey.aveCharWidth = tm.tmAveCharWidth;
+    metricsKey.weight = tm.tmWeight;
+    metricsKey.italic = tm.tmItalic;
+    metricsKey.pitchAndFamily = tm.tmPitchAndFamily;
+    metricsKey.charSet = tm.tmCharSet;
+
+    auto& widthCache = GetTextWidthCache();
+
     int rowHeight = static_cast<int>(tm.tmHeight);
     if (rowHeight > 0) {
         rowHeight += 6;  // give text breathing room
@@ -1136,6 +1249,11 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
     TabViewItem indicatorHeader{};
 
     result.items.reserve(items.size() + 8);
+
+#if defined(_DEBUG)
+    size_t cacheLookups = 0;
+    size_t cacheHits = 0;
+#endif
 
     for (const auto& item : items) {
         if (item.type == TabViewItemType::kGroupHeader) {
@@ -1250,12 +1368,24 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             headerMetadata = true;
         }
 
-        SIZE textSize{0, 0};
+        int measuredTextWidth = 0;
         if (!item.name.empty()) {
-            GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
+#if defined(_DEBUG)
+            ++cacheLookups;
+#endif
+            if (widthCache.TryGet(item.name, metricsKey, measuredTextWidth)) {
+#if defined(_DEBUG)
+                ++cacheHits;
+#endif
+            } else {
+                SIZE textSize{0, 0};
+                GetTextExtentPoint32W(dc, item.name.c_str(), static_cast<int>(item.name.size()), &textSize);
+                measuredTextWidth = textSize.cx;
+                widthCache.Put(item.name, metricsKey, measuredTextWidth);
+            }
         }
 
-        int width = textSize.cx + kPaddingX * 2;
+        int width = measuredTextWidth + kPaddingX * 2;
         if (item.pinned) {
             width += kPinnedGlyphWidth + kPinnedGlyphPadding;
         }
@@ -1365,6 +1495,19 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
         SelectObject(dc, oldFont);
     }
     ReleaseDC(m_hwnd, dc);
+
+#if defined(_DEBUG)
+    if (cacheLookups > 0) {
+        const size_t cacheMisses = cacheLookups - cacheHits;
+        const double hitRate = cacheLookups > 0 ? (static_cast<double>(cacheHits) * 100.0) / cacheLookups : 0.0;
+        LogMessage(LogLevel::Info,
+                   L"Tab text width cache: lookups=%Iu hits=%Iu misses=%Iu hitRate=%.2f%%",
+                   static_cast<size_t>(cacheLookups),
+                   static_cast<size_t>(cacheHits),
+                   static_cast<size_t>(cacheMisses),
+                   hitRate);
+    }
+#endif
     return result;
 }
 
@@ -2550,6 +2693,8 @@ void TabBandWindow::ResetThemePalette() {
     m_themePalette.groupTextValid = false;
     m_themePalette.rebarGradientValid = false;
 
+    ClearTextWidthCache();
+
     if (m_highContrast) {
         const COLORREF windowColor = GetSysColor(COLOR_WINDOW);
         const COLORREF buttonColor = GetSysColor(COLOR_BTNFACE);
@@ -3627,6 +3772,16 @@ void TabBandWindow::RebuildProgressRectCache() {
     }
 }
 
+void TabBandWindow::RecomputeActiveProgressCount() {
+    size_t count = 0;
+    for (const auto& item : m_tabData) {
+        if (item.progress.visible) {
+            ++count;
+        }
+    }
+    m_activeProgressCount = count;
+}
+
 void TabBandWindow::InvalidateProgressForIndices(const std::vector<size_t>& indices) {
     if (!m_hwnd || indices.empty()) {
         return;
@@ -4296,6 +4451,15 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
             changed = true;
         }
         if (m_tabData[i].progress != snapshot[i].progress) {
+            const bool wasVisible = m_tabData[i].progress.visible;
+            const bool nowVisible = snapshot[i].progress.visible;
+            if (wasVisible != nowVisible) {
+                if (nowVisible) {
+                    ++m_activeProgressCount;
+                } else if (m_activeProgressCount > 0) {
+                    --m_activeProgressCount;
+                }
+            }
             m_tabData[i].progress = snapshot[i].progress;
             if (i < m_items.size()) {
                 m_items[i].data.progress = snapshot[i].progress;
@@ -4340,12 +4504,7 @@ void TabBandWindow::UpdateProgressAnimationState() {
 }
 
 bool TabBandWindow::AnyProgressActive() const {
-    for (const auto& item : m_tabData) {
-        if (item.progress.visible) {
-            return true;
-        }
-    }
-    return false;
+    return m_activeProgressCount > 0;
 }
 
 void TabBandWindow::HandleProgressTimer() {

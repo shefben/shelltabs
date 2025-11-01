@@ -342,6 +342,7 @@ private:
     std::vector<VisualItem> m_items;
     std::vector<RECT> m_progressRects;
     std::vector<size_t> m_activeProgressIndices;
+    size_t m_activeProgressCount = 0;
     DragState m_drag;
     HitInfo m_contextHit;
     std::vector<std::pair<UINT, TabLocation>> m_hiddenTabCommands;
@@ -538,6 +539,7 @@ private:
     bool ComputeProgressBounds(const VisualItem& item, const TabPaintMetrics& metrics, RECT* out) const;
     void EnsureProgressRectCache();
     void RebuildProgressRectCache();
+    void RecomputeActiveProgressCount();
     void InvalidateProgressForIndices(const std::vector<size_t>& indices);
     void InvalidateActiveProgress();
     COLORREF ResolveTabBackground(const TabViewItem& item) const;
