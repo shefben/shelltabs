@@ -905,6 +905,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
         m_progressRects.clear();
         m_activeProgressIndices.clear();
         m_emptyIslandPlusButtons.clear();
+        SetRectEmpty(&m_newTabBounds);
         m_nextRedrawIncremental = false;
         m_lastAppliedRowCount = 0;
         InvalidateGroupOutlineCache();
@@ -946,6 +947,26 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     const bool rowCountChanged = normalizedRowCount != m_lastRowCount;
 
     m_items = std::move(layout.items);
+
+    auto isValidRect = [](const RECT& rect) {
+        return rect.right > rect.left && rect.bottom > rect.top;
+    };
+
+    if (layout.newTabVisible && isValidRect(layout.newTabBounds)) {
+        m_newTabBounds = layout.newTabBounds;
+        if (m_newTabButton) {
+            const int width = m_newTabBounds.right - m_newTabBounds.left;
+            const int height = m_newTabBounds.bottom - m_newTabBounds.top;
+            MoveWindow(m_newTabButton, m_newTabBounds.left, m_newTabBounds.top, width, height, TRUE);
+            ShowWindow(m_newTabButton, SW_SHOW);
+        }
+    } else {
+        SetRectEmpty(&m_newTabBounds);
+        if (m_newTabButton) {
+            ShowWindow(m_newTabButton, SW_HIDE);
+        }
+    }
+
     RebuildProgressRectCache();
     RebuildGroupOutlineCache();
     m_lastRowCount = normalizedRowCount;
@@ -1031,33 +1052,6 @@ STDMETHODIMP TabBandWindow::GetSite(REFIID riid, void** ppvSite) {
 
 void TabBandWindow::Layout(int width, int height) {
     m_clientRect = {0, 0, width, height};
-
-    int buttonHeight = std::max(0, height - kButtonMargin * 2);
-    if (buttonHeight > kButtonHeight) {
-        buttonHeight = kButtonHeight;
-    }
-    if (buttonHeight == 0 && height > 0) {
-        buttonHeight = std::min(height, kButtonHeight);
-    }
-
-    int buttonWidth = 0;
-    if (buttonHeight > 0) {
-        buttonWidth = std::min(kButtonWidth, buttonHeight);
-    }
-    const int maxAvailableWidth = std::max(0, width - kButtonMargin);
-    if (buttonWidth == 0 && maxAvailableWidth > 0) {
-        buttonWidth = std::min(kButtonWidth, maxAvailableWidth);
-    }
-    if (buttonWidth == 0 && width > 0) {
-        buttonWidth = std::min(kButtonWidth, width);
-    }
-    const int buttonX = std::max(0, width - buttonWidth - kButtonMargin);
-    const int buttonY = std::max(0, (height - buttonHeight) / 2);
-    if (m_newTabButton) {
-        MoveWindow(m_newTabButton, buttonX, buttonY, buttonWidth, buttonHeight, TRUE);
-    }
-
-    m_clientRect.right = std::max(0, buttonX - kButtonMargin);
     RebuildLayout();
 }
 
@@ -1081,6 +1075,7 @@ void TabBandWindow::ClearVisualItems() {
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
+    SetRectEmpty(&m_newTabBounds);
     InvalidateGroupOutlineCache();
 }
 
@@ -1154,10 +1149,32 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 
     const int bandWidth = bounds.right - bounds.left;
     const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
+
+    int buttonHeight = std::max(0, (bounds.bottom - bounds.top) - kButtonMargin * 2);
+    if (buttonHeight > kButtonHeight) {
+        buttonHeight = kButtonHeight;
+    }
+    if (buttonHeight == 0 && (bounds.bottom - bounds.top) > 0) {
+        buttonHeight = std::min(bounds.bottom - bounds.top, kButtonHeight);
+    }
+
+    int buttonWidth = 0;
+    if (buttonHeight > 0) {
+        buttonWidth = std::min(kButtonWidth, buttonHeight);
+    }
+    const int maxAvailableWidth = std::max(0, (bounds.right - bounds.left) - kButtonMargin);
+    if (buttonWidth == 0 && maxAvailableWidth > 0) {
+        buttonWidth = std::min(kButtonWidth, maxAvailableWidth);
+    }
+    if (buttonWidth == 0 && (bounds.right - bounds.left) > 0) {
+        buttonWidth = std::min(kButtonWidth, bounds.right - bounds.left);
+    }
+    const int trailingReserve = (buttonWidth > 0) ? std::min(buttonWidth + kTabGap + kButtonMargin, bandWidth) : 0;
+
     int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
 
     const int startY = bounds.top + 2;
-    const int maxX = bounds.right;
+    const int maxX = std::max(bounds.left + gripWidth - 3, bounds.right - trailingReserve);
 
     int row = 0;
     int maxRowUsed = 0;
@@ -1251,6 +1268,9 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
     size_t cacheHits = 0;
 #endif
 
+    RECT newTabBounds{};
+    bool newTabVisible = false;
+
     for (const auto& item : items) {
         if (item.type == TabViewItemType::kGroupHeader) {
             pendingIndicator = false;
@@ -1322,7 +1342,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
                                 plusLeft + size,
                                 placeholder.top + (h - size) / 2 + size
                             };
-                            m_emptyIslandPlusButtons.push_back({ currentGroup, plus });
+                            m_emptyIslandPlusButtons.push_back({ currentGroup, plus, placeholder });
                         }
 
                         x = placeholder.right;
@@ -1473,7 +1493,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             }
         }
 
-        width = std::clamp(width, 40, maxX - x);
+        width = std::clamp(width, 40, std::max(40, maxX - x));
 
         visual.bounds = {x, rowTop(row), x + width, rowBottom(row)};
         visual.row = row;
@@ -1482,10 +1502,51 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
         x += width;
     }
 
+    if (buttonWidth > 0 && buttonHeight > 0) {
+        int slotRow = std::clamp(row, 0, kMaxTabRows - 1);
+        const int baseLeft = bounds.left + gripWidth - 3;
+        const int fallbackLeft = std::max(baseLeft, bounds.right - buttonWidth - kButtonMargin);
+
+        int slotLeft = fallbackLeft;
+        if (!result.items.empty()) {
+            slotLeft = std::max(baseLeft, x + kTabGap);
+            slotLeft = std::min(slotLeft, fallbackLeft);
+
+            const VisualItem& tail = result.items.back();
+            const int tailGroup = tail.data.location.groupIndex;
+            for (auto it = m_emptyIslandPlusButtons.rbegin(); it != m_emptyIslandPlusButtons.rend(); ++it) {
+                if (it->groupIndex == tailGroup) {
+                    slotLeft = std::max(slotLeft, it->placeholder.right + kTabGap);
+                    slotLeft = std::min(slotLeft, fallbackLeft);
+                    slotRow = tail.row;
+                    break;
+                }
+            }
+        }
+
+        const int slotTopBound = rowTop(slotRow);
+        const int slotBottomBound = rowBottom(slotRow);
+        const int verticalSpace = slotBottomBound - slotTopBound;
+        int slotTop = slotTopBound;
+        if (verticalSpace > buttonHeight) {
+            slotTop += (verticalSpace - buttonHeight) / 2;
+        }
+        if (slotTop + buttonHeight > slotBottomBound) {
+            slotTop = std::max(slotTopBound, slotBottomBound - buttonHeight);
+        }
+
+        newTabBounds = {slotLeft, slotTop, slotLeft + buttonWidth, slotTop + buttonHeight};
+        newTabVisible = true;
+        maxRowUsed = std::max(maxRowUsed, slotRow);
+    }
+
     if (row > maxRowUsed) {
         maxRowUsed = row;
     }
     result.rowCount = std::clamp(maxRowUsed + 1, 1, kMaxTabRows);
+
+    result.newTabBounds = newTabBounds;
+    result.newTabVisible = newTabVisible;
 
     if (oldFont) {
         SelectObject(dc, oldFont);
@@ -1514,6 +1575,7 @@ void TabBandWindow::RebuildLayout() {
         m_progressRects.clear();
         m_activeProgressIndices.clear();
         m_emptyIslandPlusButtons.clear();
+        SetRectEmpty(&m_newTabBounds);
         m_nextRedrawIncremental = false;
         InvalidateGroupOutlineCache();
         RebuildTabLocationIndex();
@@ -1534,6 +1596,21 @@ void TabBandWindow::RebuildLayout() {
     LayoutResult layout = BuildLayoutItems(m_tabData, nullptr);
     RebuildTabLocationIndex();
     m_items = std::move(layout.items);
+    if (layout.newTabVisible && layout.newTabBounds.right > layout.newTabBounds.left &&
+        layout.newTabBounds.bottom > layout.newTabBounds.top) {
+        m_newTabBounds = layout.newTabBounds;
+        if (m_newTabButton) {
+            const int width = m_newTabBounds.right - m_newTabBounds.left;
+            const int height = m_newTabBounds.bottom - m_newTabBounds.top;
+            MoveWindow(m_newTabButton, m_newTabBounds.left, m_newTabBounds.top, width, height, TRUE);
+            ShowWindow(m_newTabButton, SW_SHOW);
+        }
+    } else {
+        SetRectEmpty(&m_newTabBounds);
+        if (m_newTabButton) {
+            ShowWindow(m_newTabButton, SW_HIDE);
+        }
+    }
     RebuildProgressRectCache();
     RebuildGroupOutlineCache();
 
@@ -2031,12 +2108,12 @@ void TabBandWindow::DrawEmptyIslandPluses(HDC dc) const {
 
 	HGDIOBJ old = SelectObject(dc, pen);
 
-	for (const auto& b : m_emptyIslandPlusButtons) {
-		// force integer math, no template weirdness, no Windows macros
-		const int w = static_cast<int>(b.rect.right - b.rect.left);
-		const int h = static_cast<int>(b.rect.bottom - b.rect.top);
-		const int cx = b.rect.left + w / 2;
-		const int cy = b.rect.top + h / 2;
+        for (const auto& b : m_emptyIslandPlusButtons) {
+                const RECT& plus = b.plus;
+                const int w = static_cast<int>(plus.right - plus.left);
+                const int h = static_cast<int>(plus.bottom - plus.top);
+                const int cx = plus.left + w / 2;
+                const int cy = plus.top + h / 2;
 
 		// radius = min(w, h)/2 - 1, clamped to >= 1, done without std::min/std::max
 		int d = (w < h) ? w : h;
@@ -2210,8 +2287,8 @@ COLORREF TabBandWindow::ResolveGroupTextColor(const TabViewItem& item, COLORREF 
 }
 
 bool TabBandWindow::FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const {
-	for (const auto& b : m_emptyIslandPlusButtons) {
-		if (PtInRect(&b.rect, pt)) {
+        for (const auto& b : m_emptyIslandPlusButtons) {
+                if (PtInRect(&b.plus, pt)) {
 			if (outGroupIndex) *outGroupIndex = b.groupIndex;
 			return true;
 		}
@@ -4851,7 +4928,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     UpdateCloseButtonHover(pt);
     HitInfo hit = HitTest(pt);
-    if (!hit.hit || hit.type == HitType::kWhitespace) {
+    if (!hit.hit || hit.type == HitType::kWhitespace || hit.type == HitType::kNewTab) {
         return false;
     }
 
@@ -4948,7 +5025,7 @@ bool TabBandWindow::HandleMouseUp(const POINT& pt) {
 	else if (m_drag.tracking) {
 		handled = true;
 		const HitInfo hit = HitTest(pt);
-                if (hit.hit && hit.type != HitType::kWhitespace) {
+                if (hit.hit && hit.type != HitType::kWhitespace && hit.type != HitType::kNewTab) {
                         RequestSelection(hit);
                 }
 	}
@@ -5015,7 +5092,7 @@ bool TabBandWindow::HandleDoubleClick(const POINT& pt) {
     }
 
     HitInfo hit = HitTest(pt);
-    if (!hit.hit || hit.type == HitType::kWhitespace) {
+    if (!hit.hit || hit.type == HitType::kWhitespace || hit.type == HitType::kNewTab) {
         return false;
     }
 
@@ -5076,7 +5153,7 @@ void TabBandWindow::HandleFileDrop(HDROP drop, bool ownsHandle) {
 
     HitInfo hit = HitTest(pt);
     const bool dropOnTab = hit.hit && hit.type == HitType::kTab && hit.location.IsValid();
-    const bool dropOnWhitespace = hit.hit && hit.type == HitType::kWhitespace;
+    const bool dropOnWhitespace = hit.hit && (hit.type == HitType::kWhitespace || hit.type == HitType::kNewTab);
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     bool handled = false;
@@ -5425,33 +5502,39 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
     }
 
     HitInfo hit = HitTest(pt);
-    if (!hit.hit || hit.type == HitType::kWhitespace) {
+    if (!hit.hit || hit.type == HitType::kWhitespace || hit.type == HitType::kNewTab) {
+        auto trailingIndicatorX = [&]() -> LONG {
+            if (m_newTabBounds.right > m_newTabBounds.left) {
+                return m_newTabBounds.left;
+            }
+            return m_clientRect.right - 10;
+        };
         if (origin.type == HitType::kTab && m_owner) {
             target.group = false;
             target.newGroup = true;
             target.floating = true;
             target.groupIndex = m_owner->GetGroupCount();
             target.tabIndex = 0;
-            target.indicatorX = m_clientRect.right - 10;
+            target.indicatorX = trailingIndicatorX();
         } else if (!m_items.empty()) {
             const VisualItem* lastHeader = FindLastGroupHeader();
             if (lastHeader) {
                 if (origin.type == HitType::kGroupHeader) {
                     target.group = true;
                     target.groupIndex = lastHeader->data.location.groupIndex + 1;
-                    target.indicatorX = lastHeader->bounds.right;
+                    target.indicatorX = std::min<LONG>(lastHeader->bounds.right, trailingIndicatorX());
                 } else {
                     target.group = false;
                     target.groupIndex = lastHeader->data.location.groupIndex;
                     target.tabIndex = static_cast<int>(lastHeader->data.totalTabs);
-                    target.indicatorX = lastHeader->bounds.right;
+                    target.indicatorX = std::min<LONG>(lastHeader->bounds.right, trailingIndicatorX());
                 }
             } else {
                 const auto& tail = m_items.back();
                 target.group = false;
                 target.groupIndex = tail.data.location.groupIndex;
                 target.tabIndex = tail.data.location.tabIndex + 1;
-                target.indicatorX = tail.bounds.right;
+                target.indicatorX = std::min<LONG>(tail.bounds.right, trailingIndicatorX());
             }
         }
         return target;
@@ -6050,6 +6133,17 @@ TabBandWindow::HitInfo TabBandWindow::HitTest(const POINT& pt) const {
         }
     }
 
+    if (m_newTabBounds.right > m_newTabBounds.left && PtInRect(&m_newTabBounds, pt)) {
+        info.hit = true;
+        info.type = HitType::kNewTab;
+        info.itemIndex = std::numeric_limits<size_t>::max();
+        info.location = {};
+        info.before = false;
+        info.after = false;
+        info.closeButton = false;
+        return info;
+    }
+
     info.hit = true;
     info.type = HitType::kWhitespace;
     info.itemIndex = std::numeric_limits<size_t>::max();
@@ -6090,7 +6184,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
     bool hasItemCommands = false;
 
-    if (hit.hit && hit.type != HitType::kWhitespace) {
+    if (hit.hit && hit.type != HitType::kWhitespace && hit.type != HitType::kNewTab) {
         if (hit.type == HitType::kTab) {
             AppendMenuW(menu, MF_STRING, IDM_CLOSE_TAB, L"Close Tab");
             AppendMenuW(menu, MF_STRING, IDM_HIDE_TAB, L"Hide Tab");
@@ -6376,7 +6470,7 @@ const TabBandWindow::VisualItem* TabBandWindow::FindLastGroupHeader() const {
 }
 
 const TabBandWindow::VisualItem* TabBandWindow::FindVisualForHit(const HitInfo& hit) const {
-    if (!hit.hit || hit.type == HitType::kWhitespace) {
+    if (!hit.hit || hit.type == HitType::kWhitespace || hit.type == HitType::kNewTab) {
         return nullptr;
     }
 
