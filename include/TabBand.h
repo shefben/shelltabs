@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <thread>
+#include <stop_token>
 
 #include <ShObjIdl_core.h>
 #include <exdisp.h>
@@ -146,6 +148,7 @@ public:
     std::wstring GetSavedGroupId(int groupIndex) const;
 
 private:
+    struct InitializationResult;
     std::atomic<long> m_refCount;
     DWORD m_bandId = 0;
     DWORD m_viewMode = 0;
@@ -169,6 +172,13 @@ private:
     bool m_lastSessionUnclean = false;
     bool m_sessionFlushTimerActive = false;
     bool m_sessionFlushTimerPending = false;
+    std::jthread m_initializationThread;
+    uint64_t m_initializationSequence = 0;
+    bool m_backgroundInitializationActive = false;
+    bool m_sessionPersistenceReady = false;
+    std::optional<TabGroup> m_pendingGroupSeed;
+    bool m_pendingStandaloneSeed = false;
+    bool m_hadPendingSeed = false;
 
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
@@ -238,6 +248,11 @@ private:
     void QueueNavigateTo(TabLocation location);
     void SyncSavedGroup(int groupIndex) const;
     void SyncAllSavedGroups() const;
+    void RunBackgroundInitialization(std::stop_token stopToken, uint64_t sequence, bool hasPendingSeed);
+    void HandleInitializationResult(std::unique_ptr<InitializationResult> result);
+    void PostInitializationResult(std::unique_ptr<InitializationResult> result);
+    void CancelInitializationWorker();
+    bool RestoreSessionFromData(const SessionData& data);
     bool ApplySavedGroupMetadata(const std::vector<SavedGroup>& savedGroups,
                                  const std::vector<std::pair<std::wstring, std::wstring>>& renamedGroups,
                                  const std::vector<std::wstring>& removedGroupIds);

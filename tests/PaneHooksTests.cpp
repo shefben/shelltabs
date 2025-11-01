@@ -57,14 +57,21 @@ private:
     std::unordered_map<HTREEITEM, shelltabs::PaneHighlight> m_treeHighlights;
 };
 
-std::vector<std::pair<HWND, shelltabs::HighlightPaneType>> g_invalidationEvents;
+struct InvalidationEvent {
+    HWND hwnd = nullptr;
+    shelltabs::HighlightPaneType pane = shelltabs::HighlightPaneType::ListView;
+    shelltabs::PaneHighlightInvalidationTargets targets;
+};
+
+std::vector<InvalidationEvent> g_invalidationEvents;
 
 void ResetInvalidationTracking() {
     g_invalidationEvents.clear();
 }
 
-void TestInvalidationCallback(HWND hwnd, shelltabs::HighlightPaneType pane) {
-    g_invalidationEvents.emplace_back(hwnd, pane);
+void TestInvalidationCallback(HWND hwnd, shelltabs::HighlightPaneType pane,
+                              const shelltabs::PaneHighlightInvalidationTargets& targets) {
+    g_invalidationEvents.push_back({hwnd, pane, targets});
 }
 
 bool TestListViewPrepaintRequestsCallbacks() {
@@ -183,14 +190,14 @@ bool TestHighlightRegistryInvalidatesSubscribers() {
         return false;
     }
 
-    if (g_invalidationEvents[0].first != listView ||
-        g_invalidationEvents[0].second != shelltabs::HighlightPaneType::ListView) {
+    if (g_invalidationEvents[0].hwnd != listView ||
+        g_invalidationEvents[0].pane != shelltabs::HighlightPaneType::ListView) {
         PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"List view invalidation missing");
         return false;
     }
 
-    if (g_invalidationEvents[1].first != treeView ||
-        g_invalidationEvents[1].second != shelltabs::HighlightPaneType::TreeView) {
+    if (g_invalidationEvents[1].hwnd != treeView ||
+        g_invalidationEvents[1].pane != shelltabs::HighlightPaneType::TreeView) {
         PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"Tree view invalidation missing");
         return false;
     }
@@ -205,8 +212,8 @@ bool TestHighlightRegistryInvalidatesSubscribers() {
         return false;
     }
 
-    if (g_invalidationEvents[0].first != listView ||
-        g_invalidationEvents[0].second != shelltabs::HighlightPaneType::ListView) {
+    if (g_invalidationEvents[0].hwnd != listView ||
+        g_invalidationEvents[0].pane != shelltabs::HighlightPaneType::ListView) {
         PrintFailure(L"TestHighlightRegistryInvalidatesSubscribers", L"Unexpected invalidation target");
         return false;
     }

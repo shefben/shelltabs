@@ -10,6 +10,7 @@ constexpr UINT WM_SHELLTABS_CLOSE_OTHERS = WM_APP + 65;
 constexpr UINT WM_SHELLTABS_CLOSE_TABS_RIGHT = WM_APP + 66;
 constexpr UINT WM_SHELLTABS_CLOSE_TABS_LEFT = WM_APP + 67;
 constexpr UINT WM_SHELLTABS_LISTVIEW_BACKGROUND_READY = WM_APP + 68;
+constexpr UINT WM_SHELLTABS_INITIALIZATION_COMPLETE = WM_APP + 81;
 
 struct OpenFolderMessagePayload {
     const wchar_t* path = nullptr;

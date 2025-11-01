@@ -96,6 +96,13 @@ std::wstring BuildLookupKey(PCIDLIST_ABSOLUTE pidl, const std::wstring& storedPa
 std::wstring BuildLookupKey(const TabInfo& tab) {
     return BuildLookupKey(tab.pidl.get(), tab.path);
 }
+
+bool LocationLess(const TabLocation& lhs, const TabLocation& rhs) noexcept {
+    if (lhs.groupIndex != rhs.groupIndex) {
+        return lhs.groupIndex < rhs.groupIndex;
+    }
+    return lhs.tabIndex < rhs.tabIndex;
+}
 }  // namespace
 
 uint64_t ComputeTabViewStableId(const TabViewItem& item) noexcept {
@@ -397,8 +404,8 @@ TabLocation TabManager::Add(UniquePidl pidl, std::wstring name, std::wstring too
     }
 
     EnsureVisibleSelection();
+    IndexInsertTab(location);
     UpdateSelectionActivation(previousSelection);
-    RebuildIndices();
     return location;
 }
 
@@ -424,6 +431,7 @@ void TabManager::Remove(TabLocation location) {
     group.tabs.erase(group.tabs.begin() + location.tabIndex);
 
     HandleTabRemoved(group, location.tabIndex, removedHidden);
+    IndexRemoveTab(location, removed);
 
     if (group.tabs.empty()) {
         m_groups.erase(m_groups.begin() + location.groupIndex);
@@ -433,6 +441,7 @@ void TabManager::Remove(TabLocation location) {
         } else if (m_selectedGroup > location.groupIndex) {
             --m_selectedGroup;
         }
+        IndexShiftGroups(location.groupIndex + 1, -1);
         EnsureDefaultGroup();
     } else if (m_selectedGroup == location.groupIndex && m_selectedTab > location.tabIndex) {
         --m_selectedTab;
@@ -456,7 +465,6 @@ void TabManager::Remove(TabLocation location) {
 
     EnsureVisibleSelection();
     UpdateSelectionActivation(previousSelection);
-    RebuildIndices();
 }
 
 std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
@@ -480,6 +488,7 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
 
     group.tabs.erase(group.tabs.begin() + location.tabIndex);
     HandleTabRemoved(group, location.tabIndex, removed.hidden);
+    IndexRemoveTab(location, removed);
 
     bool removedGroup = false;
     if (group.tabs.empty()) {
@@ -491,6 +500,7 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
         } else if (m_selectedGroup > location.groupIndex) {
             --m_selectedGroup;
         }
+        IndexShiftGroups(location.groupIndex + 1, -1);
         EnsureDefaultGroup();
     } else if (m_selectedGroup == location.groupIndex && m_selectedTab > location.tabIndex) {
         --m_selectedTab;
@@ -515,7 +525,6 @@ std::optional<TabInfo> TabManager::TakeTab(TabLocation location) {
     EnsureVisibleSelection();
 
     UpdateSelectionActivation(previousSelection);
-    RebuildIndices();
     return removed;
 }
 
@@ -553,8 +562,8 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
 
     EnsureVisibleSelection();
 
+    IndexInsertTab({groupIndex, insertIndex});
     UpdateSelectionActivation(previousSelection);
-    RebuildIndices();
     return {groupIndex, insertIndex};
 }
 
@@ -567,6 +576,7 @@ std::optional<TabGroup> TabManager::TakeGroup(int groupIndex) {
     const bool wasSelected = (m_selectedGroup == groupIndex);
 
     m_groups.erase(m_groups.begin() + groupIndex);
+    IndexRemoveGroup(groupIndex, removed);
 
     if (wasSelected) {
         m_selectedGroup = -1;
@@ -577,7 +587,6 @@ std::optional<TabGroup> TabManager::TakeGroup(int groupIndex) {
 
     EnsureDefaultGroup();
     EnsureVisibleSelection();
-    RebuildIndices();
 
     return removed;
 }
@@ -601,7 +610,8 @@ int TabManager::InsertGroup(TabGroup group, int insertIndex) {
     }
 
     EnsureVisibleSelection();
-    RebuildIndices();
+    IndexShiftGroups(insertIndex, 1);
+    IndexInsertGroup(insertIndex);
     return insertIndex;
 }
 
@@ -617,7 +627,7 @@ void TabManager::Clear() {
     m_groupSequence = 1;
     m_nextActivationOrdinal = 1;
     EnsureDefaultGroup();
-    RebuildIndices();
+    m_locationIndex.clear();
 }
 
 void TabManager::Restore(std::vector<TabGroup> groups, int selectedGroup, int selectedTab, int groupSequence) {
@@ -963,6 +973,98 @@ void TabManager::RebuildIndices() {
             m_locationIndex[key].push_back({static_cast<int>(g), static_cast<int>(t)});
         }
     }
+}
+
+void TabManager::IndexShiftTabs(int groupIndex, int startTabIndex, int delta) {
+    if (delta == 0) {
+        return;
+    }
+    for (auto& [key, locations] : m_locationIndex) {
+        for (auto& location : locations) {
+            if (location.groupIndex == groupIndex && location.tabIndex >= startTabIndex) {
+                location.tabIndex += delta;
+            }
+        }
+    }
+}
+
+void TabManager::IndexShiftGroups(int startGroupIndex, int delta) {
+    if (delta == 0) {
+        return;
+    }
+    for (auto& [key, locations] : m_locationIndex) {
+        bool touched = false;
+        for (auto& location : locations) {
+            if (location.groupIndex >= startGroupIndex) {
+                location.groupIndex += delta;
+                touched = true;
+            }
+        }
+        if (touched) {
+            std::sort(locations.begin(), locations.end(), LocationLess);
+        }
+    }
+}
+
+void TabManager::IndexInsertTab(TabLocation location) {
+    if (location.groupIndex < 0 || location.groupIndex >= static_cast<int>(m_groups.size())) {
+        return;
+    }
+    const auto& group = m_groups[static_cast<size_t>(location.groupIndex)];
+    if (location.tabIndex < 0 || location.tabIndex >= static_cast<int>(group.tabs.size())) {
+        return;
+    }
+    IndexShiftTabs(location.groupIndex, location.tabIndex, 1);
+    const std::wstring key = BuildLookupKey(group.tabs[static_cast<size_t>(location.tabIndex)]);
+    if (key.empty()) {
+        return;
+    }
+    auto& bucket = m_locationIndex[key];
+    const auto position = std::lower_bound(bucket.begin(), bucket.end(), location, LocationLess);
+    bucket.insert(position, location);
+}
+
+void TabManager::IndexRemoveTab(TabLocation location, const TabInfo& tab) {
+    if (location.groupIndex < 0) {
+        return;
+    }
+    const std::wstring key = BuildLookupKey(tab);
+    if (!key.empty()) {
+        auto it = m_locationIndex.find(key);
+        if (it != m_locationIndex.end()) {
+            auto& bucket = it->second;
+            auto pos = std::find_if(bucket.begin(), bucket.end(), [&](const TabLocation& candidate) {
+                return candidate.groupIndex == location.groupIndex && candidate.tabIndex == location.tabIndex;
+            });
+            if (pos != bucket.end()) {
+                bucket.erase(pos);
+                if (bucket.empty()) {
+                    m_locationIndex.erase(it);
+                }
+            }
+        }
+    }
+    IndexShiftTabs(location.groupIndex, location.tabIndex + 1, -1);
+}
+
+void TabManager::IndexInsertGroup(int groupIndex) {
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
+        return;
+    }
+    const auto& group = m_groups[static_cast<size_t>(groupIndex)];
+    for (int i = 0; i < static_cast<int>(group.tabs.size()); ++i) {
+        IndexInsertTab({groupIndex, i});
+    }
+}
+
+void TabManager::IndexRemoveGroup(int groupIndex, const TabGroup& group) {
+    if (groupIndex < 0) {
+        return;
+    }
+    for (int i = static_cast<int>(group.tabs.size()) - 1; i >= 0; --i) {
+        IndexRemoveTab({groupIndex, i}, group.tabs[static_cast<size_t>(i)]);
+    }
+    IndexShiftGroups(groupIndex + 1, -1);
 }
 
 bool TabManager::ApplyProgress(TabInfo* tab, std::optional<double> fraction, ULONGLONG now) {
@@ -1461,7 +1563,7 @@ int TabManager::CreateGroupAfter(int groupIndex, std::wstring name, bool headerV
 
     EnsureDefaultGroup();
     EnsureVisibleSelection();
-    RebuildIndices();
+    IndexShiftGroups(insertIndex, 1);
 
     return std::clamp(insertIndex, 0, static_cast<int>(m_groups.size()) - 1);
 }
@@ -1488,6 +1590,7 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
 
     sourceGroup.tabs.erase(sourceGroup.tabs.begin() + from.tabIndex);
     HandleTabRemoved(sourceGroup, from.tabIndex, movingTab.hidden);
+    IndexRemoveTab(from, movingTab);
 
     if (m_selectedGroup == from.groupIndex && m_selectedTab > from.tabIndex) {
         --m_selectedTab;
@@ -1503,6 +1606,7 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
         } else if (m_selectedGroup > from.groupIndex) {
             --m_selectedGroup;
         }
+        IndexShiftGroups(from.groupIndex + 1, -1);
     }
 
     if (removedSourceGroup && to.groupIndex > from.groupIndex) {
@@ -1530,6 +1634,7 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
 
     destinationGroup.tabs.insert(destinationGroup.tabs.begin() + to.tabIndex, std::move(movingTab));
     HandleTabInserted(destinationGroup, to.tabIndex);
+    IndexInsertTab({to.groupIndex, to.tabIndex});
 
     if (wasSelected) {
         m_selectedGroup = to.groupIndex;
@@ -1539,7 +1644,6 @@ void TabManager::MoveTab(TabLocation from, TabLocation to) {
     }
 
     EnsureVisibleSelection();
-    RebuildIndices();
 }
 
 bool TabManager::SetTabPinned(TabLocation location, bool pinned) {
@@ -1589,6 +1693,7 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
 
     auto moving = std::move(m_groups[static_cast<size_t>(fromGroup)]);
     m_groups.erase(m_groups.begin() + fromGroup);
+    IndexRemoveGroup(fromGroup, moving);
 
     int selectedGroup = m_selectedGroup;
     if (selectedGroup == fromGroup) {
@@ -1607,7 +1712,9 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
         toGroup = static_cast<int>(m_groups.size());
     }
 
+    IndexShiftGroups(toGroup, 1);
     m_groups.insert(m_groups.begin() + toGroup, std::move(moving));
+    IndexInsertGroup(toGroup);
 
     if (selectedGroup == -1) {
         m_selectedGroup = toGroup;
@@ -1619,7 +1726,6 @@ void TabManager::MoveGroup(int fromGroup, int toGroup) {
     }
 
     EnsureVisibleSelection();
-    RebuildIndices();
 }
 
 void TabManager::EnsureDefaultGroup() {

@@ -27,6 +27,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 #include <wrl/client.h>
 #include <shobjidl_core.h>
@@ -2308,6 +2309,54 @@ void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
     }
 }
 
+bool CExplorerBHO::TryAttachListViewFromFolderView() {
+    HWND listView = ResolveListViewFromFolderView();
+    if (!listView) {
+        return false;
+    }
+
+    if (!AttachListView(listView)) {
+        return false;
+    }
+
+    if (HWND parent = GetParent(listView)) {
+        EnsureListViewHostSubclass(parent);
+    }
+
+    RefreshListViewAccentState();
+    return true;
+}
+
+HWND CExplorerBHO::ResolveListViewFromFolderView() {
+    if (!m_folderView2 && m_shellView) {
+        Microsoft::WRL::ComPtr<IFolderView2> folderView;
+        const HRESULT hr = m_shellView->QueryInterface(IID_PPV_ARGS(&folderView));
+        if (SUCCEEDED(hr) && folderView) {
+            m_folderView2 = std::move(folderView);
+        }
+    }
+
+    if (!m_folderView2) {
+        return nullptr;
+    }
+
+    Microsoft::WRL::ComPtr<IOleWindow> oleWindow;
+    HRESULT hr = m_folderView2.As(&oleWindow);
+    if (FAILED(hr) || !oleWindow) {
+        m_folderView2.Reset();
+        return nullptr;
+    }
+
+    HWND listView = nullptr;
+    hr = oleWindow->GetWindow(&listView);
+    if (FAILED(hr) || !listView || !IsWindow(listView) || !IsWindowOwnedByThisExplorer(listView)) {
+        m_folderView2.Reset();
+        return nullptr;
+    }
+
+    return listView;
+}
+
 void CExplorerBHO::EnsureListViewSubclass() {
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
         return;
@@ -2315,6 +2364,10 @@ void CExplorerBHO::EnsureListViewSubclass() {
 
     if (m_listView && !IsWindow(m_listView)) {
         DetachListView();
+    }
+
+    if (TryAttachListViewFromFolderView()) {
+        return;
     }
 
     const HWND baseScopes[] = {m_directUiView, m_shellViewWindow, m_frameWindow};
@@ -2376,6 +2429,7 @@ void CExplorerBHO::EnsureListViewSubclass() {
         }
 
         if (listView && AttachListView(listView)) {
+            RefreshListViewAccentState();
             return;
         }
     }
@@ -2406,6 +2460,13 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
     }
 
     m_shellView = shellView;
+    m_folderView2.Reset();
+    if (shellView) {
+        Microsoft::WRL::ComPtr<IFolderView2> folderView;
+        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&folderView))) && folderView) {
+            m_folderView2 = std::move(folderView);
+        }
+    }
     m_shellViewWindow = viewWindow;
     UpdateCurrentFolderBackground();
 
@@ -2519,6 +2580,10 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         }
     }
 
+    if (!listViewResolved && TryAttachListViewFromFolderView()) {
+        listViewResolved = true;
+    }
+
     if (!listViewResolved) {
         const HWND candidates[] = {m_directUiView, m_shellViewWindow};
         for (HWND candidate : candidates) {
@@ -2535,7 +2600,17 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     }
 
     if (!treeViewResolved) {
-        HWND treeView = FindDescendantWindow(m_shellViewWindow, L"SysTreeView32");
+        HWND treeView = nullptr;
+        if (m_shellBrowser) {
+            HWND browserTree = nullptr;
+            if (SUCCEEDED(m_shellBrowser->GetControlWindow(FCW_TREE, &browserTree)) && browserTree &&
+                browserTree != m_listView && IsWindow(browserTree)) {
+                treeView = browserTree;
+            }
+        }
+        if (!treeView) {
+            treeView = FindDescendantWindow(m_shellViewWindow, L"SysTreeView32");
+        }
         if (treeView && treeView != m_listView && IsWindow(treeView)) {
             if (SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
                 m_treeView = treeView;
@@ -2656,6 +2731,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     m_loggedTreeViewMissing = false;
     m_paneHooks.Reset();
     m_shellViewWindow = nullptr;
+    m_folderView2.Reset();
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
 }
