@@ -48,8 +48,7 @@ class NamespaceTreeHost;
 class ShellTabsListView;
 
         class CExplorerBHO : public IObjectWithSite,
-                             public IDispatch,
-                             public PaneHighlightProvider {
+                             public IDispatch {
         public:
                 CExplorerBHO();
                 ~CExplorerBHO();
@@ -70,9 +69,6 @@ class ShellTabsListView;
                 // IObjectWithSite
                 IFACEMETHODIMP SetSite(IUnknown* site) override;
                 IFACEMETHODIMP GetSite(REFIID riid, void** site) override;
-
-                // PaneHighlightProvider
-                bool TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) override;
 
         private:
                 enum class BandEnsureOutcome {
@@ -97,27 +93,6 @@ class ShellTabsListView;
                         size_t operator()(HWND hwnd) const noexcept {
                                 return reinterpret_cast<size_t>(hwnd);
                         }
-                };
-
-                struct ListViewAccentResources {
-                        COLORREF accentColor = 0;
-                        COLORREF textColor = RGB(255, 255, 255);
-                        HBRUSH backgroundBrush = nullptr;
-                        HPEN focusPen = nullptr;
-                };
-
-                struct ListViewBackgroundSurface {
-                        std::unique_ptr<Gdiplus::Bitmap> bitmap;
-                        SIZE size{0, 0};
-                        std::wstring cacheKey;
-                        bool pending = false;
-                };
-
-                struct ListViewBackgroundJobState {
-                        SIZE size{0, 0};
-                        std::wstring cacheKey;
-                        uint64_t generation = 0;
-                        bool active = false;
                 };
 
                 struct TreeItemPidlResolution {
@@ -277,16 +252,10 @@ class ShellTabsListView;
                 bool EnsureFolderBackgroundBitmap(const std::wstring& key) const;
                 bool EnsureUniversalBackgroundBitmap() const;
                 Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
-                bool DrawFolderBackground(HWND hwnd, HDC dc);
                 void UpdateCurrentFolderBackground();
                 void InvalidateFolderBackgroundTargets() const;
-                bool EnsureListViewBackgroundSurface(HWND listView);
-                bool PaintListViewBackground(HWND hwnd, HDC dc);
-                void ClearListViewBackgroundImage();
-                void StartListViewBackgroundJob(SIZE size, std::wstring cacheKey,
-                        std::unique_ptr<Gdiplus::Bitmap> source);
-                void CancelListViewBackgroundJob();
                 std::wstring ResolveBackgroundCacheKey() const;
+                void RefreshListViewControlBackground();
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
@@ -345,10 +314,6 @@ class ShellTabsListView;
                 bool DrawAddressEditContent(HWND hwnd, HDC dc);
                 bool ShouldUseListViewAccentColors() const;
                 bool ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const;
-                bool EnsureListViewAccentResources(HWND listView, ListViewAccentResources** resources);
-                void ClearListViewAccentResources(HWND listView);
-                void ClearListViewAccentResources();
-                bool HandleListViewAccentCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
                 void RefreshListViewAccentState();
                 void EnsureListViewSubclass();
                 void EnsureListViewHostSubclass(HWND hostWindow);
@@ -496,15 +461,10 @@ class ShellTabsListView;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
                 std::unique_ptr<ShellTabsListView> m_listViewControl;
-                ListViewBackgroundSurface m_listViewBackgroundSurface;
-                ListViewBackgroundJobState m_listViewBackgroundJobState;
-                std::jthread m_listViewBackgroundWorker;
-                std::atomic<uint64_t> m_listViewBackgroundGeneration{0};
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;
                 std::unordered_map<HWND, BandEnsureState, HandleHasher> m_bandEnsureStates;
-                std::unordered_map<HWND, ListViewAccentResources, HandleHasher> m_listViewAccentCache;
                 bool m_useExplorerAccentColors = true;
                 std::vector<ContextMenuItem> m_cachedContextMenuItems;
                 ContextMenuSelectionSnapshot m_contextMenuSelection;
