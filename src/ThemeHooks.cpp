@@ -3,13 +3,16 @@
 #include "ExplorerGlowSurfaces.h"
 #include "Logging.h"
 
-#include <psapi.h>
+#include "MinHook.h"
+
 #include <gdiplus.h>
 #include <uxtheme.h>
 #include <vssym32.h>
+#include <CommCtrl.h>
 
 #include <algorithm>
 #include <vector>
+#include <cwchar>
 
 namespace shelltabs {
 namespace {
@@ -20,6 +23,24 @@ constexpr BYTE kThumbFillAlpha = 210;
 constexpr BYTE kThumbHaloAlpha = 110;
 constexpr BYTE kSeparatorLineAlpha = 220;
 constexpr BYTE kSeparatorHaloAlpha = 96;
+constexpr BYTE kRebarFillAlpha = 110;
+constexpr BYTE kHeaderLineAlpha = kSeparatorLineAlpha;
+constexpr BYTE kHeaderHaloAlpha = kSeparatorHaloAlpha;
+constexpr BYTE kEditFrameAlpha = kThumbFillAlpha;
+constexpr BYTE kEditHaloAlpha = kThumbHaloAlpha;
+
+bool MatchesClass(HWND hwnd, const wchar_t* className) {
+    if (!hwnd || !className) {
+        return false;
+    }
+
+    wchar_t buffer[64] = {};
+    const int length = GetClassNameW(hwnd, buffer, static_cast<int>(std::size(buffer)));
+    if (length <= 0) {
+        return false;
+    }
+    return _wcsicmp(buffer, className) == 0;
+}
 
 bool IsScrollbarPart(int partId) {
     switch (partId) {
@@ -52,6 +73,30 @@ bool IsRebarBandPart(int partId) {
     switch (partId) {
         case RP_BAND:
         case RP_BANDVERT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsHeaderPart(int partId) {
+    switch (partId) {
+        case HP_HEADERITEM:
+        case HP_HEADERITEMLEFT:
+        case HP_HEADERITEMRIGHT:
+        case HP_HEADERSORTARROW:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsEditBorderPart(int partId) {
+    switch (partId) {
+        case EP_EDITBORDER_NOSCROLL:
+        case EP_EDITBORDER_HSCROLL:
+        case EP_EDITBORDER_VSCROLL:
+        case EP_EDITBORDER_HVSCROLL:
             return true;
         default:
             return false;
@@ -129,6 +174,42 @@ void FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors, c
     graphics.FillRectangle(&brush, gdRect);
 }
 
+Gdiplus::Rect RectToGdiplus(const RECT& rect) {
+    return {rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top};
+}
+
+void FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors, const RECT& outerRect,
+                     const RECT& innerRect, BYTE alpha, float angle = 90.0f) {
+    if (outerRect.left >= outerRect.right || outerRect.top >= outerRect.bottom) {
+        return;
+    }
+
+    RECT clippedInner = innerRect;
+    clippedInner.left = std::max(clippedInner.left, outerRect.left);
+    clippedInner.top = std::max(clippedInner.top, outerRect.top);
+    clippedInner.right = std::min(clippedInner.right, outerRect.right);
+    clippedInner.bottom = std::min(clippedInner.bottom, outerRect.bottom);
+
+    const LONG width = std::max<LONG>(outerRect.right - outerRect.left, 0);
+    const LONG height = std::max<LONG>(outerRect.bottom - outerRect.top, 0);
+    if (width == 0 || height == 0) {
+        return;
+    }
+
+    FillGradientRect(graphics, colors, outerRect, alpha, angle);
+
+    const LONG innerWidth = std::max<LONG>(clippedInner.right - clippedInner.left, 0);
+    const LONG innerHeight = std::max<LONG>(clippedInner.bottom - clippedInner.top, 0);
+    if (innerWidth <= 0 || innerHeight <= 0) {
+        return;
+    }
+
+    Gdiplus::Region innerRegion(RectToGdiplus(clippedInner));
+    graphics.ExcludeClip(&innerRegion);
+    FillGradientRect(graphics, colors, outerRect, alpha, angle);
+    graphics.ResetClip();
+}
+
 void PaintTrack(Gdiplus::Graphics& graphics, const GlowColorSet& colors, const RECT& rect,
                 const RECT* clip, bool vertical, UINT dpiX, UINT dpiY) {
     RECT clipRect = IntersectOrEmpty(rect, clip);
@@ -191,32 +272,34 @@ void PaintThumb(Gdiplus::Graphics& graphics, const GlowColorSet& colors, const R
     }
 }
 
-std::vector<HMODULE> EnumerateProcessModules() {
-    std::vector<HMODULE> modules(128);
-    DWORD needed = 0;
-
-    HANDLE process = GetCurrentProcess();
-    for (;;) {
-        if (!EnumProcessModulesEx(process, modules.data(), static_cast<DWORD>(modules.size() * sizeof(HMODULE)),
-                                  &needed, LIST_MODULES_ALL)) {
-            return {};
-        }
-        if (needed <= modules.size() * sizeof(HMODULE)) {
-            modules.resize(needed / sizeof(HMODULE));
-            break;
-        }
-        modules.resize(needed / sizeof(HMODULE));
-    }
-
-    modules.erase(std::remove(modules.begin(), modules.end(), nullptr), modules.end());
-    return modules;
-}
-
 }  // namespace
 
 ThemeHooks& ThemeHooks::Instance() {
     static ThemeHooks instance;
     return instance;
+}
+
+bool ThemeHooks::Initialize() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return EnsureHooksInitializedLocked();
+}
+
+void ThemeHooks::Shutdown() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DisableHooksLocked();
+    DestroyHooksLocked();
+    m_coordinator = nullptr;
+    m_active = false;
+    m_expectScrollbar = false;
+    m_expectToolbar = false;
+    m_expectRebar = false;
+    m_expectHeader = false;
+    m_expectEdit = false;
+    m_scrollbarHookEngaged = false;
+    m_toolbarHookEngaged = false;
+    m_rebarHookEngaged = false;
+    m_headerHookEngaged = false;
+    m_editHookEngaged = false;
 }
 
 void ThemeHooks::AttachCoordinator(ExplorerGlowCoordinator& coordinator) {
@@ -256,6 +339,10 @@ bool ThemeHooks::IsSurfaceHookActive(ExplorerSurfaceKind kind) const noexcept {
             return m_expectToolbar && m_toolbarHookEngaged;
         case ExplorerSurfaceKind::Rebar:
             return m_expectRebar && m_rebarHookEngaged;
+        case ExplorerSurfaceKind::Header:
+            return m_expectHeader && m_headerHookEngaged;
+        case ExplorerSurfaceKind::Edit:
+            return m_expectEdit && m_editHookEngaged;
         default:
             return false;
     }
@@ -285,6 +372,31 @@ HRESULT WINAPI ThemeHooks::HookedDrawThemeEdge(HTHEME theme, HDC dc, int partId,
         return E_FAIL;
     }
     return original(theme, dc, partId, stateId, rect, edge, flags, contentRect);
+}
+
+int WINAPI ThemeHooks::HookedFillRect(HDC dc, const RECT* rect, HBRUSH brush) {
+    if (rect && ThemeHooks::Instance().OnFillRect(dc, *rect, brush)) {
+        return 1;
+    }
+
+    auto* original = ThemeHooks::Instance().m_originalFillRect;
+    if (!original) {
+        return 0;
+    }
+    return original(dc, rect, brush);
+}
+
+BOOL WINAPI ThemeHooks::HookedGdiGradientFill(HDC dc, PTRIVERTEX vertices, ULONG vertexCount, PVOID mesh,
+                                              ULONG meshCount, ULONG mode) {
+    if (ThemeHooks::Instance().OnGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode)) {
+        return TRUE;
+    }
+
+    auto* original = ThemeHooks::Instance().m_originalGradientFill;
+    if (!original) {
+        return FALSE;
+    }
+    return original(dc, vertices, vertexCount, mesh, meshCount, mode);
 }
 
 bool ThemeHooks::OnDrawThemeBackground(HTHEME, HDC dc, int partId, int stateId, LPCRECT rect, LPCRECT clipRect) {
@@ -382,6 +494,137 @@ bool ThemeHooks::OnDrawThemeBackground(HTHEME, HDC dc, int partId, int stateId, 
         return true;
     }
 
+    if (IsRebarBandPart(partId)) {
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Rebar, colors)) {
+            return false;
+        }
+
+        RECT paintRect = *rect;
+        if (clipRect) {
+            RECT intersect{};
+            if (IntersectRect(&intersect, &paintRect, clipRect)) {
+                paintRect = intersect;
+            } else {
+                return true;
+            }
+        }
+
+        if (IsRectEmptyStrict(paintRect)) {
+            return true;
+        }
+
+        const bool verticalBand = (partId == RP_BANDVERT);
+        const float angle = verticalBand ? 0.0f : 90.0f;
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+        FillGradientRect(graphics, colors, paintRect, kRebarFillAlpha, angle);
+        return true;
+    }
+
+    if (IsHeaderPart(partId)) {
+        HWND target = WindowFromDC(dc);
+        if (!MatchesClass(target, WC_HEADERW)) {
+            return false;
+        }
+
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Header, colors)) {
+            return false;
+        }
+
+        RECT paintRect = *rect;
+        if (clipRect) {
+            RECT intersect{};
+            if (IntersectRect(&intersect, &paintRect, clipRect)) {
+                paintRect = intersect;
+            } else {
+                return true;
+            }
+        }
+
+        if (IsRectEmptyStrict(paintRect)) {
+            return true;
+        }
+
+        const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+        const int lineThickness = std::clamp(ScaleByDpi(1, dpiX), 1, paintRect.right - paintRect.left);
+        const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, dpiX));
+
+        RECT lineRect = paintRect;
+        lineRect.left = std::max(lineRect.left, lineRect.right - lineThickness);
+
+        RECT haloRect = paintRect;
+        const int haloOffset = (haloThickness - lineThickness) / 2;
+        haloRect.left = std::max(paintRect.left, lineRect.left - haloOffset);
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+        FillGradientRect(graphics, colors, haloRect, kHeaderHaloAlpha, 90.0f);
+        FillGradientRect(graphics, colors, lineRect, kHeaderLineAlpha, 90.0f);
+        return true;
+    }
+
+    if (IsEditBorderPart(partId)) {
+        HWND target = WindowFromDC(dc);
+        if (!MatchesClass(target, L"Edit")) {
+            return false;
+        }
+
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Edit, colors)) {
+            return false;
+        }
+
+        RECT paintRect = *rect;
+        if (clipRect) {
+            RECT intersect{};
+            if (IntersectRect(&intersect, &paintRect, clipRect)) {
+                paintRect = intersect;
+            } else {
+                return true;
+            }
+        }
+
+        if (IsRectEmptyStrict(paintRect)) {
+            return true;
+        }
+
+        const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+        const UINT dpiY = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+
+        RECT inner = paintRect;
+        const int frameThicknessX = ScaleByDpi(1, dpiX);
+        const int frameThicknessY = ScaleByDpi(1, dpiY);
+        if ((inner.right - inner.left) > frameThicknessX * 2) {
+            inner.left += frameThicknessX;
+            inner.right -= frameThicknessX;
+        }
+        if ((inner.bottom - inner.top) > frameThicknessY * 2) {
+            inner.top += frameThicknessY;
+            inner.bottom -= frameThicknessY;
+        }
+
+        RECT haloRect = paintRect;
+        InflateRect(&haloRect, ScaleByDpi(3, dpiX), ScaleByDpi(3, dpiY));
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+        RECT haloPaint = IntersectOrEmpty(haloRect, clipRect);
+        if (!IsRectEmptyStrict(haloPaint)) {
+            FillFrameRegion(graphics, colors, haloPaint, paintRect, kEditHaloAlpha);
+        }
+
+        RECT framePaint = IntersectOrEmpty(paintRect, clipRect);
+        if (!IsRectEmptyStrict(framePaint)) {
+            FillFrameRegion(graphics, colors, framePaint, inner, kEditFrameAlpha);
+        }
+        return true;
+    }
+
     return false;
 }
 
@@ -470,6 +713,104 @@ bool ThemeHooks::OnDrawThemeEdge(HTHEME, HDC dc, int partId, int stateId, LPCREC
     return true;
 }
 
+bool ThemeHooks::OnFillRect(HDC dc, const RECT& rect, HBRUSH brush) {
+    UNREFERENCED_PARAMETER(brush);
+
+    if (!dc || IsRectEmptyStrict(rect)) {
+        return false;
+    }
+
+    HWND target = WindowFromDC(dc);
+    if (!target) {
+        return false;
+    }
+
+    if (MatchesClass(target, L"ReBarWindow32")) {
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Rebar, colors)) {
+            return false;
+        }
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+        FillGradientRect(graphics, colors, rect, kRebarFillAlpha, 90.0f);
+        return true;
+    }
+
+    if (MatchesClass(target, L"Edit")) {
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Edit, colors)) {
+            return false;
+        }
+
+        const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+        const UINT dpiY = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+
+        RECT inner = rect;
+        const int frameThicknessX = ScaleByDpi(1, dpiX);
+        const int frameThicknessY = ScaleByDpi(1, dpiY);
+        if ((inner.right - inner.left) > frameThicknessX * 2) {
+            inner.left += frameThicknessX;
+            inner.right -= frameThicknessX;
+        }
+        if ((inner.bottom - inner.top) > frameThicknessY * 2) {
+            inner.top += frameThicknessY;
+            inner.bottom -= frameThicknessY;
+        }
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+        FillFrameRegion(graphics, colors, rect, inner, kEditFrameAlpha);
+        return true;
+    }
+
+    return false;
+}
+
+bool ThemeHooks::OnGradientFill(HDC dc, PTRIVERTEX vertices, ULONG vertexCount, PVOID mesh, ULONG meshCount,
+                                ULONG mode) {
+    if (!dc || !vertices || !mesh || vertexCount == 0 || meshCount == 0) {
+        return false;
+    }
+
+    HWND target = WindowFromDC(dc);
+    if (!target || !MatchesClass(target, L"ReBarWindow32")) {
+        return false;
+    }
+
+    GlowColorSet colors{};
+    if (!ResolveColorsForHook(ExplorerSurfaceKind::Rebar, colors)) {
+        return false;
+    }
+
+    if (mode != GRADIENT_FILL_RECT_H && mode != GRADIENT_FILL_RECT_V) {
+        return false;
+    }
+
+    const auto* rects = reinterpret_cast<const GRADIENT_RECT*>(mesh);
+    if (!rects) {
+        return false;
+    }
+
+    const GRADIENT_RECT& first = rects[0];
+    if (first.UpperLeft >= vertexCount || first.LowerRight >= vertexCount) {
+        return false;
+    }
+
+    const TRIVERTEX& topLeft = vertices[first.UpperLeft];
+    const TRIVERTEX& bottomRight = vertices[first.LowerRight];
+    RECT fillRect{topLeft.x, topLeft.y, bottomRight.x, bottomRight.y};
+    if (IsRectEmptyStrict(fillRect)) {
+        return false;
+    }
+
+    const float angle = (mode == GRADIENT_FILL_RECT_H) ? 0.0f : 90.0f;
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+    FillGradientRect(graphics, colors, fillRect, kRebarFillAlpha, angle);
+    return true;
+}
+
 bool ThemeHooks::ResolveColorsForHook(ExplorerSurfaceKind kind, GlowColorSet& colors) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_active || !m_coordinator) {
@@ -499,6 +840,12 @@ bool ThemeHooks::ResolveColorsForHook(ExplorerSurfaceKind kind, GlowColorSet& co
         case ExplorerSurfaceKind::Rebar:
             m_rebarHookEngaged = true;
             break;
+        case ExplorerSurfaceKind::Header:
+            m_headerHookEngaged = true;
+            break;
+        case ExplorerSurfaceKind::Edit:
+            m_editHookEngaged = true;
+            break;
         default:
             break;
     }
@@ -514,6 +861,10 @@ bool ThemeHooks::ExpectHookFor(ExplorerSurfaceKind kind) const noexcept {
             return m_expectToolbar;
         case ExplorerSurfaceKind::Rebar:
             return m_expectRebar;
+        case ExplorerSurfaceKind::Header:
+            return m_expectHeader;
+        case ExplorerSurfaceKind::Edit:
+            return m_expectEdit;
         default:
             return false;
     }
@@ -526,10 +877,16 @@ void ThemeHooks::UpdateActivationLocked() {
         m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Toolbar);
     const bool shouldHookRebar =
         m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Rebar);
+    const bool shouldHookHeader =
+        m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Header);
+    const bool shouldHookEdit =
+        m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Edit);
 
     m_expectScrollbar = shouldHookScrollbar;
     m_expectToolbar = shouldHookToolbar;
     m_expectRebar = shouldHookRebar;
+    m_expectHeader = shouldHookHeader;
+    m_expectEdit = shouldHookEdit;
 
     if (!shouldHookScrollbar) {
         m_scrollbarHookEngaged = false;
@@ -540,8 +897,15 @@ void ThemeHooks::UpdateActivationLocked() {
     if (!shouldHookRebar) {
         m_rebarHookEngaged = false;
     }
+    if (!shouldHookHeader) {
+        m_headerHookEngaged = false;
+    }
+    if (!shouldHookEdit) {
+        m_editHookEngaged = false;
+    }
 
-    const bool shouldActivate = shouldHookScrollbar || shouldHookToolbar || shouldHookRebar;
+    const bool shouldActivate =
+        shouldHookScrollbar || shouldHookToolbar || shouldHookRebar || shouldHookHeader || shouldHookEdit;
     if (!shouldActivate) {
         if (m_active) {
             UninstallLocked();
@@ -557,6 +921,8 @@ void ThemeHooks::UpdateActivationLocked() {
             m_scrollbarHookEngaged = false;
             m_toolbarHookEngaged = false;
             m_rebarHookEngaged = false;
+            m_headerHookEngaged = false;
+            m_editHookEngaged = false;
         }
         m_active = true;
     } else {
@@ -565,165 +931,200 @@ void ThemeHooks::UpdateActivationLocked() {
 }
 
 bool ThemeHooks::InstallLocked() {
-    if (!m_originalDrawThemeBackground || !m_originalDrawThemeEdge) {
-        HMODULE themeModule = GetModuleHandleW(L"uxtheme.dll");
-        if (!themeModule) {
-            themeModule = LoadLibraryW(L"uxtheme.dll");
-        }
-        if (!themeModule) {
-            LogLastError(L"LoadLibraryW(uxtheme.dll)", GetLastError());
-            return false;
-        }
-
-        m_originalDrawThemeBackground =
-            reinterpret_cast<DrawThemeBackgroundFn>(GetProcAddress(themeModule, "DrawThemeBackground"));
-        m_originalDrawThemeEdge =
-            reinterpret_cast<DrawThemeEdgeFn>(GetProcAddress(themeModule, "DrawThemeEdge"));
-    }
-
-    if (!m_originalDrawThemeBackground || !m_originalDrawThemeEdge) {
+    if (!EnsureHooksInitializedLocked()) {
         return false;
     }
 
-    auto modules = EnumerateProcessModules();
-    bool patched = false;
-    for (HMODULE module : modules) {
-        if (!module) {
-            continue;
-        }
-        patched |= HookModuleImportsLocked(module);
+    if (m_hooksEnabled) {
+        return true;
     }
 
-    return patched;
+    auto enable = [&](void* target) {
+        if (!target) {
+            return true;
+        }
+        const MH_STATUS status = MH_EnableHook(target);
+        if (status != MH_OK && status != MH_ERROR_ENABLED) {
+            LogMessage(LogLevel::Error, L"MH_EnableHook failed for target %p (status=%d)", target,
+                       static_cast<int>(status));
+            return false;
+        }
+        return true;
+    };
+
+    if (!enable(m_drawThemeBackgroundTarget) || !enable(m_drawThemeEdgeTarget) || !enable(m_fillRectTarget) ||
+        !enable(m_gradientFillTarget)) {
+        return false;
+    }
+
+    m_hooksEnabled = true;
+    return true;
 }
 
 void ThemeHooks::UninstallLocked() {
-    for (auto& patch : m_backgroundPatches) {
-        if (!patch.slot || !patch.original) {
-            continue;
-        }
-        DWORD oldProtect = 0;
-        if (VirtualProtect(patch.slot, sizeof(FARPROC), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            *patch.slot = patch.original;
-            DWORD ignore = 0;
-            VirtualProtect(patch.slot, sizeof(FARPROC), oldProtect, &ignore);
-            FlushInstructionCache(GetCurrentProcess(), patch.slot, sizeof(FARPROC));
-        }
-    }
-    for (auto& patch : m_edgePatches) {
-        if (!patch.slot || !patch.original) {
-            continue;
-        }
-        DWORD oldProtect = 0;
-        if (VirtualProtect(patch.slot, sizeof(FARPROC), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            *patch.slot = patch.original;
-            DWORD ignore = 0;
-            VirtualProtect(patch.slot, sizeof(FARPROC), oldProtect, &ignore);
-            FlushInstructionCache(GetCurrentProcess(), patch.slot, sizeof(FARPROC));
-        }
-    }
+    DisableHooksLocked();
 
-    m_backgroundPatches.clear();
-    m_edgePatches.clear();
     m_expectScrollbar = false;
     m_expectToolbar = false;
     m_expectRebar = false;
+    m_expectHeader = false;
+    m_expectEdit = false;
+
     m_scrollbarHookEngaged = false;
     m_toolbarHookEngaged = false;
     m_rebarHookEngaged = false;
+    m_headerHookEngaged = false;
+    m_editHookEngaged = false;
+
     m_active = false;
 }
 
-bool ThemeHooks::HookModuleImportsLocked(HMODULE module) {
-    auto* dos = reinterpret_cast<PIMAGE_DOS_HEADER>(module);
-    if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) {
+bool ThemeHooks::EnsureHooksInitializedLocked() {
+    if (m_hooksInitialized) {
+        return true;
+    }
+
+    bool initializedLibrary = false;
+    MH_STATUS status = MH_Initialize();
+    if (status == MH_OK) {
+        initializedLibrary = true;
+    } else if (status != MH_ERROR_ALREADY_INITIALIZED) {
+        LogMessage(LogLevel::Error, L"MH_Initialize failed (status=%d)", static_cast<int>(status));
         return false;
     }
 
-    auto* nt = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<BYTE*>(module) + dos->e_lfanew);
-    if (!nt || nt->Signature != IMAGE_NT_SIGNATURE) {
-        return false;
-    }
-
-    const auto& importDirectory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (importDirectory.VirtualAddress == 0) {
-        return false;
-    }
-
-    auto* descriptor = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(
-        reinterpret_cast<BYTE*>(module) + importDirectory.VirtualAddress);
-
-    bool updated = false;
-    for (; descriptor && descriptor->Name; ++descriptor) {
-        const char* moduleName = reinterpret_cast<const char*>(reinterpret_cast<BYTE*>(module) + descriptor->Name);
-        if (!moduleName || _stricmp(moduleName, "uxtheme.dll") != 0) {
-            continue;
+    auto ensureModule = [](const wchar_t* name) -> HMODULE {
+        HMODULE module = GetModuleHandleW(name);
+        if (!module) {
+            module = LoadLibraryW(name);
         }
+        return module;
+    };
 
-        auto* thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(reinterpret_cast<BYTE*>(module) + descriptor->FirstThunk);
-        auto* originalThunk = descriptor->OriginalFirstThunk
-                                   ? reinterpret_cast<PIMAGE_THUNK_DATA>(
-                                         reinterpret_cast<BYTE*>(module) + descriptor->OriginalFirstThunk)
-                                   : thunk;
+    HMODULE themeModule = ensureModule(L"uxtheme.dll");
+    HMODULE userModule = ensureModule(L"user32.dll");
+    HMODULE gdiModule = ensureModule(L"gdi32.dll");
 
-        for (; originalThunk && originalThunk->u1.AddressOfData; ++originalThunk, ++thunk) {
-            if (IMAGE_SNAP_BY_ORDINAL(originalThunk->u1.Ordinal)) {
-                continue;
-            }
-
-            auto* import = reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(
-                reinterpret_cast<BYTE*>(module) + originalThunk->u1.AddressOfData);
-            if (!import) {
-                continue;
-            }
-
-            const char* functionName = reinterpret_cast<const char*>(import->Name);
-            if (!functionName) {
-                continue;
-            }
-
-            FARPROC* slot = reinterpret_cast<FARPROC*>(&thunk->u1.Function);
-            if (!slot || !*slot) {
-                continue;
-            }
-
-            if (_stricmp(functionName, "DrawThemeBackground") == 0) {
-                if (*slot != reinterpret_cast<FARPROC>(&HookedDrawThemeBackground)) {
-                    DWORD oldProtect = 0;
-                    if (VirtualProtect(slot, sizeof(FARPROC), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                        PatchedImport patch{};
-                        patch.module = module;
-                        patch.slot = slot;
-                        patch.original = *slot;
-                        *slot = reinterpret_cast<FARPROC>(&HookedDrawThemeBackground);
-                        DWORD ignore = 0;
-                        VirtualProtect(slot, sizeof(FARPROC), oldProtect, &ignore);
-                        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(FARPROC));
-                        m_backgroundPatches.push_back(patch);
-                        updated = true;
-                    }
-                }
-            } else if (_stricmp(functionName, "DrawThemeEdge") == 0) {
-                if (*slot != reinterpret_cast<FARPROC>(&HookedDrawThemeEdge)) {
-                    DWORD oldProtect = 0;
-                    if (VirtualProtect(slot, sizeof(FARPROC), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                        PatchedImport patch{};
-                        patch.module = module;
-                        patch.slot = slot;
-                        patch.original = *slot;
-                        *slot = reinterpret_cast<FARPROC>(&HookedDrawThemeEdge);
-                        DWORD ignore = 0;
-                        VirtualProtect(slot, sizeof(FARPROC), oldProtect, &ignore);
-                        FlushInstructionCache(GetCurrentProcess(), slot, sizeof(FARPROC));
-                        m_edgePatches.push_back(patch);
-                        updated = true;
-                    }
-                }
-            }
+    if (!themeModule || !userModule || !gdiModule) {
+        LogMessage(LogLevel::Error, L"Failed to resolve required theme modules");
+        if (initializedLibrary) {
+            MH_Uninitialize();
         }
+        return false;
     }
 
-    return updated;
+    auto resolveTarget = [&](HMODULE module, const char* name, void** storage) -> bool {
+        FARPROC proc = GetProcAddress(module, name);
+        if (!proc) {
+            LogMessage(LogLevel::Error, L"GetProcAddress failed for %hs", name);
+            return false;
+        }
+        *storage = reinterpret_cast<void*>(proc);
+        return true;
+    };
+
+    if (!resolveTarget(themeModule, "DrawThemeBackground", &m_drawThemeBackgroundTarget) ||
+        !resolveTarget(themeModule, "DrawThemeEdge", &m_drawThemeEdgeTarget) ||
+        !resolveTarget(userModule, "FillRect", &m_fillRectTarget) ||
+        !resolveTarget(gdiModule, "GdiGradientFill", &m_gradientFillTarget)) {
+        if (initializedLibrary) {
+            MH_Uninitialize();
+        }
+        m_drawThemeBackgroundTarget = nullptr;
+        m_drawThemeEdgeTarget = nullptr;
+        m_fillRectTarget = nullptr;
+        m_gradientFillTarget = nullptr;
+        return false;
+    }
+
+    MH_STATUS backgroundStatus = MH_CreateHook(m_drawThemeBackgroundTarget,
+                                               reinterpret_cast<LPVOID>(&HookedDrawThemeBackground),
+                                               reinterpret_cast<LPVOID*>(&m_originalDrawThemeBackground));
+    MH_STATUS edgeStatus = MH_CreateHook(m_drawThemeEdgeTarget, reinterpret_cast<LPVOID>(&HookedDrawThemeEdge),
+                                         reinterpret_cast<LPVOID*>(&m_originalDrawThemeEdge));
+    MH_STATUS fillStatus = MH_CreateHook(m_fillRectTarget, reinterpret_cast<LPVOID>(&HookedFillRect),
+                                         reinterpret_cast<LPVOID*>(&m_originalFillRect));
+    MH_STATUS gradientStatus = MH_CreateHook(m_gradientFillTarget,
+                                             reinterpret_cast<LPVOID>(&HookedGdiGradientFill),
+                                             reinterpret_cast<LPVOID*>(&m_originalGradientFill));
+
+    if ((backgroundStatus != MH_OK && backgroundStatus != MH_ERROR_ALREADY_CREATED) ||
+        (edgeStatus != MH_OK && edgeStatus != MH_ERROR_ALREADY_CREATED) ||
+        (fillStatus != MH_OK && fillStatus != MH_ERROR_ALREADY_CREATED) ||
+        (gradientStatus != MH_OK && gradientStatus != MH_ERROR_ALREADY_CREATED)) {
+        if (initializedLibrary) {
+            MH_Uninitialize();
+        }
+        m_drawThemeBackgroundTarget = nullptr;
+        m_drawThemeEdgeTarget = nullptr;
+        m_fillRectTarget = nullptr;
+        m_gradientFillTarget = nullptr;
+        m_originalDrawThemeBackground = nullptr;
+        m_originalDrawThemeEdge = nullptr;
+        m_originalFillRect = nullptr;
+        m_originalGradientFill = nullptr;
+        return false;
+    }
+
+    m_hooksInitialized = true;
+    return true;
+}
+
+void ThemeHooks::DisableHooksLocked() {
+    if (!m_hooksInitialized || !m_hooksEnabled) {
+        return;
+    }
+
+    auto disable = [&](void* target) {
+        if (!target) {
+            return;
+        }
+        const MH_STATUS status = MH_DisableHook(target);
+        if (status != MH_OK && status != MH_ERROR_DISABLED) {
+            LogMessage(LogLevel::Warning, L"MH_DisableHook failed for target %p (status=%d)", target,
+                       static_cast<int>(status));
+        }
+    };
+
+    disable(m_drawThemeBackgroundTarget);
+    disable(m_drawThemeEdgeTarget);
+    disable(m_fillRectTarget);
+    disable(m_gradientFillTarget);
+    m_hooksEnabled = false;
+}
+
+void ThemeHooks::DestroyHooksLocked() {
+    if (!m_hooksInitialized) {
+        return;
+    }
+
+    DisableHooksLocked();
+
+    auto remove = [&](void*& target) {
+        if (!target) {
+            return;
+        }
+        const MH_STATUS status = MH_RemoveHook(target);
+        if (status != MH_OK && status != MH_ERROR_NOT_CREATED) {
+            LogMessage(LogLevel::Warning, L"MH_RemoveHook failed for target %p (status=%d)", target,
+                       static_cast<int>(status));
+        }
+        target = nullptr;
+    };
+
+    remove(m_drawThemeBackgroundTarget);
+    remove(m_drawThemeEdgeTarget);
+    remove(m_fillRectTarget);
+    remove(m_gradientFillTarget);
+
+    m_originalDrawThemeBackground = nullptr;
+    m_originalDrawThemeEdge = nullptr;
+    m_originalFillRect = nullptr;
+    m_originalGradientFill = nullptr;
+
+    MH_Uninitialize();
+    m_hooksInitialized = false;
+    m_hooksEnabled = false;
 }
 
 }  // namespace shelltabs

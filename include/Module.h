@@ -9,6 +9,12 @@
 
 namespace shelltabs {
 
+class Module {
+public:
+    static bool Initialize();
+    static void Shutdown();
+};
+
 void SetModuleHandleInstance(HMODULE module) noexcept;
 HMODULE GetModuleHandleInstance() noexcept;
 void ModuleAddRef() noexcept;

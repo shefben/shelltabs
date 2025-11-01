@@ -2,6 +2,8 @@
 
 #include <atomic>
 
+#include "ThemeHooks.h"
+
 namespace shelltabs {
 
 namespace {
@@ -27,6 +29,14 @@ void ModuleRelease() noexcept {
 
 bool ModuleCanUnload() noexcept {
     return g_moduleRefs.load() == 0;
+}
+
+bool Module::Initialize() {
+    return ThemeHooks::Instance().Initialize();
+}
+
+void Module::Shutdown() {
+    ThemeHooks::Instance().Shutdown();
 }
 
 }  // namespace shelltabs

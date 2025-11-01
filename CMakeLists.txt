@@ -47,6 +47,13 @@ add_library(ShellTabs SHARED
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/resource.rc
+    third_party/minhook/src/buffer.cpp
+    third_party/minhook/src/hook.cpp
+    third_party/minhook/src/trampoline.cpp
+    third_party/minhook/src/thread.cpp
+    third_party/minhook/src/export.cpp
+    third_party/minhook/src/HDE32/hde32.c
+    third_party/minhook/src/HDE64/src/hde64.c
 )
 
 if (MSVC)
@@ -56,6 +63,10 @@ endif()
 target_include_directories(ShellTabs PRIVATE
     include
     ${CMAKE_CURRENT_SOURCE_DIR}
+    third_party/minhook
+    third_party/minhook/src
+    third_party/minhook/src/HDE32
+    third_party/minhook/src/HDE64/include
 )
 
 target_compile_definitions(ShellTabs PRIVATE

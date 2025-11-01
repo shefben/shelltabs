@@ -858,6 +858,12 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         shelltabs::SetModuleHandleInstance(module);
         DisableThreadLibraryCalls(module);
 
+        if (!Module::Initialize()) {
+            LogMessage(LogLevel::Error, L"Module::Initialize failed");
+            ShutdownLogging();
+            return FALSE;
+        }
+
         INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX)};
         icc.dwICC = ICC_BAR_CLASSES | ICC_TAB_CLASSES;
         if (!InitCommonControlsEx(&icc)) {
@@ -867,6 +873,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         }
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
+        Module::Shutdown();
         ShutdownLogging();
     }
     return TRUE;
