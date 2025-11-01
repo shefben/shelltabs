@@ -33,6 +33,12 @@ END
 STRINGTABLE
 BEGIN
     IDS_PROJNAME "Shell Tabs"
+    IDS_OPTIONS_TITLE_GENERAL "General"
+    IDS_OPTIONS_TITLE_CUSTOMIZATIONS "Customizations"
+    IDS_OPTIONS_TITLE_GLOW "Glow"
+    IDS_OPTIONS_TITLE_CONTEXT_MENUS "Context Menus"
+    IDS_OPTIONS_TITLE_GROUPS "Groups && Islands"
+    IDS_OPTIONS_COMMAND_HINTS "Command variables: %1 = first item, %V = all selected items"
 END
 
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "ShellTabs.manifest"

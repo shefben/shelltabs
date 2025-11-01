@@ -28,6 +28,7 @@
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <shellapi.h>
 #include <commdlg.h>
 #include <wrl/client.h>
 #include <objbase.h>
@@ -60,6 +61,8 @@ constexpr int kCustomizationScrollPageStep = 80;
 constexpr SIZE kUniversalPreviewSize = {96, 72};
 constexpr SIZE kFolderPreviewSize = {64, 64};
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
+constexpr int kContextDialogWidth = 360;
+constexpr int kContextDialogHeight = 430;
 
 struct PreviewBitmapResult {
     UINT64 token = 0;
@@ -164,6 +167,33 @@ enum ControlIds : int {
     IDC_EDITOR_COLOR_BUTTON = 5207,
     IDC_EDITOR_STYLE_LABEL = 5208,
     IDC_EDITOR_STYLE_COMBO = 5209,
+
+    IDC_CONTEXT_TREE = 5501,
+    IDC_CONTEXT_ADD_COMMAND = 5502,
+    IDC_CONTEXT_ADD_SUBMENU = 5503,
+    IDC_CONTEXT_ADD_SEPARATOR = 5504,
+    IDC_CONTEXT_REMOVE = 5505,
+    IDC_CONTEXT_MOVE_UP = 5506,
+    IDC_CONTEXT_MOVE_DOWN = 5507,
+    IDC_CONTEXT_INDENT = 5508,
+    IDC_CONTEXT_OUTDENT = 5509,
+    IDC_CONTEXT_LABEL_EDIT = 5510,
+    IDC_CONTEXT_ICON_EDIT = 5511,
+    IDC_CONTEXT_ICON_BROWSE = 5512,
+    IDC_CONTEXT_COMMAND_PATH = 5513,
+    IDC_CONTEXT_COMMAND_BROWSE = 5514,
+    IDC_CONTEXT_COMMAND_ARGS = 5515,
+    IDC_CONTEXT_HINTS_STATIC = 5516,
+    IDC_CONTEXT_SELECTION_MIN = 5517,
+    IDC_CONTEXT_SELECTION_MAX = 5518,
+    IDC_CONTEXT_ANCHOR_COMBO = 5519,
+    IDC_CONTEXT_SCOPE_FILES = 5520,
+    IDC_CONTEXT_SCOPE_FOLDERS = 5521,
+    IDC_CONTEXT_SEPARATOR_CHECK = 5522,
+    IDC_CONTEXT_EXTENSION_EDIT = 5523,
+    IDC_CONTEXT_EXTENSION_ADD = 5524,
+    IDC_CONTEXT_EXTENSION_LIST = 5525,
+    IDC_CONTEXT_EXTENSION_REMOVE = 5526,
 };
 
 struct GlowSurfaceControlMapping {
@@ -219,6 +249,12 @@ struct OptionsDialogData {
     int customizationContentHeight = 0;
     int customizationScrollMax = 0;
     int customizationWheelRemainder = 0;
+    std::vector<std::vector<size_t>> contextTreePaths;
+    std::vector<HTREEITEM> contextTreeItems;
+    std::vector<size_t> contextSelectionPath;
+    bool contextSelectionValid = false;
+    bool contextUpdatingControls = false;
+    std::wstring contextCommandBrowseDirectory;
     std::wstring focusSavedGroupId;
     bool focusShouldEdit = false;
     bool focusHandled = false;
@@ -241,6 +277,1048 @@ std::wstring GetWindowTextString(HWND control) {
         text.clear();
     }
     return text;
+}
+
+std::wstring DescribeContextMenuTreeItem(const ContextMenuItem& item) {
+    switch (item.type) {
+        case ContextMenuItemType::kCommand:
+            if (!item.label.empty()) {
+                return item.label;
+            }
+            return L"(Command)";
+        case ContextMenuItemType::kSubmenu:
+            if (!item.label.empty()) {
+                return item.label + L" (submenu)";
+            }
+            return L"(Submenu)";
+        case ContextMenuItemType::kSeparator:
+        default:
+            return L"(Separator)";
+    }
+}
+
+std::vector<ContextMenuItem>* GetContextMenuContainer(std::vector<ContextMenuItem>& root,
+                                                      const std::vector<size_t>& path) {
+    std::vector<ContextMenuItem>* container = &root;
+    if (path.empty()) {
+        return container;
+    }
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        if (!container || path[i] >= container->size()) {
+            return nullptr;
+        }
+        ContextMenuItem& parent = (*container)[path[i]];
+        container = &parent.children;
+    }
+    return container;
+}
+
+const std::vector<ContextMenuItem>* GetContextMenuContainer(const std::vector<ContextMenuItem>& root,
+                                                           const std::vector<size_t>& path) {
+    const std::vector<ContextMenuItem>* container = &root;
+    if (path.empty()) {
+        return container;
+    }
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        if (!container || path[i] >= container->size()) {
+            return nullptr;
+        }
+        const ContextMenuItem& parent = (*container)[path[i]];
+        container = &parent.children;
+    }
+    return container;
+}
+
+ContextMenuItem* GetContextMenuItem(std::vector<ContextMenuItem>& root, const std::vector<size_t>& path) {
+    if (path.empty()) {
+        return nullptr;
+    }
+    auto* container = GetContextMenuContainer(root, path);
+    if (!container) {
+        return nullptr;
+    }
+    const size_t index = path.back();
+    if (index >= container->size()) {
+        return nullptr;
+    }
+    return &(*container)[index];
+}
+
+const ContextMenuItem* GetContextMenuItem(const std::vector<ContextMenuItem>& root,
+                                          const std::vector<size_t>& path) {
+    if (path.empty()) {
+        return nullptr;
+    }
+    const auto* container = GetContextMenuContainer(root, path);
+    if (!container) {
+        return nullptr;
+    }
+    const size_t index = path.back();
+    if (index >= container->size()) {
+        return nullptr;
+    }
+    return &(*container)[index];
+}
+
+void InsertContextMenuTreeItems(HWND tree, HTREEITEM parent, const std::vector<ContextMenuItem>& items,
+                                std::vector<size_t>* currentPath, OptionsDialogData* data) {
+    if (!tree || !currentPath || !data) {
+        return;
+    }
+    for (size_t i = 0; i < items.size(); ++i) {
+        currentPath->push_back(i);
+        const std::wstring label = DescribeContextMenuTreeItem(items[i]);
+        data->contextTreePaths.push_back(*currentPath);
+        data->contextTreeItems.push_back(nullptr);
+        const size_t pathIndex = data->contextTreePaths.size() - 1;
+
+        TVINSERTSTRUCTW insert{};
+        insert.hParent = parent;
+        insert.hInsertAfter = TVI_LAST;
+        insert.item.mask = TVIF_TEXT | TVIF_PARAM;
+        insert.item.lParam = static_cast<LPARAM>(pathIndex);
+        insert.item.pszText = const_cast<wchar_t*>(label.c_str());
+        HTREEITEM handle = TreeView_InsertItem(tree, &insert);
+        if (pathIndex < data->contextTreeItems.size()) {
+            data->contextTreeItems[pathIndex] = handle;
+        }
+
+        if (items[i].type == ContextMenuItemType::kSubmenu && !items[i].children.empty()) {
+            InsertContextMenuTreeItems(tree, handle, items[i].children, currentPath, data);
+            TreeView_Expand(tree, handle, TVE_EXPAND);
+        }
+        currentPath->pop_back();
+    }
+}
+
+HTREEITEM FindContextTreeItem(const OptionsDialogData* data, const std::vector<size_t>& path) {
+    if (!data) {
+        return nullptr;
+    }
+    for (size_t i = 0; i < data->contextTreePaths.size() && i < data->contextTreeItems.size(); ++i) {
+        if (data->contextTreePaths[i] == path) {
+            return data->contextTreeItems[i];
+        }
+    }
+    return nullptr;
+}
+
+void RefreshContextMenuTree(HWND page, OptionsDialogData* data, const std::vector<size_t>* selectionPath) {
+    if (!data) {
+        return;
+    }
+    HWND tree = GetDlgItem(page, IDC_CONTEXT_TREE);
+    if (!tree) {
+        return;
+    }
+
+    data->contextTreePaths.clear();
+    data->contextTreeItems.clear();
+
+    TreeView_DeleteAllItems(tree);
+
+    std::vector<size_t> path;
+    InsertContextMenuTreeItems(tree, TVI_ROOT, data->workingOptions.contextMenuItems, &path, data);
+
+    if (selectionPath) {
+        if (HTREEITEM item = FindContextTreeItem(data, *selectionPath)) {
+            TreeView_SelectItem(tree, item);
+        }
+    } else if (!data->contextTreeItems.empty()) {
+        TreeView_SelectItem(tree, data->contextTreeItems.front());
+    }
+}
+
+bool GetContextMenuSelectedPath(HWND page, OptionsDialogData* data, std::vector<size_t>* path) {
+    if (!data || !path) {
+        return false;
+    }
+    HWND tree = GetDlgItem(page, IDC_CONTEXT_TREE);
+    if (!tree) {
+        return false;
+    }
+    HTREEITEM selection = TreeView_GetSelection(tree);
+    if (!selection) {
+        return false;
+    }
+    TVITEMW item{};
+    item.mask = TVIF_PARAM;
+    item.hItem = selection;
+    if (!TreeView_GetItem(tree, &item)) {
+        return false;
+    }
+    const size_t index = static_cast<size_t>(item.lParam);
+    if (index >= data->contextTreePaths.size()) {
+        return false;
+    }
+    *path = data->contextTreePaths[index];
+    return true;
+}
+
+void PopulateContextMenuAnchorCombo(HWND combo) {
+    if (!combo) {
+        return;
+    }
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    struct AnchorOption {
+        ContextMenuInsertionAnchor value;
+        const wchar_t* label;
+    } options[] = {
+        {ContextMenuInsertionAnchor::kDefault, L"Default"},
+        {ContextMenuInsertionAnchor::kTop, L"Top"},
+        {ContextMenuInsertionAnchor::kBottom, L"Bottom"},
+        {ContextMenuInsertionAnchor::kBeforeShellItems, L"Before shell items"},
+        {ContextMenuInsertionAnchor::kAfterShellItems, L"After shell items"},
+    };
+    for (const auto& option : options) {
+        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
+                                                        reinterpret_cast<LPARAM>(option.label)));
+        if (index >= 0) {
+            SendMessageW(combo, CB_SETITEMDATA, index, static_cast<LPARAM>(option.value));
+        }
+    }
+}
+
+void SplitCommandTemplate(const std::wstring& commandTemplate, std::wstring* path, std::wstring* args) {
+    if (path) {
+        path->clear();
+    }
+    if (args) {
+        args->clear();
+    }
+    std::wstring trimmed = Trim(commandTemplate);
+    if (trimmed.empty()) {
+        return;
+    }
+    std::vector<wchar_t> buffer(trimmed.begin(), trimmed.end());
+    buffer.push_back(L'\0');
+    wchar_t* argStart = PathGetArgsW(buffer.data());
+    size_t argOffset = static_cast<size_t>(argStart - buffer.data());
+    std::wstring commandPath(buffer.data(), buffer.data() + argOffset);
+    commandPath = Trim(commandPath);
+    if (!commandPath.empty() && commandPath.front() == L'"' && commandPath.back() == L'"') {
+        commandPath = commandPath.substr(1, commandPath.size() - 2);
+    }
+    if (path) {
+        *path = commandPath;
+    }
+    if (args) {
+        *args = Trim(std::wstring(argStart));
+    }
+}
+
+std::wstring BuildCommandTemplate(const std::wstring& path, const std::wstring& args) {
+    std::wstring trimmedPath = Trim(path);
+    std::wstring trimmedArgs = Trim(args);
+    if (trimmedPath.empty()) {
+        return Trim(trimmedArgs);
+    }
+    bool quoted = !trimmedPath.empty() && trimmedPath.front() == L'"' && trimmedPath.back() == L'"';
+    bool needsQuotes = trimmedPath.find(L' ') != std::wstring::npos || trimmedPath.find(L'\t') != std::wstring::npos;
+    std::wstring command = trimmedPath;
+    if (needsQuotes && !quoted) {
+        command = L"\"" + trimmedPath + L"\"";
+    }
+    if (!trimmedArgs.empty()) {
+        if (!command.empty()) {
+            command.push_back(L' ');
+        }
+        command += trimmedArgs;
+    }
+    return command;
+}
+
+std::vector<std::wstring> CollectExtensionsFromList(HWND page) {
+    std::vector<std::wstring> extensions;
+    HWND list = GetDlgItem(page, IDC_CONTEXT_EXTENSION_LIST);
+    if (!list) {
+        return extensions;
+    }
+    const int count = static_cast<int>(SendMessageW(list, LB_GETCOUNT, 0, 0));
+    for (int i = 0; i < count; ++i) {
+        const int length = static_cast<int>(SendMessageW(list, LB_GETTEXTLEN, i, 0));
+        if (length <= 0) {
+            continue;
+        }
+        std::wstring buffer(static_cast<size_t>(length) + 1, L'\0');
+        if (SendMessageW(list, LB_GETTEXT, i, reinterpret_cast<LPARAM>(buffer.data())) != LB_ERR) {
+            buffer.resize(static_cast<size_t>(length));
+            extensions.emplace_back(std::move(buffer));
+        }
+    }
+    return extensions;
+}
+
+void RefreshContextMenuExtensionsList(HWND page, const ContextMenuItem& item) {
+    HWND list = GetDlgItem(page, IDC_CONTEXT_EXTENSION_LIST);
+    if (!list) {
+        return;
+    }
+    SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    for (const auto& ext : item.scope.extensions) {
+        SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(ext.c_str()));
+    }
+}
+
+void UpdateContextMenuTreeItemText(HWND page, OptionsDialogData* data, const ContextMenuItem& item) {
+    if (!data || !data->contextSelectionValid) {
+        return;
+    }
+    HWND tree = GetDlgItem(page, IDC_CONTEXT_TREE);
+    if (!tree) {
+        return;
+    }
+    HTREEITEM selection = TreeView_GetSelection(tree);
+    if (!selection) {
+        return;
+    }
+    std::wstring label = DescribeContextMenuTreeItem(item);
+    TVITEMW update{};
+    update.mask = TVIF_TEXT;
+    update.hItem = selection;
+    update.pszText = label.data();
+    update.cchTextMax = static_cast<int>(label.size());
+    TreeView_SetItem(tree, &update);
+}
+
+void UpdateContextMenuButtonStates(HWND page, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+    HWND addCommand = GetDlgItem(page, IDC_CONTEXT_ADD_COMMAND);
+    HWND addSubmenu = GetDlgItem(page, IDC_CONTEXT_ADD_SUBMENU);
+    HWND addSeparator = GetDlgItem(page, IDC_CONTEXT_ADD_SEPARATOR);
+    HWND removeButton = GetDlgItem(page, IDC_CONTEXT_REMOVE);
+    HWND moveUp = GetDlgItem(page, IDC_CONTEXT_MOVE_UP);
+    HWND moveDown = GetDlgItem(page, IDC_CONTEXT_MOVE_DOWN);
+    HWND indent = GetDlgItem(page, IDC_CONTEXT_INDENT);
+    HWND outdent = GetDlgItem(page, IDC_CONTEXT_OUTDENT);
+    HWND groupCheck = GetDlgItem(page, IDC_CONTEXT_SEPARATOR_CHECK);
+
+    std::vector<size_t> path;
+    const bool hasSelection = GetContextMenuSelectedPath(page, data, &path);
+    const auto* container = hasSelection ?
+                                 GetContextMenuContainer(data->workingOptions.contextMenuItems, path) :
+                                 nullptr;
+    const ContextMenuItem* item = hasSelection ?
+                                      GetContextMenuItem(data->workingOptions.contextMenuItems, path) :
+                                      nullptr;
+
+    if (addCommand) {
+        EnableWindow(addCommand, TRUE);
+    }
+    if (addSubmenu) {
+        EnableWindow(addSubmenu, TRUE);
+    }
+    if (addSeparator) {
+        EnableWindow(addSeparator, TRUE);
+    }
+    if (removeButton) {
+        EnableWindow(removeButton, hasSelection);
+    }
+    if (moveUp) {
+        bool canMove = false;
+        if (container && !path.empty()) {
+            canMove = path.back() > 0;
+        }
+        EnableWindow(moveUp, canMove ? TRUE : FALSE);
+    }
+    if (moveDown) {
+        bool canMove = false;
+        if (container && !path.empty()) {
+            canMove = path.back() + 1 < container->size();
+        }
+        EnableWindow(moveDown, canMove ? TRUE : FALSE);
+    }
+    if (indent) {
+        bool canIndent = false;
+        if (container && !path.empty() && path.back() > 0) {
+            const size_t siblingIndex = path.back() - 1;
+            if (siblingIndex < container->size()) {
+                const ContextMenuItem& sibling = (*container)[siblingIndex];
+                canIndent = sibling.type == ContextMenuItemType::kSubmenu;
+            }
+        }
+        EnableWindow(indent, canIndent ? TRUE : FALSE);
+    }
+    if (outdent) {
+        bool canOutdent = path.size() >= 2;
+        EnableWindow(outdent, canOutdent ? TRUE : FALSE);
+    }
+    if (groupCheck) {
+        const bool enableGroup = hasSelection && item && item->type != ContextMenuItemType::kSeparator;
+        EnableWindow(groupCheck, enableGroup ? TRUE : FALSE);
+    }
+}
+
+bool HasSeparatorAbove(const std::vector<ContextMenuItem>& root, const std::vector<size_t>& path) {
+    if (path.empty()) {
+        return false;
+    }
+    const auto* container = GetContextMenuContainer(root, path);
+    if (!container) {
+        return false;
+    }
+    const size_t index = path.back();
+    if (index == 0 || index > container->size()) {
+        return false;
+    }
+    const ContextMenuItem& previous = (*container)[index - 1];
+    return previous.type == ContextMenuItemType::kSeparator;
+}
+
+bool ToggleSeparatorAbove(HWND page, OptionsDialogData* data, bool ensure) {
+    if (!data || !data->contextSelectionValid) {
+        return false;
+    }
+    auto path = data->contextSelectionPath;
+    auto* container = GetContextMenuContainer(data->workingOptions.contextMenuItems, path);
+    if (!container || path.empty()) {
+        return false;
+    }
+    const size_t index = path.back();
+    if (ensure) {
+        if (index > 0 && (*container)[index - 1].type == ContextMenuItemType::kSeparator) {
+            return false;
+        }
+        ContextMenuItem separator;
+        separator.type = ContextMenuItemType::kSeparator;
+        container->insert(container->begin() + static_cast<std::ptrdiff_t>(index), separator);
+        path.back() = index + 1;
+        data->contextSelectionPath = path;
+    } else {
+        if (index == 0 || (*container)[index - 1].type != ContextMenuItemType::kSeparator) {
+            return false;
+        }
+        container->erase(container->begin() + static_cast<std::ptrdiff_t>(index - 1));
+        path.back() = index - 1;
+        data->contextSelectionPath = path;
+    }
+    RefreshContextMenuTree(page, data, &data->contextSelectionPath);
+    UpdateContextMenuButtonStates(page, data);
+    PopulateContextMenuDetailControls(page, data);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+void PopulateContextMenuDetailControls(HWND page, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+
+    std::vector<size_t> path;
+    const bool hasSelection = GetContextMenuSelectedPath(page, data, &path);
+    data->contextSelectionValid = hasSelection;
+    if (hasSelection) {
+        data->contextSelectionPath = path;
+    }
+
+    const ContextMenuItem* item =
+        hasSelection ? GetContextMenuItem(data->workingOptions.contextMenuItems, path) : nullptr;
+
+    data->contextUpdatingControls = true;
+
+    auto setEditText = [](HWND control, const std::wstring& text) {
+        if (control) {
+            SetWindowTextW(control, text.c_str());
+        }
+    };
+
+    HWND labelEdit = GetDlgItem(page, IDC_CONTEXT_LABEL_EDIT);
+    HWND iconEdit = GetDlgItem(page, IDC_CONTEXT_ICON_EDIT);
+    HWND iconBrowse = GetDlgItem(page, IDC_CONTEXT_ICON_BROWSE);
+    HWND commandPath = GetDlgItem(page, IDC_CONTEXT_COMMAND_PATH);
+    HWND commandArgs = GetDlgItem(page, IDC_CONTEXT_COMMAND_ARGS);
+    HWND commandBrowse = GetDlgItem(page, IDC_CONTEXT_COMMAND_BROWSE);
+    HWND hintsStatic = GetDlgItem(page, IDC_CONTEXT_HINTS_STATIC);
+    HWND minEdit = GetDlgItem(page, IDC_CONTEXT_SELECTION_MIN);
+    HWND maxEdit = GetDlgItem(page, IDC_CONTEXT_SELECTION_MAX);
+    HWND anchorCombo = GetDlgItem(page, IDC_CONTEXT_ANCHOR_COMBO);
+    HWND scopeFiles = GetDlgItem(page, IDC_CONTEXT_SCOPE_FILES);
+    HWND scopeFolders = GetDlgItem(page, IDC_CONTEXT_SCOPE_FOLDERS);
+    HWND separatorCheck = GetDlgItem(page, IDC_CONTEXT_SEPARATOR_CHECK);
+    HWND extensionEdit = GetDlgItem(page, IDC_CONTEXT_EXTENSION_EDIT);
+    HWND extensionAdd = GetDlgItem(page, IDC_CONTEXT_EXTENSION_ADD);
+    HWND extensionRemove = GetDlgItem(page, IDC_CONTEXT_EXTENSION_REMOVE);
+    HWND extensionList = GetDlgItem(page, IDC_CONTEXT_EXTENSION_LIST);
+
+    if (!hasSelection || !item) {
+        setEditText(labelEdit, L"");
+        setEditText(iconEdit, L"");
+        setEditText(commandPath, L"");
+        setEditText(commandArgs, L"");
+        setEditText(minEdit, L"0");
+        setEditText(maxEdit, L"0");
+        if (scopeFiles) {
+            Button_SetCheck(scopeFiles, BST_UNCHECKED);
+        }
+        if (scopeFolders) {
+            Button_SetCheck(scopeFolders, BST_UNCHECKED);
+        }
+        if (separatorCheck) {
+            Button_SetCheck(separatorCheck, BST_UNCHECKED);
+        }
+        if (extensionList) {
+            SendMessageW(extensionList, LB_RESETCONTENT, 0, 0);
+        }
+        if (anchorCombo) {
+            SendMessageW(anchorCombo, CB_SETCURSEL, 0, 0);
+        }
+    } else {
+        setEditText(labelEdit, item->label);
+        setEditText(iconEdit, item->iconSource);
+        std::wstring commandExecutable;
+        std::wstring arguments;
+        SplitCommandTemplate(item->commandTemplate, &commandExecutable, &arguments);
+        setEditText(commandPath, commandExecutable);
+        setEditText(commandArgs, arguments);
+
+        if (minEdit) {
+            SetWindowTextW(minEdit, std::to_wstring(std::max(item->selection.minimumSelection, 0)).c_str());
+        }
+        if (maxEdit) {
+            SetWindowTextW(maxEdit,
+                           std::to_wstring(item->selection.maximumSelection > 0 ? item->selection.maximumSelection
+                                                                               : 0)
+                               .c_str());
+        }
+        if (scopeFiles) {
+            Button_SetCheck(scopeFiles, item->scope.includeAllFiles ? BST_CHECKED : BST_UNCHECKED);
+        }
+        if (scopeFolders) {
+            Button_SetCheck(scopeFolders, item->scope.includeAllFolders ? BST_CHECKED : BST_UNCHECKED);
+        }
+        if (separatorCheck) {
+            Button_SetCheck(separatorCheck,
+                            HasSeparatorAbove(data->workingOptions.contextMenuItems, path) ? BST_CHECKED
+                                                                                        : BST_UNCHECKED);
+        }
+        RefreshContextMenuExtensionsList(page, *item);
+        if (extensionList && !item->scope.extensions.empty()) {
+            SendMessageW(extensionList, LB_SETCURSEL, 0, 0);
+        }
+
+        if (anchorCombo) {
+            const int count = static_cast<int>(SendMessageW(anchorCombo, CB_GETCOUNT, 0, 0));
+            for (int i = 0; i < count; ++i) {
+                const LRESULT value = SendMessageW(anchorCombo, CB_GETITEMDATA, i, 0);
+                if (value == static_cast<LRESULT>(item->anchor)) {
+                    SendMessageW(anchorCombo, CB_SETCURSEL, i, 0);
+                    break;
+                }
+            }
+        }
+    }
+
+    const bool isCommand = item && item->type == ContextMenuItemType::kCommand;
+    const bool isSeparator = item && item->type == ContextMenuItemType::kSeparator;
+
+    EnableWindow(labelEdit, item && !isSeparator);
+    EnableWindow(iconEdit, item && !isSeparator);
+    EnableWindow(iconBrowse, item && !isSeparator);
+    EnableWindow(commandPath, isCommand);
+    EnableWindow(commandArgs, isCommand);
+    EnableWindow(commandBrowse, isCommand);
+    if (hintsStatic) {
+        ShowWindow(hintsStatic, isCommand ? SW_SHOWNOACTIVATE : SW_HIDE);
+    }
+    EnableWindow(minEdit, item != nullptr);
+    EnableWindow(maxEdit, item != nullptr);
+    EnableWindow(anchorCombo, item != nullptr);
+    EnableWindow(scopeFiles, item != nullptr);
+    EnableWindow(scopeFolders, item != nullptr);
+    EnableWindow(extensionEdit, item != nullptr);
+    EnableWindow(extensionAdd, item != nullptr);
+    EnableWindow(extensionRemove, item && !item->scope.extensions.empty());
+
+    data->contextUpdatingControls = false;
+}
+
+bool ApplyContextMenuDetailsFromControls(HWND page, OptionsDialogData* data, bool markChanged) {
+    if (!data || !data->contextSelectionValid || data->contextUpdatingControls) {
+        return false;
+    }
+    ContextMenuItem* item =
+        GetContextMenuItem(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!item) {
+        return false;
+    }
+
+    bool changed = false;
+    std::wstring label = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_LABEL_EDIT)));
+    if (item->type != ContextMenuItemType::kSeparator && item->label != label) {
+        item->label = label;
+        changed = true;
+    }
+
+    std::wstring iconSource = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_ICON_EDIT)));
+    if (item->type != ContextMenuItemType::kSeparator && item->iconSource != iconSource) {
+        item->iconSource = std::move(iconSource);
+        changed = true;
+    }
+
+    if (item->type == ContextMenuItemType::kCommand) {
+        std::wstring commandPath = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_COMMAND_PATH)));
+        std::wstring commandArgs = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_COMMAND_ARGS)));
+        std::wstring commandTemplate = BuildCommandTemplate(commandPath, commandArgs);
+        if (item->commandTemplate != commandTemplate) {
+            item->commandTemplate = std::move(commandTemplate);
+            changed = true;
+        }
+    }
+
+    if (item->type != ContextMenuItemType::kSeparator) {
+        bool includeFiles = Button_GetCheck(GetDlgItem(page, IDC_CONTEXT_SCOPE_FILES)) == BST_CHECKED;
+        bool includeFolders = Button_GetCheck(GetDlgItem(page, IDC_CONTEXT_SCOPE_FOLDERS)) == BST_CHECKED;
+        if (item->scope.includeAllFiles != includeFiles) {
+            item->scope.includeAllFiles = includeFiles;
+            changed = true;
+        }
+        if (item->scope.includeAllFolders != includeFolders) {
+            item->scope.includeAllFolders = includeFolders;
+            changed = true;
+        }
+
+        std::vector<std::wstring> extensions = CollectExtensionsFromList(page);
+        std::vector<std::wstring> normalized = NormalizeContextMenuExtensions(extensions);
+        if (item->scope.extensions != normalized) {
+            item->scope.extensions = std::move(normalized);
+            changed = true;
+        }
+    }
+
+    int minSelection = GetDlgItemInt(page, IDC_CONTEXT_SELECTION_MIN, nullptr, FALSE);
+    if (minSelection < 0) {
+        minSelection = 0;
+    }
+    if (item->selection.minimumSelection != minSelection) {
+        item->selection.minimumSelection = minSelection;
+        changed = true;
+    }
+
+    int maxSelection = GetDlgItemInt(page, IDC_CONTEXT_SELECTION_MAX, nullptr, FALSE);
+    if (maxSelection < 0) {
+        maxSelection = 0;
+    }
+    if (item->selection.maximumSelection != maxSelection) {
+        item->selection.maximumSelection = maxSelection;
+        changed = true;
+    }
+
+    HWND anchorCombo = GetDlgItem(page, IDC_CONTEXT_ANCHOR_COMBO);
+    if (anchorCombo) {
+        const int selection = static_cast<int>(SendMessageW(anchorCombo, CB_GETCURSEL, 0, 0));
+        if (selection >= 0) {
+            const LRESULT value = SendMessageW(anchorCombo, CB_GETITEMDATA, selection, 0);
+            ContextMenuInsertionAnchor anchor = static_cast<ContextMenuInsertionAnchor>(value);
+            if (item->anchor != anchor) {
+                item->anchor = anchor;
+                changed = true;
+            }
+        }
+    }
+
+    if (changed) {
+        UpdateContextMenuTreeItemText(page, data, *item);
+        if (markChanged) {
+            PropSheet_Changed(GetParent(page), page);
+        }
+    }
+    return changed;
+}
+
+ContextMenuItem CreateContextMenuItem(ContextMenuItemType type) {
+    ContextMenuItem item;
+    item.type = type;
+    if (type == ContextMenuItemType::kCommand) {
+        item.label = L"New Command";
+    } else if (type == ContextMenuItemType::kSubmenu) {
+        item.label = L"New Submenu";
+    }
+    return item;
+}
+
+bool HandleContextMenuAddItem(HWND page, OptionsDialogData* data, ContextMenuItemType type) {
+    if (!data) {
+        return false;
+    }
+    std::vector<size_t> path;
+    bool hasSelection = GetContextMenuSelectedPath(page, data, &path);
+    ContextMenuItem newItem = CreateContextMenuItem(type);
+
+    if (hasSelection) {
+        auto* container = GetContextMenuContainer(data->workingOptions.contextMenuItems, path);
+        ContextMenuItem* selectedItem =
+            GetContextMenuItem(data->workingOptions.contextMenuItems, path);
+        if (!container || !selectedItem) {
+            return false;
+        }
+        if (selectedItem->type == ContextMenuItemType::kSubmenu) {
+            selectedItem->children.push_back(std::move(newItem));
+            data->contextSelectionPath = path;
+            data->contextSelectionPath.push_back(selectedItem->children.size() - 1);
+        } else {
+            const size_t insertIndex = path.back() + 1;
+            container->insert(container->begin() + static_cast<std::ptrdiff_t>(insertIndex), std::move(newItem));
+            data->contextSelectionPath = path;
+            data->contextSelectionPath.back() = insertIndex;
+        }
+    } else {
+        data->workingOptions.contextMenuItems.push_back(std::move(newItem));
+        data->contextSelectionPath = {data->workingOptions.contextMenuItems.size() - 1};
+        hasSelection = true;
+    }
+
+    data->contextSelectionValid = hasSelection;
+    RefreshContextMenuTree(page, data, hasSelection ? &data->contextSelectionPath : nullptr);
+    UpdateContextMenuButtonStates(page, data);
+    PopulateContextMenuDetailControls(page, data);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool HandleContextMenuRemoveItem(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid) {
+        return false;
+    }
+    auto* container = GetContextMenuContainer(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!container || data->contextSelectionPath.empty()) {
+        return false;
+    }
+    const size_t index = data->contextSelectionPath.back();
+    container->erase(container->begin() + static_cast<std::ptrdiff_t>(index));
+    if (index > 0) {
+        data->contextSelectionPath.back() = index - 1;
+    } else if (!data->contextSelectionPath.empty()) {
+        if (container->empty()) {
+            data->contextSelectionValid = false;
+            data->contextSelectionPath.clear();
+        } else {
+            data->contextSelectionPath.back() = 0;
+        }
+    }
+    RefreshContextMenuTree(page, data,
+                           data->contextSelectionValid ? &data->contextSelectionPath : nullptr);
+    UpdateContextMenuButtonStates(page, data);
+    PopulateContextMenuDetailControls(page, data);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool MoveContextMenuItem(HWND page, OptionsDialogData* data, bool moveUp) {
+    if (!data || !data->contextSelectionValid || data->contextSelectionPath.empty()) {
+        return false;
+    }
+    auto* container = GetContextMenuContainer(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!container) {
+        return false;
+    }
+    size_t index = data->contextSelectionPath.back();
+    if ((moveUp && index == 0) || (!moveUp && index + 1 >= container->size())) {
+        return false;
+    }
+    size_t swapIndex = moveUp ? index - 1 : index + 1;
+    std::swap((*container)[index], (*container)[swapIndex]);
+    data->contextSelectionPath.back() = swapIndex;
+    RefreshContextMenuTree(page, data, &data->contextSelectionPath);
+    UpdateContextMenuButtonStates(page, data);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool IndentContextMenuItem(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid || data->contextSelectionPath.empty()) {
+        return false;
+    }
+    auto* container = GetContextMenuContainer(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!container) {
+        return false;
+    }
+    const size_t index = data->contextSelectionPath.back();
+    if (index == 0) {
+        return false;
+    }
+    ContextMenuItem& previous = (*container)[index - 1];
+    if (previous.type != ContextMenuItemType::kSubmenu) {
+        return false;
+    }
+    ContextMenuItem item = std::move((*container)[index]);
+    container->erase(container->begin() + static_cast<std::ptrdiff_t>(index));
+    previous.children.push_back(std::move(item));
+    data->contextSelectionPath.back() = index - 1;
+    data->contextSelectionPath.push_back(previous.children.size() - 1);
+    RefreshContextMenuTree(page, data, &data->contextSelectionPath);
+    UpdateContextMenuButtonStates(page, data);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool OutdentContextMenuItem(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid || data->contextSelectionPath.size() < 2) {
+        return false;
+    }
+    std::vector<size_t> path = data->contextSelectionPath;
+    auto* container = GetContextMenuContainer(data->workingOptions.contextMenuItems, path);
+    if (!container) {
+        return false;
+    }
+    const size_t index = path.back();
+    ContextMenuItem item = std::move((*container)[index]);
+    container->erase(container->begin() + static_cast<std::ptrdiff_t>(index));
+
+    path.pop_back();
+    const size_t parentIndex = path.back();
+    std::vector<size_t> destinationPath = path;
+    destinationPath.pop_back();
+
+    auto* destinationContainer = destinationPath.empty()
+                                     ? &data->workingOptions.contextMenuItems
+                                     : GetContextMenuContainer(data->workingOptions.contextMenuItems,
+                                                               destinationPath);
+    if (!destinationContainer) {
+        return false;
+    }
+    const size_t insertIndex = parentIndex + 1;
+    destinationContainer->insert(destinationContainer->begin() + static_cast<std::ptrdiff_t>(insertIndex),
+                                 std::move(item));
+    data->contextSelectionPath = destinationPath;
+    data->contextSelectionPath.push_back(insertIndex);
+    data->contextSelectionValid = true;
+    RefreshContextMenuTree(page, data, &data->contextSelectionPath);
+    UpdateContextMenuButtonStates(page, data);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool BrowseForCommandExecutable(HWND owner, std::wstring* path, std::wstring* directory) {
+    if (!path) {
+        return false;
+    }
+    wchar_t buffer[MAX_PATH] = {};
+    if (!path->empty()) {
+        wcsncpy_s(buffer, path->c_str(), _TRUNCATE);
+    }
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrFile = buffer;
+    ofn.nMaxFile = ARRAYSIZE(buffer);
+    ofn.lpstrFilter = L"Executable Files (*.exe;*.bat;*.cmd;*.com)\0*.exe;*.bat;*.cmd;*.com\0All Files (*.*)\0*.*\0\0";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+    std::wstring initialDir;
+    if (directory && !directory->empty()) {
+        initialDir = *directory;
+    } else if (!path->empty()) {
+        wchar_t temp[MAX_PATH] = {};
+        wcsncpy_s(temp, path->c_str(), _TRUNCATE);
+        PathRemoveFileSpecW(temp);
+        initialDir = temp;
+    }
+    if (!initialDir.empty()) {
+        ofn.lpstrInitialDir = initialDir.c_str();
+    }
+    if (!GetOpenFileNameW(&ofn)) {
+        return false;
+    }
+    *path = buffer;
+    if (directory) {
+        wchar_t dirBuffer[MAX_PATH] = {};
+        wcsncpy_s(dirBuffer, buffer, _TRUNCATE);
+        PathRemoveFileSpecW(dirBuffer);
+        *directory = dirBuffer;
+    }
+    return true;
+}
+
+bool HandleContextMenuBrowseIcon(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid) {
+        return false;
+    }
+    ContextMenuItem* item =
+        GetContextMenuItem(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!item || item->type == ContextMenuItemType::kSeparator) {
+        return false;
+    }
+    std::wstring iconSource = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_ICON_EDIT)));
+    std::vector<wchar_t> buffer(iconSource.begin(), iconSource.end());
+    buffer.resize(std::max<size_t>(buffer.size(), MAX_PATH), L'\0');
+    int iconIndex = 0;
+    if (!buffer.empty()) {
+        iconIndex = PathParseIconLocationW(buffer.data());
+    }
+    if (!PickIconDlg(page, buffer.data(), static_cast<UINT>(buffer.size()), &iconIndex)) {
+        return false;
+    }
+    std::wstring result = buffer.data();
+    if (iconIndex != 0) {
+        result += L",";
+        result += std::to_wstring(iconIndex);
+    }
+    SetWindowTextW(GetDlgItem(page, IDC_CONTEXT_ICON_EDIT), result.c_str());
+    item->iconSource = result;
+    UpdateContextMenuTreeItemText(page, data, *item);
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool HandleContextMenuBrowseCommand(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid) {
+        return false;
+    }
+    ContextMenuItem* item =
+        GetContextMenuItem(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!item || item->type != ContextMenuItemType::kCommand) {
+        return false;
+    }
+    std::wstring executable = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_COMMAND_PATH)));
+    if (!BrowseForCommandExecutable(page, &executable, &data->contextCommandBrowseDirectory)) {
+        return false;
+    }
+    SetWindowTextW(GetDlgItem(page, IDC_CONTEXT_COMMAND_PATH), executable.c_str());
+    ApplyContextMenuDetailsFromControls(page, data, true);
+    return true;
+}
+
+bool HandleContextMenuExtensionAdd(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid) {
+        return false;
+    }
+    ContextMenuItem* item =
+        GetContextMenuItem(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!item) {
+        return false;
+    }
+    std::wstring extension = Trim(GetWindowTextString(GetDlgItem(page, IDC_CONTEXT_EXTENSION_EDIT)));
+    if (extension.empty()) {
+        return false;
+    }
+    std::vector<std::wstring> normalized = NormalizeContextMenuExtensions({extension});
+    if (normalized.empty()) {
+        return false;
+    }
+    const std::wstring& normalizedExtension = normalized.front();
+    if (std::find(item->scope.extensions.begin(), item->scope.extensions.end(), normalizedExtension) !=
+        item->scope.extensions.end()) {
+        return false;
+    }
+    item->scope.extensions.push_back(normalizedExtension);
+    std::sort(item->scope.extensions.begin(), item->scope.extensions.end());
+    item->scope.extensions.erase(std::unique(item->scope.extensions.begin(), item->scope.extensions.end()),
+                                 item->scope.extensions.end());
+    SetWindowTextW(GetDlgItem(page, IDC_CONTEXT_EXTENSION_EDIT), L"");
+    RefreshContextMenuExtensionsList(page, *item);
+    if (HWND list = GetDlgItem(page, IDC_CONTEXT_EXTENSION_LIST)) {
+        if (!item->scope.extensions.empty()) {
+            SendMessageW(list, LB_SETCURSEL, 0, 0);
+        }
+    }
+    if (HWND removeButton = GetDlgItem(page, IDC_CONTEXT_EXTENSION_REMOVE)) {
+        EnableWindow(removeButton, !item->scope.extensions.empty());
+    }
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+bool HandleContextMenuExtensionRemove(HWND page, OptionsDialogData* data) {
+    if (!data || !data->contextSelectionValid) {
+        return false;
+    }
+    ContextMenuItem* item =
+        GetContextMenuItem(data->workingOptions.contextMenuItems, data->contextSelectionPath);
+    if (!item) {
+        return false;
+    }
+    HWND list = GetDlgItem(page, IDC_CONTEXT_EXTENSION_LIST);
+    if (!list) {
+        return false;
+    }
+    const int selection = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    if (selection < 0 || selection >= static_cast<int>(item->scope.extensions.size())) {
+        return false;
+    }
+    item->scope.extensions.erase(item->scope.extensions.begin() + selection);
+    RefreshContextMenuExtensionsList(page, *item);
+    if (HWND removeButton = GetDlgItem(page, IDC_CONTEXT_EXTENSION_REMOVE)) {
+        EnableWindow(removeButton, !item->scope.extensions.empty());
+    }
+    PropSheet_Changed(GetParent(page), page);
+    return true;
+}
+
+struct ContextMenuValidationError {
+    std::wstring message;
+    std::vector<size_t> path;
+};
+
+bool CommandExecutableExists(const std::wstring& executablePath) {
+    std::wstring trimmed = Trim(executablePath);
+    if (trimmed.empty()) {
+        return false;
+    }
+    if (!trimmed.empty() && trimmed.front() == L'"' && trimmed.back() == L'"') {
+        trimmed = trimmed.substr(1, trimmed.size() - 2);
+    }
+    std::wstring expanded;
+    expanded.resize(MAX_PATH);
+    DWORD copied = ExpandEnvironmentStringsW(trimmed.c_str(), expanded.data(), static_cast<DWORD>(expanded.size()));
+    if (copied > 0 && copied < expanded.size()) {
+        expanded.resize(copied - 1);
+    } else {
+        expanded = trimmed;
+    }
+    if (PathFileExistsW(expanded.c_str())) {
+        return true;
+    }
+    wchar_t buffer[MAX_PATH];
+    if (SearchPathW(nullptr, expanded.c_str(), nullptr, ARRAYSIZE(buffer), buffer, nullptr)) {
+        return true;
+    }
+    if (SearchPathW(nullptr, expanded.c_str(), L".exe", ARRAYSIZE(buffer), buffer, nullptr)) {
+        return true;
+    }
+    return false;
+}
+
+bool ValidateContextMenuItems(const std::vector<ContextMenuItem>& items, std::vector<size_t>* path,
+                              ContextMenuValidationError* error) {
+    if (!path || !error) {
+        return true;
+    }
+    for (size_t i = 0; i < items.size(); ++i) {
+        path->push_back(i);
+        const ContextMenuItem& item = items[i];
+        if (item.type != ContextMenuItemType::kSeparator && Trim(item.label).empty()) {
+            error->message = L"Context menu items must have a label.";
+            error->path = *path;
+            return false;
+        }
+        if (item.type == ContextMenuItemType::kCommand) {
+            std::wstring commandPath;
+            std::wstring commandArgs;
+            SplitCommandTemplate(item.commandTemplate, &commandPath, &commandArgs);
+            if (Trim(commandPath).empty()) {
+                error->message = L"Command menu items must specify an executable.";
+                error->path = *path;
+                return false;
+            }
+            if (!CommandExecutableExists(commandPath)) {
+                error->message = L"The specified command could not be located.";
+                error->path = *path;
+                return false;
+            }
+        }
+        if (item.selection.maximumSelection > 0 &&
+            item.selection.maximumSelection < item.selection.minimumSelection) {
+            error->message = L"Maximum selection must be zero or greater than minimum selection.";
+            error->path = *path;
+            return false;
+        }
+        if (!ValidateContextMenuItems(item.children, path, error)) {
+            return false;
+        }
+        path->pop_back();
+    }
+    return true;
 }
 
 NewTabTemplate GetSelectedNewTabTemplate(HWND hwnd, OptionsDialogData* data) {
@@ -1157,6 +2235,201 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     AppendWord(data, 0x0080);
     AppendString(data, L"Choose...");
     AppendWord(data, 0);
+
+    return data;
+}
+
+std::vector<BYTE> BuildContextMenuPageTemplate() {
+    std::vector<BYTE> data(sizeof(DLGTEMPLATE), 0);
+    auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
+    dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
+    dlg->cdit = 36;
+    dlg->x = 0;
+    dlg->y = 0;
+    dlg->cx = kContextDialogWidth;
+    dlg->cy = kContextDialogHeight;
+
+    AppendWord(data, 0);
+    AppendWord(data, 0);
+    AppendWord(data, 0);
+    AppendWord(data, 9);
+    AppendString(data, L"Segoe UI");
+
+    auto addButton = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text, DWORD style) {
+        AlignDialogBuffer(data);
+        size_t offset = data.size();
+        data.resize(offset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        item->style = style;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0080);
+        AppendString(data, text);
+        AppendWord(data, 0);
+    };
+
+    auto addStatic = [&](int controlId, int x, int y, int cx, int cy, const wchar_t* text, DWORD style) {
+        AlignDialogBuffer(data);
+        size_t offset = data.size();
+        data.resize(offset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        item->style = style;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0082);
+        AppendString(data, text);
+        AppendWord(data, 0);
+    };
+
+    auto addEdit = [&](int controlId, int x, int y, int cx, int cy, DWORD style) {
+        AlignDialogBuffer(data);
+        size_t offset = data.size();
+        data.resize(offset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        item->style = style;
+        item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0081);
+        AppendString(data, L"");
+        AppendWord(data, 0);
+    };
+
+    auto addCombo = [&](int controlId, int x, int y, int cx, int cy) {
+        AlignDialogBuffer(data);
+        size_t offset = data.size();
+        data.resize(offset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
+        item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(cx);
+        item->cy = static_cast<short>(cy);
+        item->id = static_cast<WORD>(controlId);
+        AppendWord(data, 0xFFFF);
+        AppendWord(data, 0x0085);
+        AppendString(data, L"");
+        AppendWord(data, 0);
+    };
+
+    AlignDialogBuffer(data);
+    size_t offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* tree = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    tree->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | TVS_HASBUTTONS | TVS_LINESATROOT |
+                  TVS_SHOWSELALWAYS;
+    tree->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    tree->x = 8;
+    tree->y = 8;
+    tree->cx = 150;
+    tree->cy = 220;
+    tree->id = static_cast<WORD>(IDC_CONTEXT_TREE);
+    AppendString(data, WC_TREEVIEW);
+    AppendWord(data, 0);
+
+    addButton(IDC_CONTEXT_ADD_COMMAND, 8, 236, 70, 16, L"Add command",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_ADD_SUBMENU, 8, 256, 70, 16, L"Add submenu",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_ADD_SEPARATOR, 8, 276, 70, 16, L"Add separator",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_REMOVE, 8, 296, 70, 16, L"Remove",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_MOVE_UP, 88, 236, 70, 16, L"Move up",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_MOVE_DOWN, 88, 256, 70, 16, L"Move down",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_INDENT, 88, 276, 70, 16, L"Indent",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+    addButton(IDC_CONTEXT_OUTDENT, 88, 296, 70, 16, L"Outdent",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+
+    const int detailX = 180;
+    const int detailWidth = kContextDialogWidth - detailX - 10;
+
+    addStatic(0, detailX, 8, detailWidth, 10, L"Display name:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_LABEL_EDIT, detailX, 20, detailWidth, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+
+    addStatic(0, detailX, 44, detailWidth, 10, L"Icon:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_ICON_EDIT, detailX, 56, detailWidth - 60, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+    addButton(IDC_CONTEXT_ICON_BROWSE, detailX + detailWidth - 58, 56, 58, 14, L"Browse...",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+
+    addStatic(0, detailX, 84, detailWidth, 10, L"Command path:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_COMMAND_PATH, detailX, 96, detailWidth - 60, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+    addButton(IDC_CONTEXT_COMMAND_BROWSE, detailX + detailWidth - 58, 96, 58, 14, L"Browse...",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+
+    addStatic(0, detailX, 124, detailWidth, 10, L"Command arguments:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_COMMAND_ARGS, detailX, 136, detailWidth, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+
+    addStatic(IDC_CONTEXT_HINTS_STATIC, detailX, 160, detailWidth, 20, L"",
+              WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX);
+
+    addStatic(0, detailX, 188, detailWidth, 10, L"Selection count:", WS_CHILD | WS_VISIBLE);
+    addStatic(0, detailX, 202, 30, 10, L"Min:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_SELECTION_MIN, detailX + 32, 200, 40, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_AUTOHSCROLL);
+    addStatic(0, detailX + 78, 202, 30, 10, L"Max:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_SELECTION_MAX, detailX + 110, 200, 40, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_NUMBER | ES_AUTOHSCROLL);
+
+    addStatic(0, detailX, 224, detailWidth, 10, L"Insertion anchor:", WS_CHILD | WS_VISIBLE);
+    addCombo(IDC_CONTEXT_ANCHOR_COMBO, detailX, 236, detailWidth, 70);
+
+    addStatic(0, detailX, 264, detailWidth, 10, L"Scope:", WS_CHILD | WS_VISIBLE);
+    addButton(IDC_CONTEXT_SCOPE_FILES, detailX, 278, detailWidth, 14, L"Apply to all files",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX);
+    addButton(IDC_CONTEXT_SCOPE_FOLDERS, detailX, 296, detailWidth, 14, L"Apply to all folders",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX);
+    addButton(IDC_CONTEXT_SEPARATOR_CHECK, detailX, 314, detailWidth, 14, L"Group with separator above",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX);
+
+    addStatic(0, detailX, 334, detailWidth, 10, L"Extensions:", WS_CHILD | WS_VISIBLE);
+    addEdit(IDC_CONTEXT_EXTENSION_EDIT, detailX, 346, detailWidth - 60, 14,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL);
+    addButton(IDC_CONTEXT_EXTENSION_ADD, detailX + detailWidth - 58, 346, 58, 14, L"Add",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* list = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    list->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LBS_NOTIFY | LBS_HASSTRINGS |
+                  LBS_NOINTEGRALHEIGHT | WS_VSCROLL;
+    list->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    list->x = static_cast<short>(detailX);
+    list->y = 366;
+    list->cx = static_cast<short>(detailWidth - 60);
+    list->cy = 60;
+    list->id = static_cast<WORD>(IDC_CONTEXT_EXTENSION_LIST);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0083);
+    AppendString(data, L"");
+    AppendWord(data, 0);
+
+    addButton(IDC_CONTEXT_EXTENSION_REMOVE, detailX + detailWidth - 58, 366, 58, 14, L"Remove",
+              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
 
     return data;
 }
@@ -4005,6 +5278,211 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
     return FALSE;
 }
 
+INT_PTR CALLBACK ContextMenuPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+        case WM_INITDIALOG: {
+            auto* page = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
+            auto* data = page ? reinterpret_cast<OptionsDialogData*>(page->lParam) : nullptr;
+            SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(data));
+            PopulateContextMenuAnchorCombo(GetDlgItem(hwnd, IDC_CONTEXT_ANCHOR_COMBO));
+            if (HWND hints = GetDlgItem(hwnd, IDC_CONTEXT_HINTS_STATIC)) {
+                wchar_t buffer[256] = {};
+                if (LoadStringW(GetModuleHandleInstance(), IDS_OPTIONS_COMMAND_HINTS, buffer,
+                                ARRAYSIZE(buffer)) > 0) {
+                    SetWindowTextW(hints, buffer);
+                }
+            }
+            RefreshContextMenuTree(hwnd, data, nullptr);
+            PopulateContextMenuDetailControls(hwnd, data);
+            UpdateContextMenuButtonStates(hwnd, data);
+            return TRUE;
+        }
+        case WM_COMMAND: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                break;
+            }
+            const WORD controlId = LOWORD(wParam);
+            const WORD notifyCode = HIWORD(wParam);
+            switch (controlId) {
+                case IDC_CONTEXT_ADD_COMMAND:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuAddItem(hwnd, data, ContextMenuItemType::kCommand);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_ADD_SUBMENU:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuAddItem(hwnd, data, ContextMenuItemType::kSubmenu);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_ADD_SEPARATOR:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuAddItem(hwnd, data, ContextMenuItemType::kSeparator);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_REMOVE:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuRemoveItem(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_MOVE_UP:
+                    if (notifyCode == BN_CLICKED) {
+                        MoveContextMenuItem(hwnd, data, true);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_MOVE_DOWN:
+                    if (notifyCode == BN_CLICKED) {
+                        MoveContextMenuItem(hwnd, data, false);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_INDENT:
+                    if (notifyCode == BN_CLICKED) {
+                        IndentContextMenuItem(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_OUTDENT:
+                    if (notifyCode == BN_CLICKED) {
+                        OutdentContextMenuItem(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_ICON_BROWSE:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuBrowseIcon(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_COMMAND_BROWSE:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuBrowseCommand(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_SCOPE_FILES:
+                case IDC_CONTEXT_SCOPE_FOLDERS:
+                    if (notifyCode == BN_CLICKED) {
+                        ApplyContextMenuDetailsFromControls(hwnd, data, true);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_SEPARATOR_CHECK:
+                    if (notifyCode == BN_CLICKED) {
+                        const bool ensureSeparator =
+                            Button_GetCheck(GetDlgItem(hwnd, IDC_CONTEXT_SEPARATOR_CHECK)) == BST_CHECKED;
+                        ToggleSeparatorAbove(hwnd, data, ensureSeparator);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_EXTENSION_ADD:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuExtensionAdd(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_EXTENSION_REMOVE:
+                    if (notifyCode == BN_CLICKED) {
+                        HandleContextMenuExtensionRemove(hwnd, data);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_EXTENSION_LIST:
+                    if (notifyCode == LBN_SELCHANGE) {
+                        HWND removeButton = GetDlgItem(hwnd, IDC_CONTEXT_EXTENSION_REMOVE);
+                        if (removeButton) {
+                            HWND list = reinterpret_cast<HWND>(lParam);
+                            const int selection =
+                                static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+                            EnableWindow(removeButton, selection >= 0);
+                        }
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_ANCHOR_COMBO:
+                    if (notifyCode == CBN_SELCHANGE) {
+                        ApplyContextMenuDetailsFromControls(hwnd, data, true);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_LABEL_EDIT:
+                case IDC_CONTEXT_ICON_EDIT:
+                case IDC_CONTEXT_COMMAND_PATH:
+                case IDC_CONTEXT_COMMAND_ARGS:
+                case IDC_CONTEXT_SELECTION_MIN:
+                case IDC_CONTEXT_SELECTION_MAX:
+                    if (notifyCode == EN_CHANGE) {
+                        ApplyContextMenuDetailsFromControls(hwnd, data, true);
+                        return TRUE;
+                    }
+                    break;
+                case IDC_CONTEXT_EXTENSION_EDIT:
+                    if (notifyCode == EN_CHANGE) {
+                        // no-op; handled on add
+                        return TRUE;
+                    }
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
+        case WM_NOTIFY: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                break;
+            }
+            auto* header = reinterpret_cast<LPNMHDR>(lParam);
+            if (!header) {
+                break;
+            }
+            if (header->idFrom == IDC_CONTEXT_TREE) {
+                switch (header->code) {
+                    case TVN_SELCHANGING:
+                        ApplyContextMenuDetailsFromControls(hwnd, data, true);
+                        break;
+                    case TVN_SELCHANGED:
+                        PopulateContextMenuDetailControls(hwnd, data);
+                        UpdateContextMenuButtonStates(hwnd, data);
+                        break;
+                    default:
+                        break;
+                }
+                return TRUE;
+            }
+            if (header->code == PSN_APPLY) {
+                ApplyContextMenuDetailsFromControls(hwnd, data, true);
+                ContextMenuValidationError error;
+                std::vector<size_t> validationPath;
+                if (!ValidateContextMenuItems(data->workingOptions.contextMenuItems, &validationPath, &error)) {
+                    if (!error.message.empty()) {
+                        MessageBoxW(hwnd, error.message.c_str(), L"ShellTabs", MB_OK | MB_ICONWARNING);
+                    }
+                    if (!error.path.empty()) {
+                        data->contextSelectionPath = error.path;
+                        data->contextSelectionValid = true;
+                        RefreshContextMenuTree(hwnd, data, &data->contextSelectionPath);
+                        PopulateContextMenuDetailControls(hwnd, data);
+                        UpdateContextMenuButtonStates(hwnd, data);
+                    }
+                    SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
+                    return TRUE;
+                }
+                data->applyInvoked = true;
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+                return TRUE;
+            }
+            break;
+        }
+    }
+    return FALSE;
+}
+
 INT_PTR CALLBACK GroupManagementPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_INITDIALOG: {
@@ -4114,27 +5592,41 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     std::vector<BYTE> mainTemplate = BuildMainPageTemplate();
     std::vector<BYTE> customizationTemplate = BuildCustomizationPageTemplate();
     std::vector<BYTE> glowTemplate = BuildGlowPageTemplate();
+    std::vector<BYTE> contextTemplate = BuildContextMenuPageTemplate();
     std::vector<BYTE> groupTemplate = BuildGroupPageTemplate();
 
     auto mainTemplateMemory = AllocateAlignedTemplate(mainTemplate);
     auto customizationTemplateMemory = AllocateAlignedTemplate(customizationTemplate);
     auto glowTemplateMemory = AllocateAlignedTemplate(glowTemplate);
+    auto contextTemplateMemory = AllocateAlignedTemplate(contextTemplate);
     auto groupTemplateMemory = AllocateAlignedTemplate(groupTemplate);
-    if (!mainTemplateMemory || !customizationTemplateMemory || !glowTemplateMemory || !groupTemplateMemory) {
+    if (!mainTemplateMemory || !customizationTemplateMemory || !glowTemplateMemory ||
+        !contextTemplateMemory || !groupTemplateMemory) {
         result.saved = false;
         result.groupsChanged = false;
         result.optionsChanged = false;
         return result;
     }
 
-    PROPSHEETPAGEW pages[4] = {};
+    std::array<std::wstring, 5> pageTitles;
+    auto loadTitle = [&](size_t index, UINT resourceId, const wchar_t* fallback) {
+        wchar_t buffer[128] = {};
+        if (LoadStringW(GetModuleHandleInstance(), resourceId, buffer, ARRAYSIZE(buffer)) > 0) {
+            pageTitles[index] = buffer;
+        } else {
+            pageTitles[index] = fallback;
+        }
+        return pageTitles[index].c_str();
+    };
+
+    PROPSHEETPAGEW pages[5] = {};
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
     pages[0].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[0].hInstance = GetModuleHandleInstance();
     pages[0].pResource = mainTemplateMemory.get();
     pages[0].pfnDlgProc = MainOptionsPageProc;
     pages[0].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[0].pszTitle = L"General";
+    pages[0].pszTitle = loadTitle(0, IDS_OPTIONS_TITLE_GENERAL, L"General");
 
     pages[1].dwSize = sizeof(PROPSHEETPAGEW);
     pages[1].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
@@ -4142,7 +5634,7 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     pages[1].pResource = customizationTemplateMemory.get();
     pages[1].pfnDlgProc = CustomizationsPageProc;
     pages[1].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[1].pszTitle = L"Customizations";
+    pages[1].pszTitle = loadTitle(1, IDS_OPTIONS_TITLE_CUSTOMIZATIONS, L"Customizations");
 
     pages[2].dwSize = sizeof(PROPSHEETPAGEW);
     pages[2].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
@@ -4150,15 +5642,23 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     pages[2].pResource = glowTemplateMemory.get();
     pages[2].pfnDlgProc = GlowPageProc;
     pages[2].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[2].pszTitle = L"Glow";
+    pages[2].pszTitle = loadTitle(2, IDS_OPTIONS_TITLE_GLOW, L"Glow");
 
     pages[3].dwSize = sizeof(PROPSHEETPAGEW);
     pages[3].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
     pages[3].hInstance = GetModuleHandleInstance();
-    pages[3].pResource = groupTemplateMemory.get();
-    pages[3].pfnDlgProc = GroupManagementPageProc;
+    pages[3].pResource = contextTemplateMemory.get();
+    pages[3].pfnDlgProc = ContextMenuPageProc;
     pages[3].lParam = reinterpret_cast<LPARAM>(&data);
-    pages[3].pszTitle = L"Groups && Islands";
+    pages[3].pszTitle = loadTitle(3, IDS_OPTIONS_TITLE_CONTEXT_MENUS, L"Context Menus");
+
+    pages[4].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[4].dwFlags = PSP_DLGINDIRECT | PSP_USETITLE;
+    pages[4].hInstance = GetModuleHandleInstance();
+    pages[4].pResource = groupTemplateMemory.get();
+    pages[4].pfnDlgProc = GroupManagementPageProc;
+    pages[4].lParam = reinterpret_cast<LPARAM>(&data);
+    pages[4].pszTitle = loadTitle(4, IDS_OPTIONS_TITLE_GROUPS, L"Groups && Islands");
 
     PROPSHEETHEADERW header{};
     header.dwSize = sizeof(PROPSHEETHEADERW);
