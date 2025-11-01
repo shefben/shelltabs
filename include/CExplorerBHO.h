@@ -42,6 +42,7 @@ class Bitmap;
 namespace shelltabs {
 
 struct ShellTabsOptions;
+class NamespaceTreeHost;
 
         class CExplorerBHO : public IObjectWithSite,
                              public IDispatch,
@@ -71,8 +72,6 @@ struct ShellTabsOptions;
                 bool TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) override;
 
         private:
-                class NamespaceTreeHost;
-
                 enum class BandEnsureOutcome {
                         Unknown,
                         Success,
