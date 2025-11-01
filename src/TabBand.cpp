@@ -159,18 +159,6 @@ bool LoadOptionsStoreForContext(const wchar_t* context, OptionsStore& store) {
 }
 }
 
-struct TabBand::InitializationResult {
-    uint64_t sequence = 0;
-    bool groupStoreLoaded = false;
-    bool optionsLoaded = false;
-    ShellTabsOptions options{};
-    bool sessionStoreAvailable = false;
-    bool lastSessionUnclean = false;
-    bool shouldRestoreSession = false;
-    bool hasSessionData = false;
-    SessionData sessionData;
-};
-
 TabBand::TabBand() : m_refCount(1), m_processedGroupStoreGeneration(0) {
     ModuleAddRef();
     LogMessage(LogLevel::Info, L"TabBand constructed (this=%p)", this);
