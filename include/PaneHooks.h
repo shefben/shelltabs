@@ -12,6 +12,8 @@
 #include <CommCtrl.h>
 #include <ShlObj.h>
 
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -47,8 +49,9 @@ class PaneHighlightProvider {
 public:
     virtual ~PaneHighlightProvider() = default;
     virtual bool TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) = 0;
-    virtual bool TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) = 0;
 };
+
+class ShellTabsTreeView;
 
 class PaneHookRouter {
 public:
@@ -57,18 +60,20 @@ public:
 
     void SetHighlightProvider(PaneHighlightProvider* provider);
     void SetListView(HWND listView);
-    void SetTreeView(HWND treeView);
+    void SetTreeView(HWND treeView,
+                     std::function<bool(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight)> resolver = {},
+                     INameSpaceTreeControl* namespaceTree = nullptr);
     void Reset();
 
     bool HandleNotify(const NMHDR* header, LRESULT* result);
 
 private:
     bool HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result);
-    bool HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result);
 
     PaneHighlightProvider* m_provider = nullptr;
     HWND m_listView = nullptr;
     HWND m_treeView = nullptr;
+    std::unique_ptr<ShellTabsTreeView> m_treeControl;
 };
 
 void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight,

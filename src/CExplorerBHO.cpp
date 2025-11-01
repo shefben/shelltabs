@@ -42,6 +42,7 @@
 #include "Module.h"
 #include "Notifications.h"
 #include "OptionsStore.h"
+#include "ShellTabsTreeView.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"
 #include "ExplorerThemeUtils.h"
@@ -719,90 +720,6 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
 }
 
 }  // namespace
-
-class shelltabs::CExplorerBHO::NamespaceTreeCustomDrawSink
-    : public INameSpaceTreeControlCustomDraw {
-public:
-    explicit NamespaceTreeCustomDrawSink(CExplorerBHO* owner) noexcept : m_refCount(1), m_owner(owner) {}
-
-    virtual ~NamespaceTreeCustomDrawSink() = default;
-
-    void Detach() noexcept { m_owner = nullptr; }
-
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
-        if (!object) {
-            return E_POINTER;
-        }
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(INameSpaceTreeControlCustomDraw)) {
-            *object = static_cast<INameSpaceTreeControlCustomDraw*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *object = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    IFACEMETHODIMP_(ULONG) AddRef() override { return static_cast<ULONG>(++m_refCount); }
-
-    IFACEMETHODIMP_(ULONG) Release() override {
-        ULONG remaining = static_cast<ULONG>(--m_refCount);
-        if (remaining == 0) {
-            delete this;
-        }
-        return remaining;
-    }
-
-    IFACEMETHODIMP PrePaint(HDC, RECT*, LRESULT* result) override {
-        if (result) {
-            *result = CDRF_NOTIFYITEMDRAW;
-        }
-        return S_OK;
-    }
-
-    IFACEMETHODIMP PostPaint(HDC, RECT*) override { return S_OK; }
-
-    IFACEMETHODIMP ItemPrePaint(HDC, RECT*, NSTCCUSTOMDRAW* details, COLORREF* textColor, COLORREF* textBackground,
-                                LRESULT* result) override {
-        if (result) {
-            *result = CDRF_DODEFAULT;
-        }
-        if (!details || !result) {
-            return S_OK;
-        }
-
-        CExplorerBHO* owner = m_owner;
-        if (!owner) {
-            return S_OK;
-        }
-
-        PaneHighlight highlight{};
-        if (!owner->TryResolveNamespaceTreeHighlight(*details, &highlight)) {
-            return S_OK;
-        }
-
-        bool applied = false;
-        if (highlight.hasTextColor && textColor) {
-            *textColor = highlight.textColor;
-            applied = true;
-        }
-        if (highlight.hasBackgroundColor && textBackground) {
-            *textBackground = highlight.backgroundColor;
-            applied = true;
-        }
-
-        if (applied) {
-            *result = CDRF_NEWFONT;
-        }
-
-        return S_OK;
-    }
-
-    IFACEMETHODIMP ItemPostPaint(HDC, RECT*, NSTCCUSTOMDRAW*) override { return S_OK; }
-
-private:
-    std::atomic<ULONG> m_refCount;
-    CExplorerBHO* m_owner;
-};
 
 // --- CExplorerBHO private state (treat these as class members) ---
 
@@ -1537,26 +1454,6 @@ bool CExplorerBHO::TryGetListViewHighlight(HWND listView, int itemIndex, PaneHig
     return ResolveHighlightFromPidl(absolute.get(), highlight);
 }
 
-bool CExplorerBHO::TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) {
-    if (!treeView || treeView != m_treeView || !item) {
-        return false;
-    }
-
-    TVITEMEXW treeItem{};
-    treeItem.mask = TVIF_PARAM;
-    treeItem.hItem = item;
-    if (!TreeView_GetItemW(treeView, &treeItem)) {
-        return false;
-    }
-
-    TreeItemPidlResolution resolved = ResolveTreeViewItemPidl(treeView, treeItem);
-    if (resolved.empty()) {
-        return false;
-    }
-
-    return ResolveHighlightFromPidl(resolved.raw, highlight);
-}
-
 CExplorerBHO::TreeItemPidlResolution CExplorerBHO::ResolveTreeViewItemPidl(HWND treeView,
                                                                            const TVITEMEXW& item) const {
     TreeItemPidlResolution resolved;
@@ -2237,7 +2134,12 @@ bool CExplorerBHO::AttachTreeView(HWND treeView) {
 
     m_treeView = treeView;
     m_treeViewSubclassInstalled = true;
-    m_paneHooks.SetTreeView(m_treeView);
+    m_paneHooks.SetTreeView(
+        m_treeView,
+        [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
+            return ResolveHighlightFromPidl(pidl, highlight);
+        },
+        m_namespaceTreeControl.Get());
     LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
     return true;
 }
@@ -2970,7 +2872,16 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         }
     }
 
-    m_paneHooks.SetTreeView(m_treeViewSubclassInstalled ? m_treeView : nullptr);
+    if (m_treeViewSubclassInstalled && m_treeView) {
+        m_paneHooks.SetTreeView(
+            m_treeView,
+            [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
+                return ResolveHighlightFromPidl(pidl, highlight);
+            },
+            m_namespaceTreeControl.Get());
+    } else {
+        m_paneHooks.SetTreeView(nullptr);
+    }
 
     UpdateGlowSurfaceTargets();
 
@@ -3202,9 +3113,7 @@ void CExplorerBHO::TryAttachNamespaceTreeControl(IShellView* shellView) {
         return;
     }
 
-    if (m_namespaceTreeControl) {
-        ResetNamespaceTreeControl();
-    }
+    ResetNamespaceTreeControl();
 
     Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
     HRESULT hr = shellView->QueryInterface(IID_PPV_ARGS(&serviceProvider));
@@ -3218,70 +3127,53 @@ void CExplorerBHO::TryAttachNamespaceTreeControl(IShellView* shellView) {
         return;
     }
 
-    auto sink = Microsoft::WRL::ComPtr<NamespaceTreeCustomDrawSink>(
-        new (std::nothrow) NamespaceTreeCustomDrawSink(this));
-    if (!sink) {
-        LogMessage(LogLevel::Warning, L"Namespace tree custom draw sink allocation failed");
-        return;
-    }
-
-    DWORD cookie = 0;
-    hr = treeControl->TreeAdvise(sink.Get(), &cookie);
-    if (FAILED(hr)) {
-        LogMessage(LogLevel::Warning, L"TreeAdvise for namespace tree control failed (hr=0x%08lX)", hr);
-        return;
-    }
-
     m_namespaceTreeControl = treeControl;
-    m_namespaceTreeCustomDrawSink = std::move(sink);
-    m_namespaceTreeCustomDrawCookie = cookie;
-    LogMessage(LogLevel::Info, L"Attached namespace tree custom draw sink (cookie=%u)", cookie);
+
+    auto resolver = [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
+        return ResolveHighlightFromPidl(pidl, highlight);
+    };
+
+    auto host = std::make_unique<NamespaceTreeHost>(treeControl, resolver);
+    if (!host || !host->Initialize()) {
+        LogMessage(LogLevel::Warning, L"Namespace tree host initialization failed");
+        m_namespaceTreeHost.reset();
+        return;
+    }
+
+    m_namespaceTreeHost = std::move(host);
+
+    if (m_treeView && IsWindow(m_treeView)) {
+        m_paneHooks.SetTreeView(
+            m_treeView,
+            [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
+                return ResolveHighlightFromPidl(pidl, highlight);
+            },
+            m_namespaceTreeControl.Get());
+    }
 
     InvalidateNamespaceTreeControl();
 }
 
 void CExplorerBHO::ResetNamespaceTreeControl() {
-    if (m_namespaceTreeControl && m_namespaceTreeCustomDrawCookie != 0) {
-        const HRESULT hr = m_namespaceTreeControl->TreeUnadvise(m_namespaceTreeCustomDrawCookie);
-        if (FAILED(hr)) {
-            LogMessage(LogLevel::Warning, L"TreeUnadvise for namespace tree control failed (hr=0x%08lX)", hr);
-        }
-    }
-
-    m_namespaceTreeCustomDrawCookie = 0;
-
-    if (m_namespaceTreeCustomDrawSink) {
-        m_namespaceTreeCustomDrawSink->Detach();
-        m_namespaceTreeCustomDrawSink.Reset();
-    }
-
+    m_namespaceTreeHost.reset();
     m_namespaceTreeControl.Reset();
-}
 
-bool CExplorerBHO::TryResolveNamespaceTreeHighlight(const NSTCCUSTOMDRAW& details, PaneHighlight* highlight) const {
-    if (!highlight || !details.psi) {
-        return false;
+    if (m_treeView && IsWindow(m_treeView)) {
+        m_paneHooks.SetTreeView(
+            m_treeView,
+            [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
+                return ResolveHighlightFromPidl(pidl, highlight);
+            },
+            nullptr);
     }
-
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    const HRESULT hr = SHGetIDListFromObject(details.psi, &pidl);
-    if (FAILED(hr) || !pidl) {
-        return false;
-    }
-
-    struct PidlReleaser {
-        void operator()(PIDLIST_ABSOLUTE value) const noexcept {
-            if (value) {
-                CoTaskMemFree(value);
-            }
-        }
-    };
-
-    std::unique_ptr<ITEMIDLIST, PidlReleaser> holder(static_cast<ITEMIDLIST*>(pidl));
-    return ResolveHighlightFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(pidl), highlight);
 }
 
 void CExplorerBHO::InvalidateNamespaceTreeControl() const {
+    if (m_namespaceTreeHost) {
+        m_namespaceTreeHost->InvalidateAll();
+        return;
+    }
+
     if (!m_namespaceTreeControl) {
         return;
     }
@@ -4202,6 +4094,11 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             bool handled = false;
             if (m_paneHooks.HandleNotify(header, result)) {
                 handled = true;
+            }
+            if (m_namespaceTreeHost && header->hwndFrom == m_namespaceTreeHost->GetWindow()) {
+                if (m_namespaceTreeHost->HandleNotify(header, result)) {
+                    handled = true;
+                }
             }
             if (header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
                 auto* draw = reinterpret_cast<NMLVCUSTOMDRAW*>(const_cast<NMHDR*>(header));

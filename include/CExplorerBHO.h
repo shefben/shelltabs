@@ -70,10 +70,9 @@ struct ShellTabsOptions;
 
                 // PaneHighlightProvider
                 bool TryGetListViewHighlight(HWND listView, int itemIndex, PaneHighlight* highlight) override;
-                bool TryGetTreeViewHighlight(HWND treeView, HTREEITEM item, PaneHighlight* highlight) override;
 
         private:
-                class NamespaceTreeCustomDrawSink;
+                class NamespaceTreeHost;
 
                 enum class BandEnsureOutcome {
                         Unknown,
@@ -210,7 +209,6 @@ struct ShellTabsOptions;
                 //bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView, HWND directUiHost);
                 void TryAttachNamespaceTreeControl(IShellView* shellView);
                 void ResetNamespaceTreeControl();
-                bool TryResolveNamespaceTreeHighlight(const NSTCCUSTOMDRAW& details, PaneHighlight* highlight) const;
                 void InvalidateNamespaceTreeControl() const;
                 bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
@@ -418,8 +416,7 @@ struct ShellTabsOptions;
                 PaneHookRouter m_paneHooks;
                 ExplorerGlowCoordinator m_glowCoordinator;
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
-                Microsoft::WRL::ComPtr<NamespaceTreeCustomDrawSink> m_namespaceTreeCustomDrawSink;
-                DWORD m_namespaceTreeCustomDrawCookie = 0;
+                std::unique_ptr<NamespaceTreeHost> m_namespaceTreeHost;
                 struct FolderBackgroundEntryData {
                         std::wstring imagePath;
                         std::wstring folderDisplayPath;

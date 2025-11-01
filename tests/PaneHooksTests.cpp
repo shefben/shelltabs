@@ -33,28 +33,12 @@ public:
         return true;
     }
 
-    bool TryGetTreeViewHighlight(HWND, HTREEITEM item, shelltabs::PaneHighlight* highlight) override {
-        auto it = m_treeHighlights.find(item);
-        if (it == m_treeHighlights.end()) {
-            return false;
-        }
-        if (highlight) {
-            *highlight = it->second;
-        }
-        return true;
-    }
-
     void SetListHighlight(int index, const shelltabs::PaneHighlight& highlight) {
         m_listHighlights[index] = highlight;
     }
 
-    void SetTreeHighlight(HTREEITEM item, const shelltabs::PaneHighlight& highlight) {
-        m_treeHighlights[item] = highlight;
-    }
-
 private:
     std::unordered_map<int, shelltabs::PaneHighlight> m_listHighlights;
-    std::unordered_map<HTREEITEM, shelltabs::PaneHighlight> m_treeHighlights;
 };
 
 struct InvalidationEvent {
@@ -135,42 +119,6 @@ bool TestListViewHighlightApplied() {
     return true;
 }
 
-bool TestTreeViewHighlightApplied() {
-    MockHighlightProvider provider;
-    shelltabs::PaneHookRouter router(&provider);
-    HWND treeView = reinterpret_cast<HWND>(0x3456);
-    router.SetTreeView(treeView);
-
-    HTREEITEM item = reinterpret_cast<HTREEITEM>(0x1);
-    shelltabs::PaneHighlight highlight{};
-    highlight.hasTextColor = true;
-    highlight.textColor = RGB(100, 110, 120);
-    provider.SetTreeHighlight(item, highlight);
-
-    NMTVCUSTOMDRAW customDraw{};
-    customDraw.nmcd.hdr.hwndFrom = treeView;
-    customDraw.nmcd.dwDrawStage = CDDS_ITEMPREPAINT;
-    customDraw.nmcd.dwItemSpec = reinterpret_cast<DWORD_PTR>(item);
-
-    LRESULT result = 0;
-    if (!router.HandleNotify(&customDraw.nmcd.hdr, &result)) {
-        PrintFailure(L"TestTreeViewHighlightApplied", L"HandleNotify returned false");
-        return false;
-    }
-
-    if (result != CDRF_NEWFONT) {
-        PrintFailure(L"TestTreeViewHighlightApplied", L"Expected CDRF_NEWFONT");
-        return false;
-    }
-
-    if (customDraw.clrText != highlight.textColor) {
-        PrintFailure(L"TestTreeViewHighlightApplied", L"Tree text color mismatch");
-        return false;
-    }
-
-    return true;
-}
-
 bool TestHighlightRegistryInvalidatesSubscribers() {
     ResetInvalidationTracking();
     shelltabs::SetPaneHighlightInvalidationCallback(&TestInvalidationCallback);
@@ -231,7 +179,6 @@ int wmain() {
     const std::vector<TestDefinition> tests = {
         {L"TestListViewPrepaintRequestsCallbacks", &TestListViewPrepaintRequestsCallbacks},
         {L"TestListViewHighlightApplied", &TestListViewHighlightApplied},
-        {L"TestTreeViewHighlightApplied", &TestTreeViewHighlightApplied},
         {L"TestHighlightRegistryInvalidatesSubscribers", &TestHighlightRegistryInvalidatesSubscribers},
     };
 
