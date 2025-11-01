@@ -33,6 +33,7 @@
 #include <wrl/client.h>
 
 #include "ExplorerGlowSurfaces.h"
+#include "ExplorerThemeUtils.h"
 #include "OptionsStore.h"
 #include "PaneHooks.h"
 #include "Utilities.h"
