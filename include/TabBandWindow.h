@@ -204,12 +204,16 @@ private:
         TabLocation closeLocation{};
         HWND overlay = nullptr;
         bool overlayVisible = false;
+        RECT indicatorRect{};
+        RECT previewRect{};
     };
 
     struct ExternalDropState {
         bool active = false;
         DropTarget target{};
         TabBandWindow* source = nullptr;
+        RECT indicatorRect{};
+        RECT previewRect{};
     };
 
     struct BrushHandle {
@@ -493,6 +497,16 @@ private:
     bool HandleDoubleClick(const POINT& pt);
     void HandleFileDrop(HDROP drop, bool ownsHandle);
     void CancelDrag();
+    RECT ComputeDropIndicatorRect(const DropTarget& target) const;
+    RECT ComputeDropPreviewRect(const DropTarget& target) const;
+    bool TryGetGroupBounds(int groupIndex, RECT* bounds) const;
+    bool TryGetTabBounds(int groupIndex, int tabIndex, RECT* bounds) const;
+    void InvalidateDropRegions(const RECT& previousIndicator, const RECT& currentIndicator,
+                               const RECT& previousPreview, const RECT& currentPreview);
+    void ApplyDropTargetChange(const DropTarget& previous, const DropTarget& current,
+                               RECT& indicatorRectStorage, RECT& previewRectStorage);
+    void ApplyInternalDropTarget(const DropTarget& previous, const DropTarget& current);
+    void ApplyExternalDropTarget(const DropTarget& previous, const DropTarget& current, TabBandWindow* sourceWindow);
     void UpdateDropTarget(const POINT& pt);
     void CompleteDrop();
     DropTarget ComputeDropTarget(const POINT& pt, const HitInfo& origin) const;

@@ -220,6 +220,8 @@ constexpr int kCloseButtonEdgePadding = 6;
 constexpr int kCloseButtonSpacing = 6;
 constexpr int kCloseButtonVerticalPadding = 3;
 constexpr int kDropPreviewOffset = 12;
+constexpr int kDropIndicatorHalfWidth = 3;
+constexpr int kDropInvalidatePadding = 2;
 // Small placeholder for empty island content
 constexpr int kEmptyIslandBodyMinWidth = 24; // enough space for a centered "+"
 constexpr int kEmptyIslandBodyMaxWidth = 32; // clamp empty outline length
@@ -826,7 +828,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     HideDragOverlay(true);
     HidePreviewWindow(false);
     DropTarget clearedDropTarget{};
-    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
+    ApplyInternalDropTarget(m_drag.target, clearedDropTarget);
     m_drag = {};
     m_emptyIslandPlusButtons.clear();
 
@@ -971,7 +973,7 @@ void TabBandWindow::ClearVisualItems() {
     m_progressRects.clear();
     m_activeProgressIndices.clear();
     DropTarget clearedDropTarget{};
-    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
+    ApplyInternalDropTarget(m_drag.target, clearedDropTarget);
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
@@ -1380,7 +1382,7 @@ void TabBandWindow::RebuildLayout() {
     HideDragOverlay(true);
     HidePreviewWindow(false);
     DropTarget clearedDropTarget{};
-    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
+    ApplyInternalDropTarget(m_drag.target, clearedDropTarget);
     m_drag = {};
     m_contextHit = {};
     m_emptyIslandPlusButtons.clear();
@@ -4564,7 +4566,7 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     SetFocus(m_hwnd);
     HideDragOverlay(true);
     DropTarget clearedDropTarget{};
-    OnDropPreviewTargetChanged(m_drag.target, clearedDropTarget);
+    ApplyInternalDropTarget(m_drag.target, clearedDropTarget);
     m_drag = {};
     if (hit.closeButton && hit.type == HitType::kTab) {
         m_drag.closeClick = true;
@@ -4645,8 +4647,7 @@ bool TabBandWindow::HandleMouseUp(const POINT& pt) {
                         DropTarget outside{};
                         outside.active = true;
                         outside.outside = true;
-                        OnDropPreviewTargetChanged(previous, outside);
-                        m_drag.target = outside;
+                        ApplyInternalDropTarget(previous, outside);
                 }
 
                 CompleteDrop();  // this typically finalizes the move
@@ -4708,9 +4709,7 @@ bool TabBandWindow::HandleMouseMove(const POINT& pt) {
             DropTarget outside{};
             outside.active = true;
             outside.outside = true;
-            OnDropPreviewTargetChanged(previous, outside);
-            m_drag.target = outside;
-            RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+            ApplyInternalDropTarget(previous, outside);
         }
         UpdateDragOverlay(pt, screen);
     }
@@ -5114,13 +5113,13 @@ void TabBandWindow::CancelDrag() {
     DropTarget previousExternal = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
     DropTarget previousDrag = m_drag.target;
     DropTarget cleared{};
-    OnDropPreviewTargetChanged(previousExternal, cleared);
-    OnDropPreviewTargetChanged(previousDrag, cleared);
+    ApplyExternalDropTarget(previousExternal, cleared, nullptr);
+    ApplyInternalDropTarget(previousDrag, cleared);
     m_externalDrop = {};
     m_drag = {};
     m_mouseTracking = false;
     if (m_hwnd) {
-        InvalidateRect(m_hwnd, nullptr, TRUE);
+        InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
 
@@ -5280,12 +5279,193 @@ void TabBandWindow::AdjustDropTargetForPinned(const HitInfo& origin, DropTarget&
     }
 }
 
+RECT TabBandWindow::ComputeDropIndicatorRect(const DropTarget& target) const {
+    RECT rect{};
+    if (!target.active || target.outside || target.indicatorX < 0) {
+        return rect;
+    }
+
+    rect.left = target.indicatorX;
+    rect.right = target.indicatorX + 1;
+    rect.top = m_clientRect.top + 2;
+    rect.bottom = m_clientRect.bottom - 2;
+    if (rect.bottom <= rect.top) {
+        rect.top = m_clientRect.top;
+        rect.bottom = m_clientRect.bottom;
+    }
+    InflateRect(&rect, kDropIndicatorHalfWidth, kDropInvalidatePadding);
+
+    RECT clipped{};
+    if (ClipRectToClient(rect, m_clientRect, &clipped) && RectHasArea(clipped)) {
+        return clipped;
+    }
+    return RECT{};
+}
+
+bool TabBandWindow::TryGetGroupBounds(int groupIndex, RECT* bounds) const {
+    if (!bounds || groupIndex < 0) {
+        return false;
+    }
+
+    bool found = false;
+    RECT result{};
+    for (const auto& item : m_items) {
+        if (item.data.location.groupIndex != groupIndex) {
+            continue;
+        }
+        if (!found) {
+            result = item.bounds;
+            found = true;
+        } else {
+            RECT combined{};
+            if (UnionRect(&combined, &result, &item.bounds)) {
+                result = combined;
+            } else {
+                result.left = std::min(result.left, item.bounds.left);
+                result.top = std::min(result.top, item.bounds.top);
+                result.right = std::max(result.right, item.bounds.right);
+                result.bottom = std::max(result.bottom, item.bounds.bottom);
+            }
+        }
+    }
+
+    if (!found) {
+        return false;
+    }
+
+    *bounds = result;
+    return true;
+}
+
+bool TabBandWindow::TryGetTabBounds(int groupIndex, int tabIndex, RECT* bounds) const {
+    if (!bounds || groupIndex < 0 || tabIndex < 0) {
+        return false;
+    }
+
+    for (const auto& item : m_items) {
+        if (item.data.type != TabViewItemType::kTab) {
+            continue;
+        }
+        if (item.data.location.groupIndex == groupIndex && item.data.location.tabIndex == tabIndex) {
+            *bounds = item.bounds;
+            return true;
+        }
+    }
+    return false;
+}
+
+RECT TabBandWindow::ComputeDropPreviewRect(const DropTarget& target) const {
+    RECT rect{};
+    if (!target.active || target.outside) {
+        return rect;
+    }
+
+    RECT base{};
+    if (target.group) {
+        if (!TryGetGroupBounds(target.groupIndex, &base)) {
+            return rect;
+        }
+    } else {
+        if (target.newGroup || target.tabIndex < 0) {
+            return rect;
+        }
+        if (!TryGetTabBounds(target.groupIndex, target.tabIndex, &base)) {
+            return rect;
+        }
+    }
+
+    RECT shifted = base;
+    OffsetRect(&shifted, kDropPreviewOffset, 0);
+
+    RECT combined{};
+    if (!UnionRect(&combined, &base, &shifted)) {
+        combined.left = std::min(base.left, shifted.left);
+        combined.top = std::min(base.top, shifted.top);
+        combined.right = std::max(base.right, shifted.right);
+        combined.bottom = std::max(base.bottom, shifted.bottom);
+    }
+
+    InflateRect(&combined, kDropInvalidatePadding, kDropInvalidatePadding);
+
+    RECT clipped{};
+    if (ClipRectToClient(combined, m_clientRect, &clipped) && RectHasArea(clipped)) {
+        return clipped;
+    }
+    return RECT{};
+}
+
+void TabBandWindow::InvalidateDropRegions(const RECT& previousIndicator, const RECT& currentIndicator,
+                                          const RECT& previousPreview, const RECT& currentPreview) {
+    if (!m_hwnd) {
+        return;
+    }
+
+    RECT dirty{};
+    bool hasDirty = false;
+    const auto accumulate = [&](const RECT& rect) {
+        if (!RectHasArea(rect)) {
+            return;
+        }
+        RECT clipped{};
+        if (!ClipRectToClient(rect, m_clientRect, &clipped) || !RectHasArea(clipped)) {
+            return;
+        }
+        if (!hasDirty) {
+            dirty = clipped;
+            hasDirty = true;
+            return;
+        }
+        RECT combined{};
+        if (UnionRect(&combined, &dirty, &clipped)) {
+            dirty = combined;
+        } else {
+            dirty.left = std::min(dirty.left, clipped.left);
+            dirty.top = std::min(dirty.top, clipped.top);
+            dirty.right = std::max(dirty.right, clipped.right);
+            dirty.bottom = std::max(dirty.bottom, clipped.bottom);
+        }
+    };
+
+    accumulate(previousIndicator);
+    accumulate(currentIndicator);
+    accumulate(previousPreview);
+    accumulate(currentPreview);
+
+    if (hasDirty) {
+        InvalidateRect(m_hwnd, &dirty, FALSE);
+    }
+}
+
+void TabBandWindow::ApplyDropTargetChange(const DropTarget& previous, const DropTarget& current,
+                                          RECT& indicatorRectStorage, RECT& previewRectStorage) {
+    OnDropPreviewTargetChanged(previous, current);
+
+    const RECT newIndicator = ComputeDropIndicatorRect(current);
+    const RECT newPreview = ComputeDropPreviewRect(current);
+
+    InvalidateDropRegions(indicatorRectStorage, newIndicator, previewRectStorage, newPreview);
+
+    indicatorRectStorage = newIndicator;
+    previewRectStorage = newPreview;
+}
+
+void TabBandWindow::ApplyInternalDropTarget(const DropTarget& previous, const DropTarget& current) {
+    ApplyDropTargetChange(previous, current, m_drag.indicatorRect, m_drag.previewRect);
+    m_drag.target = current;
+}
+
+void TabBandWindow::ApplyExternalDropTarget(const DropTarget& previous, const DropTarget& current,
+                                            TabBandWindow* sourceWindow) {
+    ApplyDropTargetChange(previous, current, m_externalDrop.indicatorRect, m_externalDrop.previewRect);
+    m_externalDrop.target = current;
+    m_externalDrop.active = current.active && !current.outside;
+    m_externalDrop.source = m_externalDrop.active ? sourceWindow : nullptr;
+}
+
 void TabBandWindow::UpdateDropTarget(const POINT& pt) {
     DropTarget previous = m_drag.target;
     DropTarget target = ComputeDropTarget(pt, m_drag.origin);
-    OnDropPreviewTargetChanged(previous, target);
-    m_drag.target = target;
-    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+    ApplyInternalDropTarget(previous, target);
 }
 
 void TabBandWindow::UpdateExternalDrag(const POINT& screenPt) {
@@ -5312,8 +5492,6 @@ void TabBandWindow::UpdateExternalDrag(const POINT& screenPt) {
     if (!targetWindow || targetWindow == this) {
         return;
     }
-
-    DropTarget previousExternalTarget = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
 
     {
         std::scoped_lock lock(state.mutex);
@@ -5409,6 +5587,7 @@ void TabBandWindow::HandleExternalDragUpdate() {
         return;
     }
 
+    DropTarget previousExternalTarget = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
     POINT client = screen;
     ScreenToClient(m_hwnd, &client);
     DropTarget target = ComputeDropTarget(client, origin);
@@ -5422,17 +5601,12 @@ void TabBandWindow::HandleExternalDragUpdate() {
     }
 
     if (!target.outside) {
-        OnDropPreviewTargetChanged(previousExternalTarget, target);
-        m_externalDrop.active = true;
-        m_externalDrop.target = target;
-        m_externalDrop.source = sourceWindow;
+        ApplyExternalDropTarget(previousExternalTarget, target, sourceWindow);
     } else {
         DropTarget cleared{};
-        OnDropPreviewTargetChanged(previousExternalTarget, cleared);
+        ApplyExternalDropTarget(previousExternalTarget, cleared, nullptr);
         m_externalDrop = {};
     }
-
-    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
 
 void TabBandWindow::HandleExternalDragLeave() {
@@ -5448,9 +5622,8 @@ void TabBandWindow::HandleExternalDragLeave() {
         }
     }
     DropTarget cleared{};
-    OnDropPreviewTargetChanged(previous, cleared);
+    ApplyExternalDropTarget(previous, cleared, nullptr);
     m_externalDrop = {};
-    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
 
 void TabBandWindow::HandleExternalDropExecute() {
@@ -5477,9 +5650,8 @@ void TabBandWindow::HandleExternalDropExecute() {
 
     DropTarget previous = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
     DropTarget cleared{};
-    OnDropPreviewTargetChanged(previous, cleared);
+    ApplyExternalDropTarget(previous, cleared, nullptr);
     m_externalDrop = {};
-    RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
 }
 
 void TabBandWindow::CompleteDrop() {
