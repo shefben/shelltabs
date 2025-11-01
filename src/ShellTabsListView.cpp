@@ -1,5 +1,6 @@
 #include "ShellTabsListView.h"
 
+#include <CommCtrl.h>
 #include <ShlObj_core.h>
 #include <Shlwapi.h>
 #include <gdiplus.h>
@@ -19,6 +20,17 @@
 namespace shelltabs {
 namespace {
 constexpr wchar_t kListViewHostClassName[] = L"ShellTabs.ListViewHost";
+
+#ifdef SVSI_NOSINGLESELECT
+// Available starting with newer Windows 10 SDKs; prevents Explorer from collapsing the
+// selection to a single item when we mirror state changes back to the shell view.
+constexpr DWORD kSelectMultiFlag = SVSI_SELECT | SVSI_NOSINGLESELECT;
+#else
+// Older SDKs (for example, 10.0.19041) do not expose SVSI_NOSINGLESELECT. Fall back to
+// SVSI_SELECT so the project still builds; the list view already owns the authoritative
+// selection state and will keep other items highlighted locally.
+constexpr DWORD kSelectMultiFlag = SVSI_SELECT;
+#endif
 
 std::mutex g_windowRegistryMutex;
 std::unordered_map<HWND, ShellTabsListView*> g_windowRegistry;
@@ -389,7 +401,7 @@ void ShellTabsListView::HandleItemChanged(NMLISTVIEW* change) {
     DWORD flags = 0;
     if ((delta & LVIS_SELECTED) != 0) {
         if ((newState & LVIS_SELECTED) != 0) {
-            flags |= SVSI_SELECT | SVSI_NOSINGLESELECT;
+            flags |= kSelectMultiFlag;
         } else {
             flags |= SVSI_DESELECT;
         }
@@ -634,7 +646,7 @@ bool ShellTabsListView::ToggleSelection(int index) {
     m_suppressSelectionNotifications = false;
 
     if (m_folderView) {
-        DWORD flags = selected ? SVSI_DESELECT : (SVSI_SELECT | SVSI_NOSINGLESELECT);
+        DWORD flags = selected ? SVSI_DESELECT : kSelectMultiFlag;
         m_folderView->SelectItem(index, flags);
     }
 
