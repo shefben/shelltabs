@@ -400,8 +400,14 @@ protected:
 
         switch (custom->dwDrawStage) {
             case CDDS_PREPAINT:
-                *result = CDRF_NOTIFYPOSTPAINT;
+                *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
                 return true;
+            case CDDS_ITEMPREPAINT:
+                if (IsDividerSlot(*custom)) {
+                    *result = CDRF_SKIPDEFAULT | CDRF_NOTIFYPOSTPAINT;
+                    return true;
+                }
+                break;
             case CDDS_POSTPAINT: {
                 RECT clip = GetClientRectSafe(header.hwndFrom);
                 PaintHeaderGlow(custom->hdc, clip);
@@ -417,6 +423,33 @@ protected:
     void OnPaint(HDC, const RECT&, const GlowColorSet&) override {}
 
 private:
+    bool IsDividerSlot(const NMCUSTOMDRAW& custom) const {
+        HWND hwnd = Handle();
+        if (!hwnd || !IsWindow(hwnd)) {
+            return false;
+        }
+
+        const RECT& rect = custom.rc;
+        if (rect.right <= rect.left || rect.bottom <= rect.top) {
+            return false;
+        }
+
+        HDHITTESTINFO hit{};
+        hit.pt.x = rect.left + (rect.right - rect.left) / 2;
+        hit.pt.y = rect.top + (rect.bottom - rect.top) / 2;
+
+        const LRESULT hitIndex = SendMessageW(hwnd, HDM_HITTEST, 0, reinterpret_cast<LPARAM>(&hit));
+        if (hitIndex < 0) {
+            return false;
+        }
+
+        if ((hit.flags & (HHT_ONDIVIDER | HHT_ONDIVOPEN)) == 0) {
+            return false;
+        }
+
+        return true;
+    }
+
     void PaintHeaderGlow(HDC targetDc, const RECT& clipRect) {
         if (!Coordinator().ShouldRenderSurface(Kind())) {
             return;
@@ -687,8 +720,14 @@ protected:
 
         switch (custom->dwDrawStage) {
             case CDDS_PREPAINT:
-                *result = CDRF_NOTIFYPOSTPAINT;
+                *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
                 return true;
+            case CDDS_ITEMPREPAINT:
+                if (IsSeparatorButton(*custom)) {
+                    *result = CDRF_SKIPDEFAULT | CDRF_NOTIFYPOSTPAINT;
+                    return true;
+                }
+                break;
             case CDDS_POSTPAINT: {
                 RECT clip = GetClientRectSafe(header.hwndFrom);
                 PaintToolbarGlow(custom->hdc, clip);
@@ -704,6 +743,34 @@ protected:
     void OnPaint(HDC, const RECT&, const GlowColorSet&) override {}
 
 private:
+    bool IsSeparatorButton(const NMCUSTOMDRAW& custom) const {
+        HWND hwnd = Handle();
+        if (!hwnd || !IsWindow(hwnd)) {
+            return false;
+        }
+
+        const RECT& rect = custom.rc;
+        if (rect.right <= rect.left || rect.bottom <= rect.top) {
+            return false;
+        }
+
+        TBHITTESTINFOW hit{};
+        hit.pt.x = rect.left + (rect.right - rect.left) / 2;
+        hit.pt.y = rect.top + (rect.bottom - rect.top) / 2;
+
+        const LRESULT index = SendMessageW(hwnd, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&hit));
+        if (index < 0) {
+            return false;
+        }
+
+        TBBUTTON button{};
+        if (!SendMessageW(hwnd, TB_GETBUTTON, index, reinterpret_cast<LPARAM>(&button))) {
+            return false;
+        }
+
+        return (button.fsStyle & TBSTYLE_SEP) != 0;
+    }
+
     void PaintToolbarGlow(HDC targetDc, const RECT& clipRect) {
         if (!Coordinator().ShouldRenderSurface(Kind())) {
             return;
