@@ -4215,6 +4215,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 if (glowSurface->second->HandleNotify(*header, &glowResult)) {
                     *result = glowResult;
                     return true;
+                }
+            }
             if (m_statusBar && header->hwndFrom == m_statusBar && header->code == NM_CUSTOMDRAW) {
                 handled = true;
                 auto* customDraw = reinterpret_cast<NMCUSTOMDRAW*>(const_cast<NMHDR*>(header));
