@@ -5590,7 +5590,6 @@ void TabBandWindow::HandleExternalDragUpdate() {
     POINT client = screen;
     ScreenToClient(m_hwnd, &client);
     DropTarget target = ComputeDropTarget(client, origin);
-    DropTarget previousExternalTarget = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
 
     {
         std::scoped_lock lock(state.mutex);
