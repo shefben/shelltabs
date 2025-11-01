@@ -111,29 +111,44 @@ public:
 protected:
     void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) override {
         HWND hwnd = Handle();
-        if (!MatchesClass(hwnd, WC_LISTVIEWW)) {
-            return;
+        HWND listView = hwnd;
+        if (!MatchesClass(listView, WC_LISTVIEWW)) {
+            HWND child = FindWindowExW(hwnd, nullptr, WC_LISTVIEWW, nullptr);
+            if (!child || !MatchesClass(child, WC_LISTVIEWW)) {
+                return;
+            }
+            listView = child;
         }
 
-        const DWORD viewStyle = static_cast<DWORD>(SendMessageW(hwnd, LVM_GETVIEW, 0, 0));
+        const DWORD viewStyle = static_cast<DWORD>(SendMessageW(listView, LVM_GETVIEW, 0, 0));
         if (viewStyle != LV_VIEW_DETAILS) {
             return;
         }
 
-        RECT clientRect = GetClientRectSafe(hwnd);
+        RECT clientRect = GetClientRectSafe(listView);
         if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
             return;
         }
 
-        RECT paintRect = clipRect;
-        if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
-            paintRect = clientRect;
+        RECT listViewClip = clipRect;
+        if (listView != hwnd) {
+            MapWindowPoints(hwnd, listView, reinterpret_cast<POINT*>(&listViewClip), 2);
+        }
+
+        RECT listViewPaint = listViewClip;
+        if (listViewPaint.right <= listViewPaint.left || listViewPaint.bottom <= listViewPaint.top) {
+            listViewPaint = clientRect;
         } else {
             RECT intersect{};
-            if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
+            if (!IntersectRect(&intersect, &listViewPaint, &clientRect)) {
                 return;
             }
-            paintRect = intersect;
+            listViewPaint = intersect;
+        }
+
+        RECT paintRect = listViewPaint;
+        if (listView != hwnd) {
+            MapWindowPoints(listView, hwnd, reinterpret_cast<POINT*>(&paintRect), 2);
         }
 
         HDC bufferDc = nullptr;
@@ -147,22 +162,26 @@ protected:
 
         BufferedPaintClear(buffer, nullptr);
         Gdiplus::Graphics graphics(bufferDc);
-        graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
-                                    -static_cast<Gdiplus::REAL>(paintRect.top));
+        POINT paintOrigin = {paintRect.left, paintRect.top};
+        if (listView != hwnd) {
+            MapWindowPoints(hwnd, listView, &paintOrigin, 1);
+        }
+        graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintOrigin.x),
+                                    -static_cast<Gdiplus::REAL>(paintOrigin.y));
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
         const int lineThickness = ScaleByDpi(1, DpiY());
         const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, DpiY()));
 
-        if (HWND header = ListView_GetHeader(hwnd); header && IsWindow(header)) {
+        if (HWND header = ListView_GetHeader(listView); header && IsWindow(header)) {
             const int columnCount = Header_GetItemCount(header);
             for (int index = 0; index < columnCount; ++index) {
                 RECT headerRect{};
                 if (!Header_GetItemRect(header, index, &headerRect)) {
                     continue;
                 }
-                MapWindowPoints(header, hwnd, reinterpret_cast<POINT*>(&headerRect), 2);
-                if (headerRect.right <= paintRect.left || headerRect.left >= paintRect.right) {
+                MapWindowPoints(header, listView, reinterpret_cast<POINT*>(&headerRect), 2);
+                if (headerRect.right <= listViewPaint.left || headerRect.left >= listViewPaint.right) {
                     continue;
                 }
                 const int lineLeft = headerRect.right - lineThickness;
@@ -175,20 +194,20 @@ protected:
             }
         }
 
-        const int topIndex = static_cast<int>(SendMessageW(hwnd, LVM_GETTOPINDEX, 0, 0));
-        const int countPerPage = static_cast<int>(SendMessageW(hwnd, LVM_GETCOUNTPERPAGE, 0, 0));
-        const int totalCount = ListView_GetItemCount(hwnd);
+        const int topIndex = static_cast<int>(SendMessageW(listView, LVM_GETTOPINDEX, 0, 0));
+        const int countPerPage = static_cast<int>(SendMessageW(listView, LVM_GETCOUNTPERPAGE, 0, 0));
+        const int totalCount = ListView_GetItemCount(listView);
         const int endIndex = std::min(totalCount, topIndex + countPerPage + 1);
 
         for (int index = topIndex; index < endIndex; ++index) {
             RECT itemRect{};
-            if (!ListView_GetItemRect(hwnd, index, &itemRect, LVIR_BOUNDS)) {
+            if (!ListView_GetItemRect(listView, index, &itemRect, LVIR_BOUNDS)) {
                 continue;
             }
             if (itemRect.bottom <= itemRect.top) {
                 continue;
             }
-            if (itemRect.top >= paintRect.bottom || itemRect.bottom <= paintRect.top) {
+            if (itemRect.top >= listViewPaint.bottom || itemRect.bottom <= listViewPaint.top) {
                 continue;
             }
             const int y = itemRect.bottom - lineThickness;
@@ -213,7 +232,7 @@ protected:
 
             if (focused >= 0) {
                 RECT focusRect{};
-                if (ListView_GetItemRect(hwnd, focused, &focusRect, LVIR_BOUNDS)) {
+                if (ListView_GetItemRect(listView, focused, &focusRect, LVIR_BOUNDS)) {
                     RECT inner = focusRect;
                     InflateRect(&inner, -ScaleByDpi(1, DpiX()), -ScaleByDpi(1, DpiY()));
                     RECT frame = inner;
