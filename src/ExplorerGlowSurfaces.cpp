@@ -5,13 +5,17 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <mutex>
 #include <utility>
 #include <vector>
 
 #include <dwmapi.h>
 #include <gdiplus.h>
+#include <UIAutomation.h>
 #include <uxtheme.h>
 #include <windowsx.h>
+#include <wrl/client.h>
 
 namespace shelltabs {
 namespace {
@@ -20,6 +24,128 @@ constexpr BYTE kLineAlpha = 220;
 constexpr BYTE kHaloAlpha = 96;
 constexpr BYTE kFrameAlpha = 210;
 constexpr BYTE kFrameHaloAlpha = 110;
+
+bool ApproximatelyEqual(int lhs, int rhs, int tolerance) {
+    return std::abs(lhs - rhs) <= tolerance;
+}
+
+Microsoft::WRL::ComPtr<IUIAutomation> GetAutomationInstance() {
+    static std::once_flag automationInitFlag;
+    static Microsoft::WRL::ComPtr<IUIAutomation> automation;
+    static HRESULT automationInitResult = E_FAIL;
+
+    std::call_once(automationInitFlag, []() {
+        Microsoft::WRL::ComPtr<IUIAutomation> instance;
+        const HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
+                                            IID_PPV_ARGS(&instance));
+        if (SUCCEEDED(hr)) {
+            automation = std::move(instance);
+            automationInitResult = S_OK;
+        } else {
+            automation.Reset();
+            automationInitResult = hr;
+        }
+    });
+
+    if (FAILED(automationInitResult)) {
+        return nullptr;
+    }
+
+    return automation;
+}
+
+void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
+                                const RECT& clientRect, std::vector<RECT>& rectangles);
+
+void AppendDirectUiRectangle(IUIAutomationElement* element, HWND host, const RECT& clientRect,
+                             std::vector<RECT>& rectangles) {
+    if (!element || !host || !IsWindow(host)) {
+        return;
+    }
+
+    RECT bounding{};
+    if (FAILED(element->get_CurrentBoundingRectangle(&bounding))) {
+        return;
+    }
+
+    if (bounding.right <= bounding.left || bounding.bottom <= bounding.top) {
+        return;
+    }
+
+    BOOL offscreen = FALSE;
+    const HRESULT offscreenHr = element->get_CurrentIsOffscreen(&offscreen);
+    if (FAILED(offscreenHr) || offscreen) {
+        return;
+    }
+
+    POINT points[2] = {{bounding.left, bounding.top}, {bounding.right, bounding.bottom}};
+    MapWindowPoints(nullptr, host, points, 2);
+
+    RECT local = {points[0].x, points[0].y, points[1].x, points[1].y};
+    RECT clipped{};
+    if (!IntersectRect(&clipped, &local, &clientRect)) {
+        return;
+    }
+
+    if (clipped.right <= clipped.left || clipped.bottom <= clipped.top) {
+        return;
+    }
+
+    const auto duplicate = std::find_if(rectangles.begin(), rectangles.end(), [&](const RECT& existing) {
+        return EqualRect(&existing, &clipped);
+    });
+
+    if (duplicate == rectangles.end()) {
+        rectangles.push_back(clipped);
+    }
+}
+
+void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
+                                const RECT& clientRect, std::vector<RECT>& rectangles) {
+    if (!element || !walker) {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IUIAutomationElement> child;
+    HRESULT hr = walker->GetFirstChildElement(element, &child);
+    if (FAILED(hr)) {
+        return;
+    }
+
+    while (child) {
+        AppendDirectUiRectangle(child.Get(), host, clientRect, rectangles);
+        CollectDirectUiDescendants(child.Get(), walker, host, clientRect, rectangles);
+
+        Microsoft::WRL::ComPtr<IUIAutomationElement> next;
+        hr = walker->GetNextSiblingElement(child.Get(), &next);
+        if (FAILED(hr)) {
+            break;
+        }
+        child = std::move(next);
+    }
+}
+
+bool EnumerateDirectUiRectangles(HWND host, const RECT& clientRect, std::vector<RECT>& rectangles) {
+    rectangles.clear();
+
+    auto automation = GetAutomationInstance();
+    if (!automation) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IUIAutomationElement> root;
+    if (FAILED(automation->ElementFromHandle(host, &root)) || !root) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IUIAutomationTreeWalker> walker;
+    if (FAILED(automation->get_ControlViewWalker(&walker)) || !walker) {
+        return false;
+    }
+
+    CollectDirectUiDescendants(root.Get(), walker.Get(), host, clientRect, rectangles);
+    return true;
+}
 
 int ScaleByDpi(int value, UINT dpi) {
     if (dpi == 0) {
@@ -657,6 +783,36 @@ protected:
             paintRect = intersect;
         }
 
+        std::vector<RECT> highlightRects;
+        if (!EnumerateDirectUiRectangles(hwnd, clientRect, highlightRects)) {
+            return;
+        }
+
+        const int toleranceX = ScaleByDpi(2, DpiX());
+        const int toleranceY = ScaleByDpi(2, DpiY());
+
+        std::vector<RECT> filteredRects;
+        filteredRects.reserve(highlightRects.size());
+        for (const RECT& rect : highlightRects) {
+            RECT intersection{};
+            if (!IntersectRect(&intersection, &rect, &paintRect)) {
+                continue;
+            }
+
+            if (ApproximatelyEqual(rect.left, clientRect.left, toleranceX) &&
+                ApproximatelyEqual(rect.top, clientRect.top, toleranceY) &&
+                ApproximatelyEqual(rect.right, clientRect.right, toleranceX) &&
+                ApproximatelyEqual(rect.bottom, clientRect.bottom, toleranceY)) {
+                continue;
+            }
+
+            filteredRects.push_back(rect);
+        }
+
+        if (filteredRects.empty()) {
+            return;
+        }
+
         HDC bufferDc = nullptr;
         HPAINTBUFFER buffer = BeginBufferedPaint(targetDc, &paintRect, BPBF_TOPDOWNDIB, nullptr, &bufferDc);
         if (!buffer || !bufferDc) {
@@ -672,15 +828,62 @@ protected:
                                     -static_cast<Gdiplus::REAL>(paintRect.top));
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
 
-        RECT inner = clientRect;
-        InflateRect(&inner, -ScaleByDpi(1, DpiX()), -ScaleByDpi(1, DpiY()));
-        RECT frame = inner;
-        InflateRect(&frame, ScaleByDpi(1, DpiX()), ScaleByDpi(1, DpiY()));
-        RECT halo = inner;
-        InflateRect(&halo, ScaleByDpi(3, DpiX()), ScaleByDpi(3, DpiY()));
+        const int frameThicknessX = ScaleByDpi(1, DpiX());
+        const int frameThicknessY = ScaleByDpi(1, DpiY());
+        const int haloThicknessX = std::max(frameThicknessX * 2, ScaleByDpi(3, DpiX()));
+        const int haloThicknessY = std::max(frameThicknessY * 2, ScaleByDpi(3, DpiY()));
 
-        FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha);
-        FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha);
+        for (const RECT& rect : filteredRects) {
+            RECT paintCheck{};
+            if (!IntersectRect(&paintCheck, &rect, &paintRect)) {
+                continue;
+            }
+
+            RECT inner = rect;
+            if ((rect.right - rect.left) > frameThicknessX * 2) {
+                inner.left += frameThicknessX;
+                inner.right -= frameThicknessX;
+            }
+            if ((rect.bottom - rect.top) > frameThicknessY * 2) {
+                inner.top += frameThicknessY;
+                inner.bottom -= frameThicknessY;
+            }
+
+            if (inner.right <= inner.left || inner.bottom <= inner.top) {
+                continue;
+            }
+
+            RECT frame = rect;
+            RECT halo = rect;
+            InflateRect(&halo, haloThicknessX, haloThicknessY);
+
+            RECT haloClipped = halo;
+            if (!IntersectRect(&haloClipped, &halo, &clientRect)) {
+                continue;
+            }
+            if (!IntersectRect(&haloClipped, &haloClipped, &paintRect)) {
+                continue;
+            }
+
+            RECT frameClipped = frame;
+            if (!IntersectRect(&frameClipped, &frame, &clientRect)) {
+                continue;
+            }
+            if (!IntersectRect(&frameClipped, &frameClipped, &paintRect)) {
+                continue;
+            }
+
+            RECT innerClipped = inner;
+            if (!IntersectRect(&innerClipped, &inner, &clientRect)) {
+                continue;
+            }
+            if (!IntersectRect(&innerClipped, &innerClipped, &paintRect)) {
+                continue;
+            }
+
+            FillFrameRegion(graphics, colors, haloClipped, innerClipped, kFrameHaloAlpha);
+            FillFrameRegion(graphics, colors, frameClipped, innerClipped, kFrameAlpha);
+        }
 
         EndBufferedPaint(buffer, TRUE);
     }
