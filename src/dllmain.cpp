@@ -39,10 +39,7 @@ std::wstring CurrentProcessImageName() {
         LogMessage(LogLevel::Info, L"%ls succeeded", step);                                 \
     } while (false)
 
-constexpr wchar_t kBandFriendlyName[] = L"Shell Tabs";
 constexpr wchar_t kBhoFriendlyName[] = L"Shell Tabs Browser Helper";
-constexpr wchar_t kBandProgId[] = L"ShellTabs.Band";
-constexpr wchar_t kBandProgIdVersion[] = L"ShellTabs.Band.1";
 constexpr wchar_t kBhoProgId[] = L"ShellTabs.BrowserHelper";
 constexpr wchar_t kBhoProgIdVersion[] = L"ShellTabs.BrowserHelper.1";
 constexpr wchar_t kOpenFolderCommandFriendlyName[] = L"Shell Tabs Open Folder Command";
@@ -1002,9 +999,6 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     }
     *object = nullptr;
 
-    if (rclsid == CLSID_ShellTabsBand) {
-        return CreateTabBandClassFactory(riid, object);
-    }
     if (rclsid == CLSID_ShellTabsBrowserHelper) {
         return CreateBrowserHelperClassFactory(riid, object);
     }
@@ -1029,18 +1023,7 @@ STDAPI DllRegisterServer(void) {
     const std::wstring moduleFileName = ExtractFileName(modulePath);
     const std::wstring appIdString = GuidToString(APPID_ShellTabs);
 
-    RETURN_IF_FAILED_LOG(L"RegisterAppId", RegisterAppId(appIdString, kBandFriendlyName, moduleFileName));
-
-    const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
-    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (band)",
-                         RegisterInprocServer(modulePath, bandClsid, kBandFriendlyName, appIdString.c_str(),
-                                              kBandProgIdVersion, kBandProgId,
-                                              {CATID_DeskBand, CATID_InfoBand, CATID_CommBand}));
-    RETURN_IF_FAILED_LOG(L"RegisterDeskBandKey", RegisterDeskBandKey(bandClsid, kBandFriendlyName));
-    RETURN_IF_FAILED_LOG(L"RegisterExplorerBar", RegisterExplorerBar(bandClsid, kBandFriendlyName));
-    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (band)", RegisterExplorerApproved(bandClsid, kBandFriendlyName));
-    RETURN_IF_FAILED_LOG(L"RegisterToolbarValue", RegisterToolbarValue(bandClsid, kBandFriendlyName));
-    RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
+    RETURN_IF_FAILED_LOG(L"RegisterAppId", RegisterAppId(appIdString, kBhoFriendlyName, moduleFileName));
 
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
     RETURN_IF_FAILED_LOG(L"RegisterInprocServer (BHO)",
@@ -1079,16 +1062,6 @@ STDAPI DllUnregisterServer(void) {
 
     const std::wstring moduleFileName = ExtractFileName(modulePath);
     const std::wstring appIdString = GuidToString(APPID_ShellTabs);
-
-    const std::wstring bandClsid = GuidToString(CLSID_ShellTabsBand);
-    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (band CLSID)",
-                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bandClsid, /*ignoreAccessDenied=*/true));
-    RETURN_IF_FAILED_LOG(L"UnregisterProgIds (band)", UnregisterProgIds(kBandProgIdVersion, kBandProgId));
-    RETURN_IF_FAILED_LOG(L"UnregisterDeskBandKey", UnregisterDeskBandKey(bandClsid));
-    RETURN_IF_FAILED_LOG(L"UnregisterExplorerBar", UnregisterExplorerBar(bandClsid));
-    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (band)", UnregisterApprovedExtension(bandClsid));
-    RETURN_IF_FAILED_LOG(L"UnregisterToolbarValue", UnregisterToolbarValue(bandClsid));
-    RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
 
     const std::wstring bhoClsid = GuidToString(CLSID_ShellTabsBrowserHelper);
     RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (BHO CLSID)",

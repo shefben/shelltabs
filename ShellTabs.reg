@@ -1,47 +1,8 @@
 Windows Registry Editor Version 5.00
 
-; ProgID Registration
-[HKEY_CLASSES_ROOT\ShellTabs.ShellTabsBand]
-@="Shell Tabs Band Class"
-"CurVer"="ShellTabs.ShellTabsBand.1"
-
-[HKEY_CLASSES_ROOT\ShellTabs.ShellTabsBand\CLSID]
-@="{A9C6F73E-43F4-47C3-8E45-59F80335277E}"
-
-[HKEY_CLASSES_ROOT\ShellTabs.ShellTabsBand.1]
-@="Shell Tabs Band Class"
-
-[HKEY_CLASSES_ROOT\ShellTabs.ShellTabsBand.1\CLSID]
-@="{A9C6F73E-43F4-47C3-8E45-59F80335277E}"
-
-; ShellTabs Deskband Registration
-[HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}]
-@="Shell Tabs"
-"AppID"="{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}"
-
-[HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}\InprocServer32]
-@="F:\\development\\steam\\emulator_bot\\shelltabs\\build\\bin\\Release\\ShellTabs.dll"
-"ThreadingModel"="Apartment"
-
-[HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}\ProgID]
-@="ShellTabs.ShellTabsBand"
-
-[HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}\Programmable]
-
-; AppID Registration
 [HKEY_CLASSES_ROOT\AppID\{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}]
 @="Shell Tabs"
 "DllSurrogate"=""
-
-; Implemented Categories - Deskband Category
-[HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}\Implemented Categories\{00021492-0000-0000-C000-000000000046}]
-
-; Component Categories - Register as Deskband
-[HKEY_CLASSES_ROOT\Component Categories\{00021492-0000-0000-C000-000000000046}\Enum\{A9C6F73E-43F4-47C3-8E45-59F80335277E}]
-
-; Deskband registry entry
-[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Deskband\{A9C6F73E-43F4-47C3-8E45-59F80335277E}]
-@="Shell Tabs"
 
 ; Browser Helper Object ProgID Registration
 [HKEY_CLASSES_ROOT\ShellTabs.BrowserHelper]
@@ -76,7 +37,6 @@ Windows Registry Editor Version 5.00
 
 ; Approved Shell Extensions
 [HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved]
-"{A9C6F73E-43F4-47C3-8E45-59F80335277E}"="Shell Tabs"
 "{B0C9CC1F-6B57-4B6B-8AE0-2A14E99A5C47}"="Shell Tabs Browser Helper"
 "{1A5E6BC2-89A2-46D3-9077-0CF76C63FE13}"="Shell Tabs FTP Folder"
 

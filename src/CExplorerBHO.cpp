@@ -87,7 +87,6 @@ using shelltabs::ResolveBreadcrumbGradientPalette;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
-constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
 constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_background";
 constexpr UINT_PTR kAddressEditRedrawTimerId = 0x53445257;  // 'SRDW'
 constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
@@ -811,11 +810,6 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
 
 namespace shelltabs {
 
-std::mutex CExplorerBHO::s_ensureTimerLock;
-std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
-std::mutex CExplorerBHO::s_openInNewTabTimerLock;
-std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
-
 CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
@@ -847,205 +841,6 @@ CExplorerBHO::~CExplorerBHO() {
         m_gdiplusToken = 0;
     }
     ModuleRelease();
-}
-
-void CExplorerBHO::CancelEnsureRetry(BandEnsureState& state) {
-    if (!state.retryScheduled || state.timerId == 0) {
-        state.retryScheduled = false;
-        state.timerId = 0;
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
-        s_ensureTimers.erase(state.timerId);
-    }
-
-    KillTimer(nullptr, state.timerId);
-    state.timerId = 0;
-    state.retryScheduled = false;
-}
-
-void CExplorerBHO::CancelAllEnsureRetries() {
-    std::vector<UINT_PTR> timers;
-    timers.reserve(m_bandEnsureStates.size());
-
-    for (auto& entry : m_bandEnsureStates) {
-        BandEnsureState& state = entry.second;
-        if (state.timerId != 0) {
-            timers.push_back(state.timerId);
-            state.timerId = 0;
-        }
-        state.retryScheduled = false;
-        state.retryDelayMs = 0;
-    }
-
-    if (!timers.empty()) {
-        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
-        for (UINT_PTR timerId : timers) {
-            s_ensureTimers.erase(timerId);
-        }
-    }
-
-    for (UINT_PTR timerId : timers) {
-        KillTimer(nullptr, timerId);
-    }
-
-    for (auto& entry : m_bandEnsureStates) {
-        BandEnsureState& state = entry.second;
-        state.lastOutcome = BandEnsureOutcome::Unknown;
-        state.lastHresult = S_OK;
-    }
-}
-
-void CExplorerBHO::ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr,
-                                       BandEnsureOutcome outcome, const wchar_t* reason) {
-    CancelEnsureRetry(state);
-
-    DWORD nextDelay = state.retryDelayMs == 0 ? kEnsureRetryInitialDelayMs : state.retryDelayMs * 2;
-    if (nextDelay > kEnsureRetryMaxDelayMs) {
-        nextDelay = kEnsureRetryMaxDelayMs;
-    }
-
-    state.retryDelayMs = nextDelay;
-    state.lastOutcome = outcome;
-    state.lastHresult = lastHr;
-
-    UINT_PTR timerId = SetTimer(nullptr, 0, nextDelay, &CExplorerBHO::EnsureBandTimerProc);
-    if (timerId == 0) {
-        const DWORD error = GetLastError();
-        LogMessage(LogLevel::Error,
-                   L"EnsureBandVisible: failed to schedule retry timer (delay=%u ms, error=%lu) for host=%p after hr=0x%08X",
-                   nextDelay, error, hostWindow, lastHr);
-        state.retryScheduled = false;
-        state.timerId = 0;
-        m_shouldRetryEnsure = true;
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
-        s_ensureTimers[timerId] = this;
-    }
-
-    state.retryScheduled = true;
-    state.timerId = timerId;
-
-    const wchar_t* description = reason ? reason : L"ShowBrowserBar failure";
-    LogMessage(LogLevel::Warning,
-               L"EnsureBandVisible: %s (hr=0x%08X code=%lu) for host=%p; retry #%zu scheduled in %u ms",
-               description, lastHr, HRESULT_CODE(lastHr), hostWindow, state.attemptCount + 1, nextDelay);
-}
-
-void CExplorerBHO::HandleEnsureBandTimer(UINT_PTR timerId) {
-    HWND targetWindow = nullptr;
-
-    for (auto& entry : m_bandEnsureStates) {
-        BandEnsureState& state = entry.second;
-        if (state.timerId == timerId) {
-            state.timerId = 0;
-            state.retryScheduled = false;
-            targetWindow = entry.first;
-            break;
-        }
-    }
-
-    m_shouldRetryEnsure = true;
-
-    if (!targetWindow) {
-        return;
-    }
-
-    LogMessage(LogLevel::Info, L"EnsureBandVisible retry timer fired for host=%p", targetWindow);
-    EnsureBandVisible();
-}
-
-void CALLBACK CExplorerBHO::EnsureBandTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
-    CExplorerBHO* instance = nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(s_ensureTimerLock);
-        auto it = s_ensureTimers.find(timerId);
-        if (it != s_ensureTimers.end()) {
-            instance = it->second;
-            s_ensureTimers.erase(it);
-        }
-    }
-
-    KillTimer(nullptr, timerId);
-
-    if (instance) {
-        instance->HandleEnsureBandTimer(timerId);
-    }
-}
-
-void CExplorerBHO::HandleOpenInNewTabTimer(UINT_PTR timerId) {
-    if (m_openInNewTabTimerId != timerId) {
-        return;
-    }
-
-    m_openInNewTabTimerId = 0;
-    m_openInNewTabRetryScheduled = false;
-    TryDispatchQueuedOpenInNewTabRequests();
-}
-
-void CExplorerBHO::ScheduleOpenInNewTabRetry() {
-    if (m_openInNewTabRetryScheduled || m_openInNewTabQueue.empty()) {
-        return;
-    }
-
-    UINT_PTR timerId = SetTimer(nullptr, 0, kOpenInNewTabRetryDelayMs, &CExplorerBHO::OpenInNewTabTimerProc);
-    if (timerId == 0) {
-        const DWORD error = GetLastError();
-        LogMessage(LogLevel::Error,
-                   L"Open In New Tab: failed to schedule retry timer (delay=%u ms, error=%lu)",
-                   kOpenInNewTabRetryDelayMs, error);
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
-        s_openInNewTabTimers[timerId] = this;
-    }
-
-    m_openInNewTabRetryScheduled = true;
-    m_openInNewTabTimerId = timerId;
-}
-
-void CExplorerBHO::CancelOpenInNewTabRetry() {
-    if (!m_openInNewTabRetryScheduled || m_openInNewTabTimerId == 0) {
-        m_openInNewTabRetryScheduled = false;
-        m_openInNewTabTimerId = 0;
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
-        s_openInNewTabTimers.erase(m_openInNewTabTimerId);
-    }
-
-    KillTimer(nullptr, m_openInNewTabTimerId);
-    m_openInNewTabRetryScheduled = false;
-    m_openInNewTabTimerId = 0;
-}
-
-void CALLBACK CExplorerBHO::OpenInNewTabTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
-    CExplorerBHO* instance = nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
-        auto it = s_openInNewTabTimers.find(timerId);
-        if (it != s_openInNewTabTimers.end()) {
-            instance = it->second;
-            s_openInNewTabTimers.erase(it);
-        }
-    }
-
-    KillTimer(nullptr, timerId);
-
-    if (instance) {
-        instance->HandleOpenInNewTabTimer(timerId);
-    }
 }
 IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
     if (!object) {
@@ -1121,9 +916,6 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID riid, LPOLESTR* rgszNames, UIN
 }
 
 void CExplorerBHO::Disconnect() {
-    CancelAllEnsureRetries();
-    CancelOpenInNewTabRetry();
-    m_bandEnsureStates.clear();
     m_openInNewTabQueue.clear();
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
@@ -1137,8 +929,6 @@ void CExplorerBHO::Disconnect() {
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
     m_site.Reset();
-    m_bandVisible = false;
-    m_shouldRetryEnsure = true;
     m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     m_loggedBreadcrumbToolbarMissing = false;
     m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
@@ -1146,207 +936,6 @@ void CExplorerBHO::Disconnect() {
     m_currentFolderKey.clear();
 }
 
-
-HRESULT CExplorerBHO::EnsureBandVisible() {
-    return GuardExplorerCall(
-        L"CExplorerBHO::EnsureBandVisible",
-        [&]() -> HRESULT {
-            if (!m_webBrowser) {
-                return S_OK;
-            }
-
-            HWND hostWindow = GetTopLevelExplorerWindow();
-            BandEnsureState& state = m_bandEnsureStates[hostWindow];
-
-            if (!m_shouldRetryEnsure) {
-                return S_OK;
-            }
-
-            if (state.lastOutcome == BandEnsureOutcome::Success ||
-                state.lastOutcome == BandEnsureOutcome::PermanentFailure) {
-                m_shouldRetryEnsure = false;
-                return S_OK;
-            }
-
-            if (state.retryScheduled) {
-                m_shouldRetryEnsure = false;
-                return S_OK;
-            }
-
-            m_shouldRetryEnsure = false;
-
-            Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
-            HRESULT hr = m_webBrowser.As(&serviceProvider);
-            if ((!serviceProvider || FAILED(hr)) && m_site) {
-                serviceProvider = nullptr;
-                hr = m_site.As(&serviceProvider);
-            }
-            if (FAILED(hr) || !serviceProvider) {
-                HRESULT failure = FAILED(hr) ? hr : E_NOINTERFACE;
-                LogMessage(LogLevel::Warning,
-                           L"EnsureBandVisible: IServiceProvider unavailable for host=%p (hr=0x%08X)",
-                           hostWindow, failure);
-                m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, failure, BandEnsureOutcome::TemporaryFailure,
-                                     L"IServiceProvider unavailable");
-                return failure;
-            }
-
-            Microsoft::WRL::ComPtr<IShellBrowser> shellBrowser;
-            hr = serviceProvider->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&shellBrowser));
-            if ((FAILED(hr) || !shellBrowser)) {
-                hr = serviceProvider->QueryService(SID_SShellBrowser, IID_PPV_ARGS(&shellBrowser));
-                if (FAILED(hr) || !shellBrowser) {
-                    HRESULT failure = FAILED(hr) ? hr : E_NOINTERFACE;
-                    LogMessage(LogLevel::Warning,
-                               L"EnsureBandVisible: IShellBrowser unavailable for host=%p (hr=0x%08X)",
-                               hostWindow, failure);
-                    m_bandVisible = false;
-                    ScheduleEnsureRetry(hostWindow, state, failure, BandEnsureOutcome::TemporaryFailure,
-                                         L"IShellBrowser unavailable");
-                    return failure;
-                }
-            }
-
-            bool supportedHost = false;
-            wchar_t className[256] = {};
-            bool hasClassInformation = false;
-            if (hostWindow && IsWindow(hostWindow)) {
-                const int length = GetClassNameW(hostWindow, className, ARRAYSIZE(className));
-                if (length > 0) {
-                    hasClassInformation = true;
-                    supportedHost = (_wcsicmp(className, L"CabinetWClass") == 0);
-                }
-            }
-
-            HRESULT explorerBrowserHr = E_FAIL;
-            bool explorerBrowserAvailable = false;
-            Microsoft::WRL::ComPtr<IUnknown> explorerBrowser;
-            explorerBrowserHr = serviceProvider->QueryService(CLSID_ExplorerBrowser, IID_PPV_ARGS(&explorerBrowser));
-            if (SUCCEEDED(explorerBrowserHr) && explorerBrowser) {
-                explorerBrowserAvailable = true;
-                supportedHost = true;
-            }
-
-            if (!supportedHost) {
-                if (!hasClassInformation && !explorerBrowserAvailable) {
-                    if (!state.unsupportedHost) {
-                        LogMessage(LogLevel::Warning,
-                                   L"EnsureBandVisible: delaying band activation; host=%p not yet classified (ExplorerBrowser hr=0x%08X)",
-                                   hostWindow, explorerBrowserHr);
-                    }
-                    m_bandVisible = false;
-                    const HRESULT classificationHr = FAILED(explorerBrowserHr) ? explorerBrowserHr : E_FAIL;
-                    ScheduleEnsureRetry(hostWindow, state, classificationHr, BandEnsureOutcome::TemporaryFailure,
-                                         L"Explorer host classification pending");
-                    return classificationHr;
-                }
-
-                if (!state.unsupportedHost) {
-                    if (hasClassInformation) {
-                        LogMessage(LogLevel::Warning,
-                                   L"EnsureBandVisible: host=%p uses unsupported class '%s'; ExplorerBrowser hr=0x%08X",
-                                   hostWindow, className, explorerBrowserHr);
-                    } else {
-                        LogMessage(LogLevel::Warning,
-                                   L"EnsureBandVisible: host=%p exposes ExplorerBrowser hr=0x%08X but remains unsupported",
-                                   hostWindow, explorerBrowserHr);
-                    }
-                }
-
-                CancelEnsureRetry(state);
-                state.unsupportedHost = true;
-                state.lastOutcome = BandEnsureOutcome::PermanentFailure;
-                state.lastHresult = HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-                state.retryDelayMs = 0;
-                m_bandVisible = false;
-                return state.lastHresult;
-            }
-
-            state.unsupportedHost = false;
-
-            const std::wstring clsidString = GuidToString(CLSID_ShellTabsBand);
-            if (clsidString.empty()) {
-                LogMessage(LogLevel::Error, L"EnsureBandVisible: failed to stringify CLSID_ShellTabsBand");
-                m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, E_FAIL, BandEnsureOutcome::TemporaryFailure,
-                                     L"Failed to format band CLSID");
-                return E_FAIL;
-            }
-
-            VARIANT bandId;
-            VariantInit(&bandId);
-            bandId.vt = VT_BSTR;
-            bandId.bstrVal = SysAllocString(clsidString.c_str());
-            if (!bandId.bstrVal) {
-                LogMessage(LogLevel::Error, L"EnsureBandVisible: SysAllocString failed for band CLSID");
-                m_bandVisible = false;
-                ScheduleEnsureRetry(hostWindow, state, E_OUTOFMEMORY, BandEnsureOutcome::TemporaryFailure,
-                                     L"SysAllocString failed for band CLSID");
-                return E_OUTOFMEMORY;
-            }
-
-            VARIANT show;
-            VariantInit(&show);
-            show.vt = VT_BOOL;
-            show.boolVal = VARIANT_TRUE;
-
-            const size_t attempt = ++state.attemptCount;
-            LogMessage(LogLevel::Info, L"EnsureBandVisible: invoking ShowBrowserBar for host=%p (attempt %zu)",
-                       hostWindow, attempt);
-            hr = m_webBrowser->ShowBrowserBar(&bandId, &show, nullptr);
-
-            VariantClear(&bandId);
-            VariantClear(&show);
-
-            if (SUCCEEDED(hr)) {
-                m_bandVisible = true;
-                CancelEnsureRetry(state);
-                state.retryDelayMs = 0;
-                state.lastOutcome = BandEnsureOutcome::Success;
-                state.lastHresult = hr;
-                LogMessage(LogLevel::Info,
-                           L"EnsureBandVisible: ShowBrowserBar succeeded for host=%p on attempt %zu", hostWindow,
-                           attempt);
-                UpdateBreadcrumbSubclass();
-                TryDispatchQueuedOpenInNewTabRequests();
-            } else {
-                m_bandVisible = false;
-                const bool throttled = IsShowBrowserBarThrottled(hr);
-
-                if (throttled) {
-                    LogMessage(LogLevel::Warning,
-                               L"EnsureBandVisible: ShowBrowserBar throttled for host=%p on attempt %zu (hr=0x%08X code=%lu)",
-                               hostWindow, attempt, hr, HRESULT_CODE(hr));
-                    ScheduleEnsureRetry(hostWindow, state, hr, BandEnsureOutcome::Throttled,
-                                         L"ShowBrowserBar throttled");
-                } else if (hr == E_ACCESSDENIED || HRESULT_CODE(hr) == ERROR_ACCESS_DENIED) {
-                    CancelEnsureRetry(state);
-                    state.retryDelayMs = 0;
-                    state.lastOutcome = BandEnsureOutcome::PermanentFailure;
-                    state.lastHresult = hr;
-                    LogMessage(LogLevel::Error,
-                               L"EnsureBandVisible: ShowBrowserBar denied access for host=%p (hr=0x%08X); stopping retries",
-                               hostWindow, hr);
-                } else if (IsAutomationDisabledResult(hr)) {
-                    CancelEnsureRetry(state);
-                    state.retryDelayMs = 0;
-                    state.lastOutcome = BandEnsureOutcome::PermanentFailure;
-                    state.lastHresult = hr;
-                    LogMessage(LogLevel::Error,
-                               L"EnsureBandVisible: automation disabled by policy for host=%p (hr=0x%08X code=%lu)",
-                               hostWindow, hr, HRESULT_CODE(hr));
-                    NotifyAutomationDisabledByPolicy(hr);
-                } else {
-                    ScheduleEnsureRetry(hostWindow, state, hr, BandEnsureOutcome::TemporaryFailure,
-                                         L"ShowBrowserBar failed");
-                }
-            }
-
-            return hr;
-        },
-        []() -> HRESULT { return E_FAIL; });
-}
 
 IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
     return GuardExplorerCall(
@@ -1369,7 +958,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             m_site = site;
             m_webBrowser = browser;
-            m_shouldRetryEnsure = true;
 
             m_shellBrowser.Reset();
 
@@ -1401,7 +989,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
             }
-            EnsureBandVisible();
             UpdateBreadcrumbSubclass();
             UpdateExplorerViewSubclass();
             return S_OK;
@@ -1560,11 +1147,8 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
             switch (dispIdMember) {
                 case DISPID_ONVISIBLE:
                 case DISPID_WINDOWSTATECHANGED:
-                    if (!m_bandVisible) {
-                        m_shouldRetryEnsure = true;
-                        EnsureBandVisible();
-                        UpdateBreadcrumbSubclass();
-                    }
+                    UpdateBreadcrumbSubclass();
+                    UpdateExplorerViewSubclass();
                     break;
                 case DISPID_DOCUMENTCOMPLETE:
                 case DISPID_NAVIGATECOMPLETE2:
@@ -2864,9 +2448,6 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
                         return TRUE;
                     }
                     if (MatchesClass(child, TOOLBARCLASSNAMEW) && ctx->self->IsWindowOwnedByThisExplorer(child)) {
-                        if (HWND parent = GetParent(child); parent && MatchesClass(parent, L"ShellTabsBandWindow")) {
-                            return TRUE;
-                        }
                         if (ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Toolbar, true)) {
                             ctx->active->insert(child);
                         }
@@ -5806,43 +5387,13 @@ void CExplorerBHO::QueueOpenInNewTabRequests(const std::vector<std::wstring>& pa
 
 void CExplorerBHO::TryDispatchQueuedOpenInNewTabRequests() {
     if (m_openInNewTabQueue.empty()) {
-        CancelOpenInNewTabRetry();
         return;
     }
 
-    HWND frame = GetTopLevelExplorerWindow();
-    if (!frame) {
-        LogMessage(LogLevel::Warning,
-                   L"Open In New Tab dispatch deferred: explorer frame not found (%zu request(s) pending)",
-                   m_openInNewTabQueue.size());
-        ScheduleOpenInNewTabRetry();
-        return;
-    }
-
-    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
-    if (!bandWindow || !IsWindow(bandWindow)) {
-        LogMessage(LogLevel::Info,
-                   L"Open In New Tab dispatch deferred: ShellTabs band window missing (frame=%p, pending=%zu)",
-                   frame, m_openInNewTabQueue.size());
-        m_shouldRetryEnsure = true;
-        EnsureBandVisible();
-        ScheduleOpenInNewTabRetry();
-        return;
-    }
-
-    std::vector<std::wstring> pending;
-    pending.swap(m_openInNewTabQueue);
-    CancelOpenInNewTabRetry();
-
-    for (const std::wstring& path : pending) {
-        if (path.empty()) {
-            continue;
-        }
-
-        OpenFolderMessagePayload payload{path.c_str(), path.size()};
-        SendMessageW(bandWindow, WM_SHELLTABS_OPEN_FOLDER, reinterpret_cast<WPARAM>(&payload), 0);
-        LogMessage(LogLevel::Info, L"Dispatched Open In New Tab request for %ls", path.c_str());
-    }
+    LogMessage(LogLevel::Warning,
+               L"Open In New Tab dispatch skipped: ShellTabs band window unavailable (dropping %zu request(s))",
+               m_openInNewTabQueue.size());
+    m_openInNewTabQueue.clear();
 }
 
 void CExplorerBHO::ClearPendingOpenInNewTabState() {

@@ -62,11 +62,8 @@ An ATL-style registration script lives at `registration/ShellTabs.rgs`. You can 
 
 ## Architecture Overview
 
-- **Deskband (`TabBand`)** – Implements `IDeskBand2`, `IObjectWithSite`, and related COM interfaces. It is responsible for creating the UI window, tracking Explorer navigation events, and keeping the tab model in sync with the current folder.
 - **Tab model (`TabManager`)** – Maintains the list of open tabs, their display names, and associated PIDLs. The manager owns the shell item identifiers, ensuring proper lifetime management.
-- **UI host (`TabBandWindow`)** – Creates a Win32 child window composed of a `SysTabControl32` instance and a push button for the “new tab” action. It routes user interactions back to the band.
-- **Browser event sink (`BrowserEvents`)** – Subscribes to `DWebBrowserEvents2` emitted by Explorer’s `IWebBrowser2` object so the deskband can react to navigation changes and window teardown.
-- **Browser Helper Object (`CExplorerBHO`)** – A lightweight `IObjectWithSite` implementation that loads alongside Explorer windows and calls `IWebBrowser2::ShowBrowserBar` so the Shell Tabs deskband is surfaced automatically for each process.
+- **Browser Helper Object (`CExplorerBHO`)** – A lightweight `IObjectWithSite` implementation that customizes Explorer’s UI, tracks navigation events, and surfaces Shell Tabs functionality inside each process.
 - **Utilities** – Helper functions for cloning PIDLs, resolving display names, and querying the active folder via `IShellBrowser`/`IWebBrowser2`.
 
 ## Development Tips
