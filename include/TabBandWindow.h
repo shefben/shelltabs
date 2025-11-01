@@ -21,6 +21,7 @@
 #include <vector>
 #include <unordered_map>
 #include <functional>
+#include <optional>
 
 #include <commctrl.h>
 #include <wrl/client.h>
@@ -286,6 +287,17 @@ private:
         bool valid = false;
     };
 
+    struct RebarColorScheme {
+        COLORREF background = CLR_DEFAULT;
+        COLORREF foreground = CLR_DEFAULT;
+
+        bool operator==(const RebarColorScheme& other) const noexcept {
+            return background == other.background && foreground == other.foreground;
+        }
+
+        bool operator!=(const RebarColorScheme& other) const noexcept { return !(*this == other); }
+    };
+
     struct ThemePalette {
         COLORREF rebarGradientTop = 0;
         COLORREF rebarGradientBottom = 0;
@@ -368,6 +380,8 @@ private:
         bool m_rebarIntegrationDirty = true;
         HWND m_lastIntegratedRebar = nullptr;
         HWND m_lastIntegratedFrame = nullptr;
+        std::optional<RebarColorScheme> m_lastRebarColors;
+        bool m_rebarNeedsRepaint = false;
 
 	// Render-time cache of empty-island "+" hit targets
 	std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
@@ -449,6 +463,7 @@ private:
     bool NeedsRebarIntegration() const;
     void EnsureRebarIntegration();
     void RefreshRebarMetrics();
+    void FlushRebarRepaint();
     int FindRebarBandIndex() const;
     static bool IsRebarWindow(HWND hwnd);
     bool DrawRebarBackground(HDC dc, const RECT& bounds) const;
