@@ -18,6 +18,8 @@ constexpr BYTE kTrackHaloAlpha = 96;
 constexpr BYTE kTrackLineAlpha = 220;
 constexpr BYTE kThumbFillAlpha = 210;
 constexpr BYTE kThumbHaloAlpha = 110;
+constexpr BYTE kSeparatorLineAlpha = 220;
+constexpr BYTE kSeparatorHaloAlpha = 96;
 
 bool IsScrollbarPart(int partId) {
     switch (partId) {
@@ -30,6 +32,26 @@ bool IsScrollbarPart(int partId) {
         case SBP_GRIPPERHORZ:
         case SBP_GRIPPERVERT:
         case SBP_ARROWBTN:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsToolbarSeparatorPart(int partId) {
+    switch (partId) {
+        case TP_SEPARATOR:
+        case TP_SEPARATORVERT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsRebarBandPart(int partId) {
+    switch (partId) {
+        case RP_BAND:
+        case RP_BANDVERT:
             return true;
         default:
             return false;
@@ -221,6 +243,24 @@ bool ThemeHooks::IsActive() const noexcept {
     return m_active;
 }
 
+bool ThemeHooks::IsSurfaceHookActive(ExplorerSurfaceKind kind) const noexcept {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_active) {
+        return false;
+    }
+
+    switch (kind) {
+        case ExplorerSurfaceKind::Scrollbar:
+            return m_expectScrollbar && m_scrollbarHookEngaged;
+        case ExplorerSurfaceKind::Toolbar:
+            return m_expectToolbar && m_toolbarHookEngaged;
+        case ExplorerSurfaceKind::Rebar:
+            return m_expectRebar && m_rebarHookEngaged;
+        default:
+            return false;
+    }
+}
+
 HRESULT WINAPI ThemeHooks::HookedDrawThemeBackground(HTHEME theme, HDC dc, int partId, int stateId,
                                                      LPCRECT rect, LPCRECT clipRect) {
     if (ThemeHooks::Instance().OnDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect)) {
@@ -236,7 +276,7 @@ HRESULT WINAPI ThemeHooks::HookedDrawThemeBackground(HTHEME theme, HDC dc, int p
 
 HRESULT WINAPI ThemeHooks::HookedDrawThemeEdge(HTHEME theme, HDC dc, int partId, int stateId, LPCRECT rect,
                                                UINT edge, UINT flags, LPRECT contentRect) {
-    if (ThemeHooks::Instance().OnDrawThemeEdge(partId)) {
+    if (ThemeHooks::Instance().OnDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect)) {
         return S_OK;
     }
 
@@ -248,76 +288,279 @@ HRESULT WINAPI ThemeHooks::HookedDrawThemeEdge(HTHEME theme, HDC dc, int partId,
 }
 
 bool ThemeHooks::OnDrawThemeBackground(HTHEME, HDC dc, int partId, int stateId, LPCRECT rect, LPCRECT clipRect) {
-    if (!dc || !rect || !IsScrollbarPart(partId)) {
+    UNREFERENCED_PARAMETER(stateId);
+
+    if (!dc || !rect) {
         return false;
     }
 
-    GlowColorSet colors{};
-    ExplorerGlowCoordinator* coordinator = nullptr;
-    bool shouldRender = false;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        coordinator = m_coordinator;
-        shouldRender = m_active && coordinator &&
-                       coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Scrollbar);
-        if (shouldRender && coordinator) {
-            colors = coordinator->ResolveColors(ExplorerSurfaceKind::Scrollbar);
+    if (IsScrollbarPart(partId)) {
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Scrollbar, colors)) {
+            return false;
         }
-    }
 
-    if (!shouldRender || !colors.valid) {
+        const bool vertical = IsVerticalPart(partId);
+        const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+        const UINT dpiY = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+        if (IsThumbPart(partId)) {
+            PaintThumb(graphics, colors, *rect, clipRect, vertical, dpiX, dpiY);
+            return true;
+        }
+
+        if (IsTrackPart(partId)) {
+            PaintTrack(graphics, colors, *rect, clipRect, vertical, dpiX, dpiY);
+            return true;
+        }
+
         return false;
     }
 
-    const bool vertical = IsVerticalPart(partId);
-    const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
-    const UINT dpiY = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+    if (IsToolbarSeparatorPart(partId)) {
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Toolbar, colors)) {
+            return false;
+        }
 
-    Gdiplus::Graphics graphics(dc);
-    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+        RECT paintRect = *rect;
+        if (clipRect && !IntersectRect(&paintRect, &paintRect, clipRect)) {
+            return true;
+        }
+        if (IsRectEmptyStrict(paintRect)) {
+            return true;
+        }
 
-    if (IsThumbPart(partId)) {
-        PaintThumb(graphics, colors, *rect, clipRect, vertical, dpiX, dpiY);
-        return true;
-    }
+        const bool verticalSeparator = (partId == TP_SEPARATOR);
+        const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+        const UINT dpiY = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+        const UINT crossDpi = verticalSeparator ? dpiX : dpiY;
 
-    if (IsTrackPart(partId)) {
-        PaintTrack(graphics, colors, *rect, clipRect, vertical, dpiX, dpiY);
+        const int baseLine = ScaleByDpi(1, crossDpi);
+        const int extent = verticalSeparator ? (paintRect.right - paintRect.left)
+                                             : (paintRect.bottom - paintRect.top);
+        const int lineThickness = std::clamp(baseLine, 1, std::max(extent, 1));
+        const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, crossDpi));
+
+        RECT lineRect = paintRect;
+        if (verticalSeparator) {
+            const int center = paintRect.left + ((paintRect.right - paintRect.left) - lineThickness) / 2;
+            lineRect.left = center;
+            lineRect.right = center + lineThickness;
+        } else {
+            const int center = paintRect.top + ((paintRect.bottom - paintRect.top) - lineThickness) / 2;
+            lineRect.top = center;
+            lineRect.bottom = center + lineThickness;
+        }
+
+        RECT haloRect = paintRect;
+        if (verticalSeparator) {
+            const int center = (lineRect.left + lineRect.right) / 2;
+            const int halfHalo = haloThickness / 2;
+            haloRect.left = std::max(paintRect.left, center - halfHalo);
+            haloRect.right = std::min(paintRect.right, center + halfHalo);
+        } else {
+            const int center = (lineRect.top + lineRect.bottom) / 2;
+            const int halfHalo = haloThickness / 2;
+            haloRect.top = std::max(paintRect.top, center - halfHalo);
+            haloRect.bottom = std::min(paintRect.bottom, center + halfHalo);
+        }
+
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+        if (!IsRectEmptyStrict(haloRect)) {
+            FillGradientRect(graphics, colors, haloRect, kSeparatorHaloAlpha);
+        }
+        if (!IsRectEmptyStrict(lineRect)) {
+            FillGradientRect(graphics, colors, lineRect, kSeparatorLineAlpha);
+        }
+
         return true;
     }
 
     return false;
 }
 
-bool ThemeHooks::OnDrawThemeEdge(int partId) const {
-    if (!IsScrollbarPart(partId)) {
+bool ThemeHooks::OnDrawThemeEdge(HTHEME, HDC dc, int partId, int stateId, LPCRECT rect, UINT edge, UINT flags,
+                                 LPRECT contentRect) {
+    UNREFERENCED_PARAMETER(stateId);
+    UNREFERENCED_PARAMETER(edge);
+    UNREFERENCED_PARAMETER(contentRect);
+
+    if (!dc || !rect) {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_active || !m_coordinator) {
+    if (IsScrollbarPart(partId)) {
+        GlowColorSet colors{};
+        if (!ResolveColorsForHook(ExplorerSurfaceKind::Scrollbar, colors)) {
+            return false;
+        }
+        return true;
+    }
+
+    if (!IsRebarBandPart(partId)) {
         return false;
     }
-    if (!m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Scrollbar)) {
+
+    const bool hasRight = (flags & BF_RIGHT) != 0;
+    const bool hasBottom = (flags & BF_BOTTOM) != 0;
+    if ((!hasRight && !hasBottom) || (hasRight && hasBottom)) {
         return false;
+    }
+
+    GlowColorSet colors{};
+    if (!ResolveColorsForHook(ExplorerSurfaceKind::Rebar, colors)) {
+        return false;
+    }
+
+    RECT paintRect = *rect;
+    if (IsRectEmptyStrict(paintRect)) {
+        return true;
+    }
+
+    const bool verticalEdge = hasRight;
+    const UINT dpiX = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX));
+    const UINT dpiY = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+    const UINT crossDpi = verticalEdge ? dpiX : dpiY;
+
+    const int baseLine = ScaleByDpi(1, crossDpi);
+    const int extent = verticalEdge ? (paintRect.right - paintRect.left) : (paintRect.bottom - paintRect.top);
+    const int lineThickness = std::clamp(baseLine, 1, std::max(extent, 1));
+    const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, crossDpi));
+
+    RECT lineRect = paintRect;
+    if (verticalEdge) {
+        const int center = paintRect.left + ((paintRect.right - paintRect.left) - lineThickness) / 2;
+        lineRect.left = center;
+        lineRect.right = center + lineThickness;
+    } else {
+        const int center = paintRect.top + ((paintRect.bottom - paintRect.top) - lineThickness) / 2;
+        lineRect.top = center;
+        lineRect.bottom = center + lineThickness;
+    }
+
+    RECT haloRect = paintRect;
+    if (verticalEdge) {
+        const int center = (lineRect.left + lineRect.right) / 2;
+        const int halfHalo = haloThickness / 2;
+        haloRect.left = std::max(paintRect.left, center - halfHalo);
+        haloRect.right = std::min(paintRect.right, center + halfHalo);
+    } else {
+        const int center = (lineRect.top + lineRect.bottom) / 2;
+        const int halfHalo = haloThickness / 2;
+        haloRect.top = std::max(paintRect.top, center - halfHalo);
+        haloRect.bottom = std::min(paintRect.bottom, center + halfHalo);
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+    if (!IsRectEmptyStrict(haloRect)) {
+        FillGradientRect(graphics, colors, haloRect, kSeparatorHaloAlpha);
+    }
+    if (!IsRectEmptyStrict(lineRect)) {
+        FillGradientRect(graphics, colors, lineRect, kSeparatorLineAlpha);
     }
 
     return true;
 }
 
-void ThemeHooks::UpdateActivationLocked() {
-    const bool shouldActivate =
-        m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Scrollbar);
+bool ThemeHooks::ResolveColorsForHook(ExplorerSurfaceKind kind, GlowColorSet& colors) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_active || !m_coordinator) {
+        return false;
+    }
 
+    if (!ExpectHookFor(kind)) {
+        return false;
+    }
+
+    if (!m_coordinator->ShouldRenderSurface(kind)) {
+        return false;
+    }
+
+    colors = m_coordinator->ResolveColors(kind);
+    if (!colors.valid) {
+        return false;
+    }
+
+    switch (kind) {
+        case ExplorerSurfaceKind::Scrollbar:
+            m_scrollbarHookEngaged = true;
+            break;
+        case ExplorerSurfaceKind::Toolbar:
+            m_toolbarHookEngaged = true;
+            break;
+        case ExplorerSurfaceKind::Rebar:
+            m_rebarHookEngaged = true;
+            break;
+        default:
+            break;
+    }
+
+    return true;
+}
+
+bool ThemeHooks::ExpectHookFor(ExplorerSurfaceKind kind) const noexcept {
+    switch (kind) {
+        case ExplorerSurfaceKind::Scrollbar:
+            return m_expectScrollbar;
+        case ExplorerSurfaceKind::Toolbar:
+            return m_expectToolbar;
+        case ExplorerSurfaceKind::Rebar:
+            return m_expectRebar;
+        default:
+            return false;
+    }
+}
+
+void ThemeHooks::UpdateActivationLocked() {
+    const bool shouldHookScrollbar =
+        m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Scrollbar);
+    const bool shouldHookToolbar =
+        m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Toolbar);
+    const bool shouldHookRebar =
+        m_coordinator && m_coordinator->ShouldRenderSurface(ExplorerSurfaceKind::Rebar);
+
+    m_expectScrollbar = shouldHookScrollbar;
+    m_expectToolbar = shouldHookToolbar;
+    m_expectRebar = shouldHookRebar;
+
+    if (!shouldHookScrollbar) {
+        m_scrollbarHookEngaged = false;
+    }
+    if (!shouldHookToolbar) {
+        m_toolbarHookEngaged = false;
+    }
+    if (!shouldHookRebar) {
+        m_rebarHookEngaged = false;
+    }
+
+    const bool shouldActivate = shouldHookScrollbar || shouldHookToolbar || shouldHookRebar;
     if (!shouldActivate) {
         if (m_active) {
             UninstallLocked();
         }
+        m_active = false;
         return;
     }
 
-    if (InstallLocked()) {
+    const bool wasActive = m_active;
+    const bool installed = InstallLocked();
+    if (installed || wasActive) {
+        if (!wasActive) {
+            m_scrollbarHookEngaged = false;
+            m_toolbarHookEngaged = false;
+            m_rebarHookEngaged = false;
+        }
         m_active = true;
+    } else {
+        m_active = false;
     }
 }
 
@@ -382,6 +625,12 @@ void ThemeHooks::UninstallLocked() {
 
     m_backgroundPatches.clear();
     m_edgePatches.clear();
+    m_expectScrollbar = false;
+    m_expectToolbar = false;
+    m_expectRebar = false;
+    m_scrollbarHookEngaged = false;
+    m_toolbarHookEngaged = false;
+    m_rebarHookEngaged = false;
     m_active = false;
 }
 
