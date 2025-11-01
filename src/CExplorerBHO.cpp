@@ -2332,8 +2332,15 @@ HWND CExplorerBHO::ResolveListViewFromFolderView() {
         return nullptr;
     }
 
+    Microsoft::WRL::ComPtr<IOleWindow> oleWindow;
+    HRESULT hr = m_folderView2.As(&oleWindow);
+    if (FAILED(hr) || !oleWindow) {
+        m_folderView2.Reset();
+        return nullptr;
+    }
+
     HWND listView = nullptr;
-    const HRESULT hr = m_folderView2->GetWindow(&listView);
+    hr = oleWindow->GetWindow(&listView);
     if (FAILED(hr) || !listView || !IsWindow(listView) || !IsWindowOwnedByThisExplorer(listView)) {
         m_folderView2.Reset();
         return nullptr;
