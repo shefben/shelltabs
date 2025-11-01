@@ -2060,9 +2060,21 @@ bool CExplorerBHO::IsBreadcrumbToolbarCandidate(HWND hwnd) const {
         if ((button.fsStyle & TBSTYLE_SEP) != 0 || (button.fsState & TBSTATE_HIDDEN) != 0) {
             continue;
         }
+
         buffer.fill(L'\0');
-        LRESULT copied = SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, reinterpret_cast<LPARAM>(buffer.data()));
+        LRESULT copied =
+            SendMessage(hwnd, TB_GETBUTTONTEXTW, button.idCommand, reinterpret_cast<LPARAM>(buffer.data()));
         if (copied > 0 && buffer[0] != L'\0') {
+            return true;
+        }
+
+        if (copied == -1) {
+            // LPSTR_TEXTCALLBACK indicates the button supplies text dynamically.
+            return true;
+        }
+
+        if (button.iString != 0) {
+            // Non-null string pointers or string-pool indices also imply textual content.
             return true;
         }
     }
