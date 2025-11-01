@@ -14,7 +14,8 @@ enum class OptionsDialogPage : int {
     kGeneral = 0,
     kCustomizations = 1,
     kGlow = 2,
-    kGroups = 3,
+    kContextMenus = 3,
+    kGroups = 4,
 };
 
 struct OptionsDialogResult {
