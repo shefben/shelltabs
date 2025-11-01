@@ -95,6 +95,7 @@ target_link_libraries(ShellTabs PRIVATE
     Shlwapi
     gdiplus
     propsys
+    uiautomationcore
     runtimeobject
     wtsapi32
 )
