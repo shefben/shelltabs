@@ -3338,8 +3338,8 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
     HDWP deferHandle = childCount > 0
                             ? BeginDeferWindowPos(static_cast<int>(childCount))
                             : nullptr;
-    const bool attemptDefer = deferHandle != nullptr;
-    constexpr UINT repositionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
+    constexpr UINT repositionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
+    bool repositionedChild = false;
 
     for (const auto& placement : data->customizationChildPlacements) {
         if (!IsWindow(placement.hwnd)) {
@@ -3367,23 +3367,23 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
             if (!nextHandle) {
                 deferHandle = nullptr;
                 SetWindowPos(placement.hwnd, nullptr, targetX, targetY, width, height, repositionFlags);
+                repositionedChild = true;
             } else {
                 deferHandle = nextHandle;
+                repositionedChild = true;
             }
         } else {
             SetWindowPos(placement.hwnd, nullptr, targetX, targetY, width, height, repositionFlags);
+            repositionedChild = true;
         }
     }
     if (deferHandle) {
         EndDeferWindowPos(deferHandle);
     }
-    if (attemptDefer && !deferHandle) {
-        // Ensure any partially moved children receive a layout update if defer failed midway.
-        RedrawWindow(hwnd, nullptr, nullptr,
-                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    if (repositionedChild) {
+        InvalidateRect(hwnd, nullptr, TRUE);
+        UpdateWindow(hwnd);
     }
-    RedrawWindow(hwnd, nullptr, nullptr,
-                 RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 void UpdateCustomizationScrollInfo(HWND hwnd, OptionsDialogData* data) {
