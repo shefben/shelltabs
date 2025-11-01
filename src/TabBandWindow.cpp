@@ -331,10 +331,6 @@ constexpr int kPinnedGlyphWidth = 12;
 constexpr int kPinnedGlyphPadding = 6;
 constexpr int kPinnedTabMaxWidth = 160;
 
-const wchar_t kThemePreferenceKey[] =
-L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
-
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG = WM_APP + 60;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DRAG_LEAVE = WM_APP + 61;
 constexpr UINT WM_SHELLTABS_EXTERNAL_DROP = WM_APP + 62;
@@ -1748,18 +1744,6 @@ void TabBandWindow::ApplyPreservedVisualItems(const std::vector<VisualItem>& pre
 }
 
 
-
-static bool QueryUserDarkMode() {
-	// Win10/11: HKCU\...\Personalize\AppsUseLightTheme (0=dark, 1=light)
-	// Win7/8: key/value not present -> treat as light (false).
-	DWORD v = 1;
-	DWORD sz = sizeof(v);
-	const wchar_t* k = L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-	const wchar_t* n = L"AppsUseLightTheme";
-	LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, k, n, RRF_RT_DWORD, nullptr, &v, &sz);
-	if (st == ERROR_SUCCESS) return v == 0;
-	return false; // legacy OS: no dark mode
-}
 
 bool TabBandWindow::BandHasRebarGrip() const {
 	if (!m_parentRebar || m_rebarBandIndex < 0) return false;
@@ -3269,14 +3253,7 @@ bool TabBandWindow::IsSystemDarkMode() const {
         return ComputeLuminance(m_themeColors.background) < 0.5;
     }
 
-    DWORD value = 1;
-    DWORD size = sizeof(value);
-    const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, kThemePreferenceKey, kThemePreferenceValue, RRF_RT_DWORD,
-                                        nullptr, &value, &size);
-    if (status != ERROR_SUCCESS) {
-        return false;
-    }
-    return value == 0;
+    return IsAppDarkModePreferred();
 }
 
 void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
