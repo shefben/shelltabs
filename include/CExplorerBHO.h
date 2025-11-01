@@ -330,6 +330,13 @@ class ShellTabsListView;
                 bool AttachTreeView(HWND treeView);
                 bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
                 void UnregisterGlowSurface(HWND hwnd);
+                ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd);
+                const ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd) const;
+                bool ShouldSuppressScrollbarDrawing(HWND hwnd) const;
+                bool PaintScrollbarGlow(HWND hwnd, HDC existingDc, HRGN region);
+                void EnsureScrollbarTransparency(HWND hwnd);
+                void RestoreScrollbarTransparency(HWND hwnd);
+                void RequestScrollbarGlowRepaint(HWND hwnd);
                 void UpdateGlowSurfaceTargets();
                 void RequestHeaderGlowRepaint() const;
                 void UpdateStatusBarTheme();
@@ -364,6 +371,8 @@ class ShellTabsListView;
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
 
                 std::atomic<long> m_refCount;
@@ -436,6 +445,8 @@ class ShellTabsListView;
                 bool m_treeViewSubclassInstalled = false;
                 std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
                 std::unordered_map<HWND, std::unique_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
+                std::unordered_set<HWND, HandleHasher> m_scrollbarGlowSubclassed;
+                std::unordered_set<HWND, HandleHasher> m_transparentScrollbars;
                 bool m_watchListViewCreation = false;
                 bool m_watchTreeViewCreation = false;
                 HWND m_statusBar = nullptr;

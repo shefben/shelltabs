@@ -2467,6 +2467,22 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
     surface->RequestRepaint();
     LogMessage(LogLevel::Info, L"Registered glow surface %ls (hwnd=%p)", DescribeSurfaceKind(kind), hwnd);
     m_glowSurfaces.emplace(hwnd, std::move(surface));
+
+    if (kind == ExplorerSurfaceKind::Scrollbar) {
+        if (m_glowCoordinator.ShouldRenderSurface(kind)) {
+            EnsureScrollbarTransparency(hwnd);
+        }
+
+        if (m_scrollbarGlowSubclassed.find(hwnd) == m_scrollbarGlowSubclassed.end()) {
+            if (SetWindowSubclass(hwnd, &CExplorerBHO::ScrollbarGlowSubclassProc,
+                                  reinterpret_cast<UINT_PTR>(this), 0)) {
+                m_scrollbarGlowSubclassed.insert(hwnd);
+            } else {
+                const DWORD error = GetLastError();
+                LogLastError(L"SetWindowSubclass(scrollbar glow)", error);
+            }
+        }
+    }
     return true;
 }
 
@@ -2481,6 +2497,9 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
 
     if (HWND target = it->first; target && IsWindow(target)) {
         RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        m_scrollbarGlowSubclassed.erase(target);
+        RestoreScrollbarTransparency(target);
         InvalidateRect(target, nullptr, FALSE);
     }
 
@@ -2501,6 +2520,129 @@ void CExplorerBHO::RequestHeaderGlowRepaint() const {
         }
         entry.second->RequestRepaint();
     }
+ExplorerGlowSurface* CExplorerBHO::ResolveGlowSurface(HWND hwnd) {
+    auto it = m_glowSurfaces.find(hwnd);
+    if (it == m_glowSurfaces.end()) {
+        return nullptr;
+    }
+    return it->second.get();
+}
+
+const ExplorerGlowSurface* CExplorerBHO::ResolveGlowSurface(HWND hwnd) const {
+    auto it = m_glowSurfaces.find(hwnd);
+    if (it == m_glowSurfaces.end()) {
+        return nullptr;
+    }
+    return it->second.get();
+}
+
+bool CExplorerBHO::ShouldSuppressScrollbarDrawing(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+    const ExplorerGlowSurface* surface = ResolveGlowSurface(hwnd);
+    if (!surface) {
+        return false;
+    }
+    if (surface->Kind() != ExplorerSurfaceKind::Scrollbar) {
+        return false;
+    }
+    if (!surface->IsAttached()) {
+        return false;
+    }
+    return m_glowCoordinator.ShouldRenderSurface(ExplorerSurfaceKind::Scrollbar);
+}
+
+bool CExplorerBHO::PaintScrollbarGlow(HWND hwnd, HDC existingDc, HRGN region) {
+    ExplorerGlowSurface* surface = ResolveGlowSurface(hwnd);
+    if (!surface || surface->Kind() != ExplorerSurfaceKind::Scrollbar) {
+        return false;
+    }
+    if (!surface->IsAttached()) {
+        return false;
+    }
+
+    HDC targetDc = existingDc;
+    bool releaseDc = false;
+    if (!targetDc) {
+        UINT flags = DCX_CACHE | DCX_CLIPCHILDREN | DCX_CLIPSIBLINGS | DCX_WINDOW;
+        if (region) {
+            flags |= DCX_INTERSECTRGN;
+        }
+        targetDc = GetDCEx(hwnd, region, flags);
+        if (!targetDc) {
+            return false;
+        }
+        releaseDc = true;
+    }
+
+    RECT clip{};
+    if (GetClipBox(targetDc, &clip) == ERROR || IsRectEmpty(&clip)) {
+        if (!GetClientRect(hwnd, &clip)) {
+            if (releaseDc) {
+                ReleaseDC(hwnd, targetDc);
+            }
+            return false;
+        }
+    }
+
+    if (clip.right > clip.left && clip.bottom > clip.top) {
+        surface->PaintImmediately(targetDc, clip);
+    }
+
+    if (releaseDc) {
+        ReleaseDC(hwnd, targetDc);
+    }
+
+    return true;
+}
+
+void CExplorerBHO::EnsureScrollbarTransparency(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    LONG_PTR styles = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    bool updated = false;
+    if (!(styles & WS_EX_TRANSPARENT)) {
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, styles | static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        updated = true;
+    }
+
+    const bool inserted = m_transparentScrollbars.insert(hwnd).second;
+    if (inserted || updated) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void CExplorerBHO::RestoreScrollbarTransparency(HWND hwnd) {
+    const bool wasTracked = (m_transparentScrollbars.erase(hwnd) > 0);
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    LONG_PTR styles = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    if (styles & WS_EX_TRANSPARENT) {
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, styles & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return;
+    }
+
+    if (wasTracked) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void CExplorerBHO::RequestScrollbarGlowRepaint(HWND hwnd) {
+    ExplorerGlowSurface* surface = ResolveGlowSurface(hwnd);
+    if (!surface || surface->Kind() != ExplorerSurfaceKind::Scrollbar) {
+        return;
+    }
+    surface->RequestRepaint();
 }
 
 void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active) {
@@ -2511,6 +2653,10 @@ void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher
             if (target && IsWindow(target)) {
                 RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc,
                                      reinterpret_cast<UINT_PTR>(this));
+                RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+                m_scrollbarGlowSubclassed.erase(target);
+                RestoreScrollbarTransparency(target);
                 InvalidateRect(target, nullptr, FALSE);
             }
             if (it->second) {
@@ -2531,6 +2677,10 @@ void CExplorerBHO::ResetGlowSurfaces() {
         }
         if (IsWindow(target)) {
             RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
+            RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+            m_scrollbarGlowSubclassed.erase(target);
+            RestoreScrollbarTransparency(target);
             InvalidateRect(target, nullptr, FALSE);
         }
         if (entry.second) {
@@ -2538,6 +2688,8 @@ void CExplorerBHO::ResetGlowSurfaces() {
         }
     }
     m_glowSurfaces.clear();
+    m_scrollbarGlowSubclassed.clear();
+    m_transparentScrollbars.clear();
 }
 
 namespace {
@@ -7633,6 +7785,61 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 
         self->UnregisterGlowSurface(hwnd);
         RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                         UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_NCPAINT:
+        case WM_PRINTCLIENT: {
+            if (!self->ShouldSuppressScrollbarDrawing(hwnd)) {
+                self->RestoreScrollbarTransparency(hwnd);
+                break;
+            }
+
+            self->EnsureScrollbarTransparency(hwnd);
+
+            bool painted = false;
+            if (msg == WM_PRINTCLIENT) {
+                painted = self->PaintScrollbarGlow(hwnd, reinterpret_cast<HDC>(wParam), nullptr);
+            } else {
+                painted = self->PaintScrollbarGlow(hwnd, nullptr, reinterpret_cast<HRGN>(wParam));
+            }
+
+            if (!painted) {
+                self->RestoreScrollbarTransparency(hwnd);
+                break;
+            }
+
+            return 0;
+        }
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+        case WM_DPICHANGED: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (self->ShouldSuppressScrollbarDrawing(hwnd)) {
+                self->EnsureScrollbarTransparency(hwnd);
+                self->RequestScrollbarGlowRepaint(hwnd);
+            } else {
+                self->RestoreScrollbarTransparency(hwnd);
+            }
+            return result;
+        }
+        case WM_NCDESTROY:
+            self->RestoreScrollbarTransparency(hwnd);
+            self->m_scrollbarGlowSubclassed.erase(hwnd);
+            RemoveWindowSubclass(hwnd, &CExplorerBHO::ScrollbarGlowSubclassProc, reinterpret_cast<UINT_PTR>(self));
+            break;
+        default:
+            break;
     }
 
     return DefSubclassProc(hwnd, msg, wParam, lParam);
