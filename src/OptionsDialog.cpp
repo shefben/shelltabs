@@ -249,6 +249,8 @@ struct OptionsDialogData {
     int customizationContentHeight = 0;
     int customizationScrollMax = 0;
     int customizationWheelRemainder = 0;
+    SIZE customizationClientSize{0, 0};
+    bool customizationPlacementsValid = false;
     std::vector<std::vector<size_t>> contextTreePaths;
     std::vector<HTREEITEM> contextTreeItems;
     std::vector<size_t> contextSelectionPath;
@@ -3233,6 +3235,9 @@ BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     if (!IsWindow(child)) {
         return TRUE;
     }
+    if (GetParent(child) != context->parent) {
+        return TRUE;
+    }
     wchar_t className[32];
     if (GetClassNameW(child, className, ARRAYSIZE(className))) {
         if (_wcsicmp(className, L"ScrollBar") == 0) {
@@ -3254,8 +3259,6 @@ BOOL CALLBACK CaptureChildPlacementProc(HWND child, LPARAM param) {
     placement.rect.right = bottomRight.x;
     placement.rect.bottom = bottomRight.y;
     context->data->customizationChildPlacements.push_back(placement);
-    context->data->customizationContentHeight =
-        std::max(context->data->customizationContentHeight, static_cast<int>(placement.rect.bottom));
     return TRUE;
 }
 
@@ -3267,6 +3270,14 @@ void CaptureCustomizationChildPlacements(HWND hwnd, OptionsDialogData* data) {
     data->customizationContentHeight = 0;
     PlacementCaptureContext context{hwnd, data};
     EnumChildWindows(hwnd, &CaptureChildPlacementProc, reinterpret_cast<LPARAM>(&context));
+    const int scrollOffset = data->customizationScrollPos;
+    for (auto& placement : data->customizationChildPlacements) {
+        placement.rect.top += scrollOffset;
+        placement.rect.bottom += scrollOffset;
+        data->customizationContentHeight =
+            std::max(data->customizationContentHeight, static_cast<int>(placement.rect.bottom));
+    }
+    data->customizationPlacementsValid = true;
 }
 
 void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data);
@@ -3308,22 +3319,33 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
         if (!IsWindow(placement.hwnd)) {
             continue;
         }
-        const int width = placement.rect.right - placement.rect.left;
-        const int height = placement.rect.bottom - placement.rect.top;
-        const int targetY = placement.rect.top - data->customizationScrollPos;
+        RECT targetRect = placement.rect;
+        targetRect.top -= data->customizationScrollPos;
+        targetRect.bottom -= data->customizationScrollPos;
+
+        POINT topLeft{targetRect.left, targetRect.top};
+        POINT bottomRight{targetRect.right, targetRect.bottom};
+        HWND childParent = GetParent(placement.hwnd);
+        if (childParent && childParent != hwnd) {
+            MapWindowPoints(hwnd, childParent, &topLeft, 1);
+            MapWindowPoints(hwnd, childParent, &bottomRight, 1);
+        }
+        const int width = bottomRight.x - topLeft.x;
+        const int height = bottomRight.y - topLeft.y;
+        const int targetX = topLeft.x;
+        const int targetY = topLeft.y;
         if (deferHandle) {
-            HDWP nextHandle = DeferWindowPos(deferHandle, placement.hwnd, nullptr, placement.rect.left,
-                                            targetY, width, height, repositionFlags);
+            HDWP nextHandle =
+                DeferWindowPos(deferHandle, placement.hwnd, nullptr, targetX, targetY, width, height,
+                               repositionFlags);
             if (!nextHandle) {
                 deferHandle = nullptr;
-                SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
-                             repositionFlags);
+                SetWindowPos(placement.hwnd, nullptr, targetX, targetY, width, height, repositionFlags);
             } else {
                 deferHandle = nextHandle;
             }
         } else {
-            SetWindowPos(placement.hwnd, nullptr, placement.rect.left, targetY, width, height,
-                         repositionFlags);
+            SetWindowPos(placement.hwnd, nullptr, targetX, targetY, width, height, repositionFlags);
         }
     }
     if (deferHandle) {
@@ -3361,6 +3383,27 @@ void UpdateCustomizationScrollInfo(HWND hwnd, OptionsDialogData* data) {
     info.nPos = data->customizationScrollPos;
     SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
     RepositionCustomizationChildren(hwnd, data);
+}
+
+bool RefreshCustomizationLayoutCache(HWND hwnd, OptionsDialogData* data) {
+    if (!data) {
+        return false;
+    }
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) {
+        data->customizationPlacementsValid = false;
+        return false;
+    }
+    const SIZE newSize{client.right - client.left, client.bottom - client.top};
+    const bool sizeChanged = !data->customizationPlacementsValid ||
+                             newSize.cx != data->customizationClientSize.cx ||
+                             newSize.cy != data->customizationClientSize.cy;
+    if (!sizeChanged) {
+        return false;
+    }
+    data->customizationClientSize = newSize;
+    CaptureCustomizationChildPlacements(hwnd, data);
+    return true;
 }
 
 void HandleUniversalBackgroundBrowse(HWND hwnd, OptionsDialogData* data) {
@@ -4616,7 +4659,7 @@ public:
                 : data->workingOptions.folderBackgroundEntries.front().folderPath;
         data->lastImageBrowseDirectory =
             ExtractDirectoryFromPath(data->workingOptions.universalFolderBackgroundImage.cachedImagePath);
-        CaptureCustomizationChildPlacements(hwnd, data);
+        RefreshCustomizationLayoutCache(hwnd, data);
         UpdateCustomizationScrollInfo(hwnd, data);
     }
 
@@ -5044,8 +5087,28 @@ INT_PTR CALLBACK CustomizationsPageProc(HWND hwnd, UINT message, WPARAM wParam, 
             return TRUE;
         case WM_SIZE: {
             auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (!data) {
+                return TRUE;
+            }
+            RefreshCustomizationLayoutCache(hwnd, data);
             UpdateCustomizationScrollInfo(hwnd, data);
             return TRUE;
+        }
+        case WM_DPICHANGED:
+        case WM_DPICHANGED_BEFOREPARENT: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (data) {
+                data->customizationPlacementsValid = false;
+            }
+            return FALSE;
+        }
+        case WM_DPICHANGED_AFTERPARENT: {
+            auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+            if (data) {
+                RefreshCustomizationLayoutCache(hwnd, data);
+                UpdateCustomizationScrollInfo(hwnd, data);
+            }
+            return FALSE;
         }
         case WM_VSCROLL: {
             auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
