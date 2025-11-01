@@ -89,6 +89,9 @@ private:
     uint64_t GetPendingRequestIdLocked(const std::wstring& key, RequestKind kind);
     void SetPendingRequestIdLocked(const std::wstring& key, RequestKind kind, uint64_t requestId);
     void ClearPendingRequestIdLocked(const std::wstring& key, RequestKind kind, uint64_t requestId);
+    void RegisterCaptureRequestLocked(const std::shared_ptr<AsyncRequest>& request);
+    void UnregisterCaptureRequestLocked(const std::shared_ptr<AsyncRequest>& request);
+    void CancelCaptureRequestLocked(uint64_t requestId);
 
     std::mutex m_mutex;
     std::unordered_map<std::wstring, Entry> m_entries;
@@ -100,9 +103,12 @@ private:
     std::deque<std::shared_ptr<AsyncRequest>> m_requestQueue;
     std::unordered_map<uint64_t, std::shared_ptr<AsyncRequest>> m_requestMap;
     std::unordered_map<std::wstring, PendingKeyEntry> m_requestsByKey;
+    std::unordered_map<std::wstring, uint64_t> m_captureRequestsByKey;
+    std::unordered_map<std::wstring, uint64_t> m_captureRequestsByOwner;
     std::thread m_workerThread;
     bool m_shutdown = false;
     uint64_t m_nextRequestId = 1;
+    size_t m_pendingCaptureCount = 0;
 };
 
 }  // namespace shelltabs
