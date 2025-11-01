@@ -32,7 +32,6 @@
 #include <wrl/client.h>
 
 #include "ExplorerGlowSurfaces.h"
-#include "GlowRenderer.h"
 #include "OptionsStore.h"
 #include "PaneHooks.h"
 #include "Utilities.h"
