@@ -1,4 +1,8 @@
+#define private public
+#define protected public
 #include "TabManager.h"
+#undef private
+#undef protected
 
 #include <windows.h>
 
@@ -142,6 +146,119 @@ bool TestCollectProgressSnapshot() {
     return true;
 }
 
+bool TestLookupAfterTabMovesAndRemovals() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    const std::wstring pathA = L"C:\\Lookup\\A";
+    const std::wstring pathB = L"C:\\Lookup\\B";
+    const std::wstring pathC = L"C:\\Lookup\\C";
+
+    shelltabs::TabInfo tabA;
+    tabA.name = L"A";
+    tabA.path = pathA;
+    auto locA = manager.InsertTab(std::move(tabA), 0, 0, false);
+
+    shelltabs::TabInfo tabB;
+    tabB.name = L"B";
+    tabB.path = pathB;
+    auto locB = manager.InsertTab(std::move(tabB), 0, 1, false);
+
+    shelltabs::TabInfo tabC;
+    tabC.name = L"C";
+    tabC.path = pathC;
+    manager.InsertTab(std::move(tabC), 0, 2, false);
+
+    auto foundA = manager.FindByPath(pathA);
+    if (foundA.groupIndex != locA.groupIndex || foundA.tabIndex != locA.tabIndex) {
+        PrintFailure(L"TestLookupAfterTabMovesAndRemovals", L"Initial lookup for tab A failed");
+        return false;
+    }
+    auto foundB = manager.FindByPath(pathB);
+    if (foundB.groupIndex != locB.groupIndex || foundB.tabIndex != locB.tabIndex) {
+        PrintFailure(L"TestLookupAfterTabMovesAndRemovals", L"Initial lookup for tab B failed");
+        return false;
+    }
+
+    manager.MoveTab(foundA, {foundA.groupIndex, 3});
+    auto movedA = manager.FindByPath(pathA);
+    if (movedA.groupIndex != foundA.groupIndex || movedA.tabIndex != 2) {
+        PrintFailure(L"TestLookupAfterTabMovesAndRemovals", L"Lookup after intra-group move returned wrong location");
+        return false;
+    }
+
+    const int newGroupIndex = manager.CreateGroupAfter(0, L"Moved", true);
+    manager.MoveTab(movedA, {newGroupIndex, 0});
+    auto movedToGroup = manager.FindByPath(pathA);
+    if (movedToGroup.groupIndex != newGroupIndex || movedToGroup.tabIndex != 0) {
+        PrintFailure(L"TestLookupAfterTabMovesAndRemovals", L"Lookup after moving to new group failed");
+        return false;
+    }
+
+    manager.Remove(movedToGroup);
+    if (manager.FindByPath(pathA).IsValid()) {
+        PrintFailure(L"TestLookupAfterTabMovesAndRemovals", L"Lookup returned removed tab");
+        return false;
+    }
+
+    auto updatedB = manager.FindByPath(pathB);
+    if (!updatedB.IsValid() || updatedB.groupIndex != 0 || updatedB.tabIndex != 0) {
+        PrintFailure(L"TestLookupAfterTabMovesAndRemovals", L"Lookup for remaining tab B returned unexpected location");
+        return false;
+    }
+
+    return true;
+}
+
+bool TestLookupAfterGroupMove() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    const std::wstring pathA = L"C:\\Groups\\A";
+    const std::wstring pathB = L"C:\\Groups\\B";
+
+    shelltabs::TabInfo tabA;
+    tabA.name = L"A";
+    tabA.path = pathA;
+    manager.InsertTab(std::move(tabA), 0, 0, false);
+
+    const int secondGroupIndex = manager.CreateGroupAfter(0, L"Second", true);
+
+    shelltabs::TabInfo tabB;
+    tabB.name = L"B";
+    tabB.path = pathB;
+    manager.InsertTab(std::move(tabB), secondGroupIndex, 0, false);
+
+    auto beforeMoveA = manager.FindByPath(pathA);
+    auto beforeMoveB = manager.FindByPath(pathB);
+    if (beforeMoveA.groupIndex != 0 || beforeMoveB.groupIndex != secondGroupIndex) {
+        PrintFailure(L"TestLookupAfterGroupMove", L"Initial group lookups incorrect");
+        return false;
+    }
+
+    manager.MoveGroup(0, 2);
+    auto afterMoveA = manager.FindByPath(pathA);
+    auto afterMoveB = manager.FindByPath(pathB);
+    if (afterMoveA.groupIndex != 1 || afterMoveA.tabIndex != 0) {
+        PrintFailure(L"TestLookupAfterGroupMove", L"Tab A lookup incorrect after group move to end");
+        return false;
+    }
+    if (afterMoveB.groupIndex != 0 || afterMoveB.tabIndex != 0) {
+        PrintFailure(L"TestLookupAfterGroupMove", L"Tab B lookup incorrect after group move to end");
+        return false;
+    }
+
+    manager.MoveGroup(1, 0);
+    auto finalA = manager.FindByPath(pathA);
+    auto finalB = manager.FindByPath(pathB);
+    if (finalA.groupIndex != 0 || finalB.groupIndex != 1) {
+        PrintFailure(L"TestLookupAfterGroupMove", L"Lookups incorrect after moving group back to front");
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -150,6 +267,8 @@ int wmain() {
         {L"TestDestructorClearsRegistration", &TestDestructorClearsRegistration},
         {L"TestStressOpenCloseWindows", &TestStressOpenCloseWindows},
         {L"TestCollectProgressSnapshot", &TestCollectProgressSnapshot},
+        {L"TestLookupAfterTabMovesAndRemovals", &TestLookupAfterTabMovesAndRemovals},
+        {L"TestLookupAfterGroupMove", &TestLookupAfterGroupMove},
     };
 
     bool success = true;
