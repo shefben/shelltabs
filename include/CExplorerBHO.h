@@ -21,6 +21,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 #include <cstdint>
 
@@ -133,6 +134,64 @@ class NamespaceTreeHost;
                         std::wstring path;
                         std::wstring parentPath;
                         std::wstring extension;
+
+                        ContextMenuSelectionItem() = default;
+
+                        ContextMenuSelectionItem(const ContextMenuSelectionItem& other)
+                            : pidl(other.pidl ? ClonePidl(other.raw) : nullptr),
+                              raw(pidl ? pidl.get() : other.raw),
+                              attributes(other.attributes),
+                              isFolder(other.isFolder),
+                              isFileSystem(other.isFileSystem),
+                              path(other.path),
+                              parentPath(other.parentPath),
+                              extension(other.extension) {}
+
+                        ContextMenuSelectionItem(ContextMenuSelectionItem&& other) noexcept
+                            : pidl(std::move(other.pidl)),
+                              raw(pidl ? pidl.get() : other.raw),
+                              attributes(other.attributes),
+                              isFolder(other.isFolder),
+                              isFileSystem(other.isFileSystem),
+                              path(std::move(other.path)),
+                              parentPath(std::move(other.parentPath)),
+                              extension(std::move(other.extension)) {
+                                other.raw = other.pidl ? other.pidl.get() : nullptr;
+                        }
+
+                        ContextMenuSelectionItem& operator=(const ContextMenuSelectionItem& other) {
+                                if (this == &other) {
+                                        return *this;
+                                }
+
+                                pidl = other.pidl ? ClonePidl(other.raw) : nullptr;
+                                raw = pidl ? pidl.get() : other.raw;
+                                attributes = other.attributes;
+                                isFolder = other.isFolder;
+                                isFileSystem = other.isFileSystem;
+                                path = other.path;
+                                parentPath = other.parentPath;
+                                extension = other.extension;
+                                return *this;
+                        }
+
+                        ContextMenuSelectionItem& operator=(ContextMenuSelectionItem&& other) noexcept {
+                                if (this == &other) {
+                                        return *this;
+                                }
+
+                                pidl = std::move(other.pidl);
+                                raw = pidl ? pidl.get() : other.raw;
+                                attributes = other.attributes;
+                                isFolder = other.isFolder;
+                                isFileSystem = other.isFileSystem;
+                                path = std::move(other.path);
+                                parentPath = std::move(other.parentPath);
+                                extension = std::move(other.extension);
+
+                                other.raw = other.pidl ? other.pidl.get() : nullptr;
+                                return *this;
+                        }
                 };
 
                 struct ContextMenuSelectionSnapshot {
