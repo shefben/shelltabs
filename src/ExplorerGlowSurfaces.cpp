@@ -853,6 +853,10 @@ protected:
                 *result = CDRF_NOTIFYPOSTPAINT;
                 return true;
             case CDDS_POSTPAINT: {
+                if (ShouldUseHookedRendering()) {
+                    *result = CDRF_DODEFAULT;
+                    return true;
+                }
                 RECT clip = GetClientRectSafe(header.hwndFrom);
                 PaintRebarGlow(custom->hdc, clip);
                 *result = CDRF_DODEFAULT;
@@ -869,6 +873,9 @@ protected:
 
 private:
     void PaintRebarGlow(HDC targetDc, const RECT& clipRect) {
+        if (ShouldUseHookedRendering()) {
+            return;
+        }
         if (!Coordinator().ShouldRenderSurface(Kind())) {
             return;
         }
@@ -1035,11 +1042,19 @@ protected:
                 return true;
             case CDDS_ITEMPREPAINT:
                 if (IsSeparatorButton(*custom)) {
-                    *result = CDRF_SKIPDEFAULT | CDRF_NOTIFYPOSTPAINT;
+                    if (ShouldUseHookedRendering()) {
+                        *result = CDRF_DODEFAULT;
+                    } else {
+                        *result = CDRF_SKIPDEFAULT | CDRF_NOTIFYPOSTPAINT;
+                    }
                     return true;
                 }
                 break;
             case CDDS_POSTPAINT: {
+                if (ShouldUseHookedRendering()) {
+                    *result = CDRF_DODEFAULT;
+                    return true;
+                }
                 RECT clip = GetClientRectSafe(header.hwndFrom);
                 PaintToolbarGlow(custom->hdc, clip);
                 *result = CDRF_DODEFAULT;
@@ -1084,6 +1099,9 @@ private:
     }
 
     void PaintToolbarGlow(HDC targetDc, const RECT& clipRect) {
+        if (ShouldUseHookedRendering()) {
+            return;
+        }
         if (!Coordinator().ShouldRenderSurface(Kind())) {
             return;
         }
@@ -1519,7 +1537,7 @@ public:
 
 protected:
     void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) override {
-        if (ThemeHooks::Instance().IsActive()) {
+        if (ShouldUseHookedRendering()) {
             return;
         }
 
@@ -1796,12 +1814,14 @@ bool ExplorerGlowSurface::Attach(HWND hwnd) {
 void ExplorerGlowSurface::Detach() {
     if (!m_subclassInstalled) {
         m_hwnd = nullptr;
+        m_hookedRenderingActive = false;
         return;
     }
 
     HWND hwnd = m_hwnd;
     m_hwnd = nullptr;
     m_subclassInstalled = false;
+    m_hookedRenderingActive = false;
     if (hwnd && IsWindow(hwnd)) {
         RemoveWindowSubclass(hwnd, &ExplorerGlowSurface::SubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
@@ -2027,11 +2047,33 @@ LRESULT ExplorerGlowSurface::HandlePrintClient(HWND hwnd, WPARAM wParam, LPARAM 
 }
 
 void ExplorerGlowSurface::PaintInternal(HDC targetDc, const RECT& clipRect) {
+    if (ShouldUseHookedRendering()) {
+        return;
+    }
+
     GlowColorSet colors = Coordinator().ResolveColors(Kind());
     if (!colors.valid) {
         return;
     }
     OnPaint(targetDc, clipRect, colors);
+}
+
+bool ExplorerGlowSurface::ShouldUseHookedRendering() {
+    const bool hookActive = ThemeHooks::Instance().IsSurfaceHookActive(Kind());
+    if (hookActive) {
+        if (!m_hookedRenderingActive) {
+            m_hookedRenderingActive = true;
+            if (m_hwnd && IsWindow(m_hwnd)) {
+                InvalidateRect(m_hwnd, nullptr, FALSE);
+            }
+        }
+        return true;
+    }
+
+    if (m_hookedRenderingActive) {
+        m_hookedRenderingActive = false;
+    }
+    return false;
 }
 
 LRESULT CALLBACK ExplorerGlowSurface::SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
