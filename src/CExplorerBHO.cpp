@@ -86,6 +86,57 @@ constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_backg
 constexpr UINT_PTR kAddressEditRedrawTimerId = 0x53445257;  // 'SRDW'
 constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
 
+void ConfigureToolbarForCustomSeparators(HWND toolbar) {
+    if (!toolbar || !IsWindow(toolbar)) {
+        return;
+    }
+
+    const LRESULT currentStyle = SendMessageW(toolbar, TB_GETEXTENDEDSTYLE, 0, 0);
+    const LRESULT desiredStyle = currentStyle | TBSTYLE_EX_HIDECLIPPEDBUTTONS;
+    if (desiredStyle != currentStyle) {
+        SendMessageW(toolbar, TB_SETEXTENDEDSTYLE, 0, desiredStyle);
+    }
+}
+
+void ConfigureHeaderForCustomDividers(HWND header) {
+    if (!header || !IsWindow(header)) {
+        return;
+    }
+
+    const int itemCount = Header_GetItemCount(header);
+    if (itemCount <= 0) {
+        return;
+    }
+
+    const UINT dpi = GetDpiForWindow(header);
+    const int kBaseThreshold = 4;
+    const int threshold = std::max(kBaseThreshold, MulDiv(kBaseThreshold, static_cast<int>(dpi), 96));
+    for (int index = 0; index < itemCount; ++index) {
+        RECT itemRect{};
+        if (!Header_GetItemRect(header, index, &itemRect)) {
+            continue;
+        }
+
+        const int width = itemRect.right - itemRect.left;
+        if (width > threshold) {
+            continue;
+        }
+
+        HDITEMW item{};
+        item.mask = HDI_FORMAT;
+        if (!Header_GetItem(header, index, &item)) {
+            continue;
+        }
+
+        if ((item.fmt & HDF_OWNERDRAW) != 0) {
+            continue;
+        }
+
+        item.fmt |= HDF_OWNERDRAW;
+        Header_SetItem(header, index, &item);
+    }
+}
+
 std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
         return std::nullopt;
@@ -2326,6 +2377,17 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
     if (!m_glowCoordinator.ShouldRenderSurface(kind)) {
         UnregisterGlowSurface(hwnd);
         return false;
+    }
+
+    switch (kind) {
+        case ExplorerSurfaceKind::Toolbar:
+            ConfigureToolbarForCustomSeparators(hwnd);
+            break;
+        case ExplorerSurfaceKind::Header:
+            ConfigureHeaderForCustomDividers(hwnd);
+            break;
+        default:
+            break;
     }
 
     auto existing = m_glowSurfaces.find(hwnd);
