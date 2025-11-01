@@ -55,6 +55,8 @@ public:
     HWND GetWindow() const noexcept { return m_window; }
     HWND GetListView() const noexcept { return m_listView; }
 
+    static bool IsShellTabsListView(HWND hwnd);
+
     void HandleInvalidationTargets(const PaneHighlightInvalidationTargets& targets) const;
     bool TryResolveHighlight(int index, PaneHighlight* highlight);
 

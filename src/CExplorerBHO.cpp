@@ -2088,7 +2088,7 @@ bool CExplorerBHO::AttachListView(HWND listView) {
         return false;
     }
 
-    if (ShellTabsListView::FromListView(listView)) {
+    if (ShellTabsListView::IsShellTabsListView(listView)) {
         return m_listView == listView && m_listViewSubclassInstalled;
     }
 

@@ -795,6 +795,10 @@ ShellTabsListView* ShellTabsListView::FromWindow(HWND hwnd) {
     return nullptr;
 }
 
+bool ShellTabsListView::IsShellTabsListView(HWND hwnd) {
+    return FromListView(hwnd) != nullptr;
+}
+
 ShellTabsListView* ShellTabsListView::FromListView(HWND hwnd) {
     std::scoped_lock lock(g_listViewRegistryMutex);
     auto it = g_listViewRegistry.find(hwnd);
