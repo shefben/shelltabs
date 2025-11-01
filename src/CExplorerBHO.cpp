@@ -1888,6 +1888,98 @@ HWND CExplorerBHO::FindAddressEditControl() const {
     return data.edit;
 }
 
+std::vector<HWND> CExplorerBHO::FindExplorerEditControls() const {
+    std::vector<HWND> edits;
+    std::unordered_set<HWND, HandleHasher> seen;
+
+    if (HWND address = FindAddressEditControl()) {
+        MaybeAddExplorerEdit(address, seen, edits);
+    }
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame) {
+        return edits;
+    }
+
+    struct EnumContext {
+        const CExplorerBHO* self = nullptr;
+        std::unordered_set<HWND, HandleHasher>* seen = nullptr;
+        std::vector<HWND>* edits = nullptr;
+    } context{this, &seen, &edits};
+
+    EnumChildWindows(
+        frame,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto* ctx = reinterpret_cast<EnumContext*>(param);
+            if (!ctx || !ctx->self || !ctx->seen || !ctx->edits) {
+                return TRUE;
+            }
+            if (!IsWindow(hwnd)) {
+                return TRUE;
+            }
+            if (MatchesClass(hwnd, L"DirectUIHWND")) {
+                ctx->self->EnumerateDirectUIEditChildren(hwnd, *ctx->seen, *ctx->edits);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&context));
+
+    return edits;
+}
+
+void CExplorerBHO::EnumerateDirectUIEditChildren(HWND root, std::unordered_set<HWND, HandleHasher>& seen,
+                                                 std::vector<HWND>& edits) const {
+    if (!root || !IsWindow(root)) {
+        return;
+    }
+
+    struct EnumContext {
+        const CExplorerBHO* self = nullptr;
+        std::unordered_set<HWND, HandleHasher>* seen = nullptr;
+        std::vector<HWND>* edits = nullptr;
+    } context{this, &seen, &edits};
+
+    EnumChildWindows(
+        root,
+        [](HWND child, LPARAM param) -> BOOL {
+            auto* ctx = reinterpret_cast<EnumContext*>(param);
+            if (!ctx || !ctx->self || !ctx->seen || !ctx->edits) {
+                return TRUE;
+            }
+            if (!IsWindow(child)) {
+                return TRUE;
+            }
+            if (MatchesClass(child, L"Edit")) {
+                ctx->self->MaybeAddExplorerEdit(child, *ctx->seen, *ctx->edits);
+                return TRUE;
+            }
+            if (MatchesClass(child, L"DirectUIHWND")) {
+                ctx->self->EnumerateDirectUIEditChildren(child, *ctx->seen, *ctx->edits);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&context));
+}
+
+void CExplorerBHO::MaybeAddExplorerEdit(HWND candidate, std::unordered_set<HWND, HandleHasher>& seen,
+                                        std::vector<HWND>& edits) const {
+    if (!candidate || !IsWindow(candidate)) {
+        return;
+    }
+    if (!MatchesClass(candidate, L"Edit")) {
+        return;
+    }
+    if (!IsWindowOwnedByThisExplorer(candidate)) {
+        return;
+    }
+    if (!IsExplorerEditAncestor(candidate)) {
+        return;
+    }
+    if (seen.insert(candidate).second) {
+        edits.push_back(candidate);
+    }
+}
+
 bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
     HWND current = hwnd;
     bool sawRebar = false;
@@ -1907,6 +1999,36 @@ bool CExplorerBHO::IsBreadcrumbToolbarAncestor(HWND hwnd) const {
         current = GetParent(current);
     }
     return sawRebar;
+}
+
+bool CExplorerBHO::IsExplorerEditAncestor(HWND hwnd) const {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    if (IsBreadcrumbToolbarAncestor(hwnd)) {
+        return true;
+    }
+
+    HWND current = hwnd;
+    bool sawDirectUI = false;
+    int depth = 0;
+    while (current && depth++ < 32) {
+        if (MatchesClass(current, L"DirectUIHWND")) {
+            sawDirectUI = true;
+        }
+        if (MatchesClass(current, L"ReBarWindow32")) {
+            if (sawDirectUI) {
+                return true;
+            }
+        }
+        if (MatchesClass(current, L"CabinetWClass")) {
+            break;
+        }
+        current = GetParent(current);
+    }
+
+    return sawDirectUI;
 }
 
 bool CExplorerBHO::IsBreadcrumbToolbarCandidate(HWND hwnd) const {
@@ -2375,7 +2497,7 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
                 reinterpret_cast<LPARAM>(&context));
         }
 
-        if (HWND edit = FindAddressEditControl()) {
+        for (HWND edit : FindExplorerEditControls()) {
             if (RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true)) {
                 active.insert(edit);
             }

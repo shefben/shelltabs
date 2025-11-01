@@ -209,9 +209,10 @@ class ShellTabsListView;
 		void RemoveBreadcrumbSubclass();
 		HWND FindBreadcrumbToolbar() const;
 		HWND FindBreadcrumbToolbarInWindow(HWND root) const;
-		HWND FindProgressWindow() const;
-		HWND FindAddressEditControl() const;
-		HWND GetTopLevelExplorerWindow() const;
+                HWND FindProgressWindow() const;
+                HWND FindAddressEditControl() const;
+                std::vector<HWND> FindExplorerEditControls() const;
+                HWND GetTopLevelExplorerWindow() const;
 		bool InstallBreadcrumbSubclass(HWND toolbar);
                 bool InstallProgressSubclass(HWND progressWindow);
                 bool InstallAddressEditSubclass(HWND editWindow);
@@ -228,6 +229,13 @@ class ShellTabsListView;
                 bool RefreshAddressEditFocus(HWND hwnd);
                 bool RefreshAddressEditTheme();
                 bool RefreshAddressEditFont(HWND hwnd);
+                bool IsExplorerEditAncestor(HWND hwnd) const;
+                void EnumerateDirectUIEditChildren(HWND root,
+                                                   std::unordered_set<HWND, HandleHasher>& seen,
+                                                   std::vector<HWND>& edits) const;
+                void MaybeAddExplorerEdit(HWND candidate,
+                                           std::unordered_set<HWND, HandleHasher>& seen,
+                                           std::vector<HWND>& edits) const;
                 bool EnsureProgressGradientResources();
                 void DestroyProgressGradientResources();
                 void UpdateExplorerViewSubclass();
