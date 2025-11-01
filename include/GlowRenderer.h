@@ -37,7 +37,7 @@ public:
     void HandleSettingChanged(HWND hwnd);
     void HandleDpiChanged(HWND hwnd, UINT dpiX, UINT dpiY);
 
-    bool ShouldRender() const noexcept { return m_glowEnabled; }
+    bool ShouldRender() const noexcept { return m_glowEnabled && !m_highContrastActive; }
 
     void PaintSurface(HWND hwnd, ExplorerSurfaceKind kind, HDC targetDc, const RECT& clipRect);
 
@@ -62,6 +62,7 @@ private:
     void EnsureSurfaceState(HWND hwnd, ExplorerSurfaceKind kind);
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
     void UpdateAccentColor();
+    bool RefreshAccessibilityState();
 
     void PaintListView(HWND hwnd, const SurfaceState& state, HDC targetDc, const RECT& clipRect,
                        const GlowColorSet& colors);
@@ -84,6 +85,7 @@ private:
     std::unordered_map<HWND, SurfaceState, HandleHasher> m_surfaces;
     GlowSurfacePalette m_palette{};
     bool m_glowEnabled = false;
+    bool m_highContrastActive = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
 };
 
