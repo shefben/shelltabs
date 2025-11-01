@@ -44,6 +44,7 @@ namespace shelltabs {
 
 struct ShellTabsOptions;
 class NamespaceTreeHost;
+class ShellTabsListView;
 
         class CExplorerBHO : public IObjectWithSite,
                              public IDispatch,
@@ -447,6 +448,8 @@ class NamespaceTreeHost;
                 bool m_frameSubclassInstalled = false;
                 HWND m_directUiView = nullptr;
                 bool m_directUiSubclassInstalled = false;
+                HWND m_nativeListView = nullptr;
+                HWND m_listViewControlWindow = nullptr;
                 HWND m_listView = nullptr;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
@@ -485,6 +488,7 @@ class NamespaceTreeHost;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
+                std::unique_ptr<ShellTabsListView> m_listViewControl;
                 ListViewBackgroundSurface m_listViewBackgroundSurface;
                 ListViewBackgroundJobState m_listViewBackgroundJobState;
                 std::jthread m_listViewBackgroundWorker;
