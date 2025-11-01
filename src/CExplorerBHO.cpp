@@ -42,6 +42,7 @@
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
+#include "ThemeHooks.h"
 #include "Notifications.h"
 #include "OptionsStore.h"
 #include "ShellTabsTreeView.h"
@@ -2479,6 +2480,8 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
         return false;
     }
 
+    RegisterThemeSurface(hwnd, kind, &m_glowCoordinator);
+
     surface->RequestRepaint();
     LogMessage(LogLevel::Info, L"Registered glow surface %ls (hwnd=%p)", DescribeSurfaceKind(kind), hwnd);
     m_glowSurfaces.emplace(hwnd, std::move(surface));
@@ -2509,6 +2512,8 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
     if (it == m_glowSurfaces.end()) {
         return;
     }
+
+    UnregisterThemeSurface(hwnd);
 
     if (HWND target = it->first; target && IsWindow(target)) {
         RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
@@ -2667,6 +2672,9 @@ void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher
         HWND target = it->first;
         const bool shouldKeep = target && IsWindow(target) && active.find(target) != active.end();
         if (!shouldKeep) {
+            if (target) {
+                UnregisterThemeSurface(target);
+            }
             if (target && IsWindow(target)) {
                 RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc,
                                      reinterpret_cast<UINT_PTR>(this));
@@ -2692,6 +2700,7 @@ void CExplorerBHO::ResetGlowSurfaces() {
         if (!target) {
             continue;
         }
+        UnregisterThemeSurface(target);
         if (IsWindow(target)) {
             RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
             RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc,
