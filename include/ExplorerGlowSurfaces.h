@@ -1,7 +1,7 @@
 #pragma once
 
-#include <CommCtrl.h>
 #include <windows.h>
+#include <CommCtrl.h>
 
 #include <memory>
 #include <optional>
