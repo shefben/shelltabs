@@ -13,6 +13,7 @@
 #include <dwmapi.h>
 #include <gdiplus.h>
 #include <UIAutomation.h>
+#include <commctrl.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 #include <wrl/client.h>
@@ -194,6 +195,10 @@ void FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
 
     Gdiplus::LinearGradientBrush brush(rect, start, end, 90.0f);
     graphics.FillRectangle(&brush, rect);
+}
+
+Gdiplus::Rect RectToGdiplus(const RECT& rect) {
+    return {rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top};
 }
 
 void FillFrameRegion(Gdiplus::Graphics& graphics, const GlowColorSet& colors,
@@ -566,8 +571,26 @@ private:
         const int lineThickness = ScaleByDpi(1, DpiY());
         const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, DpiY()));
 
+        const bool verticalOrientation =
+            (GetWindowLongPtrW(hwnd, GWL_STYLE) & RBS_VERTICAL) == RBS_VERTICAL;
+        const int rowTolerance = ScaleByDpi(2, verticalOrientation ? DpiX() : DpiY());
+
         const UINT bandCount = static_cast<UINT>(SendMessageW(hwnd, RB_GETBANDCOUNT, 0, 0));
+        RECT previousRect{};
+        bool havePrevious = false;
+        int previousAxis = 0;
+
         for (UINT index = 0; index < bandCount; ++index) {
+            REBARBANDINFOW bandInfo{};
+            bandInfo.cbSize = sizeof(bandInfo);
+            bandInfo.fMask = RBBIM_STYLE;
+            if (!SendMessageW(hwnd, RB_GETBANDINFO, index, reinterpret_cast<LPARAM>(&bandInfo))) {
+                continue;
+            }
+            if ((bandInfo.fStyle & RBBS_HIDDEN) != 0) {
+                continue;
+            }
+
             RECT bandRect{};
             if (!SendMessageW(hwnd, RB_GETRECT, index, reinterpret_cast<LPARAM>(&bandRect))) {
                 continue;
@@ -575,16 +598,67 @@ private:
             if (bandRect.bottom <= bandRect.top || bandRect.right <= bandRect.left) {
                 continue;
             }
-            if (bandRect.bottom <= paintRect.top || bandRect.top >= paintRect.bottom) {
+
+            const int currentAxis = verticalOrientation ? bandRect.left : bandRect.top;
+            const bool startsNewBandLine = (bandInfo.fStyle & RBBS_BREAK) != 0;
+
+            if (!havePrevious || startsNewBandLine ||
+                !ApproximatelyEqual(currentAxis, previousAxis, rowTolerance)) {
+                previousRect = bandRect;
+                previousAxis = currentAxis;
+                havePrevious = true;
                 continue;
             }
-            const int y = bandRect.bottom - lineThickness;
-            const int haloTop = y - (haloThickness - lineThickness) / 2;
-            Gdiplus::Rect haloRect(clientRect.left, haloTop, clientRect.right - clientRect.left,
-                                   haloThickness);
-            FillGradientRect(graphics, colors, haloRect, kHaloAlpha);
-            Gdiplus::Rect lineRect(clientRect.left, y, clientRect.right - clientRect.left, lineThickness);
-            FillGradientRect(graphics, colors, lineRect, kLineAlpha);
+
+            RECT candidateLine{};
+            if (verticalOrientation) {
+                const int boundary = previousRect.bottom;
+                candidateLine.left = std::min(previousRect.left, bandRect.left);
+                candidateLine.right = std::max(previousRect.right, bandRect.right);
+                candidateLine.top = boundary - lineThickness / 2;
+                candidateLine.bottom = candidateLine.top + lineThickness;
+            } else {
+                const int boundary = previousRect.right;
+                candidateLine.top = std::min(previousRect.top, bandRect.top);
+                candidateLine.bottom = std::max(previousRect.bottom, bandRect.bottom);
+                candidateLine.left = boundary - lineThickness / 2;
+                candidateLine.right = candidateLine.left + lineThickness;
+            }
+
+            RECT lineRect{};
+            if (!IntersectRect(&lineRect, &candidateLine, &paintRect) || lineRect.right <= lineRect.left ||
+                lineRect.bottom <= lineRect.top) {
+                previousRect = bandRect;
+                previousAxis = currentAxis;
+                havePrevious = true;
+                continue;
+            }
+
+            RECT candidateHalo = lineRect;
+            if (verticalOrientation) {
+                const int centerY = (lineRect.top + lineRect.bottom) / 2;
+                candidateHalo.top = centerY - haloThickness / 2;
+                candidateHalo.bottom = candidateHalo.top + haloThickness;
+                candidateHalo.left = lineRect.left;
+                candidateHalo.right = lineRect.right;
+            } else {
+                const int centerX = (lineRect.left + lineRect.right) / 2;
+                candidateHalo.left = centerX - haloThickness / 2;
+                candidateHalo.right = candidateHalo.left + haloThickness;
+                candidateHalo.top = lineRect.top;
+                candidateHalo.bottom = lineRect.bottom;
+            }
+
+            RECT haloRect{};
+            if (IntersectRect(&haloRect, &candidateHalo, &paintRect) && haloRect.right > haloRect.left &&
+                haloRect.bottom > haloRect.top) {
+                FillGradientRect(graphics, colors, RectToGdiplus(haloRect), kHaloAlpha);
+            }
+            FillGradientRect(graphics, colors, RectToGdiplus(lineRect), kLineAlpha);
+
+            previousRect = bandRect;
+            previousAxis = currentAxis;
+            havePrevious = true;
         }
 
         EndBufferedPaint(buffer, TRUE);
@@ -675,25 +749,70 @@ private:
         const int lineThickness = ScaleByDpi(1, DpiY());
         const int haloThickness = std::max(lineThickness * 2, ScaleByDpi(3, DpiY()));
 
+        const LONG_PTR toolbarStyle = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        const bool verticalOrientation = ((toolbarStyle & CCS_VERT) == CCS_VERT) ||
+                                         ((toolbarStyle & TBSTYLE_VERTICAL) == TBSTYLE_VERTICAL);
+
         const int buttonCount = static_cast<int>(SendMessageW(hwnd, TB_BUTTONCOUNT, 0, 0));
         for (int index = 0; index < buttonCount; ++index) {
-            RECT buttonRect{};
-            if (!SendMessageW(hwnd, TB_GETITEMRECT, index, reinterpret_cast<LPARAM>(&buttonRect))) {
+            TBBUTTON button{};
+            if (!SendMessageW(hwnd, TB_GETBUTTON, index, reinterpret_cast<LPARAM>(&button))) {
                 continue;
             }
-            if (buttonRect.bottom <= buttonRect.top || buttonRect.right <= buttonRect.left) {
+            if ((button.fsState & (TBSTATE_HIDDEN | TBSTATE_INVISIBLE)) != 0) {
                 continue;
             }
-            if (buttonRect.bottom <= paintRect.top || buttonRect.top >= paintRect.bottom) {
+            if ((button.fsStyle & TBSTYLE_SEP) == 0) {
                 continue;
             }
-            const int y = buttonRect.bottom - lineThickness;
-            const int haloTop = y - (haloThickness - lineThickness) / 2;
-            Gdiplus::Rect haloRect(clientRect.left, haloTop, clientRect.right - clientRect.left,
-                                   haloThickness);
-            FillGradientRect(graphics, colors, haloRect, kHaloAlpha);
-            Gdiplus::Rect lineRect(clientRect.left, y, clientRect.right - clientRect.left, lineThickness);
-            FillGradientRect(graphics, colors, lineRect, kLineAlpha);
+
+            RECT separatorRect{};
+            if (!SendMessageW(hwnd, TB_GETITEMRECT, index, reinterpret_cast<LPARAM>(&separatorRect))) {
+                continue;
+            }
+            if (separatorRect.bottom <= separatorRect.top || separatorRect.right <= separatorRect.left) {
+                continue;
+            }
+
+            RECT intersection{};
+            if (!IntersectRect(&intersection, &separatorRect, &paintRect)) {
+                continue;
+            }
+
+            RECT candidateLine = intersection;
+            if (verticalOrientation) {
+                const int centerY = (intersection.top + intersection.bottom) / 2;
+                candidateLine.top = centerY - lineThickness / 2;
+                candidateLine.bottom = candidateLine.top + lineThickness;
+            } else {
+                const int centerX = (intersection.left + intersection.right) / 2;
+                candidateLine.left = centerX - lineThickness / 2;
+                candidateLine.right = candidateLine.left + lineThickness;
+            }
+
+            RECT lineRect{};
+            if (!IntersectRect(&lineRect, &candidateLine, &intersection) || lineRect.right <= lineRect.left ||
+                lineRect.bottom <= lineRect.top) {
+                continue;
+            }
+
+            RECT candidateHalo = intersection;
+            if (verticalOrientation) {
+                const int centerY = (lineRect.top + lineRect.bottom) / 2;
+                candidateHalo.top = centerY - haloThickness / 2;
+                candidateHalo.bottom = candidateHalo.top + haloThickness;
+            } else {
+                const int centerX = (lineRect.left + lineRect.right) / 2;
+                candidateHalo.left = centerX - haloThickness / 2;
+                candidateHalo.right = candidateHalo.left + haloThickness;
+            }
+
+            RECT haloRect{};
+            if (IntersectRect(&haloRect, &candidateHalo, &paintRect) && haloRect.right > haloRect.left &&
+                haloRect.bottom > haloRect.top) {
+                FillGradientRect(graphics, colors, RectToGdiplus(haloRect), kHaloAlpha);
+            }
+            FillGradientRect(graphics, colors, RectToGdiplus(lineRect), kLineAlpha);
         }
 
         EndBufferedPaint(buffer, TRUE);
