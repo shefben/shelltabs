@@ -757,6 +757,7 @@ void TabBandWindow::Destroy() {
     m_rebarBandIndex = -1;
     InvalidateRebarIntegration();
     m_tabData.clear();
+    m_activeProgressCount = 0;
     m_tabLocationIndex.clear();
     m_nextRedrawIncremental = false;
     m_redrawMetrics = {};
@@ -791,6 +792,7 @@ void TabBandWindow::RebuildTabLocationIndex() {
 
 void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     m_tabData = items;
+    RecomputeActiveProgressCount();
     RebuildTabLocationIndex();
     m_contextHit = {};
     ClearExplorerContext();
@@ -3622,6 +3624,16 @@ void TabBandWindow::RebuildProgressRectCache() {
     }
 }
 
+void TabBandWindow::RecomputeActiveProgressCount() {
+    size_t count = 0;
+    for (const auto& item : m_tabData) {
+        if (item.progress.visible) {
+            ++count;
+        }
+    }
+    m_activeProgressCount = count;
+}
+
 void TabBandWindow::InvalidateProgressForIndices(const std::vector<size_t>& indices) {
     if (!m_hwnd || indices.empty()) {
         return;
@@ -4148,6 +4160,15 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
             changed = true;
         }
         if (m_tabData[i].progress != snapshot[i].progress) {
+            const bool wasVisible = m_tabData[i].progress.visible;
+            const bool nowVisible = snapshot[i].progress.visible;
+            if (wasVisible != nowVisible) {
+                if (nowVisible) {
+                    ++m_activeProgressCount;
+                } else if (m_activeProgressCount > 0) {
+                    --m_activeProgressCount;
+                }
+            }
             m_tabData[i].progress = snapshot[i].progress;
             if (i < m_items.size()) {
                 m_items[i].data.progress = snapshot[i].progress;
@@ -4191,12 +4212,7 @@ void TabBandWindow::UpdateProgressAnimationState() {
 }
 
 bool TabBandWindow::AnyProgressActive() const {
-    for (const auto& item : m_tabData) {
-        if (item.progress.visible) {
-            return true;
-        }
-    }
-    return false;
+    return m_activeProgressCount > 0;
 }
 
 void TabBandWindow::HandleProgressTimer() {
