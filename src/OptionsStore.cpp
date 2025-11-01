@@ -48,6 +48,10 @@ constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enable
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
+constexpr wchar_t kContextMenuVersionToken[] = L"context_menu_version";
+constexpr wchar_t kContextMenuAnchorToken[] = L"context_menu_anchor";
+constexpr wchar_t kContextMenuItemToken[] = L"context_menu_item";
+constexpr wchar_t kContextMenuEndToken[] = L"context_menu_end";
 constexpr wchar_t kCommentChar = L'#';
 
 std::wstring FormatLoadError(std::wstring message, DWORD error) {
@@ -97,6 +101,174 @@ std::wstring ColorToHexString(COLORREF color) {
                                 static_cast<unsigned int>(GetBValue(color));
     stream << packed;
     return stream.str();
+}
+
+ContextMenuAnchor ParseContextMenuAnchor(std::wstring_view token, ContextMenuAnchor fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+    if (EqualsIgnoreCase(token, L"top")) {
+        return ContextMenuAnchor::kTop;
+    }
+    if (EqualsIgnoreCase(token, L"bottom")) {
+        return ContextMenuAnchor::kBottom;
+    }
+    return ContextMenuAnchor::kAutomatic;
+}
+
+const wchar_t* ContextMenuAnchorToString(ContextMenuAnchor anchor) {
+    switch (anchor) {
+        case ContextMenuAnchor::kTop:
+            return L"top";
+        case ContextMenuAnchor::kBottom:
+            return L"bottom";
+        case ContextMenuAnchor::kAutomatic:
+        default:
+            return L"automatic";
+    }
+}
+
+ContextMenuSelectionCount ParseSelectionCount(std::wstring_view token, ContextMenuSelectionCount fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+    if (EqualsIgnoreCase(token, L"single")) {
+        return ContextMenuSelectionCount::kSingle;
+    }
+    if (EqualsIgnoreCase(token, L"multiple")) {
+        return ContextMenuSelectionCount::kMultiple;
+    }
+    return ContextMenuSelectionCount::kAny;
+}
+
+const wchar_t* SelectionCountToString(ContextMenuSelectionCount count) {
+    switch (count) {
+        case ContextMenuSelectionCount::kSingle:
+            return L"single";
+        case ContextMenuSelectionCount::kMultiple:
+            return L"multiple";
+        case ContextMenuSelectionCount::kAny:
+        default:
+            return L"any";
+    }
+}
+
+ContextMenuItemType ParseContextMenuItemType(std::wstring_view token, ContextMenuItemType fallback) {
+    if (token.empty()) {
+        return fallback;
+    }
+    if (EqualsIgnoreCase(token, L"submenu")) {
+        return ContextMenuItemType::kSubmenu;
+    }
+    if (EqualsIgnoreCase(token, L"separator")) {
+        return ContextMenuItemType::kSeparator;
+    }
+    if (EqualsIgnoreCase(token, L"command")) {
+        return ContextMenuItemType::kCommand;
+    }
+    return fallback;
+}
+
+const wchar_t* ContextMenuItemTypeToString(ContextMenuItemType type) {
+    switch (type) {
+        case ContextMenuItemType::kSubmenu:
+            return L"submenu";
+        case ContextMenuItemType::kSeparator:
+            return L"separator";
+        case ContextMenuItemType::kCommand:
+        default:
+            return L"command";
+    }
+}
+
+std::wstring JoinExtensions(const std::vector<std::wstring>& extensions) {
+    if (extensions.empty()) {
+        return {};
+    }
+    std::wstring joined;
+    for (const auto& ext : extensions) {
+        if (!joined.empty()) {
+            joined += L";";
+        }
+        joined += ext;
+    }
+    return joined;
+}
+
+void ParseExtensions(std::wstring_view token, std::vector<std::wstring>* output) {
+    if (!output) {
+        return;
+    }
+    output->clear();
+    if (token.empty()) {
+        return;
+    }
+    const auto items = Split(token, L';');
+    output->reserve(items.size());
+    for (const auto& item : items) {
+        std::wstring extension = Trim(item);
+        if (!extension.empty()) {
+            output->push_back(std::move(extension));
+        }
+    }
+}
+
+void AppendContextMenuItems(const std::vector<ContextMenuItem>& items, std::wstring* content) {
+    if (!content) {
+        return;
+    }
+    for (const auto& item : items) {
+        *content += kContextMenuItemToken;
+        *content += L"|";
+        *content += ContextMenuItemTypeToString(item.type);
+        if (item.type == ContextMenuItemType::kCommand) {
+            *content += L"|";
+            *content += item.label;
+            *content += L"|";
+            *content += item.iconPath;
+            *content += L"|";
+            *content += item.commandPath;
+            *content += L"|";
+            *content += item.commandArguments;
+            *content += L"|";
+            *content += item.scope.allFiles ? L"1" : L"0";
+            *content += L"|";
+            *content += item.scope.allFolders ? L"1" : L"0";
+            *content += L"|";
+            *content += SelectionCountToString(item.selectionCount);
+            *content += L"|";
+            *content += item.groupWithSeparatorAbove ? L"1" : L"0";
+            *content += L"|";
+            *content += item.separatorAbove ? L"1" : L"0";
+            *content += L"|";
+            *content += item.separatorBelow ? L"1" : L"0";
+            *content += L"|";
+            *content += JoinExtensions(item.scope.extensions);
+        } else if (item.type == ContextMenuItemType::kSubmenu) {
+            *content += L"|";
+            *content += item.label;
+            *content += L"|";
+            *content += item.groupWithSeparatorAbove ? L"1" : L"0";
+            *content += L"|";
+            *content += item.separatorAbove ? L"1" : L"0";
+            *content += L"|";
+            *content += item.separatorBelow ? L"1" : L"0";
+        } else {
+            *content += L"|";
+            *content += item.groupWithSeparatorAbove ? L"1" : L"0";
+            *content += L"|";
+            *content += item.separatorAbove ? L"1" : L"0";
+            *content += L"|";
+            *content += item.separatorBelow ? L"1" : L"0";
+        }
+        *content += L"\n";
+
+        if (item.type == ContextMenuItemType::kSubmenu) {
+            AppendContextMenuItems(item.children, content);
+            *content += kContextMenuEndToken;
+            *content += L"\n";
+        }
+    }
 }
 
 constexpr COLORREF kDefaultGlowPrimaryColor = RGB(0, 120, 215);
@@ -317,9 +489,12 @@ bool OptionsStore::Load(std::wstring* errorContext) {
     }
 
     int version = 1;
+    int contextMenuVersion = 1;
     std::array<bool, kGlowSurfaceMappings.size()> glowSurfaceSpecified{};
     glowSurfaceSpecified.fill(false);
     bool anyGlowSurfaceToken = false;
+    ContextMenuDefinition contextMenuDefinition{};
+    std::vector<ContextMenuItem*> contextMenuStack;
     ParseConfigLines(content, kCommentChar, L'|', [&](const std::vector<std::wstring_view>& tokens) {
         if (tokens.empty()) {
             return true;
@@ -332,6 +507,111 @@ bool OptionsStore::Load(std::wstring* errorContext) {
                 if (version < 1) {
                     version = 1;
                 }
+            }
+            return true;
+        }
+
+        if (header == kContextMenuVersionToken) {
+            if (tokens.size() >= 2) {
+                contextMenuVersion = ParseInt(tokens[1]);
+                if (contextMenuVersion < 1) {
+                    contextMenuVersion = 1;
+                }
+            }
+            return true;
+        }
+
+        if (header == kContextMenuAnchorToken) {
+            if (tokens.size() >= 2) {
+                contextMenuDefinition.anchor =
+                    ParseContextMenuAnchor(tokens[1], contextMenuDefinition.anchor);
+            }
+            return true;
+        }
+
+        if (header == kContextMenuEndToken) {
+            if (!contextMenuStack.empty()) {
+                contextMenuStack.pop_back();
+            }
+            return true;
+        }
+
+        if (header == kContextMenuItemToken) {
+            if (tokens.size() < 2) {
+                return true;
+            }
+
+            ContextMenuItem item;
+            item.type = ParseContextMenuItemType(tokens[1], ContextMenuItemType::kCommand);
+            if (item.type == ContextMenuItemType::kCommand) {
+                if (tokens.size() >= 3) {
+                    item.label = Trim(tokens[2]);
+                }
+                if (tokens.size() >= 4) {
+                    item.iconPath = Trim(tokens[3]);
+                }
+                if (tokens.size() >= 5) {
+                    item.commandPath = Trim(tokens[4]);
+                }
+                if (tokens.size() >= 6) {
+                    item.commandArguments = Trim(tokens[5]);
+                }
+                if (tokens.size() >= 7) {
+                    item.scope.allFiles = ParseBool(tokens[6]);
+                }
+                if (tokens.size() >= 8) {
+                    item.scope.allFolders = ParseBool(tokens[7]);
+                }
+                if (tokens.size() >= 9) {
+                    item.selectionCount =
+                        ParseSelectionCount(tokens[8], item.selectionCount);
+                }
+                if (tokens.size() >= 10) {
+                    item.groupWithSeparatorAbove = ParseBool(tokens[9]);
+                }
+                if (tokens.size() >= 11) {
+                    item.separatorAbove = ParseBool(tokens[10]);
+                }
+                if (tokens.size() >= 12) {
+                    item.separatorBelow = ParseBool(tokens[11]);
+                }
+                if (tokens.size() >= 13) {
+                    ParseExtensions(tokens[12], &item.scope.extensions);
+                }
+            } else if (item.type == ContextMenuItemType::kSubmenu) {
+                if (tokens.size() >= 3) {
+                    item.label = Trim(tokens[2]);
+                }
+                if (tokens.size() >= 4) {
+                    item.groupWithSeparatorAbove = ParseBool(tokens[3]);
+                }
+                if (tokens.size() >= 5) {
+                    item.separatorAbove = ParseBool(tokens[4]);
+                }
+                if (tokens.size() >= 6) {
+                    item.separatorBelow = ParseBool(tokens[5]);
+                }
+            } else {
+                if (tokens.size() >= 3) {
+                    item.groupWithSeparatorAbove = ParseBool(tokens[2]);
+                }
+                if (tokens.size() >= 4) {
+                    item.separatorAbove = ParseBool(tokens[3]);
+                }
+                if (tokens.size() >= 5) {
+                    item.separatorBelow = ParseBool(tokens[4]);
+                }
+            }
+
+            std::vector<ContextMenuItem>* container = nullptr;
+            if (contextMenuStack.empty()) {
+                container = &contextMenuDefinition.items;
+            } else {
+                container = &contextMenuStack.back()->children;
+            }
+            container->push_back(std::move(item));
+            if (!container->empty() && container->back().type == ContextMenuItemType::kSubmenu) {
+                contextMenuStack.push_back(&container->back());
             }
             return true;
         }
@@ -612,6 +892,9 @@ bool OptionsStore::Load(std::wstring* errorContext) {
         return true;
     });
 
+    m_options.contextMenus = std::move(contextMenuDefinition);
+    (void)contextMenuVersion;
+
     if (anyGlowSurfaceToken) {
         ShellTabsOptions fallbackOptions = m_options;
         UpdateLegacyGlowSettingsFromPalette(fallbackOptions);
@@ -833,6 +1116,14 @@ bool OptionsStore::Save() const {
         content += L"\n";
     }
 
+    content += kContextMenuVersionToken;
+    content += L"|1\n";
+    content += kContextMenuAnchorToken;
+    content += L"|";
+    content += ContextMenuAnchorToString(options.contextMenus.anchor);
+    content += L"\n";
+    AppendContextMenuItems(options.contextMenus.items, &content);
+
     content += kTabDockingToken;
     content += L"|";
     content += DockModeToString(options.tabDockMode);
@@ -864,6 +1155,23 @@ bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right)
     return left.header == right.header && left.listView == right.listView &&
            left.directUi == right.directUi && left.toolbar == right.toolbar && left.rebar == right.rebar &&
            left.edits == right.edits;
+}
+
+bool operator==(const ContextMenuScope& left, const ContextMenuScope& right) noexcept {
+    return left.allFiles == right.allFiles && left.allFolders == right.allFolders &&
+           left.extensions == right.extensions;
+}
+
+bool operator==(const ContextMenuItem& left, const ContextMenuItem& right) noexcept {
+    return left.type == right.type && left.label == right.label && left.iconPath == right.iconPath &&
+           left.commandPath == right.commandPath && left.commandArguments == right.commandArguments &&
+           left.scope == right.scope && left.selectionCount == right.selectionCount &&
+           left.separatorAbove == right.separatorAbove && left.separatorBelow == right.separatorBelow &&
+           left.groupWithSeparatorAbove == right.groupWithSeparatorAbove && left.children == right.children;
+}
+
+bool operator==(const ContextMenuDefinition& left, const ContextMenuDefinition& right) noexcept {
+    return left.anchor == right.anchor && left.items == right.items;
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
@@ -900,7 +1208,8 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.tabDockMode == right.tabDockMode &&
            left.newTabTemplate == right.newTabTemplate &&
            left.newTabCustomPath == right.newTabCustomPath &&
-           left.newTabSavedGroup == right.newTabSavedGroup;
+           left.newTabSavedGroup == right.newTabSavedGroup &&
+           left.contextMenus == right.contextMenus;
 }
 
 }  // namespace shelltabs

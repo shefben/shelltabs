@@ -17,6 +17,49 @@ struct FolderBackgroundEntry {
     CachedImageMetadata image;
 };
 
+enum class ContextMenuItemType {
+    kCommand = 0,
+    kSubmenu,
+    kSeparator,
+};
+
+enum class ContextMenuSelectionCount {
+    kAny = 0,
+    kSingle,
+    kMultiple,
+};
+
+enum class ContextMenuAnchor {
+    kAutomatic = 0,
+    kTop,
+    kBottom,
+};
+
+struct ContextMenuScope {
+    bool allFiles = true;
+    bool allFolders = true;
+    std::vector<std::wstring> extensions;
+};
+
+struct ContextMenuItem {
+    ContextMenuItemType type = ContextMenuItemType::kCommand;
+    std::wstring label;
+    std::wstring iconPath;
+    std::wstring commandPath;
+    std::wstring commandArguments;
+    ContextMenuScope scope{};
+    ContextMenuSelectionCount selectionCount = ContextMenuSelectionCount::kAny;
+    bool separatorAbove = false;
+    bool separatorBelow = false;
+    bool groupWithSeparatorAbove = false;
+    std::vector<ContextMenuItem> children;
+};
+
+struct ContextMenuDefinition {
+    ContextMenuAnchor anchor = ContextMenuAnchor::kAutomatic;
+    std::vector<ContextMenuItem> items;
+};
+
 enum class TabBandDockMode {
     kAutomatic = 0,
     kTop,
@@ -94,6 +137,7 @@ struct ShellTabsOptions {
     NewTabTemplate newTabTemplate = NewTabTemplate::kDuplicateCurrent;
     std::wstring newTabCustomPath;
     std::wstring newTabSavedGroup;
+    ContextMenuDefinition contextMenus;
 };
 
 class OptionsStore {
@@ -139,6 +183,21 @@ inline bool operator!=(const CachedImageMetadata& left, const CachedImageMetadat
 
 bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept;
 inline bool operator!=(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const ContextMenuScope& left, const ContextMenuScope& right) noexcept;
+inline bool operator!=(const ContextMenuScope& left, const ContextMenuScope& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const ContextMenuItem& left, const ContextMenuItem& right) noexcept;
+inline bool operator!=(const ContextMenuItem& left, const ContextMenuItem& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const ContextMenuDefinition& left, const ContextMenuDefinition& right) noexcept;
+inline bool operator!=(const ContextMenuDefinition& left, const ContextMenuDefinition& right) noexcept {
     return !(left == right);
 }
 
