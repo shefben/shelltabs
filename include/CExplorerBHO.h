@@ -17,9 +17,11 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <cstdint>
 
 #include <exdisp.h>
 #include <ocidl.h>
@@ -105,6 +107,14 @@ struct ShellTabsOptions;
                         std::unique_ptr<Gdiplus::Bitmap> bitmap;
                         SIZE size{0, 0};
                         std::wstring cacheKey;
+                        bool pending = false;
+                };
+
+                struct ListViewBackgroundJobState {
+                        SIZE size{0, 0};
+                        std::wstring cacheKey;
+                        uint64_t generation = 0;
+                        bool active = false;
                 };
 
                 struct PendingPaintInfo {
@@ -171,6 +181,9 @@ struct ShellTabsOptions;
                 bool EnsureListViewBackgroundSurface(HWND listView);
                 bool PaintListViewBackground(HWND hwnd, HDC dc);
                 void ClearListViewBackgroundImage();
+                void StartListViewBackgroundJob(SIZE size, std::wstring cacheKey,
+                        std::unique_ptr<Gdiplus::Bitmap> source);
+                void CancelListViewBackgroundJob();
                 std::wstring ResolveBackgroundCacheKey() const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
@@ -242,7 +255,7 @@ struct ShellTabsOptions;
 		static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
 			UINT_PTR subclassId, DWORD_PTR refData);
 
-		std::atomic<long> m_refCount;
+                std::atomic<long> m_refCount;
 		Microsoft::WRL::ComPtr<IUnknown> m_site;
 		Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
 		Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
@@ -325,6 +338,9 @@ struct ShellTabsOptions;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
                 ListViewBackgroundSurface m_listViewBackgroundSurface;
+                ListViewBackgroundJobState m_listViewBackgroundJobState;
+                std::jthread m_listViewBackgroundWorker;
+                std::atomic<uint64_t> m_listViewBackgroundGeneration{0};
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;

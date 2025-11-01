@@ -14,6 +14,7 @@
 #include <OleIdl.h>
 #include <gdiplus.h>
 #include <new>
+#include <exception>
 
 #include <algorithm>
 #include <array>
@@ -66,6 +67,13 @@ using shelltabs::ArePidlsEqual;
 using shelltabs::GetCanonicalParsingName;
 using shelltabs::GetParsingName;
 using shelltabs::UniquePidl;
+
+struct ListViewBackgroundReadyMessage {
+    uint64_t generation = 0;
+    SIZE size{0, 0};
+    std::wstring cacheKey;
+    std::unique_ptr<Gdiplus::Bitmap> bitmap;
+};
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
@@ -2754,6 +2762,7 @@ void CExplorerBHO::InvalidateNamespaceTreeControl() const {
 }
 
 void CExplorerBHO::ClearFolderBackgrounds() {
+    CancelListViewBackgroundJob();
     m_folderBackgroundEntries.clear();
     m_folderBackgroundBitmaps.clear();
     m_universalBackgroundImagePath.clear();
@@ -2968,12 +2977,6 @@ bool CExplorerBHO::EnsureListViewBackgroundSurface(HWND listView) {
         return false;
     }
 
-    Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
-    if (!background) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
     RECT client{};
     if (!GetClientRect(listView, &client) || client.right <= client.left || client.bottom <= client.top) {
         return false;
@@ -2986,26 +2989,22 @@ bool CExplorerBHO::EnsureListViewBackgroundSurface(HWND listView) {
         return false;
     }
 
-    if (m_listViewBackgroundSurface.bitmap && m_listViewBackgroundSurface.size.cx == size.cx &&
+    if (!m_listViewBackgroundSurface.pending && m_listViewBackgroundSurface.bitmap &&
+        m_listViewBackgroundSurface.size.cx == size.cx &&
         m_listViewBackgroundSurface.size.cy == size.cy && m_listViewBackgroundSurface.cacheKey == cacheKey) {
         return true;
     }
 
-    auto surface = std::make_unique<Gdiplus::Bitmap>(size.cx, size.cy, PixelFormat32bppARGB);
-    if (!surface || surface->GetLastStatus() != Gdiplus::Ok) {
+    if (m_listViewBackgroundJobState.active && m_listViewBackgroundJobState.size.cx == size.cx &&
+        m_listViewBackgroundJobState.size.cy == size.cy && m_listViewBackgroundJobState.cacheKey == cacheKey) {
+        return m_listViewBackgroundSurface.bitmap != nullptr && !m_listViewBackgroundSurface.pending;
+    }
+
+    Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
+    if (!background) {
         ClearListViewBackgroundImage();
         return false;
     }
-
-    Gdiplus::Graphics graphics(surface.get());
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ClearListViewBackgroundImage();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
 
     const UINT width = background->GetWidth();
     const UINT height = background->GetHeight();
@@ -3014,18 +3013,119 @@ bool CExplorerBHO::EnsureListViewBackgroundSurface(HWND listView) {
         return false;
     }
 
-    const Gdiplus::Status drawStatus =
-        graphics.DrawImage(background, Gdiplus::Rect(0, 0, size.cx, size.cy), 0, 0, static_cast<INT>(width),
-                           static_cast<INT>(height), Gdiplus::UnitPixel);
-    if (drawStatus != Gdiplus::Ok) {
+    auto backgroundClone = std::unique_ptr<Gdiplus::Bitmap>(background->Clone(
+        0, 0, static_cast<INT>(width), static_cast<INT>(height), background->GetPixelFormat()));
+    if (!backgroundClone || backgroundClone->GetLastStatus() != Gdiplus::Ok) {
         ClearListViewBackgroundImage();
         return false;
     }
 
-    m_listViewBackgroundSurface.bitmap = std::move(surface);
+    m_listViewBackgroundSurface.bitmap.reset();
     m_listViewBackgroundSurface.size = size;
-    m_listViewBackgroundSurface.cacheKey = std::move(cacheKey);
-    return true;
+    m_listViewBackgroundSurface.cacheKey = cacheKey;
+    m_listViewBackgroundSurface.pending = true;
+
+    StartListViewBackgroundJob(size, cacheKey, std::move(backgroundClone));
+    return false;
+}
+
+void CExplorerBHO::StartListViewBackgroundJob(SIZE size, std::wstring cacheKey,
+                                              std::unique_ptr<Gdiplus::Bitmap> source) {
+    CancelListViewBackgroundJob();
+
+    if (!m_listView || !IsWindow(m_listView)) {
+        m_listViewBackgroundSurface.pending = false;
+        return;
+    }
+
+    if (!source || source->GetLastStatus() != Gdiplus::Ok || size.cx <= 0 || size.cy <= 0) {
+        m_listViewBackgroundSurface.pending = false;
+        return;
+    }
+
+    const uint64_t generation = ++m_listViewBackgroundGeneration;
+    m_listViewBackgroundJobState.size = size;
+    m_listViewBackgroundJobState.cacheKey = cacheKey;
+    m_listViewBackgroundJobState.generation = generation;
+    m_listViewBackgroundJobState.active = true;
+
+    HWND target = m_listView;
+    try {
+        m_listViewBackgroundWorker = std::jthread(
+            [this, generation, size, cacheKey, target, sourceBitmap = std::move(source)](std::stop_token stopToken) mutable {
+                if (stopToken.stop_requested()) {
+                    return;
+                }
+
+                auto notifyCompletion = [&](std::unique_ptr<Gdiplus::Bitmap> bitmap) {
+                    if (stopToken.stop_requested()) {
+                        return;
+                    }
+                    if (!target || !IsWindow(target)) {
+                        return;
+                    }
+
+                    auto message = std::make_unique<ListViewBackgroundReadyMessage>();
+                    message->generation = generation;
+                    message->size = size;
+                    message->cacheKey = cacheKey;
+                    message->bitmap = std::move(bitmap);
+
+                    auto* raw = message.release();
+                    if (!PostMessageW(target, shelltabs::WM_SHELLTABS_LISTVIEW_BACKGROUND_READY,
+                                      reinterpret_cast<WPARAM>(raw), 0)) {
+                        delete raw;
+                    }
+                };
+
+                std::unique_ptr<Gdiplus::Bitmap> surface;
+                if (sourceBitmap && sourceBitmap->GetLastStatus() == Gdiplus::Ok && size.cx > 0 && size.cy > 0) {
+                    surface = std::make_unique<Gdiplus::Bitmap>(size.cx, size.cy, PixelFormat32bppARGB);
+                    if (surface && surface->GetLastStatus() == Gdiplus::Ok) {
+                        Gdiplus::Graphics graphics(surface.get());
+                        if (graphics.GetLastStatus() == Gdiplus::Ok) {
+                            graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+                            graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                            graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+                            const UINT srcWidth = sourceBitmap->GetWidth();
+                            const UINT srcHeight = sourceBitmap->GetHeight();
+                            if (srcWidth != 0 && srcHeight != 0 && !stopToken.stop_requested()) {
+                                const Gdiplus::Status status = graphics.DrawImage(
+                                    sourceBitmap.get(), Gdiplus::Rect(0, 0, size.cx, size.cy), 0, 0,
+                                    static_cast<INT>(srcWidth), static_cast<INT>(srcHeight), Gdiplus::UnitPixel);
+                                if (status != Gdiplus::Ok) {
+                                    surface.reset();
+                                }
+                            } else if (srcWidth == 0 || srcHeight == 0) {
+                                surface.reset();
+                            }
+                        } else {
+                            surface.reset();
+                        }
+                    }
+                }
+
+                if (stopToken.stop_requested()) {
+                    return;
+                }
+
+                notifyCompletion(std::move(surface));
+            });
+    } catch (const std::exception& ex) {
+        LogMessage(LogLevel::Warning, L"Failed to start list view background job (%s)",
+                   Utf8ToWide(ex.what()).c_str());
+        CancelListViewBackgroundJob();
+        m_listViewBackgroundSurface.pending = false;
+    }
+}
+
+void CExplorerBHO::CancelListViewBackgroundJob() {
+    if (m_listViewBackgroundWorker.joinable()) {
+        m_listViewBackgroundWorker.request_stop();
+    }
+    m_listViewBackgroundWorker = std::jthread();
+    m_listViewBackgroundJobState = {};
 }
 
 bool CExplorerBHO::PaintListViewBackground(HWND hwnd, HDC dc) {
@@ -3037,7 +3137,7 @@ bool CExplorerBHO::PaintListViewBackground(HWND hwnd, HDC dc) {
         return false;
     }
 
-    if (!m_listViewBackgroundSurface.bitmap) {
+    if (!m_listViewBackgroundSurface.bitmap || m_listViewBackgroundSurface.pending) {
         return false;
     }
 
@@ -3061,9 +3161,11 @@ bool CExplorerBHO::PaintListViewBackground(HWND hwnd, HDC dc) {
 }
 
 void CExplorerBHO::ClearListViewBackgroundImage() {
+    CancelListViewBackgroundJob();
     m_listViewBackgroundSurface.bitmap.reset();
     m_listViewBackgroundSurface.size = {0, 0};
     m_listViewBackgroundSurface.cacheKey.clear();
+    m_listViewBackgroundSurface.pending = false;
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -3405,6 +3507,39 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         RefreshListViewAccentState();
         m_glowRenderer.InvalidateRegisteredSurfaces();
         UpdateGlowSurfaceTargets();
+        *result = 0;
+        return true;
+    }
+
+    if (isListView && msg == WM_SHELLTABS_LISTVIEW_BACKGROUND_READY) {
+        std::unique_ptr<ListViewBackgroundReadyMessage> payload(
+            reinterpret_cast<ListViewBackgroundReadyMessage*>(wParam));
+        if (payload) {
+            const bool matchesGeneration =
+                payload->generation == m_listViewBackgroundJobState.generation;
+            const bool matchesSize = m_listViewBackgroundJobState.size.cx == payload->size.cx &&
+                                     m_listViewBackgroundJobState.size.cy == payload->size.cy;
+            const bool matchesKey = m_listViewBackgroundJobState.cacheKey == payload->cacheKey;
+            if (matchesGeneration && matchesSize && matchesKey) {
+                if (payload->bitmap) {
+                    m_listViewBackgroundSurface.bitmap = std::move(payload->bitmap);
+                    m_listViewBackgroundSurface.size = payload->size;
+                    m_listViewBackgroundSurface.cacheKey = std::move(payload->cacheKey);
+                    m_listViewBackgroundSurface.pending = false;
+                    if (IsWindow(m_listView)) {
+                        InvalidateRect(m_listView, nullptr, TRUE);
+                    }
+                } else {
+                    m_listViewBackgroundSurface.bitmap.reset();
+                    m_listViewBackgroundSurface.size = {0, 0};
+                    m_listViewBackgroundSurface.cacheKey.clear();
+                    m_listViewBackgroundSurface.pending = false;
+                }
+
+                m_listViewBackgroundJobState = {};
+                m_listViewBackgroundWorker = std::jthread();
+            }
+        }
         *result = 0;
         return true;
     }
