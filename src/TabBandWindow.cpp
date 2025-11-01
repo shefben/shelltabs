@@ -1447,7 +1447,7 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<Visu
 
     for (size_t newIndex = 0; newIndex < newItems.size(); ++newIndex) {
         auto& item = newItems[newIndex];
-        const auto key = MakeKey(item.data);
+        const uint64_t key = item.stableId != 0 ? item.stableId : ComputeTabViewStableId(item.data);
         auto it = oldMap.find(key);
         if (it == oldMap.end() || it->second.empty()) {
             ++stats.inserted;
@@ -1456,7 +1456,6 @@ TabBandWindow::LayoutDiffStats TabBandWindow::ComputeLayoutDiff(std::vector<Visu
         }
 
         auto& candidates = it->second;
-        const auto kInvalidIndex = std::numeric_limits<size_t>::max();
         auto selectCandidate = [&](auto&& predicate) -> size_t {
             for (size_t idx = 0; idx < candidates.size(); ++idx) {
                 const size_t candidateIndex = candidates[idx];
@@ -5591,6 +5590,7 @@ void TabBandWindow::HandleExternalDragUpdate() {
     POINT client = screen;
     ScreenToClient(m_hwnd, &client);
     DropTarget target = ComputeDropTarget(client, origin);
+    DropTarget previousExternalTarget = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
 
     {
         std::scoped_lock lock(state.mutex);
