@@ -13,9 +13,10 @@
 #include <ShlObj.h>
 
 #include <functional>
-#include <memory>
 #include <string>
 #include <vector>
+#include <memory>
+#include <wrl/client.h>
 
 namespace shelltabs {
 
@@ -45,8 +46,6 @@ enum class HighlightPaneType {
 using PaneHighlightInvalidationCallback = void (*)(HWND hwnd, HighlightPaneType paneType,
                                                    const PaneHighlightInvalidationTargets& targets);
 
-class ShellTabsTreeView;
-
 class PaneHookRouter {
 public:
     PaneHookRouter();
@@ -61,7 +60,8 @@ public:
 
 private:
     HWND m_treeView = nullptr;
-    std::unique_ptr<ShellTabsTreeView> m_treeControl;
+    std::function<bool(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight)> m_resolver;
+    Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
 };
 
 void RegisterPaneHighlight(const std::wstring& path, const PaneHighlight& highlight,
