@@ -79,6 +79,9 @@ using shelltabs::GetCanonicalParsingName;
 using shelltabs::GetParsingName;
 using shelltabs::UniquePidl;
 using shelltabs::IconCache;
+using shelltabs::BreadcrumbGradientPalette;
+using shelltabs::EvaluateBreadcrumbGradientColor;
+using shelltabs::ResolveBreadcrumbGradientPalette;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
@@ -7000,11 +7003,18 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         if (buttonHasDropdown && m_useCustomBreadcrumbFontColors) {
             const int arrowLeft = buttonRect.right - 12;
             const int arrowRight = buttonRect.right - 6;
-            const Gdiplus::Color arrowBrightStart =
-                computeBrightFontColorFn(sampleFontGradientAtX(arrowLeft));
-            const Gdiplus::Color arrowBrightEnd = computeBrightFontColorFn(sampleFontGradientAtX(arrowRight));
-            arrowTextStart = computeOpaqueFontColorFn(arrowBrightStart, true);
-            arrowTextEnd = computeOpaqueFontColorFn(arrowBrightEnd, false);
+            auto computeArrowTextColor = [&](int sampleX, bool useStart) {
+                const COLORREF sampleRgb = sampleFontGradientAtX(sampleX);
+                const BYTE adjustedRed = applyBrightness(GetRValue(sampleRgb));
+                const BYTE adjustedGreen = applyBrightness(GetGValue(sampleRgb));
+                const BYTE adjustedBlue = applyBrightness(GetBValue(sampleRgb));
+                const Gdiplus::Color brightColor = BrightenBreadcrumbColor(
+                    Gdiplus::Color(buttonTextAlpha, adjustedRed, adjustedGreen, adjustedBlue), buttonIsHot,
+                    buttonIsPressed, highlightBackgroundColor);
+                return computeOpaqueFontColorFn(brightColor, useStart);
+            };
+            arrowTextStart = computeArrowTextColor(arrowLeft, true);
+            arrowTextEnd = computeArrowTextColor(arrowRight, false);
         }
 
         if (buttonHasDropdown) {
