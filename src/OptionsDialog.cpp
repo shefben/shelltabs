@@ -152,6 +152,7 @@ enum ControlIds : int {
     IDC_GLOW_SURFACE_TOOLBAR = 5413,
     IDC_GLOW_SURFACE_EDIT = 5414,
     IDC_GLOW_SURFACE_DIRECTUI = 5415,
+    IDC_GLOW_SURFACE_SCROLLBAR = 5416,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -201,13 +202,14 @@ struct GlowSurfaceControlMapping {
     GlowSurfaceOptions GlowSurfacePalette::*member = nullptr;
 };
 
-constexpr std::array<GlowSurfaceControlMapping, 6> kGlowSurfaceControlMappings = {{
+constexpr std::array<GlowSurfaceControlMapping, 7> kGlowSurfaceControlMappings = {{
     {IDC_GLOW_SURFACE_LISTVIEW, &GlowSurfacePalette::listView},
     {IDC_GLOW_SURFACE_HEADER, &GlowSurfacePalette::header},
     {IDC_GLOW_SURFACE_REBAR, &GlowSurfacePalette::rebar},
     {IDC_GLOW_SURFACE_TOOLBAR, &GlowSurfacePalette::toolbar},
     {IDC_GLOW_SURFACE_EDIT, &GlowSurfacePalette::edits},
     {IDC_GLOW_SURFACE_DIRECTUI, &GlowSurfacePalette::directUi},
+    {IDC_GLOW_SURFACE_SCROLLBAR, &GlowSurfacePalette::scrollbars},
 }};
 
 struct ChildPlacement {
@@ -2043,7 +2045,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 16;
+    dlg->cdit = 17;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kGlowDialogWidth;
@@ -2111,6 +2113,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     appendSurfaceCheckbox(IDC_GLOW_SURFACE_TOOLBAR, 92, L"Enable toolbar glow");
     appendSurfaceCheckbox(IDC_GLOW_SURFACE_EDIT, 108, L"Enable address bar glow");
     appendSurfaceCheckbox(IDC_GLOW_SURFACE_DIRECTUI, 124, L"Enable DirectUI glow");
+    appendSurfaceCheckbox(IDC_GLOW_SURFACE_SCROLLBAR, 140, L"Enable scrollbar glow");
 
     AlignDialogBuffer(data);
     offset = data.size();
@@ -2119,7 +2122,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     customColors->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
     customColors->dwExtendedStyle = 0;
     customColors->x = 16;
-    customColors->y = 144;
+    customColors->y = 160;
     customColors->cx = kGlowCheckboxWidth;
     customColors->cy = 12;
     customColors->id = static_cast<WORD>(IDC_GLOW_CUSTOM_COLORS);
@@ -2135,7 +2138,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     useGradient->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
     useGradient->dwExtendedStyle = 0;
     useGradient->x = 16;
-    useGradient->y = 164;
+    useGradient->y = 180;
     useGradient->cx = kGlowCheckboxWidth;
     useGradient->cy = 12;
     useGradient->id = static_cast<WORD>(IDC_GLOW_USE_GRADIENT);
@@ -2151,7 +2154,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     primaryLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     primaryLabel->dwExtendedStyle = 0;
     primaryLabel->x = 16;
-    primaryLabel->y = 192;
+    primaryLabel->y = 208;
     primaryLabel->cx = 68;
     primaryLabel->cy = 12;
     primaryLabel->id = static_cast<WORD>(IDC_GLOW_PRIMARY_LABEL);
@@ -2167,7 +2170,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     primaryPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
     primaryPreview->dwExtendedStyle = 0;
     primaryPreview->x = 86;
-    primaryPreview->y = 190;
+    primaryPreview->y = 206;
     primaryPreview->cx = 40;
     primaryPreview->cy = 16;
     primaryPreview->id = static_cast<WORD>(IDC_GLOW_PRIMARY_PREVIEW);
@@ -2183,7 +2186,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     primaryButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     primaryButton->dwExtendedStyle = 0;
     primaryButton->x = 134;
-    primaryButton->y = 188;
+    primaryButton->y = 204;
     primaryButton->cx = 72;
     primaryButton->cy = 14;
     primaryButton->id = static_cast<WORD>(IDC_GLOW_PRIMARY_BUTTON);
@@ -2199,7 +2202,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     secondaryLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
     secondaryLabel->dwExtendedStyle = 0;
     secondaryLabel->x = 16;
-    secondaryLabel->y = 220;
+    secondaryLabel->y = 236;
     secondaryLabel->cx = 68;
     secondaryLabel->cy = 12;
     secondaryLabel->id = static_cast<WORD>(IDC_GLOW_SECONDARY_LABEL);
@@ -2215,7 +2218,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     secondaryPreview->style = WS_CHILD | WS_VISIBLE | SS_SUNKEN;
     secondaryPreview->dwExtendedStyle = 0;
     secondaryPreview->x = 86;
-    secondaryPreview->y = 218;
+    secondaryPreview->y = 234;
     secondaryPreview->cx = 40;
     secondaryPreview->cy = 16;
     secondaryPreview->id = static_cast<WORD>(IDC_GLOW_SECONDARY_PREVIEW);
@@ -2231,7 +2234,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     secondaryButton->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
     secondaryButton->dwExtendedStyle = 0;
     secondaryButton->x = 134;
-    secondaryButton->y = 216;
+    secondaryButton->y = 232;
     secondaryButton->cx = 72;
     secondaryButton->cy = 14;
     secondaryButton->id = static_cast<WORD>(IDC_GLOW_SECONDARY_BUTTON);

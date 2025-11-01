@@ -706,6 +706,8 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
             return L"toolbar";
         case ExplorerSurfaceKind::Edit:
             return L"edit";
+        case ExplorerSurfaceKind::Scrollbar:
+            return L"scrollbar";
         case ExplorerSurfaceKind::DirectUi:
             return L"DirectUI host";
         default:
@@ -2299,6 +2301,41 @@ void CExplorerBHO::ResetGlowSurfaces() {
 void CExplorerBHO::UpdateGlowSurfaceTargets() {
     std::unordered_set<HWND, HandleHasher> active;
 
+    auto registerScrollbarsFor = [&](HWND owner) {
+        if (!owner || !IsWindow(owner) || !IsWindowOwnedByThisExplorer(owner)) {
+            return;
+        }
+
+        struct EnumContext {
+            CExplorerBHO* self = nullptr;
+            std::unordered_set<HWND, HandleHasher>* active = nullptr;
+            HWND parent = nullptr;
+        } context{this, &active, owner};
+
+        EnumChildWindows(
+            owner,
+            [](HWND child, LPARAM param) -> BOOL {
+                auto* ctx = reinterpret_cast<EnumContext*>(param);
+                if (!ctx || !ctx->self || !ctx->active) {
+                    return TRUE;
+                }
+                if (GetParent(child) != ctx->parent) {
+                    return TRUE;
+                }
+                if (!MatchesClass(child, L"ScrollBar")) {
+                    return TRUE;
+                }
+                if (!ctx->self->IsWindowOwnedByThisExplorer(child)) {
+                    return TRUE;
+                }
+                if (ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Scrollbar, true)) {
+                    ctx->active->insert(child);
+                }
+                return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&context));
+    };
+
     if (m_listView && IsWindow(m_listView)) {
         if (RegisterGlowSurface(m_listView, ExplorerSurfaceKind::ListView, true)) {
             active.insert(m_listView);
@@ -2316,6 +2353,11 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
             active.insert(m_directUiView);
         }
     }
+
+    registerScrollbarsFor(m_listView);
+    registerScrollbarsFor(m_listViewControlWindow);
+    registerScrollbarsFor(m_shellViewWindow);
+    registerScrollbarsFor(m_directUiView);
 
     HWND frame = GetTopLevelExplorerWindow();
     HWND statusBarCandidate = nullptr;

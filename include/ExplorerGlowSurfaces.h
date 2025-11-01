@@ -16,6 +16,7 @@ enum class ExplorerSurfaceKind {
     Rebar,
     Toolbar,
     Edit,
+    Scrollbar,
     DirectUi,
 };
 
