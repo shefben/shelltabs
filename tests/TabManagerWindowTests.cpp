@@ -142,6 +142,96 @@ bool TestCollectProgressSnapshot() {
     return true;
 }
 
+bool TestGroupAggregateMaintenance() {
+    shelltabs::TabManager manager;
+    manager.Clear();
+
+    auto makeTab = [](const wchar_t* name, bool hidden = false) {
+        shelltabs::TabInfo tab;
+        tab.name = name;
+        tab.tooltip = name;
+        tab.hidden = hidden;
+        return tab;
+    };
+
+    auto first = manager.InsertTab(makeTab(L"One"), 0, 0, true);
+    auto second = manager.InsertTab(makeTab(L"Two"), 0, 1, false);
+    auto third = manager.InsertTab(makeTab(L"Three"), 0, 2, false);
+
+    auto verifyCounts = [&](size_t expectedVisible, size_t expectedHidden, const wchar_t* stage) {
+        const auto* group = manager.GetGroup(0);
+        if (!group) {
+            PrintFailure(L"TestGroupAggregateMaintenance", std::wstring(L"Missing group during ") + stage);
+            return false;
+        }
+        if (group->visibleCount != expectedVisible || group->hiddenCount != expectedHidden) {
+            PrintFailure(L"TestGroupAggregateMaintenance",
+                         std::wstring(stage) + L" visible/hidden mismatch: expected " +
+                             std::to_wstring(expectedVisible) + L"/" + std::to_wstring(expectedHidden) + L", got " +
+                             std::to_wstring(group->visibleCount) + L"/" +
+                             std::to_wstring(group->hiddenCount));
+            return false;
+        }
+        const auto view = manager.BuildView();
+        if (view.empty() || view[0].type != shelltabs::TabViewItemType::kGroupHeader) {
+            PrintFailure(L"TestGroupAggregateMaintenance", std::wstring(L"Missing header during ") + stage);
+            return false;
+        }
+        if (view[0].visibleTabs != expectedVisible || view[0].hiddenTabs != expectedHidden) {
+            PrintFailure(L"TestGroupAggregateMaintenance",
+                         std::wstring(stage) + L" header aggregate mismatch: expected " +
+                             std::to_wstring(expectedVisible) + L"/" + std::to_wstring(expectedHidden) + L", got " +
+                             std::to_wstring(view[0].visibleTabs) + L"/" + std::to_wstring(view[0].hiddenTabs));
+            return false;
+        }
+        if (manager.HiddenCount(0) != expectedHidden) {
+            PrintFailure(L"TestGroupAggregateMaintenance",
+                         std::wstring(stage) + L" HiddenCount mismatch: expected " +
+                             std::to_wstring(expectedHidden) + L", got " +
+                             std::to_wstring(manager.HiddenCount(0)));
+            return false;
+        }
+        return true;
+    };
+
+    if (!verifyCounts(3, 0, L"initial")) {
+        return false;
+    }
+
+    manager.HideTab(second);
+    if (!verifyCounts(2, 1, L"after hide")) {
+        return false;
+    }
+
+    manager.Remove(second);
+    third.tabIndex = 1;
+    if (!verifyCounts(2, 0, L"after remove")) {
+        return false;
+    }
+
+    auto fourth = manager.InsertTab(makeTab(L"Four", true), 0, 2, false);
+    if (!verifyCounts(2, 1, L"after insert hidden")) {
+        return false;
+    }
+
+    manager.UnhideTab(fourth);
+    if (!verifyCounts(3, 0, L"after unhide inserted")) {
+        return false;
+    }
+
+    manager.HideTab(first);
+    if (!verifyCounts(2, 1, L"after hide first")) {
+        return false;
+    }
+
+    manager.UnhideAllInGroup(0);
+    if (!verifyCounts(3, 0, L"after unhide all")) {
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int wmain() {
@@ -150,6 +240,7 @@ int wmain() {
         {L"TestDestructorClearsRegistration", &TestDestructorClearsRegistration},
         {L"TestStressOpenCloseWindows", &TestStressOpenCloseWindows},
         {L"TestCollectProgressSnapshot", &TestCollectProgressSnapshot},
+        {L"TestGroupAggregateMaintenance", &TestGroupAggregateMaintenance},
     };
 
     bool success = true;
