@@ -15,7 +15,6 @@
 
 #include <atomic>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -71,24 +70,6 @@ class ShellTabsListView;
                 IFACEMETHODIMP GetSite(REFIID riid, void** site) override;
 
         private:
-                enum class BandEnsureOutcome {
-                        Unknown,
-                        Success,
-                        PermanentFailure,
-                        TemporaryFailure,
-                        Throttled,
-                };
-
-                struct BandEnsureState {
-                        BandEnsureOutcome lastOutcome = BandEnsureOutcome::Unknown;
-                        size_t attemptCount = 0;
-                        DWORD retryDelayMs = 0;
-                        UINT_PTR timerId = 0;
-                        bool retryScheduled = false;
-                        bool unsupportedHost = false;
-                        HRESULT lastHresult = S_OK;
-                };
-
                 struct HandleHasher {
                         size_t operator()(HWND hwnd) const noexcept {
                                 return reinterpret_cast<size_t>(hwnd);
@@ -195,16 +176,9 @@ class ShellTabsListView;
                 };
 
                 void Disconnect();
-                HRESULT EnsureBandVisible();
                 HRESULT ConnectEvents();
                 void DisconnectEvents();
                 HRESULT ResolveBrowserFromSite(IUnknown* site, IWebBrowser2** browser);
-                void ScheduleEnsureRetry(HWND hostWindow, BandEnsureState& state, HRESULT lastHr,
-                                         BandEnsureOutcome outcome, const wchar_t* reason = nullptr);
-                void CancelEnsureRetry(BandEnsureState& state);
-                void CancelAllEnsureRetries();
-                void HandleEnsureBandTimer(UINT_PTR timerId);
-                static void CALLBACK EnsureBandTimerProc(HWND hwnd, UINT msg, UINT_PTR timerId, DWORD tickCount);
                 void UpdateBreadcrumbSubclass();
 		void RemoveBreadcrumbSubclass();
 		HWND FindBreadcrumbToolbar() const;
@@ -306,10 +280,6 @@ class ShellTabsListView;
                 void DispatchOpenInNewTab(const std::vector<std::wstring>& paths);
                 void QueueOpenInNewTabRequests(const std::vector<std::wstring>& paths);
                 void TryDispatchQueuedOpenInNewTabRequests();
-                void HandleOpenInNewTabTimer(UINT_PTR timerId);
-                void ScheduleOpenInNewTabRetry();
-                void CancelOpenInNewTabRetry();
-                static void CALLBACK OpenInNewTabTimerProc(HWND hwnd, UINT msg, UINT_PTR timerId, DWORD tickCount);
                 void ClearPendingOpenInNewTabState();
                 void EnsureBreadcrumbHook();
                 void RemoveBreadcrumbHook();
@@ -379,11 +349,9 @@ class ShellTabsListView;
 		Microsoft::WRL::ComPtr<IUnknown> m_site;
 		Microsoft::WRL::ComPtr<IWebBrowser2> m_webBrowser;
 		Microsoft::WRL::ComPtr<IShellBrowser> m_shellBrowser;
-		Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
-		DWORD m_connectionCookie = 0;
-		bool m_bandVisible = false;
-		bool m_shouldRetryEnsure = true;
-		HWND m_breadcrumbToolbar = nullptr;
+                Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
+                DWORD m_connectionCookie = 0;
+                HWND m_breadcrumbToolbar = nullptr;
 		bool m_breadcrumbSubclassInstalled = false;
 		bool m_breadcrumbGradientEnabled = false;
 		bool m_breadcrumbFontGradientEnabled = false;
@@ -484,7 +452,6 @@ class ShellTabsListView;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;
-                std::unordered_map<HWND, BandEnsureState, HandleHasher> m_bandEnsureStates;
                 bool m_useExplorerAccentColors = true;
                 std::vector<ContextMenuItem> m_cachedContextMenuItems;
                 ContextMenuSelectionSnapshot m_contextMenuSelection;
@@ -494,12 +461,6 @@ class ShellTabsListView;
                 std::vector<HMENU> m_contextMenuSubmenus;
                 UINT m_nextContextCommandId = 0;
 
-                static std::mutex s_ensureTimerLock;
-                static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;
-                static std::mutex s_openInNewTabTimerLock;
-                static std::unordered_map<UINT_PTR, CExplorerBHO*> s_openInNewTabTimers;
-                UINT_PTR m_openInNewTabTimerId = 0;
-                bool m_openInNewTabRetryScheduled = false;
                 bool m_contextMenuInserted = false;
                 static constexpr UINT kOpenInNewTabCommandId = 0xE170;
                 static constexpr UINT kCustomCommandIdBase = 0xE200;

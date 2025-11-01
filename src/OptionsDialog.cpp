@@ -40,7 +40,6 @@
 #include "OptionsStore.h"
 #include "StringUtils.h"
 #include "ShellTabsMessages.h"
-#include "TabBandWindow.h"
 #include "Utilities.h"
 
 namespace shelltabs {
@@ -121,8 +120,6 @@ enum ControlIds : int {
     IDC_MAIN_NEW_TAB_BROWSE = 5049,
     IDC_MAIN_NEW_TAB_GROUP_LABEL = 5050,
     IDC_MAIN_NEW_TAB_GROUP_COMBO = 5051,
-    IDC_MAIN_DOCK_LABEL = 5052,
-    IDC_MAIN_DOCK_COMBO = 5053,
     IDC_MAIN_LISTVIEW_ACCENT = 5054,
 
     IDC_CUSTOM_BACKGROUND_ENABLE = 5301,
@@ -1544,7 +1541,7 @@ std::vector<BYTE> BuildMainPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 13;
+    dlg->cdit = 11;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kMainDialogWidth;
@@ -1727,38 +1724,6 @@ std::vector<BYTE> BuildMainPageTemplate() {
     newTabGroupCombo->cx = kMainDialogWidth - 20;
     newTabGroupCombo->cy = 70;
     newTabGroupCombo->id = static_cast<WORD>(IDC_MAIN_NEW_TAB_GROUP_COMBO);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0085);
-    AppendString(data, L"");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* dockLabel = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    dockLabel->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
-    dockLabel->dwExtendedStyle = 0;
-    dockLabel->x = 10;
-    dockLabel->y = 258;
-    dockLabel->cx = kMainDialogWidth - 20;
-    dockLabel->cy = 12;
-    dockLabel->id = static_cast<WORD>(IDC_MAIN_DOCK_LABEL);
-    AppendWord(data, 0xFFFF);
-    AppendWord(data, 0x0082);
-    AppendString(data, L"Tab bar docking location:");
-    AppendWord(data, 0);
-
-    AlignDialogBuffer(data);
-    offset = data.size();
-    data.resize(offset + sizeof(DLGITEMTEMPLATE));
-    auto* dockCombo = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
-    dockCombo->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL;
-    dockCombo->dwExtendedStyle = WS_EX_CLIENTEDGE;
-    dockCombo->x = 10;
-    dockCombo->y = 272;
-    dockCombo->cx = kMainDialogWidth - 20;
-    dockCombo->cy = 70;
-    dockCombo->id = static_cast<WORD>(IDC_MAIN_DOCK_COMBO);
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0085);
     AppendString(data, L"");
@@ -4398,45 +4363,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                 PopulateNewTabGroupCombo(hwnd, data);
                 UpdateNewTabTemplateControls(hwnd, data);
 
-                HWND combo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
-                if (combo) {
-                    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-                    const uint32_t mask = TabBandWindow::GetAvailableDockMask();
-                    struct DockEntry {
-                        TabBandDockMode mode;
-                        const wchar_t* label;
-                        uint32_t requiredMask;
-                    } entries[] = {
-                        {TabBandDockMode::kAutomatic, L"Let Explorer decide", 0},
-                        {TabBandDockMode::kTop, L"Top toolbar", 1u << static_cast<uint32_t>(TabBandDockMode::kTop)},
-                        {TabBandDockMode::kBottom, L"Bottom toolbar", 1u << static_cast<uint32_t>(TabBandDockMode::kBottom)},
-                        {TabBandDockMode::kLeft, L"Left vertical band", 1u << static_cast<uint32_t>(TabBandDockMode::kLeft)},
-                        {TabBandDockMode::kRight, L"Right vertical band", 1u << static_cast<uint32_t>(TabBandDockMode::kRight)},
-                    };
-
-                    int selectionIndex = -1;
-                    for (const auto& entry : entries) {
-                        if (entry.mode != TabBandDockMode::kAutomatic && entry.requiredMask != 0 &&
-                            (mask & entry.requiredMask) == 0) {
-                            continue;
-                        }
-
-                        const int index = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0,
-                                                                         reinterpret_cast<LPARAM>(entry.label)));
-                        if (index >= 0) {
-                            SendMessageW(combo, CB_SETITEMDATA, index,
-                                         static_cast<LPARAM>(entry.mode));
-                            if (data->workingOptions.tabDockMode == entry.mode && selectionIndex < 0) {
-                                selectionIndex = index;
-                            }
-                        }
-                    }
-
-                    if (selectionIndex < 0) {
-                        selectionIndex = 0;
-                    }
-                    SendMessageW(combo, CB_SETCURSEL, selectionIndex, 0);
-                }
             }
             return TRUE;
         }
@@ -4511,11 +4437,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
-                case IDC_MAIN_DOCK_COMBO:
-                    if (HIWORD(wParam) == CBN_SELCHANGE) {
-                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
-                    }
-                    return TRUE;
                 default:
                     break;
             }
@@ -4563,18 +4484,6 @@ INT_PTR CALLBACK MainOptionsPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
                         } else {
                             data->workingOptions.newTabSavedGroup =
                                 Trim(GetWindowTextString(groupCombo));
-                        }
-                    }
-
-                    HWND dockCombo = GetDlgItem(hwnd, IDC_MAIN_DOCK_COMBO);
-                    if (dockCombo) {
-                        const LRESULT selection = SendMessageW(dockCombo, CB_GETCURSEL, 0, 0);
-                        if (selection >= 0) {
-                            const LRESULT value = SendMessageW(dockCombo, CB_GETITEMDATA, selection, 0);
-                            if (value != CB_ERR) {
-                                data->workingOptions.tabDockMode =
-                                    static_cast<TabBandDockMode>(value);
-                            }
                         }
                     }
                     data->applyInvoked = true;
