@@ -92,6 +92,9 @@ constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
 constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_background";
 constexpr UINT_PTR kAddressEditRedrawTimerId = 0x53445257;  // 'SRDW'
 constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
+// Empirically observed vtable slot for IUIElement::Draw on Windows 10/11.
+constexpr size_t kDirectUiDrawMethodIndex = 12;
+const IID IID_IUIElement = {0x0A498932, 0xD65C, 0x4E0C, {0x80, 0xDA, 0x8A, 0x2C, 0xA8, 0xF2, 0x53, 0x20}};
 
 void ConfigureToolbarForCustomSeparators(HWND toolbar) {
     if (!toolbar || !IsWindow(toolbar)) {
@@ -2365,6 +2368,11 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
         return false;
     }
 
+    if (kind == ExplorerSurfaceKind::DirectUi) {
+        shelltabs::RegisterDirectUiHost(hwnd);
+        TryInstallDirectUiRenderHooks(hwnd);
+    }
+
     switch (kind) {
         case ExplorerSurfaceKind::Toolbar:
             ConfigureToolbarForCustomSeparators(hwnd);
@@ -2444,6 +2452,7 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
     if (!hwnd) {
         return;
     }
+    shelltabs::UnregisterDirectUiHost(hwnd);
     auto it = m_glowSurfaces.find(hwnd);
     if (it == m_glowSurfaces.end()) {
         return;
@@ -2464,6 +2473,36 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
     }
 
     m_glowSurfaces.erase(it);
+}
+
+void CExplorerBHO::TryInstallDirectUiRenderHooks(HWND directUiHost) {
+    if (!directUiHost || !IsWindow(directUiHost)) {
+        return;
+    }
+    if (!m_shellView) {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
+    HRESULT hr = m_shellView.As(&serviceProvider);
+    if (FAILED(hr) || !serviceProvider) {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IUnknown> element;
+    hr = serviceProvider->QueryService(IID_IUIElement, IID_IUnknown, &element);
+    if (FAILED(hr) || !element) {
+        LogMessage(LogLevel::Verbose, L"DirectUI IUIElement unavailable (hr=0x%08X)", hr);
+        return;
+    }
+
+    const bool firstAttempt = !m_directUiRenderHooksAttempted;
+    shelltabs::RegisterDirectUiRenderInterface(element.Get(), kDirectUiDrawMethodIndex, directUiHost,
+                                               &m_glowCoordinator);
+    if (firstAttempt) {
+        LogMessage(LogLevel::Info, L"DirectUI render detour registration attempted (host=%p)", directUiHost);
+    }
+    m_directUiRenderHooksAttempted = true;
 }
 
 void CExplorerBHO::RequestHeaderGlowRepaint() const {
@@ -3441,6 +3480,7 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         UnregisterGlowSurface(m_directUiView);
         m_directUiView = nullptr;
         m_directUiSubclassInstalled = false;
+        m_directUiRenderHooksAttempted = false;
     }
 
     if (m_listView && (!IsWindow(m_listView) || !m_listViewSubclassInstalled)) {
@@ -3475,6 +3515,8 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
                                   reinterpret_cast<UINT_PTR>(this), 0)) {
                 m_directUiView = directUiHost;
                 m_directUiSubclassInstalled = true;
+                shelltabs::RegisterDirectUiHost(directUiHost);
+                TryInstallDirectUiRenderHooks(directUiHost);
                 RegisterGlowSurface(directUiHost, ExplorerSurfaceKind::DirectUi, false);
                 LogMessage(LogLevel::Info, L"Installed explorer DirectUI host subclass (direct=%p)", directUiHost);
             } else {
@@ -3748,6 +3790,7 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     m_frameSubclassInstalled = false;
     m_directUiView = nullptr;
     m_directUiSubclassInstalled = false;
+    m_directUiRenderHooksAttempted = false;
     m_treeView = nullptr;
     m_treeViewSubclassInstalled = false;
     m_loggedExplorerPanesReady = false;
