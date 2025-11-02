@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "DpiUtils.h"
+#include "ColorUtils.h"
 
 namespace shelltabs {
 
@@ -137,6 +138,22 @@ bool RenderGradientEditContent(HWND hwnd, HDC dc, const BreadcrumbGradientConfig
     const BreadcrumbGradientPalette gradientPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
 
     const COLORREF previousTextColor = GetTextColor(dc);
+    const COLORREF previousBkColor = GetBkColor(dc);
+    COLORREF backgroundColor = previousBkColor;
+    if (backgroundColor == CLR_INVALID) {
+        backgroundColor = GetSysColor(COLOR_WINDOW);
+    }
+
+    const double backgroundLuminance = ComputeColorLuminance(backgroundColor);
+    const COLORREF systemTextColor = GetSysColor(COLOR_WINDOWTEXT);
+    const double systemTextLuminance = ComputeColorLuminance(systemTextColor);
+    const double blackLuminance = ComputeColorLuminance(RGB(0, 0, 0));
+    const double whiteLuminance = ComputeColorLuminance(RGB(255, 255, 255));
+    const double systemContrastBaseline = ComputeContrastRatio(backgroundLuminance, systemTextLuminance);
+    const double blackContrastBaseline = ComputeContrastRatio(backgroundLuminance, blackLuminance);
+    const double whiteContrastBaseline = ComputeContrastRatio(backgroundLuminance, whiteLuminance);
+    constexpr double kMinimumTextContrast = 4.5;
+
     const int previousBkMode = SetBkMode(dc, TRANSPARENT);
 
     struct CharacterMetrics {
@@ -319,7 +336,31 @@ bool RenderGradientEditContent(HWND hwnd, HDC dc, const BreadcrumbGradientConfig
             double position = (centerX - gradientLeft) / gradientWidth;
             position = std::clamp<double>(position, 0.0, 1.0);
 
-            const COLORREF gradientColor = EvaluateBreadcrumbGradientColor(gradientPalette, position);
+            COLORREF gradientColor = EvaluateBreadcrumbGradientColor(gradientPalette, position);
+            double candidateLuminance = ComputeColorLuminance(gradientColor);
+            double candidateContrast = ComputeContrastRatio(backgroundLuminance, candidateLuminance);
+
+            if (candidateContrast < kMinimumTextContrast) {
+                struct ContrastCandidate {
+                    COLORREF color;
+                    double contrast;
+                };
+                ContrastCandidate best{gradientColor, candidateContrast};
+
+                auto consider = [&](COLORREF color, double contrast) {
+                    if (contrast > best.contrast + 1e-6) {
+                        best.color = color;
+                        best.contrast = contrast;
+                    }
+                };
+
+                consider(systemTextColor, systemContrastBaseline);
+                consider(RGB(0, 0, 0), blackContrastBaseline);
+                consider(RGB(255, 255, 255), whiteContrastBaseline);
+
+                gradientColor = best.color;
+            }
+
             SetTextColor(dc, gradientColor);
         }
 

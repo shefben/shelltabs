@@ -41,6 +41,7 @@ add_library(ShellTabs SHARED
     src/PreviewCache.cpp
     src/PreviewOverlay.cpp
     src/IconCache.cpp
+    src/ColorUtils.cpp
     src/OpenFolderCommand.cpp
     src/BrowserEvents.cpp
     src/BackgroundCache.cpp

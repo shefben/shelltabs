@@ -38,6 +38,7 @@
 
 #include "BackgroundCache.h"
 #include "BreadcrumbGradient.h"
+#include "ColorUtils.h"
 #include "ComUtils.h"
 #include "Guids.h"
 #include "Logging.h"
@@ -85,6 +86,8 @@ using shelltabs::IconCache;
 using shelltabs::BreadcrumbGradientPalette;
 using shelltabs::EvaluateBreadcrumbGradientColor;
 using shelltabs::ResolveBreadcrumbGradientPalette;
+using shelltabs::ComputeColorLuminance;
+using shelltabs::ComputeContrastRatio;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
@@ -666,28 +669,6 @@ Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
                           blendChannel(color.GetG(), blendGreen), blendChannel(color.GetB(), blendBlue));
 }
 
-double SrgbChannelToLinear(BYTE channel) {
-    const double srgb = static_cast<double>(channel) / 255.0;
-    if (srgb <= 0.04045) {
-        return srgb / 12.92;
-    }
-
-    return std::pow((srgb + 0.055) / 1.055, 2.4);
-}
-
-double ComputeColorLuminance(COLORREF color) {
-    const double r = SrgbChannelToLinear(GetRValue(color));
-    const double g = SrgbChannelToLinear(GetGValue(color));
-    const double b = SrgbChannelToLinear(GetBValue(color));
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-double ComputeContrastRatio(double a, double b) {
-    const double lighter = std::max(a, b);
-    const double darker = std::min(a, b);
-    return (lighter + 0.05) / (darker + 0.05);
-}
-
 COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
     const double topLuminance = ComputeColorLuminance(topColor);
     const double bottomLuminance = ComputeColorLuminance(bottomColor);
@@ -704,18 +685,33 @@ COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
     const double minContrastWhite = std::min(contrastWhiteTop, contrastWhiteBottom);
 
     constexpr double kMinimumReadableContrast = 4.5;
-    const bool blackReadable = minContrastBlack >= kMinimumReadableContrast;
-    const bool whiteReadable = minContrastWhite >= kMinimumReadableContrast;
+    COLORREF bestColor = minContrastBlack >= minContrastWhite ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    double bestContrast = (bestColor == RGB(0, 0, 0)) ? minContrastBlack : minContrastWhite;
 
-    if (blackReadable != whiteReadable) {
-        return blackReadable ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    const double averageLuminance = (topLuminance + bottomLuminance) * 0.5;
+    if (averageLuminance < 0.35 && bestColor == RGB(0, 0, 0)) {
+        const COLORREF lightFallback = RGB(240, 240, 240);
+        const double lightLuminance = ComputeColorLuminance(lightFallback);
+        const double lightContrastTop = ComputeContrastRatio(topLuminance, lightLuminance);
+        const double lightContrastBottom = ComputeContrastRatio(bottomLuminance, lightLuminance);
+        const double lightContrast = std::min(lightContrastTop, lightContrastBottom);
+        if (lightContrast > bestContrast || lightContrast >= kMinimumReadableContrast) {
+            bestColor = lightFallback;
+            bestContrast = lightContrast;
+        }
     }
 
-    if (blackReadable && whiteReadable) {
-        return minContrastBlack >= minContrastWhite ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    if (bestContrast < kMinimumReadableContrast) {
+        if (bestColor == RGB(0, 0, 0) && minContrastWhite > bestContrast) {
+            bestColor = RGB(255, 255, 255);
+            bestContrast = minContrastWhite;
+        } else if (bestColor != RGB(0, 0, 0) && minContrastBlack > bestContrast) {
+            bestColor = RGB(0, 0, 0);
+            bestContrast = minContrastBlack;
+        }
     }
 
-    return minContrastBlack >= minContrastWhite ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    return bestColor;
 }
 
 COLORREF ChooseAccentTextColor(COLORREF accent) {
