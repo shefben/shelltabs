@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ShellTabs LANGUAGES CXX RC)
+project(ShellTabs LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,7 @@ add_library(minhook STATIC
     third_party/minhook/src/hook.cpp
     third_party/minhook/src/thread.cpp
     third_party/minhook/src/trampoline.cpp
+    third_party/minhook/src/HDE64/src/hde64.c
 )
 
 target_include_directories(minhook PUBLIC

@@ -49,11 +49,11 @@ using Microsoft::WRL::ComPtr;
 
 namespace shelltabs {
 
+LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+
 namespace {
 
 constexpr wchar_t kNewTabButtonClassName[] = L"ShellTabsNewTabButton";
-
-LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 bool EnsureNewTabButtonClassRegistered() {
     static bool attempted = false;
