@@ -42,6 +42,7 @@
 #include "PreviewCache.h"
 #include "Utilities.h"
 #include "ExplorerThemeUtils.h"
+#include "ThemeHooks.h"
 
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "Ole32.lib")
@@ -73,6 +74,20 @@ bool EnsureNewTabButtonClassRegistered() {
         }
     }
     return succeeded;
+}
+
+GlowColorSet BuildRebarGlowColors(const TabBandWindow::ThemePalette& palette) {
+    GlowColorSet colors{};
+    const COLORREF top = palette.rebarGradientValid ? palette.rebarGradientTop : palette.rebarBackground;
+    const COLORREF bottom = palette.rebarGradientValid ? palette.rebarGradientBottom : palette.rebarBackground;
+    colors.start = top;
+    colors.end = bottom;
+    colors.gradient = palette.rebarGradientValid && top != bottom;
+    colors.valid = true;
+    if (!colors.gradient) {
+        colors.end = colors.start;
+    }
+    return colors;
 }
 
 struct FontMetricsKey {
@@ -1938,6 +1953,29 @@ bool TabBandWindow::NeedsRebarIntegration() const {
         return frame != m_lastIntegratedFrame;
 }
 
+bool TabBandWindow::DrawRebarThemePart(HDC dc, const RECT& bounds, int partId, int stateId,
+                                       bool suppressFallback, const GlowColorSet* overrideColors) const {
+        if (!dc || !m_rebarTheme) {
+                return false;
+        }
+
+        RECT partBounds = bounds;
+        if (AreThemeHooksActive() && (overrideColors || suppressFallback)) {
+                GlowColorSet colors = overrideColors ? *overrideColors : GlowColorSet{};
+                ThemePaintOverrideGuard guard(m_hwnd, ExplorerSurfaceKind::Rebar, colors, suppressFallback);
+                const HRESULT hr = DrawThemeBackground(m_rebarTheme, dc, partId, stateId, &partBounds, nullptr);
+                if (SUCCEEDED(hr)) {
+                        return true;
+                }
+                if (suppressFallback) {
+                        return false;
+                }
+        }
+
+        const HRESULT hr = DrawThemeBackground(m_rebarTheme, dc, partId, stateId, &partBounds, nullptr);
+        return SUCCEEDED(hr);
+}
+
 void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
         if (!dc) return;
         if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return;
@@ -1973,19 +2011,14 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 		}
 	}
 
-	// After: never draw the themed rebar surfaces when dark.
-	if (!backgroundDrawn && m_rebarTheme && !m_darkMode) {
-		RECT fillRect = bounds;
-		if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BACKGROUND, 0, &fillRect, nullptr))) {
-			backgroundDrawn = true;
-		}
-	}
-	if (!backgroundDrawn && m_rebarTheme && !m_darkMode) {
-		RECT fillRect = bounds;
-		if (SUCCEEDED(DrawThemeBackground(m_rebarTheme, dc, RP_BAND, 0, &fillRect, nullptr))) {
-			backgroundDrawn = true;
-		}
-	}
+        // After: never draw the themed rebar surfaces when dark.
+        if (!backgroundDrawn && m_rebarTheme && !m_darkMode) {
+                const GlowColorSet colors = BuildRebarGlowColors(m_themePalette);
+                if (DrawRebarThemePart(dc, bounds, RP_BACKGROUND, 0, true, &colors) ||
+                    DrawRebarThemePart(dc, bounds, RP_BAND, 0, true, &colors)) {
+                        backgroundDrawn = true;
+                }
+        }
 
 	// Fallback fill (your code) now actually runs in dark mode:
         if (!backgroundDrawn && m_themePalette.rebarGradientValid) {
@@ -2014,14 +2047,14 @@ void TabBandWindow::DrawBackground(HDC dc, const RECT& bounds) const {
 
 	const int bandWidth = static_cast<int>(bounds.right - bounds.left);
 	const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
-	if (m_rebarTheme && gripWidth > 0 && !BandHasRebarGrip()) {
-		RECT gripRect{ bounds.left, bounds.top, bounds.left + gripWidth, bounds.bottom };
-		if (gripRect.right > gripRect.left) {
-			if (FAILED(DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPER, 0, &gripRect, nullptr))) {
-				DrawThemeBackground(m_rebarTheme, dc, RP_GRIPPERVERT, 0, &gripRect, nullptr);
-			}
-		}
-	}
+        if (m_rebarTheme && gripWidth > 0 && !BandHasRebarGrip()) {
+                RECT gripRect{ bounds.left, bounds.top, bounds.left + gripWidth, bounds.bottom };
+                if (gripRect.right > gripRect.left) {
+                        if (!DrawRebarThemePart(dc, gripRect, RP_GRIPPER, 0, false, nullptr)) {
+                                DrawRebarThemePart(dc, gripRect, RP_GRIPPERVERT, 0, false, nullptr);
+                        }
+                }
+        }
 }
 
 

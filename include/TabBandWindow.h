@@ -39,6 +39,7 @@ namespace shelltabs {
 
 class TabBand;
 class ExplorerWindowHook;
+struct GlowColorSet;
 
 class TabBandWindow {
 public:
@@ -456,6 +457,8 @@ private:
     void Draw(HDC dc);
     void PaintSurface(HDC dc, const RECT& windowRect) const;
     void DrawBackground(HDC dc, const RECT& bounds) const;
+    bool DrawRebarThemePart(HDC dc, const RECT& bounds, int partId, int stateId, bool suppressFallback,
+                            const GlowColorSet* overrideColors = nullptr) const;
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
