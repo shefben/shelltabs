@@ -4,11 +4,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "DpiUtils.h"
 #include "ColorUtils.h"
+#include "ExplorerThemeUtils.h"
 
 namespace shelltabs {
 
@@ -140,8 +142,30 @@ bool RenderGradientEditContent(HWND hwnd, HDC dc, const BreadcrumbGradientConfig
     const COLORREF previousTextColor = GetTextColor(dc);
     const COLORREF previousBkColor = GetBkColor(dc);
     COLORREF backgroundColor = previousBkColor;
+    bool restoreBkColor = false;
+    COLORREF restoreBkColorValue = previousBkColor;
     if (backgroundColor == CLR_INVALID) {
-        backgroundColor = GetSysColor(COLOR_WINDOW);
+        RECT sampleRect = client;
+        constexpr int kSampleInset = 1;
+        if ((sampleRect.right - sampleRect.left) > kSampleInset * 2 &&
+            (sampleRect.bottom - sampleRect.top) > kSampleInset * 2) {
+            InflateRect(&sampleRect, -kSampleInset, -kSampleInset);
+        }
+
+        const std::optional<COLORREF> sampledBackground = SampleAverageColor(dc, sampleRect);
+        if (sampledBackground.has_value()) {
+            backgroundColor = sampledBackground.value();
+        } else {
+            backgroundColor = GetSysColor(COLOR_WINDOW);
+        }
+    }
+
+    if (backgroundColor != CLR_INVALID && backgroundColor != previousBkColor) {
+        const COLORREF setResult = SetBkColor(dc, backgroundColor);
+        if (setResult != CLR_INVALID) {
+            restoreBkColor = true;
+            restoreBkColorValue = setResult;
+        }
     }
 
     const double backgroundLuminance = ComputeColorLuminance(backgroundColor);
@@ -371,6 +395,9 @@ bool RenderGradientEditContent(HWND hwnd, HDC dc, const BreadcrumbGradientConfig
     }
 
     SetBkMode(dc, previousBkMode);
+    if (restoreBkColor && restoreBkColorValue != CLR_INVALID) {
+        SetBkColor(dc, restoreBkColorValue);
+    }
     SetTextColor(dc, previousTextColor);
 
     if (oldFont) {
