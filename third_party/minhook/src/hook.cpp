@@ -55,7 +55,6 @@ namespace MinHook { namespace
 		std::vector<uintptr_t>	newIPs;
 	};
 
-	// ߏݗp\
 #pragma pack(push, 1)
 	struct JMP_REL
 	{
@@ -353,7 +352,7 @@ namespace MinHook { namespace
 		static const DWORD PageExecuteMask 
 			= (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY); 
 
-		// 蓖Ăss\ȗ̈`FbN
+		// Inspect the memory protection of the target region.
 		MEMORY_BASIC_INFORMATION mi = { 0 };
 		VirtualQuery(pAddress, &mi, sizeof(mi));
 
