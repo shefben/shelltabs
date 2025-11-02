@@ -2072,7 +2072,11 @@ LRESULT ExplorerGlowSurface::HandlePaintMessage(HWND hwnd, UINT msg, WPARAM wPar
 
     LRESULT defResult = DefSubclassProc(hwnd, msg, wParam, lParam);
 
-    if (!Coordinator().ShouldRenderSurface(Kind())) {
+    const bool glowActive = Coordinator().ShouldRenderSurface(Kind());
+    const bool gradientActive =
+        (Kind() == ExplorerSurfaceKind::Edit && Coordinator().BreadcrumbFontGradient().enabled);
+
+    if (!glowActive && !gradientActive) {
         return defResult;
     }
 
@@ -2107,20 +2111,18 @@ LRESULT ExplorerGlowSurface::HandlePaintMessage(HWND hwnd, UINT msg, WPARAM wPar
         hasClip = !IsRectEmpty(&clipRect);
     }
 
-    if (Kind() == ExplorerSurfaceKind::Edit) {
+    if (gradientActive) {
         const auto& gradientConfig = Coordinator().BreadcrumbFontGradient();
-        if (gradientConfig.enabled) {
-            GradientEditRenderOptions options;
-            options.hideCaret = true;
-            options.requestEraseBackground = false;
-            if (!IsRectEmpty(&clipRect)) {
-                options.clipRect = clipRect;
-            }
-            RenderGradientEditContent(hwnd, targetDc, gradientConfig, options);
+        GradientEditRenderOptions options;
+        options.hideCaret = true;
+        options.requestEraseBackground = false;
+        if (!IsRectEmpty(&clipRect)) {
+            options.clipRect = clipRect;
         }
+        RenderGradientEditContent(hwnd, targetDc, gradientConfig, options);
     }
 
-    if (hasClip) {
+    if (glowActive && hasClip) {
         PaintInternal(targetDc, clipRect);
     }
 
@@ -2139,25 +2141,27 @@ LRESULT ExplorerGlowSurface::HandlePrintClient(HWND hwnd, WPARAM wParam, LPARAM 
         return defResult;
     }
 
+    const bool glowActive = Coordinator().ShouldRenderSurface(Kind());
+    const bool gradientActive =
+        (Kind() == ExplorerSurfaceKind::Edit && Coordinator().BreadcrumbFontGradient().enabled);
+
     RECT clip{};
     if (GetClipBox(targetDc, &clip) == ERROR || IsRectEmpty(&clip)) {
         clip = GetClientRectSafe(hwnd);
     }
 
-    if (Kind() == ExplorerSurfaceKind::Edit) {
+    if (gradientActive) {
         const auto& gradientConfig = Coordinator().BreadcrumbFontGradient();
-        if (gradientConfig.enabled) {
-            GradientEditRenderOptions options;
-            options.hideCaret = false;
-            options.requestEraseBackground = true;
-            if (!IsRectEmpty(&clip)) {
-                options.clipRect = clip;
-            }
-            RenderGradientEditContent(hwnd, targetDc, gradientConfig, options);
+        GradientEditRenderOptions options;
+        options.hideCaret = false;
+        options.requestEraseBackground = true;
+        if (!IsRectEmpty(&clip)) {
+            options.clipRect = clip;
         }
+        RenderGradientEditContent(hwnd, targetDc, gradientConfig, options);
     }
 
-    if (Coordinator().ShouldRenderSurface(Kind()) && !IsRectEmpty(&clip)) {
+    if (glowActive && !IsRectEmpty(&clip)) {
         PaintInternal(targetDc, clip);
     }
 
