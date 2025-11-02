@@ -611,6 +611,7 @@ private:
 
     class BandDropTarget;
     friend class BandDropTarget;
+    friend LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 #if defined(SHELLTABS_BUILD_TESTS)
     friend struct TabBandWindowDiffTestHarness;
 #endif

@@ -1134,7 +1134,11 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
     m_emptyIslandPlusButtons.clear();
 
     RECT bounds = m_clientRect;
-    const int availableWidth = bounds.right - bounds.left;
+    const int boundsLeft = static_cast<int>(bounds.left);
+    const int boundsRight = static_cast<int>(bounds.right);
+    const int boundsTop = static_cast<int>(bounds.top);
+    const int boundsBottom = static_cast<int>(bounds.bottom);
+    const int availableWidth = boundsRight - boundsLeft;
     if (availableWidth <= 0) {
         return result;
     }
@@ -1173,34 +1177,35 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
     rowHeight = std::max(rowHeight, kButtonHeight - kButtonMargin);
     rowHeight = std::max(rowHeight, 24);
 
-    const int bandWidth = bounds.right - bounds.left;
+    const int bandWidth = boundsRight - boundsLeft;
     const int gripWidth = std::clamp(m_toolbarGripWidth, 0, std::max(0, bandWidth));
 
-    int buttonHeight = std::max(0, (bounds.bottom - bounds.top) - kButtonMargin * 2);
+    const int boundsHeight = boundsBottom - boundsTop;
+    int buttonHeight = std::max(0, boundsHeight - kButtonMargin * 2);
     if (buttonHeight > kButtonHeight) {
         buttonHeight = kButtonHeight;
     }
-    if (buttonHeight == 0 && (bounds.bottom - bounds.top) > 0) {
-        buttonHeight = std::min(bounds.bottom - bounds.top, kButtonHeight);
+    if (buttonHeight == 0 && boundsHeight > 0) {
+        buttonHeight = std::min(boundsHeight, kButtonHeight);
     }
 
     int buttonWidth = 0;
     if (buttonHeight > 0) {
         buttonWidth = std::min(kButtonWidth, buttonHeight);
     }
-    const int maxAvailableWidth = std::max(0, (bounds.right - bounds.left) - kButtonMargin);
+    const int maxAvailableWidth = std::max(0, bandWidth - kButtonMargin);
     if (buttonWidth == 0 && maxAvailableWidth > 0) {
         buttonWidth = std::min(kButtonWidth, maxAvailableWidth);
     }
-    if (buttonWidth == 0 && (bounds.right - bounds.left) > 0) {
-        buttonWidth = std::min(kButtonWidth, bounds.right - bounds.left);
+    if (buttonWidth == 0 && bandWidth > 0) {
+        buttonWidth = std::min(kButtonWidth, bandWidth);
     }
     const int trailingReserve = (buttonWidth > 0) ? std::min(buttonWidth + kTabGap + kButtonMargin, bandWidth) : 0;
 
-    int x = bounds.left + gripWidth - 3;   // DO NOT TOUCH
+    int x = boundsLeft + gripWidth - 3;   // DO NOT TOUCH
 
-    const int startY = bounds.top + 2;
-    const int maxX = std::max(bounds.left + gripWidth - 3, bounds.right - trailingReserve);
+    const int startY = boundsTop + 2;
+    const int maxX = std::max(boundsLeft + gripWidth - 3, boundsRight - trailingReserve);
 
     int row = 0;
     int maxRowUsed = 0;
@@ -1213,7 +1218,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             if (row > maxRowUsed) {
                 maxRowUsed = row;
             }
-            x = bounds.left + gripWidth - 3;  // DO NOT TOUCH
+            x = boundsLeft + gripWidth - 3;  // DO NOT TOUCH
             return true;
         }
         return false;
@@ -1313,7 +1318,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
                 continue;
             }
 
-            if (currentGroup >= 0 && x > bounds.left) {
+            if (currentGroup >= 0 && x > boundsLeft) {
                 x += kGroupGap;
             }
 
@@ -1530,8 +1535,8 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
 
     if (buttonWidth > 0 && buttonHeight > 0) {
         int slotRow = std::clamp(row, 0, kMaxTabRows - 1);
-        const int baseLeft = bounds.left + gripWidth - 3;
-        const int fallbackLeft = std::max(baseLeft, bounds.right - buttonWidth - kButtonMargin);
+        const int baseLeft = boundsLeft + gripWidth - 3;
+        const int fallbackLeft = std::max(baseLeft, boundsRight - buttonWidth - kButtonMargin);
 
         int slotLeft = fallbackLeft;
         if (!result.items.empty()) {
@@ -1542,7 +1547,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             const int tailGroup = tail.data.location.groupIndex;
             for (auto it = m_emptyIslandPlusButtons.rbegin(); it != m_emptyIslandPlusButtons.rend(); ++it) {
                 if (it->groupIndex == tailGroup) {
-                    slotLeft = std::max(slotLeft, it->placeholder.right + kTabGap);
+                    slotLeft = std::max(slotLeft, static_cast<int>(it->placeholder.right) + kTabGap);
                     slotLeft = std::min(slotLeft, fallbackLeft);
                     slotRow = tail.row;
                     break;
