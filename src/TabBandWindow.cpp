@@ -5057,47 +5057,50 @@ void TabBandWindow::ClearCloseButtonHover() {
     }
 }
 
-void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
-	if (!m_owner) {
-		return;
-	}
+void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
+    if (!m_owner) {
+        return;
+    }
 
-        const UINT id = LOWORD(wParam);
-        const UINT notification = HIWORD(wParam);
+    const UINT id = LOWORD(wParam);
+    const UINT notification = HIWORD(wParam);
 
-        if (id == IDC_NEW_TAB) {
-                if (notification == 0 || notification == BN_CLICKED) {
-                        m_owner->OnNewTabRequested();
-                }
-                return;
+    if (id == IDC_NEW_TAB) {
+        const HWND source = reinterpret_cast<HWND>(lParam);
+        const bool isButtonClick = (notification == BN_CLICKED) && source == m_newTabButton;
+        const bool isAccelerator = (notification == 0) && (source == nullptr);
+        if (isButtonClick || isAccelerator) {
+            m_owner->OnNewTabRequested();
         }
+        return;
+    }
 
-        if (id == IDM_CREATE_SAVED_GROUP) {
+    if (id == IDM_CREATE_SAVED_GROUP) {
+        const int insertAfter = ResolveInsertGroupIndex();
+        m_owner->OnCreateSavedGroup(insertAfter);
+        ClearExplorerContext();
+        return;
+    }
+
+    if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
+        for (const auto& entry : m_savedGroupCommands) {
+            if (entry.first == id) {
                 const int insertAfter = ResolveInsertGroupIndex();
-                m_owner->OnCreateSavedGroup(insertAfter);
-                ClearExplorerContext();
-                return;
+                m_owner->OnLoadSavedGroup(entry.second, insertAfter);
+                break;
+            }
         }
+        ClearExplorerContext();
+        return;
+    }
 
-        if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
-		for (const auto& entry : m_savedGroupCommands) {
-			if (entry.first == id) {
-				const int insertAfter = ResolveInsertGroupIndex();
-				m_owner->OnLoadSavedGroup(entry.second, insertAfter);
-				break;
-			}
-		}
-                ClearExplorerContext();
-                return;
+    if (id == IDM_NEW_THISPC_TAB) {
+        if (m_owner) {
+            m_owner->OnNewTabRequested(-1);
         }
-
-        if (id == IDM_NEW_THISPC_TAB) {
-                if (m_owner) {
-                        m_owner->OnNewTabRequested(-1);
-                }
-                ClearExplorerContext();
-                return;
-        }
+        ClearExplorerContext();
+        return;
+    }
 
         if (id == IDM_MANAGE_GROUPS) {
                 if (m_owner) {
