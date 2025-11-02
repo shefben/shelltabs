@@ -78,6 +78,37 @@ thread_local bool g_directUiDrawActive = false;
 std::once_flag g_directUiThemeLogged;
 std::once_flag g_directUiComLogged;
 
+struct ThemePaintOverrideState {
+    bool active = false;
+    ExplorerSurfaceKind kind = ExplorerSurfaceKind::ListView;
+    GlowColorSet colors{};
+    HWND window = nullptr;
+    bool suppressFallback = false;
+};
+
+thread_local ThemePaintOverrideState g_themePaintOverride{};
+
+const ThemePaintOverrideState* GetThemePaintOverride() noexcept {
+    return g_themePaintOverride.active ? &g_themePaintOverride : nullptr;
+}
+
+bool ActivateThemePaintOverride(HWND window, ExplorerSurfaceKind kind, const GlowColorSet& colors,
+                                bool suppressFallback) noexcept {
+    if (g_themePaintOverride.active) {
+        return false;
+    }
+    g_themePaintOverride.active = true;
+    g_themePaintOverride.kind = kind;
+    g_themePaintOverride.colors = colors;
+    g_themePaintOverride.window = window;
+    g_themePaintOverride.suppressFallback = suppressFallback;
+    return true;
+}
+
+void DeactivateThemePaintOverride() noexcept {
+    g_themePaintOverride = {};
+}
+
 // Forward declarations
 bool InstallHook(void* target, void* detour, void** original, const wchar_t* name);
 
@@ -230,6 +261,34 @@ std::optional<SurfaceLookupResult> ResolveSurfaceForPainting(HDC dc) {
         return result;
     }
     return std::nullopt;
+}
+
+std::optional<ExplorerSurfaceKind> ResolveSurfaceKindFromThemePart(int partId) noexcept {
+    switch (partId) {
+        case RP_GRIPPER:
+        case RP_GRIPPERVERT:
+        case RP_BAND:
+        case RP_BANDVERT:
+        case RP_BACKGROUND:
+        case RP_CHEVRON:
+        case RP_CHEVRONVERT:
+        case RP_SPLITTER:
+        case RP_SPLITTERVERT:
+            return ExplorerSurfaceKind::Rebar;
+        case TP_BUTTON:
+        case TP_DROPDOWNBUTTON:
+        case TP_SPLITBUTTON:
+        case TP_SPLITBUTTONDROPDOWN:
+        case TP_SEPARATOR:
+        case TP_SEPARATORVERT:
+        case TP_SEPARATORLEFT:
+        case TP_SEPARATORLEFTVERT:
+        case TP_SEPARATORRIGHT:
+        case TP_SEPARATORRIGHTVERT:
+            return ExplorerSurfaceKind::Toolbar;
+        default:
+            return std::nullopt;
+    }
 }
 
 int ScaleByDpiInternal(int value, UINT dpi) {
@@ -583,17 +642,31 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
     }
 
     auto surface = ResolveSurfaceFromWindowDc(dc);
-    if (!surface.has_value()) {
+    const ThemePaintOverrideState* override = GetThemePaintOverride();
+
+    ExplorerGlowCoordinator* coordinator = surface.has_value() ? surface->registration.coordinator : nullptr;
+    ExplorerSurfaceKind surfaceKind = ExplorerSurfaceKind::ListView;
+    bool haveSurfaceKind = false;
+
+    if (override) {
+        surfaceKind = override->kind;
+        haveSurfaceKind = true;
+    } else if (surface.has_value()) {
+        surfaceKind = surface->registration.kind;
+        haveSurfaceKind = true;
+    } else if (auto mapped = ResolveSurfaceKindFromThemePart(partId); mapped.has_value()) {
+        surfaceKind = *mapped;
+        haveSurfaceKind = true;
+    }
+
+    if (!haveSurfaceKind) {
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
-    if (!coordinator) {
-        return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
-    }
-
-    const ExplorerSurfaceKind surfaceKind = surface->registration.kind;
-    if (surfaceKind == ExplorerSurfaceKind::Scrollbar) {
+    if (surfaceKind == ExplorerSurfaceKind::Scrollbar && !override) {
+        if (!coordinator) {
+            return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+        }
         auto definition = coordinator->ResolveScrollbarDefinition();
         if (!definition.has_value()) {
             return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
@@ -620,19 +693,33 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    GlowColorSet colors = coordinator->ResolveColors(surfaceKind);
+    GlowColorSet colors{};
+    if (override && override->colors.valid) {
+        colors = override->colors;
+    } else if (coordinator) {
+        colors = coordinator->ResolveColors(surfaceKind);
+    }
+
     if (!colors.valid) {
+        if (override && override->suppressFallback) {
+            return S_OK;
+        }
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    const bool isDirectUiSurface = (surfaceKind == ExplorerSurfaceKind::DirectUi);
+    HWND paintWindow = nullptr;
+    if (override && override->window) {
+        paintWindow = override->window;
+    } else if (surface.has_value()) {
+        paintWindow = surface->window;
+    }
 
     RECT paintRect = *rect;
     if (clipRect) {
         RECT clipped{};
         if (!IntersectRect(&clipped, &paintRect, clipRect) || clipped.right <= clipped.left ||
             clipped.bottom <= clipped.top) {
-            if (isDirectUiSurface) {
+            if (surfaceKind == ExplorerSurfaceKind::DirectUi && surface.has_value()) {
                 ScopedPaintContext context(*surface);
                 return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
             }
@@ -641,17 +728,27 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         paintRect = clipped;
     }
 
-    if (isDirectUiSurface) {
+    if (surfaceKind == ExplorerSurfaceKind::DirectUi) {
+        if (!surface.has_value()) {
+            if (override && override->suppressFallback) {
+                return S_OK;
+            }
+            return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+        }
         ScopedPaintContext context(*surface);
         std::call_once(g_directUiThemeLogged,
                        []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI theme hook active"); });
-        PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind);
+        PaintGlowSurface(dc, paintWindow, paintRect, colors, surfaceKind);
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    if (!PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind)) {
+    if (!PaintGlowSurface(dc, paintWindow, paintRect, colors, surfaceKind)) {
+        if (override && override->suppressFallback) {
+            return S_OK;
+        }
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
+
     return S_OK;
 }
 
@@ -666,17 +763,28 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
     }
 
     auto surface = ResolveSurfaceFromWindowDc(dc);
-    if (!surface.has_value()) {
+    const ThemePaintOverrideState* override = GetThemePaintOverride();
+
+    ExplorerGlowCoordinator* coordinator = surface.has_value() ? surface->registration.coordinator : nullptr;
+    ExplorerSurfaceKind surfaceKind = ExplorerSurfaceKind::ListView;
+    bool haveSurfaceKind = false;
+
+    if (override) {
+        surfaceKind = override->kind;
+        haveSurfaceKind = true;
+    } else if (surface.has_value()) {
+        surfaceKind = surface->registration.kind;
+        haveSurfaceKind = true;
+    } else if (auto mapped = ResolveSurfaceKindFromThemePart(partId); mapped.has_value()) {
+        surfaceKind = *mapped;
+        haveSurfaceKind = true;
+    }
+
+    if (!haveSurfaceKind) {
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
 
-    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
-    if (!coordinator) {
-        return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
-    }
-
-    const ExplorerSurfaceKind surfaceKind = surface->registration.kind;
-    if (surfaceKind == ExplorerSurfaceKind::Scrollbar) {
+    if (surfaceKind == ExplorerSurfaceKind::Scrollbar && !override) {
         auto partInfo = DescribeScrollbarPart(partId);
         if (partInfo.has_value()) {
             if (contentRect) {
@@ -686,27 +794,58 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
         }
     }
 
-    GlowColorSet colors = coordinator->ResolveColors(surfaceKind);
+    GlowColorSet colors{};
+    if (override && override->colors.valid) {
+        colors = override->colors;
+    } else if (coordinator) {
+        colors = coordinator->ResolveColors(surfaceKind);
+    }
+
     if (!colors.valid) {
+        if (override && override->suppressFallback) {
+            if (contentRect) {
+                *contentRect = *rect;
+            }
+            return S_OK;
+        }
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
 
-    RECT paintRect = *rect;
-    const bool isDirectUiSurface = (surfaceKind == ExplorerSurfaceKind::DirectUi);
+    HWND paintWindow = nullptr;
+    if (override && override->window) {
+        paintWindow = override->window;
+    } else if (surface.has_value()) {
+        paintWindow = surface->window;
+    }
 
-    if (isDirectUiSurface) {
+    if (surfaceKind == ExplorerSurfaceKind::DirectUi) {
+        if (!surface.has_value()) {
+            if (override && override->suppressFallback) {
+                if (contentRect) {
+                    *contentRect = *rect;
+                }
+                return S_OK;
+            }
+            return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
+        }
         ScopedPaintContext context(*surface);
         std::call_once(g_directUiThemeLogged,
                        []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI theme hook active"); });
-        PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind);
+        PaintGlowSurface(dc, paintWindow, *rect, colors, surfaceKind);
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
 
-    if (!PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind)) {
+    if (!PaintGlowSurface(dc, paintWindow, *rect, colors, surfaceKind)) {
+        if (override && override->suppressFallback) {
+            if (contentRect) {
+                *contentRect = *rect;
+            }
+            return S_OK;
+        }
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
     if (contentRect) {
-        *contentRect = paintRect;
+        *contentRect = *rect;
     }
     return S_OK;
 }
@@ -1043,6 +1182,8 @@ void ShutdownThemeHooks() {
     LogMessage(LogLevel::Info, L"ThemeHooks: detached theme detours");
 }
 
+bool AreThemeHooksActive() noexcept { return g_hooksActive; }
+
 void RegisterThemeSurface(HWND hwnd, ExplorerSurfaceKind kind, ExplorerGlowCoordinator* coordinator) noexcept {
     if (!hwnd || !coordinator) {
         return;
@@ -1058,6 +1199,35 @@ void UnregisterThemeSurface(HWND hwnd) noexcept {
     InvalidateScrollbarMetricsInternal(hwnd);
     std::lock_guard<std::mutex> guard(g_registryMutex);
     g_surfaceRegistry.erase(hwnd);
+}
+
+ThemePaintOverrideGuard::ThemePaintOverrideGuard(HWND window, ExplorerSurfaceKind kind, GlowColorSet colors,
+                                                 bool suppressFallback) noexcept {
+    if (ActivateThemePaintOverride(window, kind, colors, suppressFallback)) {
+        m_active = true;
+    }
+}
+
+ThemePaintOverrideGuard::~ThemePaintOverrideGuard() {
+    if (m_active) {
+        DeactivateThemePaintOverride();
+    }
+}
+
+ThemePaintOverrideGuard::ThemePaintOverrideGuard(ThemePaintOverrideGuard&& other) noexcept {
+    m_active = other.m_active;
+    other.m_active = false;
+}
+
+ThemePaintOverrideGuard& ThemePaintOverrideGuard::operator=(ThemePaintOverrideGuard&& other) noexcept {
+    if (this != &other) {
+        if (m_active) {
+            DeactivateThemePaintOverride();
+        }
+        m_active = other.m_active;
+        other.m_active = false;
+    }
+    return *this;
 }
 
 }  // namespace shelltabs
