@@ -1,6 +1,7 @@
 #include "ExplorerGlowSurfaces.h"
 
 #include "BreadcrumbGradient.h"
+#include "EditGradientRenderer.h"
 
 #include "ExplorerThemeUtils.h"
 #include "ShellTabsListView.h"
@@ -1441,7 +1442,7 @@ protected:
                         };
 
                         const float horizontalAngle = 0.0f;
-                        const float verticalAngle = 90.0f;
+                        const float verticalAngle = 0.0f;
 
                         RECT topHaloRect = {mergedLocal.left - haloThicknessX, inner.top - haloThicknessY,
                                             mergedLocal.right + haloThicknessX, inner.top};
@@ -1484,8 +1485,8 @@ protected:
         }
 
         if (!mergedPainted) {
-            FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha);
-            FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha);
+            FillFrameRegion(graphics, colors, halo, inner, kFrameHaloAlpha, 0.0f);
+            FillFrameRegion(graphics, colors, frame, inner, kFrameAlpha, 0.0f);
         }
 
         EndBufferedPaint(buffer, TRUE);
@@ -2029,21 +2030,6 @@ std::optional<LRESULT> ExplorerGlowSurface::HandleMessage(HWND hwnd, UINT msg, W
             }
             break;
         case WM_PRINTCLIENT:
-            if (Kind() == ExplorerSurfaceKind::Edit) {
-                HDC targetDc = reinterpret_cast<HDC>(wParam);
-                if (targetDc) {
-                    if (Coordinator().ShouldRenderSurface(Kind())) {
-                        RECT clip{};
-                        if (GetClipBox(targetDc, &clip) == ERROR || IsRectEmpty(&clip)) {
-                            clip = GetClientRectSafe(hwnd);
-                        }
-                        if (!IsRectEmpty(&clip)) {
-                            PaintInternal(targetDc, clip);
-                        }
-                    }
-                }
-                return 0;
-            }
             if (!UsesCustomDraw()) {
                 return HandlePrintClient(hwnd, wParam, lParam);
             }
@@ -2100,6 +2086,19 @@ LRESULT ExplorerGlowSurface::HandlePaintMessage(HWND hwnd, UINT msg, WPARAM wPar
         hasClip = !IsRectEmpty(&clipRect);
     }
 
+    if (Kind() == ExplorerSurfaceKind::Edit) {
+        const auto& gradientConfig = Coordinator().BreadcrumbFontGradient();
+        if (gradientConfig.enabled) {
+            GradientEditRenderOptions options;
+            options.hideCaret = true;
+            options.requestEraseBackground = false;
+            if (!IsRectEmpty(&clipRect)) {
+                options.clipRect = clipRect;
+            }
+            RenderGradientEditContent(hwnd, targetDc, gradientConfig, options);
+        }
+    }
+
     if (hasClip) {
         PaintInternal(targetDc, clipRect);
     }
@@ -2113,9 +2112,6 @@ LRESULT ExplorerGlowSurface::HandlePaintMessage(HWND hwnd, UINT msg, WPARAM wPar
 
 LRESULT ExplorerGlowSurface::HandlePrintClient(HWND hwnd, WPARAM wParam, LPARAM lParam) {
     LRESULT defResult = DefSubclassProc(hwnd, WM_PRINTCLIENT, wParam, lParam);
-    if (!Coordinator().ShouldRenderSurface(Kind())) {
-        return defResult;
-    }
 
     HDC targetDc = reinterpret_cast<HDC>(wParam);
     if (!targetDc) {
@@ -2127,7 +2123,20 @@ LRESULT ExplorerGlowSurface::HandlePrintClient(HWND hwnd, WPARAM wParam, LPARAM 
         clip = GetClientRectSafe(hwnd);
     }
 
-    if (!IsRectEmpty(&clip)) {
+    if (Kind() == ExplorerSurfaceKind::Edit) {
+        const auto& gradientConfig = Coordinator().BreadcrumbFontGradient();
+        if (gradientConfig.enabled) {
+            GradientEditRenderOptions options;
+            options.hideCaret = false;
+            options.requestEraseBackground = true;
+            if (!IsRectEmpty(&clip)) {
+                options.clipRect = clip;
+            }
+            RenderGradientEditContent(hwnd, targetDc, gradientConfig, options);
+        }
+    }
+
+    if (Coordinator().ShouldRenderSurface(Kind()) && !IsRectEmpty(&clip)) {
         PaintInternal(targetDc, clip);
     }
 
