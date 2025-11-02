@@ -61,6 +61,8 @@ add_library(ShellTabs SHARED
     src/Logging.cpp
     src/Notifications.cpp
     src/BreadcrumbGradient.cpp
+    src/DpiUtils.cpp
+    src/EditGradientRenderer.cpp
     src/ExplorerGlowSurfaces.cpp
     src/ThemeHooks.cpp
     src/PaneHooks.cpp
