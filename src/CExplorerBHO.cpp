@@ -2359,7 +2359,11 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
     if (!IsWindowOwnedByThisExplorer(hwnd)) {
         return false;
     }
-    if (!m_glowCoordinator.ShouldRenderSurface(kind)) {
+    const bool glowActive = m_glowCoordinator.ShouldRenderSurface(kind);
+    const bool gradientActive =
+        (kind == ExplorerSurfaceKind::Edit && m_glowCoordinator.BreadcrumbFontGradient().enabled);
+
+    if (!glowActive && !gradientActive) {
         UnregisterGlowSurface(hwnd);
         return false;
     }
