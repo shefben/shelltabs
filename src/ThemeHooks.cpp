@@ -6,8 +6,10 @@
 #include <optional>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <algorithm>
+#include <vector>
 
 #include <windowsx.h>
 #include <uxtheme.h>
@@ -32,6 +34,7 @@ struct ThemeSurfaceRegistration {
 
 std::mutex g_registryMutex;
 std::unordered_map<HWND, ThemeSurfaceRegistration, HwndHasher> g_surfaceRegistry;
+std::unordered_set<HWND, HwndHasher> g_directUiHosts;
 
 std::mutex g_initializationMutex;
 bool g_hooksActive = false;
@@ -40,21 +43,95 @@ using DrawThemeBackgroundFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, const RECT
 using DrawThemeEdgeFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, const RECT*, UINT, UINT, RECT*);
 using FillRectFn = int(WINAPI*)(HDC, const RECT*, HBRUSH);
 using GdiGradientFillFn = BOOL(WINAPI*)(HDC, PTRIVERTEX, ULONG, PVOID, ULONG, ULONG);
+using DirectUiDrawFn = HRESULT(STDMETHODCALLTYPE*)(void*, HDC, const RECT*, UINT, void*);
 
 DrawThemeBackgroundFn g_originalDrawThemeBackground = nullptr;
 DrawThemeEdgeFn g_originalDrawThemeEdge = nullptr;
 FillRectFn g_originalFillRect = nullptr;
 GdiGradientFillFn g_originalGdiGradientFill = nullptr;
-
 void* g_drawThemeBackgroundTarget = nullptr;
 void* g_drawThemeEdgeTarget = nullptr;
 void* g_fillRectTarget = nullptr;
 void* g_gdiGradientFillTarget = nullptr;
+std::vector<void*> g_directUiDetourTargets;
 
 thread_local bool g_drawThemeBackgroundActive = false;
 thread_local bool g_drawThemeEdgeActive = false;
 thread_local bool g_fillRectActive = false;
 thread_local bool g_gradientFillActive = false;
+thread_local bool g_directUiDrawActive = false;
+
+std::once_flag g_directUiThemeLogged;
+std::once_flag g_directUiComLogged;
+
+struct PaintContextSnapshot {
+    bool active = false;
+    ThemeSurfaceRegistration registration{};
+    HWND window = nullptr;
+};
+
+thread_local PaintContextSnapshot g_threadPaintContext{};
+
+class ScopedPaintContext {
+public:
+    ScopedPaintContext() = default;
+
+    explicit ScopedPaintContext(const SurfaceLookupResult& surface) {
+        m_previous = g_threadPaintContext;
+        g_threadPaintContext.active = true;
+        g_threadPaintContext.registration = surface.registration;
+        g_threadPaintContext.window = surface.window;
+        m_active = true;
+    }
+
+    ~ScopedPaintContext() {
+        if (m_active) {
+            g_threadPaintContext = m_previous;
+        }
+    }
+
+    ScopedPaintContext(const ScopedPaintContext&) = delete;
+    ScopedPaintContext& operator=(const ScopedPaintContext&) = delete;
+
+    ScopedPaintContext(ScopedPaintContext&& other) noexcept {
+        m_previous = other.m_previous;
+        m_active = other.m_active;
+        other.m_active = false;
+    }
+
+    ScopedPaintContext& operator=(ScopedPaintContext&& other) noexcept {
+        if (this != &other) {
+            if (m_active) {
+                g_threadPaintContext = m_previous;
+            }
+            m_previous = other.m_previous;
+            m_active = other.m_active;
+            other.m_active = false;
+        }
+        return *this;
+    }
+
+    bool Active() const noexcept { return m_active; }
+
+private:
+    PaintContextSnapshot m_previous{};
+    bool m_active = false;
+};
+
+struct DirectUiElementInfo {
+    ThemeSurfaceRegistration registration{};
+    HWND host = nullptr;
+    void* target = nullptr;
+};
+
+struct DirectUiTargetInfo {
+    DirectUiDrawFn original = nullptr;
+    bool installed = false;
+};
+
+std::mutex g_directUiDetourMutex;
+std::unordered_map<void*, DirectUiElementInfo> g_directUiElementInfo;
+std::unordered_map<void*, DirectUiTargetInfo> g_directUiTargetInfo;
 
 class ReentrancyGuard {
 public:
@@ -92,7 +169,7 @@ std::optional<ThemeSurfaceRegistration> LookupRegistration(HWND hwnd) {
     return it->second;
 }
 
-std::optional<SurfaceLookupResult> ResolveSurfaceFromDc(HDC dc) {
+std::optional<SurfaceLookupResult> ResolveSurfaceFromWindowDc(HDC dc) {
     if (!dc) {
         return std::nullopt;
     }
@@ -119,6 +196,21 @@ std::optional<SurfaceLookupResult> ResolveSurfaceFromDc(HDC dc) {
             break;
         }
         current = parent;
+    }
+    return std::nullopt;
+}
+
+std::optional<SurfaceLookupResult> ResolveSurfaceForPainting(HDC dc) {
+    auto surface = ResolveSurfaceFromWindowDc(dc);
+    if (surface.has_value()) {
+        return surface;
+    }
+
+    if (g_threadPaintContext.active) {
+        SurfaceLookupResult result{};
+        result.registration = g_threadPaintContext.registration;
+        result.window = g_threadPaintContext.window;
+        return result;
     }
     return std::nullopt;
 }
@@ -213,6 +305,58 @@ bool PaintGlowSurface(HDC dc, HWND hwnd, const RECT& rect, const GlowColorSet& c
     return PaintSolid(dc, rect, colors.start);
 }
 
+HRESULT STDMETHODCALLTYPE DirectUiDrawDetour(void* element, HDC dc, const RECT* rect, UINT state, void* data) {
+    DirectUiElementInfo elementInfo{};
+    DirectUiDrawFn original = nullptr;
+
+    {
+        std::lock_guard<std::mutex> guard(g_directUiDetourMutex);
+        auto elementIt = g_directUiElementInfo.find(element);
+        if (elementIt != g_directUiElementInfo.end()) {
+            elementInfo = elementIt->second;
+            auto targetIt = g_directUiTargetInfo.find(elementInfo.target);
+            if (targetIt != g_directUiTargetInfo.end()) {
+                original = targetIt->second.original;
+            }
+        }
+    }
+
+    if (!original) {
+        return S_OK;
+    }
+
+    ReentrancyGuard guard(g_directUiDrawActive);
+    if (!guard.Entered()) {
+        return original(element, dc, rect, state, data);
+    }
+
+    bool hostRegistered = false;
+    {
+        std::lock_guard<std::mutex> guard(g_registryMutex);
+        hostRegistered = g_directUiHosts.find(elementInfo.host) != g_directUiHosts.end();
+    }
+    if (!hostRegistered) {
+        return original(element, dc, rect, state, data);
+    }
+
+    SurfaceLookupResult surface{};
+    surface.registration = elementInfo.registration;
+    surface.window = elementInfo.host;
+
+    ScopedPaintContext context(surface);
+    std::call_once(g_directUiComLogged,
+                   []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI COM hook active"); });
+
+    if (rect && elementInfo.registration.coordinator) {
+        GlowColorSet colors = elementInfo.registration.coordinator->ResolveColors(elementInfo.registration.kind);
+        if (colors.valid) {
+            PaintGlowSurface(dc, elementInfo.host, *rect, colors, elementInfo.registration.kind);
+        }
+    }
+
+    return original(element, dc, rect, state, data);
+}
+
 HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int stateId, const RECT* rect,
                                          const RECT* clipRect) {
     ReentrancyGuard guard(g_drawThemeBackgroundActive);
@@ -223,7 +367,7 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    auto surface = ResolveSurfaceFromDc(dc);
+    auto surface = ResolveSurfaceFromWindowDc(dc);
     if (!surface.has_value()) {
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
@@ -233,14 +377,28 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
+    const bool isDirectUiSurface = (surface->registration.kind == ExplorerSurfaceKind::DirectUi);
+
     RECT paintRect = *rect;
     if (clipRect) {
         RECT clipped{};
         if (!IntersectRect(&clipped, &paintRect, clipRect) || clipped.right <= clipped.left ||
             clipped.bottom <= clipped.top) {
+            if (isDirectUiSurface) {
+                ScopedPaintContext context(*surface);
+                return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+            }
             return S_OK;
         }
         paintRect = clipped;
+    }
+
+    if (isDirectUiSurface) {
+        ScopedPaintContext context(*surface);
+        std::call_once(g_directUiThemeLogged,
+                       []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI theme hook active"); });
+        PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind);
+        return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
     if (!PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind)) {
@@ -259,7 +417,7 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
 
-    auto surface = ResolveSurfaceFromDc(dc);
+    auto surface = ResolveSurfaceFromWindowDc(dc);
     if (!surface.has_value()) {
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
@@ -270,6 +428,16 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
     }
 
     RECT paintRect = *rect;
+    const bool isDirectUiSurface = (surface->registration.kind == ExplorerSurfaceKind::DirectUi);
+
+    if (isDirectUiSurface) {
+        ScopedPaintContext context(*surface);
+        std::call_once(g_directUiThemeLogged,
+                       []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI theme hook active"); });
+        PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind);
+        return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
+    }
+
     if (!PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind)) {
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
@@ -285,7 +453,7 @@ int WINAPI FillRectDetour(HDC dc, const RECT* rect, HBRUSH brush) {
         return g_originalFillRect(dc, rect, brush);
     }
 
-    auto surface = ResolveSurfaceFromDc(dc);
+    auto surface = ResolveSurfaceForPainting(dc);
     if (!surface.has_value()) {
         return g_originalFillRect(dc, rect, brush);
     }
@@ -340,7 +508,7 @@ BOOL WINAPI GdiGradientFillDetour(HDC dc, PTRIVERTEX vertices, ULONG vertexCount
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
     }
 
-    auto surface = ResolveSurfaceFromDc(dc);
+    auto surface = ResolveSurfaceForPainting(dc);
     if (!surface.has_value()) {
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
     }
@@ -361,6 +529,85 @@ BOOL WINAPI GdiGradientFillDetour(HDC dc, PTRIVERTEX vertices, ULONG vertexCount
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
     }
     return TRUE;
+}
+
+void RegisterDirectUiHostInternal(HWND hwnd) noexcept {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> guard(g_registryMutex);
+    g_directUiHosts.insert(hwnd);
+}
+
+void UnregisterDirectUiHostInternal(HWND hwnd) noexcept {
+    if (!hwnd) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> guard(g_registryMutex);
+        g_directUiHosts.erase(hwnd);
+    }
+
+    std::lock_guard<std::mutex> detourGuard(g_directUiDetourMutex);
+    for (auto it = g_directUiElementInfo.begin(); it != g_directUiElementInfo.end();) {
+        if (it->second.host == hwnd) {
+            it = g_directUiElementInfo.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void RegisterDirectUiRenderInterfaceInternal(void* element, size_t drawIndex, HWND host,
+                                             ExplorerGlowCoordinator* coordinator) noexcept {
+    if (!element || !coordinator || !host) {
+        return;
+    }
+    if (!g_hooksActive) {
+        return;
+    }
+    auto** vtablePtr = reinterpret_cast<void***>(element);
+    if (!vtablePtr || !*vtablePtr) {
+        return;
+    }
+
+    constexpr size_t kMaxDirectUiVtableSlots = 128;
+    if (drawIndex >= kMaxDirectUiVtableSlots) {
+        return;
+    }
+
+    void** vtable = *vtablePtr;
+    void* target = vtable[drawIndex];
+    if (!target) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> guard(g_directUiDetourMutex);
+    if (g_directUiElementInfo.find(element) != g_directUiElementInfo.end()) {
+        auto& info = g_directUiElementInfo[element];
+        info.registration.coordinator = coordinator;
+        info.host = host;
+        info.target = target;
+        return;
+    }
+
+    auto targetIt = g_directUiTargetInfo.find(target);
+    if (targetIt == g_directUiTargetInfo.end() || !targetIt->second.installed) {
+        DirectUiTargetInfo info{};
+        if (!InstallHook(target, reinterpret_cast<void*>(&DirectUiDrawDetour),
+                         reinterpret_cast<void**>(&info.original), L"DirectUiDraw")) {
+            return;
+        }
+        info.installed = true;
+        g_directUiTargetInfo[target] = info;
+        g_directUiDetourTargets.push_back(target);
+    }
+
+    DirectUiElementInfo elementInfo{};
+    elementInfo.registration = ThemeSurfaceRegistration{coordinator, ExplorerSurfaceKind::DirectUi};
+    elementInfo.host = host;
+    elementInfo.target = target;
+    g_directUiElementInfo[element] = elementInfo;
 }
 
 bool InstallHook(void* target, void* detour, void** original, const wchar_t* name) {
@@ -393,6 +640,19 @@ void DisableHook(void* target, const wchar_t* name) {
 }
 
 }  // namespace
+
+void RegisterDirectUiHost(HWND hwnd) noexcept {
+    RegisterDirectUiHostInternal(hwnd);
+}
+
+void UnregisterDirectUiHost(HWND hwnd) noexcept {
+    UnregisterDirectUiHostInternal(hwnd);
+}
+
+void RegisterDirectUiRenderInterface(void* element, size_t drawIndex, HWND host,
+                                     ExplorerGlowCoordinator* coordinator) noexcept {
+    RegisterDirectUiRenderInterfaceInternal(element, drawIndex, host, coordinator);
+}
 
 bool InitializeThemeHooks() {
     std::lock_guard<std::mutex> guard(g_initializationMutex);
@@ -479,6 +739,16 @@ void ShutdownThemeHooks() {
     DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
     DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
 
+    {
+        std::lock_guard<std::mutex> detourGuard(g_directUiDetourMutex);
+        for (void* target : g_directUiDetourTargets) {
+            DisableHook(target, L"DirectUiDraw");
+        }
+        g_directUiDetourTargets.clear();
+        g_directUiTargetInfo.clear();
+        g_directUiElementInfo.clear();
+    }
+
     MH_STATUS status = MH_Uninitialize();
     if (status != MH_OK && status != MH_ERROR_NOT_INITIALIZED) {
         LogMessage(LogLevel::Warning, L"ThemeHooks: MH_Uninitialize failed (status=%d)", status);
@@ -487,6 +757,7 @@ void ShutdownThemeHooks() {
     {
         std::lock_guard<std::mutex> registryGuard(g_registryMutex);
         g_surfaceRegistry.clear();
+        g_directUiHosts.clear();
     }
 
     g_originalDrawThemeBackground = nullptr;
