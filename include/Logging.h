@@ -7,6 +7,7 @@
 namespace shelltabs {
 
 enum class LogLevel {
+    Verbose,
     Info,
     Warning,
     Error,

@@ -64,6 +64,9 @@ thread_local bool g_directUiDrawActive = false;
 std::once_flag g_directUiThemeLogged;
 std::once_flag g_directUiComLogged;
 
+// Forward declarations
+bool InstallHook(void* target, void* detour, void** original, const wchar_t* name);
+
 struct PaintContextSnapshot {
     bool active = false;
     ThemeSurfaceRegistration registration{};
@@ -71,6 +74,11 @@ struct PaintContextSnapshot {
 };
 
 thread_local PaintContextSnapshot g_threadPaintContext{};
+
+struct SurfaceLookupResult {
+    ThemeSurfaceRegistration registration;
+    HWND window = nullptr;
+};
 
 class ScopedPaintContext {
 public:
@@ -153,11 +161,6 @@ public:
 private:
     bool& m_flag;
     bool m_entered = false;
-};
-
-struct SurfaceLookupResult {
-    ThemeSurfaceRegistration registration;
-    HWND window = nullptr;
 };
 
 std::optional<ThemeSurfaceRegistration> LookupRegistration(HWND hwnd) {
@@ -332,7 +335,7 @@ HRESULT STDMETHODCALLTYPE DirectUiDrawDetour(void* element, HDC dc, const RECT* 
 
     bool hostRegistered = false;
     {
-        std::lock_guard<std::mutex> guard(g_registryMutex);
+        std::lock_guard<std::mutex> registryGuard(g_registryMutex);
         hostRegistered = g_directUiHosts.find(elementInfo.host) != g_directUiHosts.end();
     }
     if (!hostRegistered) {
