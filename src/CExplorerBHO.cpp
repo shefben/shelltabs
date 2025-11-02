@@ -7541,31 +7541,18 @@ LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WP
     switch (msg) {
         case WM_NCPAINT:
         case WM_PRINTCLIENT: {
-            if (!self->ShouldSuppressScrollbarDrawing(hwnd)) {
-                self->RestoreScrollbarTransparency(hwnd);
-                break;
-            }
-
-            self->EnsureScrollbarTransparency(hwnd);
-
-            bool painted = false;
-            if (msg == WM_PRINTCLIENT) {
-                painted = self->PaintScrollbarGlow(hwnd, reinterpret_cast<HDC>(wParam), nullptr);
+            if (self->ShouldSuppressScrollbarDrawing(hwnd)) {
+                self->EnsureScrollbarTransparency(hwnd);
             } else {
-                painted = self->PaintScrollbarGlow(hwnd, nullptr, reinterpret_cast<HRGN>(wParam));
-            }
-
-            if (!painted) {
                 self->RestoreScrollbarTransparency(hwnd);
-                break;
             }
-
-            return 0;
+            break;
         }
         case WM_THEMECHANGED:
         case WM_SETTINGCHANGE:
         case WM_DPICHANGED: {
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            shelltabs::InvalidateScrollbarMetrics(hwnd);
             if (self->ShouldSuppressScrollbarDrawing(hwnd)) {
                 self->EnsureScrollbarTransparency(hwnd);
                 self->RequestScrollbarGlowRepaint(hwnd);
@@ -7575,6 +7562,7 @@ LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WP
             return result;
         }
         case WM_NCDESTROY:
+            shelltabs::InvalidateScrollbarMetrics(hwnd);
             self->RestoreScrollbarTransparency(hwnd);
             self->m_scrollbarGlowSubclassed.erase(hwnd);
             RemoveWindowSubclass(hwnd, &CExplorerBHO::ScrollbarGlowSubclassProc, reinterpret_cast<UINT_PTR>(self));

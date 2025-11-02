@@ -30,6 +30,14 @@ struct GlowColorSet {
     COLORREF end = RGB(0, 0, 0);
 };
 
+struct ScrollbarGlowDefinition {
+    GlowColorSet colors{};
+    BYTE trackLineAlpha = 0;
+    BYTE trackHaloAlpha = 0;
+    BYTE thumbFillAlpha = 0;
+    BYTE thumbHaloAlpha = 0;
+};
+
 class ExplorerGlowCoordinator {
 public:
     ExplorerGlowCoordinator();
@@ -41,6 +49,7 @@ public:
     bool ShouldRender() const noexcept { return m_glowEnabled && !m_highContrastActive; }
     bool ShouldRenderSurface(ExplorerSurfaceKind kind) const noexcept;
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
+    std::optional<ScrollbarGlowDefinition> ResolveScrollbarDefinition() const;
     const BreadcrumbGradientConfig& BreadcrumbFontGradient() const noexcept { return m_breadcrumbFontGradient; }
 
 private:
