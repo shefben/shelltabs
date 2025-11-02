@@ -366,6 +366,7 @@ private:
     bool m_newTabButtonPressed = false;
     bool m_newTabButtonKeyboardPressed = false;
     bool m_newTabButtonTrackingMouse = false;
+    bool m_newTabButtonCommandPending = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
     ExternalDropState m_externalDrop;
     ThemePalette m_themePalette;
