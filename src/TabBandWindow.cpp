@@ -860,6 +860,7 @@ void TabBandWindow::Destroy() {
     m_newTabButtonPressed = false;
     m_newTabButtonKeyboardPressed = false;
     m_newTabButtonTrackingMouse = false;
+    m_newTabButtonCommandPending = false;
     ResetThemePalette();
     ReleaseBackBuffer();
 
@@ -3576,7 +3577,12 @@ void TabBandWindow::TriggerNewTabButtonAction() {
     if (!m_hwnd || !m_newTabButton) {
         return;
     }
+    if (m_newTabButtonCommandPending) {
+        return;
+    }
+    m_newTabButtonCommandPending = true;
     SendMessageW(m_hwnd, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, BN_CLICKED), reinterpret_cast<LPARAM>(m_newTabButton));
+    m_newTabButtonCommandPending = false;
 }
 
 LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -5058,10 +5064,6 @@ void TabBandWindow::ClearCloseButtonHover() {
 }
 
 void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
-    if (!m_owner) {
-        return;
-    }
-
     const UINT id = LOWORD(wParam);
     const UINT notification = HIWORD(wParam);
 
@@ -5069,9 +5071,23 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
         const HWND source = reinterpret_cast<HWND>(lParam);
         const bool isButtonClick = (notification == BN_CLICKED) && source == m_newTabButton;
         const bool isAccelerator = (notification == 0) && (source == nullptr);
-        if (isButtonClick || isAccelerator) {
+
+        if (isButtonClick) {
+            if (!m_newTabButtonCommandPending) {
+                return;
+            }
+            m_newTabButtonCommandPending = false;
+        } else if (!isAccelerator) {
+            return;
+        }
+
+        if (m_owner) {
             m_owner->OnNewTabRequested();
         }
+        return;
+    }
+
+    if (!m_owner) {
         return;
     }
 
