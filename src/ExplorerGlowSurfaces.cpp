@@ -1637,6 +1637,12 @@ protected:
             return;
         }
 
+        auto scrollbarDefinition = Coordinator().ResolveScrollbarDefinition();
+        if (!scrollbarDefinition.has_value()) {
+            return;
+        }
+        const ScrollbarGlowDefinition& definition = *scrollbarDefinition;
+
         RECT clientRect = GetClientRectSafe(hwnd);
         if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
             return;
@@ -1715,7 +1721,7 @@ protected:
         }
         RECT trackHaloClip{};
         if (IntersectRect(&trackHaloClip, &trackHalo, &effectiveClip) && !IsRectEmpty(&trackHaloClip)) {
-            FillGradientRect(graphics, colors, RectToGdiplus(trackHaloClip), kHaloAlpha);
+            FillGradientRect(graphics, colors, RectToGdiplus(trackHaloClip), definition.trackHaloAlpha);
         }
 
         RECT lineRect = trackRect;
@@ -1730,7 +1736,7 @@ protected:
         }
         RECT lineClip{};
         if (IntersectRect(&lineClip, &lineRect, &effectiveClip) && !IsRectEmpty(&lineClip)) {
-            FillGradientRect(graphics, colors, RectToGdiplus(lineClip), kLineAlpha);
+            FillGradientRect(graphics, colors, RectToGdiplus(lineClip), definition.trackLineAlpha);
         }
 
         const bool thumbVisible =
@@ -1745,12 +1751,12 @@ protected:
 
             RECT thumbHaloClip{};
             if (IntersectRect(&thumbHaloClip, &thumbHalo, &effectiveClip) && !IsRectEmpty(&thumbHaloClip)) {
-                FillGradientRect(graphics, colors, RectToGdiplus(thumbHaloClip), kFrameHaloAlpha);
+                FillGradientRect(graphics, colors, RectToGdiplus(thumbHaloClip), definition.thumbHaloAlpha);
             }
 
             RECT thumbClip{};
             if (IntersectRect(&thumbClip, &thumbRect, &effectiveClip) && !IsRectEmpty(&thumbClip)) {
-                FillGradientRect(graphics, colors, RectToGdiplus(thumbClip), kFrameAlpha);
+                FillGradientRect(graphics, colors, RectToGdiplus(thumbClip), definition.thumbFillAlpha);
             }
         }
     }
@@ -1831,6 +1837,21 @@ GlowColorSet ExplorerGlowCoordinator::ResolveColors(ExplorerSurfaceKind kind) co
     }
 
     return colors;
+}
+
+std::optional<ScrollbarGlowDefinition> ExplorerGlowCoordinator::ResolveScrollbarDefinition() const {
+    ScrollbarGlowDefinition definition{};
+    GlowColorSet colors = ResolveColors(ExplorerSurfaceKind::Scrollbar);
+    if (!colors.valid) {
+        return std::nullopt;
+    }
+
+    definition.colors = colors;
+    definition.trackLineAlpha = kLineAlpha;
+    definition.trackHaloAlpha = kHaloAlpha;
+    definition.thumbFillAlpha = kFrameAlpha;
+    definition.thumbHaloAlpha = kFrameHaloAlpha;
+    return definition;
 }
 
 const GlowSurfaceOptions* ExplorerGlowCoordinator::ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept {

@@ -3,6 +3,7 @@
 #include <MinHook.h>
 
 #include <CommCtrl.h>
+#include <gdiplus.h>
 #include <optional>
 #include <mutex>
 #include <unordered_map>
@@ -13,9 +14,11 @@
 
 #include <windowsx.h>
 #include <uxtheme.h>
+#include <vssym32.h>
 #include <wingdi.h>
 
 #include "Logging.h"
+#include "DpiUtils.h"
 
 namespace shelltabs {
 
@@ -35,6 +38,17 @@ struct ThemeSurfaceRegistration {
 std::mutex g_registryMutex;
 std::unordered_map<HWND, ThemeSurfaceRegistration, HwndHasher> g_surfaceRegistry;
 std::unordered_set<HWND, HwndHasher> g_directUiHosts;
+
+struct ScrollbarPaintMetrics {
+    UINT dpiX = 96u;
+    UINT dpiY = 96u;
+    int baseLineThickness = 2;
+    int baseHaloPadding = 3;
+    int thumbAlongPadding = 6;
+};
+
+std::mutex g_scrollbarMetricsMutex;
+std::unordered_map<HWND, ScrollbarPaintMetrics, HwndHasher> g_scrollbarMetrics;
 
 std::mutex g_initializationMutex;
 bool g_hooksActive = false;
@@ -218,6 +232,204 @@ std::optional<SurfaceLookupResult> ResolveSurfaceForPainting(HDC dc) {
     return std::nullopt;
 }
 
+int ScaleByDpiInternal(int value, UINT dpi) {
+    if (dpi == 0) {
+        dpi = 96u;
+    }
+    return std::max(1, MulDiv(value, static_cast<int>(dpi), 96));
+}
+
+ScrollbarPaintMetrics ComputeScrollbarMetrics(HWND hwnd) {
+    ScrollbarPaintMetrics metrics{};
+    const UINT dpi = hwnd ? GetWindowDpi(hwnd) : 96u;
+    metrics.dpiX = dpi;
+    metrics.dpiY = dpi;
+    metrics.baseLineThickness = ScaleByDpiInternal(2, metrics.dpiX);
+    metrics.baseHaloPadding = ScaleByDpiInternal(3, metrics.dpiX);
+    metrics.thumbAlongPadding = ScaleByDpiInternal(6, metrics.dpiY);
+    return metrics;
+}
+
+ScrollbarPaintMetrics ResolveScrollbarMetrics(HWND hwnd) {
+    if (!hwnd) {
+        return ComputeScrollbarMetrics(nullptr);
+    }
+
+    std::lock_guard<std::mutex> guard(g_scrollbarMetricsMutex);
+    auto it = g_scrollbarMetrics.find(hwnd);
+    if (it != g_scrollbarMetrics.end()) {
+        return it->second;
+    }
+
+    ScrollbarPaintMetrics metrics = ComputeScrollbarMetrics(hwnd);
+    g_scrollbarMetrics.emplace(hwnd, metrics);
+    return metrics;
+}
+
+void InvalidateScrollbarMetricsInternal(HWND hwnd) noexcept {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> guard(g_scrollbarMetricsMutex);
+    g_scrollbarMetrics.erase(hwnd);
+}
+
+void FillGradientRect(Gdiplus::Graphics& graphics, const GlowColorSet& colors, const RECT& rect, BYTE alpha,
+                      float angle = 90.0f) {
+    if (!colors.valid) {
+        return;
+    }
+    const int width = rect.right - rect.left;
+    const int height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    const Gdiplus::Rect paintRect(rect.left, rect.top, width, height);
+    const Gdiplus::Color start(alpha, GetRValue(colors.start), GetGValue(colors.start), GetBValue(colors.start));
+    const Gdiplus::Color end(alpha, GetRValue(colors.end), GetGValue(colors.end), GetBValue(colors.end));
+
+    if (!colors.gradient || colors.start == colors.end) {
+        Gdiplus::SolidBrush brush(start);
+        graphics.FillRectangle(&brush, paintRect);
+        return;
+    }
+
+    Gdiplus::LinearGradientBrush brush(paintRect, start, end, angle);
+    graphics.FillRectangle(&brush, paintRect);
+}
+
+enum class ScrollbarOrientation {
+    Horizontal,
+    Vertical,
+};
+
+enum class ScrollbarPartKind {
+    None,
+    Track,
+    Thumb,
+};
+
+struct ScrollbarPartInfo {
+    ScrollbarPartKind kind = ScrollbarPartKind::None;
+    ScrollbarOrientation orientation = ScrollbarOrientation::Vertical;
+};
+
+std::optional<ScrollbarPartInfo> DescribeScrollbarPart(int partId) {
+    ScrollbarPartInfo info{};
+    switch (partId) {
+        case SBP_THUMBBTNHORZ:
+            info.kind = ScrollbarPartKind::Thumb;
+            info.orientation = ScrollbarOrientation::Horizontal;
+            return info;
+        case SBP_THUMBBTNVERT:
+            info.kind = ScrollbarPartKind::Thumb;
+            info.orientation = ScrollbarOrientation::Vertical;
+            return info;
+        case SBP_LOWERTRACKHORZ:
+        case SBP_UPPERTRACKHORZ:
+            info.kind = ScrollbarPartKind::Track;
+            info.orientation = ScrollbarOrientation::Horizontal;
+            return info;
+        case SBP_LOWERTRACKVERT:
+        case SBP_UPPERTRACKVERT:
+            info.kind = ScrollbarPartKind::Track;
+            info.orientation = ScrollbarOrientation::Vertical;
+            return info;
+        default:
+            break;
+    }
+    return std::nullopt;
+}
+
+bool PaintScrollbarPart(HDC dc, const RECT& partRect, const RECT& clipRect, HWND hwnd,
+                        const ScrollbarPartInfo& info, const ScrollbarGlowDefinition& definition) {
+    if (!definition.colors.valid) {
+        return false;
+    }
+    RECT intersection{};
+    if (!IntersectRect(&intersection, &partRect, &clipRect) || IsRectEmpty(&intersection)) {
+        return true;
+    }
+
+    const ScrollbarPaintMetrics metrics = ResolveScrollbarMetrics(hwnd);
+    const int crossExtent =
+        (info.orientation == ScrollbarOrientation::Vertical) ? (partRect.right - partRect.left)
+                                                             : (partRect.bottom - partRect.top);
+    if (crossExtent <= 0) {
+        return false;
+    }
+
+    const int clampedCross = std::max(crossExtent, 1);
+    const int lineThickness = std::clamp(metrics.baseLineThickness, 1, clampedCross);
+    const int haloPadding = std::max(lineThickness, metrics.baseHaloPadding);
+    const int thumbAlongPadding = std::max(metrics.thumbAlongPadding, 1);
+
+    Gdiplus::Graphics graphics(dc);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
+
+    if (info.kind == ScrollbarPartKind::Track) {
+        RECT haloRect = partRect;
+        if (info.orientation == ScrollbarOrientation::Vertical) {
+            haloRect.left -= haloPadding;
+            haloRect.right += haloPadding;
+        } else {
+            haloRect.top -= haloPadding;
+            haloRect.bottom += haloPadding;
+        }
+
+        RECT haloClip{};
+        if (IntersectRect(&haloClip, &haloRect, &clipRect) && !IsRectEmpty(&haloClip)) {
+            FillGradientRect(graphics, definition.colors, haloClip, definition.trackHaloAlpha);
+        }
+
+        RECT lineRect = partRect;
+        if (info.orientation == ScrollbarOrientation::Vertical) {
+            const int center = partRect.left + ((partRect.right - partRect.left) - lineThickness) / 2;
+            lineRect.left = center;
+            lineRect.right = center + lineThickness;
+        } else {
+            const int center = partRect.top + ((partRect.bottom - partRect.top) - lineThickness) / 2;
+            lineRect.top = center;
+            lineRect.bottom = center + lineThickness;
+        }
+
+        RECT lineClip{};
+        if (IntersectRect(&lineClip, &lineRect, &clipRect) && !IsRectEmpty(&lineClip)) {
+            FillGradientRect(graphics, definition.colors, lineClip, definition.trackLineAlpha);
+        }
+        return true;
+    }
+
+    if (info.kind == ScrollbarPartKind::Thumb) {
+        RECT haloRect = partRect;
+        if (info.orientation == ScrollbarOrientation::Vertical) {
+            haloRect.left -= haloPadding;
+            haloRect.right += haloPadding;
+            haloRect.top -= thumbAlongPadding;
+            haloRect.bottom += thumbAlongPadding;
+        } else {
+            haloRect.left -= thumbAlongPadding;
+            haloRect.right += thumbAlongPadding;
+            haloRect.top -= haloPadding;
+            haloRect.bottom += haloPadding;
+        }
+
+        RECT haloClip{};
+        if (IntersectRect(&haloClip, &haloRect, &clipRect) && !IsRectEmpty(&haloClip)) {
+            FillGradientRect(graphics, definition.colors, haloClip, definition.thumbHaloAlpha);
+        }
+
+        RECT thumbClip{};
+        if (IntersectRect(&thumbClip, &partRect, &clipRect) && !IsRectEmpty(&thumbClip)) {
+            FillGradientRect(graphics, definition.colors, thumbClip, definition.thumbFillAlpha);
+        }
+        return true;
+    }
+
+    return false;
+}
+
 COLOR16 ToColor16(BYTE component) {
     return static_cast<COLOR16>(static_cast<unsigned int>(component) << 8);
 }
@@ -375,12 +587,45 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    GlowColorSet colors = surface->registration.coordinator->ResolveColors(surface->registration.kind);
+    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
+    if (!coordinator) {
+        return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+    }
+
+    const ExplorerSurfaceKind surfaceKind = surface->registration.kind;
+    if (surfaceKind == ExplorerSurfaceKind::Scrollbar) {
+        auto definition = coordinator->ResolveScrollbarDefinition();
+        if (!definition.has_value()) {
+            return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+        }
+
+        auto partInfo = DescribeScrollbarPart(partId);
+        if (!partInfo.has_value()) {
+            return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+        }
+
+        RECT clipBounds = *rect;
+        if (clipRect) {
+            RECT clipped{};
+            if (!IntersectRect(&clipped, &clipBounds, clipRect) || IsRectEmpty(&clipped)) {
+                return S_OK;
+            }
+            clipBounds = clipped;
+        }
+
+        if (PaintScrollbarPart(dc, *rect, clipBounds, surface->window, *partInfo, *definition)) {
+            return S_OK;
+        }
+
+        return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
+    }
+
+    GlowColorSet colors = coordinator->ResolveColors(surfaceKind);
     if (!colors.valid) {
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
 
-    const bool isDirectUiSurface = (surface->registration.kind == ExplorerSurfaceKind::DirectUi);
+    const bool isDirectUiSurface = (surfaceKind == ExplorerSurfaceKind::DirectUi);
 
     RECT paintRect = *rect;
     if (clipRect) {
@@ -425,13 +670,29 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
 
-    GlowColorSet colors = surface->registration.coordinator->ResolveColors(surface->registration.kind);
+    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
+    if (!coordinator) {
+        return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
+    }
+
+    const ExplorerSurfaceKind surfaceKind = surface->registration.kind;
+    if (surfaceKind == ExplorerSurfaceKind::Scrollbar) {
+        auto partInfo = DescribeScrollbarPart(partId);
+        if (partInfo.has_value()) {
+            if (contentRect) {
+                *contentRect = *rect;
+            }
+            return S_OK;
+        }
+    }
+
+    GlowColorSet colors = coordinator->ResolveColors(surfaceKind);
     if (!colors.valid) {
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }
 
     RECT paintRect = *rect;
-    const bool isDirectUiSurface = (surface->registration.kind == ExplorerSurfaceKind::DirectUi);
+    const bool isDirectUiSurface = (surfaceKind == ExplorerSurfaceKind::DirectUi);
 
     if (isDirectUiSurface) {
         ScopedPaintContext context(*surface);
@@ -657,6 +918,8 @@ void RegisterDirectUiRenderInterface(void* element, size_t drawIndex, HWND host,
     RegisterDirectUiRenderInterfaceInternal(element, drawIndex, host, coordinator);
 }
 
+void InvalidateScrollbarMetrics(HWND hwnd) noexcept { InvalidateScrollbarMetricsInternal(hwnd); }
+
 bool InitializeThemeHooks() {
     std::lock_guard<std::mutex> guard(g_initializationMutex);
     if (g_hooksActive) {
@@ -763,6 +1026,11 @@ void ShutdownThemeHooks() {
         g_directUiHosts.clear();
     }
 
+    {
+        std::lock_guard<std::mutex> metricsGuard(g_scrollbarMetricsMutex);
+        g_scrollbarMetrics.clear();
+    }
+
     g_originalDrawThemeBackground = nullptr;
     g_originalDrawThemeEdge = nullptr;
     g_originalFillRect = nullptr;
@@ -787,6 +1055,7 @@ void UnregisterThemeSurface(HWND hwnd) noexcept {
     if (!hwnd) {
         return;
     }
+    InvalidateScrollbarMetricsInternal(hwnd);
     std::lock_guard<std::mutex> guard(g_registryMutex);
     g_surfaceRegistry.erase(hwnd);
 }
