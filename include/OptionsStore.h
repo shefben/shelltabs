@@ -99,6 +99,8 @@ struct GlowSurfacePalette {
     GlowSurfaceOptions rebar{};
     GlowSurfaceOptions edits{};
     GlowSurfaceOptions scrollbars{GlowSurfaceMode::kExplorerAccent};
+    GlowSurfaceOptions popupMenus{GlowSurfaceMode::kExplorerAccent};
+    GlowSurfaceOptions tooltips{GlowSurfaceMode::kExplorerAccent};
 };
 
 struct ShellTabsOptions {

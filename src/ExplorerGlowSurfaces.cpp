@@ -1870,6 +1870,10 @@ const GlowSurfaceOptions* ExplorerGlowCoordinator::ResolveSurfaceOptions(Explore
             return &m_palette.scrollbars;
         case ExplorerSurfaceKind::DirectUi:
             return &m_palette.directUi;
+        case ExplorerSurfaceKind::PopupMenu:
+            return &m_palette.popupMenus;
+        case ExplorerSurfaceKind::Tooltip:
+            return &m_palette.tooltips;
         default:
             return nullptr;
     }
@@ -2208,6 +2212,9 @@ std::unique_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKin
             return std::make_unique<ScrollBarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::DirectUi:
             return std::make_unique<DirectUiGlowSurface>(kind, coordinator);
+        case ExplorerSurfaceKind::PopupMenu:
+        case ExplorerSurfaceKind::Tooltip:
+            return nullptr;
         default:
             return nullptr;
     }

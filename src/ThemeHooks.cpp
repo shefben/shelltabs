@@ -11,6 +11,8 @@
 #include <utility>
 #include <algorithm>
 #include <vector>
+#include <cwchar>
+#include <new>
 
 #include <windowsx.h>
 #include <uxtheme.h>
@@ -58,15 +60,24 @@ using DrawThemeEdgeFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, const RECT*, UIN
 using FillRectFn = int(WINAPI*)(HDC, const RECT*, HBRUSH);
 using GdiGradientFillFn = BOOL(WINAPI*)(HDC, PTRIVERTEX, ULONG, PVOID, ULONG, ULONG);
 using DirectUiDrawFn = HRESULT(STDMETHODCALLTYPE*)(void*, HDC, const RECT*, UINT, void*);
+using TrackPopupMenuFn = BOOL(WINAPI*)(HMENU, UINT, int, int, int, HWND, const RECT*);
+using TrackPopupMenuExFn = BOOL(WINAPI*)(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
+using CreateWindowExWFn = HWND(WINAPI*)(DWORD, LPCWSTR, LPCWSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, LPVOID);
 
 DrawThemeBackgroundFn g_originalDrawThemeBackground = nullptr;
 DrawThemeEdgeFn g_originalDrawThemeEdge = nullptr;
 FillRectFn g_originalFillRect = nullptr;
 GdiGradientFillFn g_originalGdiGradientFill = nullptr;
+TrackPopupMenuFn g_originalTrackPopupMenu = nullptr;
+TrackPopupMenuExFn g_originalTrackPopupMenuEx = nullptr;
+CreateWindowExWFn g_originalCreateWindowExW = nullptr;
 void* g_drawThemeBackgroundTarget = nullptr;
 void* g_drawThemeEdgeTarget = nullptr;
 void* g_fillRectTarget = nullptr;
 void* g_gdiGradientFillTarget = nullptr;
+void* g_trackPopupMenuTarget = nullptr;
+void* g_trackPopupMenuExTarget = nullptr;
+void* g_createWindowExWTarget = nullptr;
 std::vector<void*> g_directUiDetourTargets;
 
 thread_local bool g_drawThemeBackgroundActive = false;
@@ -155,6 +166,22 @@ std::mutex g_directUiDetourMutex;
 std::unordered_map<void*, DirectUiElementInfo> g_directUiElementInfo;
 std::unordered_map<void*, DirectUiTargetInfo> g_directUiTargetInfo;
 
+struct PopupInvocationContext {
+    ExplorerGlowCoordinator* coordinator = nullptr;
+    DWORD threadId = 0;
+    bool themingEnabled = false;
+};
+
+struct PopupSubclassData {
+    ExplorerGlowCoordinator* coordinator = nullptr;
+    ExplorerSurfaceKind kind = ExplorerSurfaceKind::PopupMenu;
+};
+
+thread_local std::vector<PopupInvocationContext> g_popupInvocationStack;
+
+constexpr const wchar_t kPopupSubclassPropertyName[] = L"ShellTabs.PopupSubclass";
+constexpr UINT_PTR kPopupSubclassId = 0x53545050;  // 'STPP'
+
 class ReentrancyGuard {
 public:
     explicit ReentrancyGuard(bool& flag) : m_flag(flag) {
@@ -184,6 +211,185 @@ std::optional<ThemeSurfaceRegistration> LookupRegistration(HWND hwnd) {
         return std::nullopt;
     }
     return it->second;
+}
+
+bool ShouldApplyPopupTheming(ExplorerGlowCoordinator* coordinator, ExplorerSurfaceKind kind) {
+    return coordinator && coordinator->ShouldRenderSurface(kind);
+}
+
+std::optional<ThemeSurfaceRegistration> ResolveRegistrationForWindowHierarchy(HWND hwnd) {
+    if (!hwnd) {
+        return std::nullopt;
+    }
+    HWND current = hwnd;
+    while (current) {
+        auto registration = LookupRegistration(current);
+        if (registration.has_value()) {
+            return registration;
+        }
+        HWND parent = GetAncestor(current, GA_PARENT);
+        if (!parent || parent == current) {
+            break;
+        }
+        current = parent;
+    }
+    HWND owner = GetWindow(hwnd, GW_OWNER);
+    if (owner && owner != hwnd) {
+        return ResolveRegistrationForWindowHierarchy(owner);
+    }
+    return std::nullopt;
+}
+
+ExplorerGlowCoordinator* ResolveCoordinatorForWindow(HWND hwnd) {
+    auto registration = ResolveRegistrationForWindowHierarchy(hwnd);
+    if (registration.has_value()) {
+        return registration->coordinator;
+    }
+    return nullptr;
+}
+
+PopupInvocationContext PreparePopupInvocation(HWND owner) {
+    PopupInvocationContext context{};
+    if (!owner) {
+        return context;
+    }
+    auto registration = ResolveRegistrationForWindowHierarchy(owner);
+    if (!registration.has_value()) {
+        return context;
+    }
+    context.coordinator = registration->coordinator;
+    context.threadId = GetCurrentThreadId();
+    context.themingEnabled = ShouldApplyPopupTheming(context.coordinator, ExplorerSurfaceKind::PopupMenu);
+    return context;
+}
+
+PopupInvocationContext* CurrentPopupInvocation() {
+    if (g_popupInvocationStack.empty()) {
+        return nullptr;
+    }
+    PopupInvocationContext& context = g_popupInvocationStack.back();
+    if (context.threadId != GetCurrentThreadId()) {
+        return nullptr;
+    }
+    return &context;
+}
+
+bool IsAtomResource(LPCWSTR value) {
+    return reinterpret_cast<ULONG_PTR>(value) <= 0xFFFFu;
+}
+
+bool IsMenuClassName(LPCWSTR className) {
+    if (!className) {
+        return false;
+    }
+    if (IsAtomResource(className)) {
+        return LOWORD(className) == 0x8000u;
+    }
+    return _wcsicmp(className, L"#32768") == 0;
+}
+
+bool IsTooltipClassName(LPCWSTR className) {
+    if (!className || IsAtomResource(className)) {
+        return false;
+    }
+    return _wcsicmp(className, TOOLTIPS_CLASSW) == 0 || _wcsicmp(className, L"tooltips_class32") == 0;
+}
+
+bool PaintPopupPaletteInternal(HWND hwnd, PopupSubclassData* data, HDC dc) {
+    if (!hwnd || !data || !dc) {
+        return false;
+    }
+    ExplorerGlowCoordinator* coordinator = data->coordinator;
+    if (!ShouldApplyPopupTheming(coordinator, data->kind)) {
+        return false;
+    }
+    RECT rect{};
+    if (!GetClientRect(hwnd, &rect)) {
+        return false;
+    }
+    GlowColorSet colors = coordinator->ResolveColors(data->kind);
+    if (!colors.valid) {
+        return false;
+    }
+    return PaintGlowSurface(dc, hwnd, rect, colors, data->kind);
+}
+
+LRESULT CALLBACK PopupSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                   UINT_PTR subclassId, DWORD_PTR refData);
+
+bool InstallPopupSubclass(HWND hwnd, ExplorerGlowCoordinator* coordinator, ExplorerSurfaceKind kind) {
+    if (!hwnd || !coordinator) {
+        return false;
+    }
+    if (!ShouldApplyPopupTheming(coordinator, kind)) {
+        return false;
+    }
+
+    auto* existing = reinterpret_cast<PopupSubclassData*>(GetPropW(hwnd, kPopupSubclassPropertyName));
+    if (existing) {
+        existing->coordinator = coordinator;
+        existing->kind = kind;
+        RegisterThemeSurface(hwnd, kind, coordinator);
+        InvalidateRect(hwnd, nullptr, TRUE);
+        return true;
+    }
+
+    auto* data = new (std::nothrow) PopupSubclassData();
+    if (!data) {
+        return false;
+    }
+    data->coordinator = coordinator;
+    data->kind = kind;
+
+    if (!SetWindowSubclass(hwnd, PopupSubclassProc, kPopupSubclassId, reinterpret_cast<DWORD_PTR>(data))) {
+        delete data;
+        return false;
+    }
+    if (!SetPropW(hwnd, kPopupSubclassPropertyName, reinterpret_cast<HANDLE>(data))) {
+        RemoveWindowSubclass(hwnd, PopupSubclassProc, kPopupSubclassId);
+        delete data;
+        return false;
+    }
+
+    RegisterThemeSurface(hwnd, kind, coordinator);
+    InvalidateRect(hwnd, nullptr, TRUE);
+    return true;
+}
+
+LRESULT CALLBACK PopupSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                   UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* data = reinterpret_cast<PopupSubclassData*>(refData);
+    switch (msg) {
+        case WM_ERASEBKGND: {
+            if (PaintPopupPaletteInternal(hwnd, data, reinterpret_cast<HDC>(wParam))) {
+                return 1;
+            }
+            break;
+        }
+        case WM_PRINTCLIENT: {
+            if (PaintPopupPaletteInternal(hwnd, data, reinterpret_cast<HDC>(wParam))) {
+                return 0;
+            }
+            break;
+        }
+        case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED: {
+            InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        }
+        case WM_NCDESTROY: {
+            if (data) {
+                UnregisterThemeSurface(hwnd);
+                RemovePropW(hwnd, kPopupSubclassPropertyName);
+                delete data;
+            }
+            RemoveWindowSubclass(hwnd, PopupSubclassProc, subclassId);
+            break;
+        }
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 std::optional<SurfaceLookupResult> ResolveSurfaceFromWindowDc(HDC dc) {
@@ -572,6 +778,69 @@ HRESULT STDMETHODCALLTYPE DirectUiDrawDetour(void* element, HDC dc, const RECT* 
     return original(element, dc, rect, state, data);
 }
 
+BOOL WINAPI TrackPopupMenuDetour(HMENU menu, UINT flags, int x, int y, int reserved, HWND hwnd, const RECT* rect) {
+    PopupInvocationContext context = PreparePopupInvocation(hwnd);
+    if (context.themingEnabled) {
+        g_popupInvocationStack.push_back(context);
+    }
+
+    BOOL result = g_originalTrackPopupMenu ?
+                      g_originalTrackPopupMenu(menu, flags, x, y, reserved, hwnd, rect)
+                      : FALSE;
+
+    if (context.themingEnabled) {
+        g_popupInvocationStack.pop_back();
+    }
+    return result;
+}
+
+BOOL WINAPI TrackPopupMenuExDetour(HMENU menu, UINT flags, int x, int y, HWND hwnd, LPTPMPARAMS params) {
+    PopupInvocationContext context = PreparePopupInvocation(hwnd);
+    if (context.themingEnabled) {
+        g_popupInvocationStack.push_back(context);
+    }
+
+    BOOL result = g_originalTrackPopupMenuEx ?
+                      g_originalTrackPopupMenuEx(menu, flags, x, y, hwnd, params)
+                      : FALSE;
+
+    if (context.themingEnabled) {
+        g_popupInvocationStack.pop_back();
+    }
+    return result;
+}
+
+HWND WINAPI CreateWindowExWDetour(DWORD exStyle, LPCWSTR className, LPCWSTR windowName, DWORD style, int x, int y,
+                                  int width, int height, HWND hwndParent, HMENU menu, HINSTANCE instance,
+                                  LPVOID param) {
+    const bool isMenuClass = IsMenuClassName(className);
+    const bool isTooltipClass = !isMenuClass && IsTooltipClassName(className);
+
+    ExplorerGlowCoordinator* coordinator = nullptr;
+    ExplorerSurfaceKind kind = ExplorerSurfaceKind::PopupMenu;
+
+    if (isMenuClass) {
+        if (auto* context = CurrentPopupInvocation()) {
+            if (context->themingEnabled) {
+                coordinator = context->coordinator;
+            }
+        }
+        kind = ExplorerSurfaceKind::PopupMenu;
+    } else if (isTooltipClass) {
+        coordinator = ResolveCoordinatorForWindow(hwndParent);
+        kind = ExplorerSurfaceKind::Tooltip;
+    }
+
+    HWND hwnd = g_originalCreateWindowExW ? g_originalCreateWindowExW(exStyle, className, windowName, style, x, y,
+                                                                       width, height, hwndParent, menu, instance, param)
+                                          : nullptr;
+
+    if (hwnd && coordinator) {
+        InstallPopupSubclass(hwnd, coordinator, kind);
+    }
+    return hwnd;
+}
+
 HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int stateId, const RECT* rect,
                                          const RECT* clipRect) {
     ReentrancyGuard guard(g_drawThemeBackgroundActive);
@@ -950,6 +1219,9 @@ bool InitializeThemeHooks() {
     g_drawThemeEdgeTarget = uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "DrawThemeEdge")) : nullptr;
     g_fillRectTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "FillRect")) : nullptr;
     g_gdiGradientFillTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "GdiGradientFill")) : nullptr;
+    g_trackPopupMenuTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "TrackPopupMenu")) : nullptr;
+    g_trackPopupMenuExTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "TrackPopupMenuEx")) : nullptr;
+    g_createWindowExWTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "CreateWindowExW")) : nullptr;
 
     if (!InstallHook(g_drawThemeBackgroundTarget, reinterpret_cast<void*>(&DrawThemeBackgroundDetour),
                      reinterpret_cast<void**>(&g_originalDrawThemeBackground), L"DrawThemeBackground")) {
@@ -989,6 +1261,45 @@ bool InitializeThemeHooks() {
         return false;
     }
 
+    if (!InstallHook(g_trackPopupMenuTarget, reinterpret_cast<void*>(&TrackPopupMenuDetour),
+                     reinterpret_cast<void**>(&g_originalTrackPopupMenu), L"TrackPopupMenu")) {
+        DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
+        DisableHook(g_fillRectTarget, L"FillRect");
+        DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
+        DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
+        if (initializedHere) {
+            MH_Uninitialize();
+        }
+        return false;
+    }
+
+    if (!InstallHook(g_trackPopupMenuExTarget, reinterpret_cast<void*>(&TrackPopupMenuExDetour),
+                     reinterpret_cast<void**>(&g_originalTrackPopupMenuEx), L"TrackPopupMenuEx")) {
+        DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
+        DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
+        DisableHook(g_fillRectTarget, L"FillRect");
+        DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
+        DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
+        if (initializedHere) {
+            MH_Uninitialize();
+        }
+        return false;
+    }
+
+    if (!InstallHook(g_createWindowExWTarget, reinterpret_cast<void*>(&CreateWindowExWDetour),
+                     reinterpret_cast<void**>(&g_originalCreateWindowExW), L"CreateWindowExW")) {
+        DisableHook(g_trackPopupMenuExTarget, L"TrackPopupMenuEx");
+        DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
+        DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
+        DisableHook(g_fillRectTarget, L"FillRect");
+        DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
+        DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
+        if (initializedHere) {
+            MH_Uninitialize();
+        }
+        return false;
+    }
+
     g_hooksActive = true;
     LogMessage(LogLevel::Info, L"ThemeHooks: installed theme detours");
     return true;
@@ -1000,6 +1311,9 @@ void ShutdownThemeHooks() {
         return;
     }
 
+    DisableHook(g_createWindowExWTarget, L"CreateWindowExW");
+    DisableHook(g_trackPopupMenuExTarget, L"TrackPopupMenuEx");
+    DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
     DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
     DisableHook(g_fillRectTarget, L"FillRect");
     DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
@@ -1035,10 +1349,16 @@ void ShutdownThemeHooks() {
     g_originalDrawThemeEdge = nullptr;
     g_originalFillRect = nullptr;
     g_originalGdiGradientFill = nullptr;
+    g_originalTrackPopupMenu = nullptr;
+    g_originalTrackPopupMenuEx = nullptr;
+    g_originalCreateWindowExW = nullptr;
     g_drawThemeBackgroundTarget = nullptr;
     g_drawThemeEdgeTarget = nullptr;
     g_fillRectTarget = nullptr;
     g_gdiGradientFillTarget = nullptr;
+    g_trackPopupMenuTarget = nullptr;
+    g_trackPopupMenuExTarget = nullptr;
+    g_createWindowExWTarget = nullptr;
     g_hooksActive = false;
     LogMessage(LogLevel::Info, L"ThemeHooks: detached theme detours");
 }
