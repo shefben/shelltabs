@@ -48,7 +48,6 @@ namespace MinHook { namespace
 	inline unsigned int hde_disasm(const void* code, hde_t* hs) { return hde32_disasm(code, hs); }
 #endif
 
-	// ߏݗp\
 #pragma pack(push, 1)
 	struct JMP_REL
 	{
