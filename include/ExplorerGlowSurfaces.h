@@ -19,6 +19,8 @@ enum class ExplorerSurfaceKind {
     Edit,
     Scrollbar,
     DirectUi,
+    PopupMenu,
+    Tooltip,
 };
 
 class ExplorerGlowSurface;

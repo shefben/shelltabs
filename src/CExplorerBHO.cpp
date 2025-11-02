@@ -746,6 +746,10 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
             return L"scrollbar";
         case ExplorerSurfaceKind::DirectUi:
             return L"DirectUI host";
+        case ExplorerSurfaceKind::PopupMenu:
+            return L"popup menu";
+        case ExplorerSurfaceKind::Tooltip:
+            return L"tooltip";
         default:
             return L"surface";
     }

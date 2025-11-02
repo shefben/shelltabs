@@ -118,13 +118,15 @@ struct GlowSurfaceMapping {
     bool supportsExplorerAccent;
 };
 
-constexpr std::array<GlowSurfaceMapping, 7> kGlowSurfaceMappings = {{{L"header", &GlowSurfacePalette::header, false},
+constexpr std::array<GlowSurfaceMapping, 9> kGlowSurfaceMappings = {{{L"header", &GlowSurfacePalette::header, false},
                                                                      {L"list_view", &GlowSurfacePalette::listView, true},
                                                                      {L"direct_ui", &GlowSurfacePalette::directUi, true},
                                                                      {L"toolbar", &GlowSurfacePalette::toolbar, false},
                                                                      {L"rebar", &GlowSurfacePalette::rebar, false},
                                                                      {L"edits", &GlowSurfacePalette::edits, false},
-                                                                     {L"scrollbar", &GlowSurfacePalette::scrollbars, true}}};
+                                                                     {L"scrollbar", &GlowSurfacePalette::scrollbars, true},
+                                                                     {L"popup_menu", &GlowSurfacePalette::popupMenus, true},
+                                                                     {L"tooltip", &GlowSurfacePalette::tooltips, true}}};
 
 const GlowSurfaceMapping* FindGlowSurfaceMapping(std::wstring_view token, size_t* index) {
     if (token.empty()) {
@@ -632,6 +634,8 @@ void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options) {
     applyLegacy(options.glowPalette.listView, true);
     applyLegacy(options.glowPalette.directUi, true);
     applyLegacy(options.glowPalette.scrollbars, true);
+    applyLegacy(options.glowPalette.popupMenus, true);
+    applyLegacy(options.glowPalette.tooltips, true);
 }
 
 void UpdateLegacyGlowSettingsFromPalette(ShellTabsOptions& options) {
@@ -1384,7 +1388,8 @@ bool operator==(const GlowSurfaceOptions& left, const GlowSurfaceOptions& right)
 bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right) noexcept {
     return left.header == right.header && left.listView == right.listView &&
            left.directUi == right.directUi && left.toolbar == right.toolbar && left.rebar == right.rebar &&
-           left.edits == right.edits && left.scrollbars == right.scrollbars;
+           left.edits == right.edits && left.scrollbars == right.scrollbars &&
+           left.popupMenus == right.popupMenus && left.tooltips == right.tooltips;
 }
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
