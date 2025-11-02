@@ -2,14 +2,130 @@
 
 #include "Logging.h"
 #include "Utilities.h"
+#include "ColorUtils.h"
+#include "ExplorerThemeUtils.h"
 
 #include <mutex>
 #include <unordered_map>
+#include <algorithm>
 
 namespace shelltabs {
 namespace {
 std::mutex g_treeRegistryMutex;
 std::unordered_map<HWND, ShellTabsTreeView*> g_treeRegistry;
+
+constexpr COLORREF kTreeSelectionAccent = RGB(240, 64, 64);
+constexpr double kTreeSelectionBaseBlend = 0.38;
+constexpr double kTreeSelectionFocusBoost = 0.14;
+constexpr double kTreeSelectionBorderBlend = 0.55;
+constexpr double kTreeSelectionBorderFocusBlend = 0.7;
+
+double ClampRatio(double value) {
+    return std::clamp(value, 0.0, 1.0);
+}
+
+BYTE BlendComponent(int base, int overlay, double ratio) {
+    const double clamped = ClampRatio(ratio);
+    const double blended = static_cast<double>(base) +
+                           (static_cast<double>(overlay) - static_cast<double>(base)) * clamped;
+    int result = static_cast<int>(blended + 0.5);
+    result = std::clamp(result, 0, 255);
+    return static_cast<BYTE>(result);
+}
+
+COLORREF BlendColor(COLORREF base, COLORREF overlay, double ratio) {
+    return RGB(BlendComponent(GetRValue(base), GetRValue(overlay), ratio),
+               BlendComponent(GetGValue(base), GetGValue(overlay), ratio),
+               BlendComponent(GetBValue(base), GetBValue(overlay), ratio));
+}
+
+COLORREF ResolveTreeViewBackground(HWND treeView) {
+    COLORREF background = TreeView_GetBkColor(treeView);
+    if (background == CLR_NONE || background == CLR_DEFAULT) {
+        background = GetSysColor(COLOR_WINDOW);
+    }
+    return background;
+}
+
+COLORREF ChooseSelectionTextColor(COLORREF background) {
+    const double luminance = ComputeColorLuminance(background);
+    return luminance > 0.6 ? RGB(0, 0, 0) : RGB(255, 255, 255);
+}
+
+bool PaintTreeSelection(NMTVCUSTOMDRAW* draw, HWND treeView) {
+    if (!draw || !treeView || !IsWindow(treeView)) {
+        return false;
+    }
+
+    if (IsSystemHighContrastActive()) {
+        return false;
+    }
+
+    RECT fillRect = draw->nmcd.rc;
+    if (fillRect.right <= fillRect.left || fillRect.bottom <= fillRect.top) {
+        return false;
+    }
+
+    RECT clientRect{};
+    if (GetClientRect(treeView, &clientRect)) {
+        fillRect.left = clientRect.left;
+        fillRect.right = clientRect.right;
+    }
+
+    const bool focused = (draw->nmcd.uItemState & CDIS_FOCUS) != 0;
+    const COLORREF baseBackground = ResolveTreeViewBackground(treeView);
+    const double selectionBlend = ClampRatio(kTreeSelectionBaseBlend + (focused ? kTreeSelectionFocusBoost : 0.0));
+    const COLORREF selectionColor = BlendColor(baseBackground, kTreeSelectionAccent, selectionBlend);
+
+    HBRUSH fillBrush = CreateSolidBrush(selectionColor);
+    if (!fillBrush) {
+        return false;
+    }
+
+    FillRect(draw->nmcd.hdc, &fillRect, fillBrush);
+    DeleteObject(fillBrush);
+
+    if (fillRect.bottom - fillRect.top >= 2) {
+        const COLORREF topHighlight = BlendColor(selectionColor, RGB(255, 255, 255), 0.25);
+        const COLORREF bottomShadow = BlendColor(selectionColor, RGB(0, 0, 0), 0.2);
+
+        RECT topEdge = fillRect;
+        topEdge.bottom = topEdge.top + 1;
+        if (topEdge.bottom > topEdge.top) {
+            if (HBRUSH topBrush = CreateSolidBrush(topHighlight)) {
+                FillRect(draw->nmcd.hdc, &topEdge, topBrush);
+                DeleteObject(topBrush);
+            }
+        }
+
+        RECT bottomEdge = fillRect;
+        bottomEdge.top = bottomEdge.bottom - 1;
+        if (bottomEdge.bottom > bottomEdge.top) {
+            if (HBRUSH bottomBrush = CreateSolidBrush(bottomShadow)) {
+                FillRect(draw->nmcd.hdc, &bottomEdge, bottomBrush);
+                DeleteObject(bottomBrush);
+            }
+        }
+    }
+
+    const double borderBlend = ClampRatio(focused ? kTreeSelectionBorderFocusBlend : kTreeSelectionBorderBlend);
+    const COLORREF borderColor = BlendColor(selectionColor, kTreeSelectionAccent, borderBlend);
+
+    RECT frameRect = fillRect;
+    if (focused) {
+        InflateRect(&frameRect, -1, -1);
+    }
+    if (frameRect.right > frameRect.left && frameRect.bottom > frameRect.top) {
+        if (HBRUSH borderBrush = CreateSolidBrush(borderColor)) {
+            FrameRect(draw->nmcd.hdc, &frameRect, borderBrush);
+            DeleteObject(borderBrush);
+        }
+    }
+
+    draw->clrTextBk = selectionColor;
+    draw->clrText = ChooseSelectionTextColor(selectionColor);
+    return true;
+}
 
 BOOL GetTreeViewItemWide(HWND treeView, TVITEMEXW* item) {
     if (!treeView || !item) {
@@ -215,6 +331,13 @@ bool ShellTabsTreeView::HandleCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result) 
             if (!item) {
                 *result = CDRF_DODEFAULT;
                 return true;
+            }
+
+            if ((draw->nmcd.uItemState & CDIS_SELECTED) != 0) {
+                if (PaintTreeSelection(draw, m_treeView)) {
+                    *result = CDRF_NEWFONT;
+                    return true;
+                }
             }
 
             PaneHighlight highlight{};
