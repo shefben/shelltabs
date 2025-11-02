@@ -323,8 +323,8 @@ constexpr GUID kSidDataObject = {0x000214e8, 0x0000, 0x0000,
 
 const wchar_t kWindowClassName[] = L"ShellTabsBandWindow";
 constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
-constexpr int kButtonWidth = 19;
-constexpr int kButtonHeight = 19;
+constexpr int kButtonWidth = 24;
+constexpr int kButtonHeight = 24;
 constexpr int kButtonMargin = 2;
 constexpr int kItemMinWidth = 60;
 constexpr int kGroupMinWidth = 90;
@@ -3430,17 +3430,37 @@ void TabBandWindow::PaintNewTabButton(HWND hwnd, HDC dc) const {
     const int glyphHalf = glyphExtent / 2;
     const int centerX = square.left + squareSize / 2;
     const int centerY = square.top + squareSize / 2;
-    const int glyphThickness = std::max(1, MulDiv(2, static_cast<int>(dpi), 96));
+    int glyphThickness = std::max(2, MulDiv(3, static_cast<int>(dpi), 96));
+    glyphThickness = std::min(glyphThickness, std::max(2, glyphExtent / 3));
 
-    HPEN glyphPen = CreatePen(PS_SOLID, glyphThickness, glyphColor);
-    if (glyphPen) {
-        const HPEN oldPen = static_cast<HPEN>(SelectObject(dc, glyphPen));
-        MoveToEx(dc, centerX - glyphHalf, centerY, nullptr);
-        LineTo(dc, centerX + glyphHalf + 1, centerY);
-        MoveToEx(dc, centerX, centerY - glyphHalf, nullptr);
-        LineTo(dc, centerX, centerY + glyphHalf + 1);
-        SelectObject(dc, oldPen);
-        DeleteObject(glyphPen);
+    HBRUSH glyphBrush = CreateSolidBrush(glyphColor);
+    if (glyphBrush) {
+        RECT horizontal{
+            centerX - glyphHalf,
+            centerY - glyphThickness / 2,
+            centerX + glyphHalf + 1,
+            centerY - glyphThickness / 2 + glyphThickness
+        };
+        RECT vertical{
+            centerX - glyphThickness / 2,
+            centerY - glyphHalf,
+            centerX - glyphThickness / 2 + glyphThickness,
+            centerY + glyphHalf + 1
+        };
+
+        horizontal.top = std::max(horizontal.top, square.top + 1);
+        horizontal.bottom = std::min(horizontal.bottom, square.bottom - 1);
+        vertical.left = std::max(vertical.left, square.left + 1);
+        vertical.right = std::min(vertical.right, square.right - 1);
+
+        if (horizontal.right > horizontal.left && horizontal.bottom > horizontal.top) {
+            FillRect(dc, &horizontal, glyphBrush);
+        }
+        if (vertical.right > vertical.left && vertical.bottom > vertical.top) {
+            FillRect(dc, &vertical, glyphBrush);
+        }
+
+        DeleteObject(glyphBrush);
     }
 
     if (GetFocus() == hwnd) {
@@ -5042,12 +5062,15 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		return;
 	}
 
-	const UINT id = LOWORD(wParam);
+        const UINT id = LOWORD(wParam);
+        const UINT notification = HIWORD(wParam);
 
-	if (id == IDC_NEW_TAB) {
-		m_owner->OnNewTabRequested();
-		return;
-	}
+        if (id == IDC_NEW_TAB) {
+                if (notification == 0 || notification == BN_CLICKED) {
+                        m_owner->OnNewTabRequested();
+                }
+                return;
+        }
 
         if (id == IDM_CREATE_SAVED_GROUP) {
                 const int insertAfter = ResolveInsertGroupIndex();
