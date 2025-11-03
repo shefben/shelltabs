@@ -1777,6 +1777,7 @@ void ExplorerGlowCoordinator::Configure(const ShellTabsOptions& options) {
     m_breadcrumbFontGradient.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
     m_breadcrumbFontGradient.gradientStartColor = options.breadcrumbGradientStartColor;
     m_breadcrumbFontGradient.gradientEndColor = options.breadcrumbGradientEndColor;
+    m_bitmapInterceptEnabled = options.enableBitmapIntercept;
     RefreshAccessibilityState();
     UpdateAccentColor();
 }

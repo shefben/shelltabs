@@ -53,6 +53,7 @@ public:
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
     std::optional<ScrollbarGlowDefinition> ResolveScrollbarDefinition() const;
     const BreadcrumbGradientConfig& BreadcrumbFontGradient() const noexcept { return m_breadcrumbFontGradient; }
+    bool BitmapInterceptEnabled() const noexcept { return m_bitmapInterceptEnabled; }
 
 private:
     const GlowSurfaceOptions* ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept;
@@ -64,6 +65,7 @@ private:
     bool m_glowEnabled = false;
     bool m_highContrastActive = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
+    bool m_bitmapInterceptEnabled = true;
 };
 
 class ExplorerGlowSurface {

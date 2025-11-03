@@ -157,6 +157,7 @@ enum ControlIds : int {
     IDC_GLOW_SURFACE_EDIT = 5414,
     IDC_GLOW_SURFACE_DIRECTUI = 5415,
     IDC_GLOW_SURFACE_SCROLLBAR = 5416,
+    IDC_GLOW_BITMAP_INTERCEPT = 5417,
 
     IDC_GROUP_LIST = 5101,
     IDC_GROUP_NEW = 5102,
@@ -2051,7 +2052,7 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data.data());
     dlg->style = DS_SETFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
     dlg->dwExtendedStyle = WS_EX_CONTROLPARENT;
-    dlg->cdit = 17;
+    dlg->cdit = 18;
     dlg->x = 0;
     dlg->y = 0;
     dlg->cx = kGlowDialogWidth;
@@ -2093,6 +2094,22 @@ std::vector<BYTE> BuildGlowPageTemplate() {
     AppendWord(data, 0xFFFF);
     AppendWord(data, 0x0080);
     AppendString(data, L"Enable neon glow effects");
+    AppendWord(data, 0);
+
+    AlignDialogBuffer(data);
+    offset = data.size();
+    data.resize(offset + sizeof(DLGITEMTEMPLATE));
+    auto* bitmapIntercept = reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
+    bitmapIntercept->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
+    bitmapIntercept->dwExtendedStyle = 0;
+    bitmapIntercept->x = 16;
+    bitmapIntercept->y = 36;
+    bitmapIntercept->cx = kGlowCheckboxWidth;
+    bitmapIntercept->cy = 12;
+    bitmapIntercept->id = static_cast<WORD>(IDC_GLOW_BITMAP_INTERCEPT);
+    AppendWord(data, 0xFFFF);
+    AppendWord(data, 0x0080);
+    AppendString(data, L"Intercept Explorer bitmaps (may impact performance)");
     AppendWord(data, 0);
 
     auto appendSurfaceCheckbox = [&](int controlId, SHORT y, const wchar_t* label) {
@@ -3831,6 +3848,7 @@ void UpdateTabColorControlsEnabled(HWND hwnd, bool selectedEnabled, bool unselec
 void UpdateGlowControlStates(HWND hwnd) {
     const bool glowEnabled = IsDlgButtonChecked(hwnd, IDC_GLOW_ENABLE) == BST_CHECKED;
     EnableWindow(GetDlgItem(hwnd, IDC_GLOW_CUSTOM_COLORS), glowEnabled);
+    EnableWindow(GetDlgItem(hwnd, IDC_GLOW_BITMAP_INTERCEPT), glowEnabled);
 
     for (const auto& mapping : kGlowSurfaceControlMappings) {
         EnableWindow(GetDlgItem(hwnd, mapping.controlId), glowEnabled);
@@ -3880,6 +3898,8 @@ void RefreshGlowControls(HWND hwnd, OptionsDialogData* data) {
                    data->workingOptions.useCustomNeonGlowColors ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(hwnd, IDC_GLOW_USE_GRADIENT,
                    data->workingOptions.useNeonGlowGradient ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(hwnd, IDC_GLOW_BITMAP_INTERCEPT,
+                   data->workingOptions.enableBitmapIntercept ? BST_CHECKED : BST_UNCHECKED);
 
     for (const auto& mapping : kGlowSurfaceControlMappings) {
         const GlowSurfaceOptions& surface = data->workingOptions.glowPalette.*(mapping.member);
@@ -5313,6 +5333,13 @@ INT_PTR CALLBACK GlowPageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
                         UpdateGlowControlStates(hwnd);
                         SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                         ApplyCustomizationPreview(hwnd, data);
+                    }
+                    return TRUE;
+                case IDC_GLOW_BITMAP_INTERCEPT:
+                    if (data) {
+                        data->workingOptions.enableBitmapIntercept =
+                            IsDlgButtonChecked(hwnd, IDC_GLOW_BITMAP_INTERCEPT) == BST_CHECKED;
+                        SendMessageW(GetParent(hwnd), PSM_CHANGED, reinterpret_cast<WPARAM>(hwnd), 0);
                     }
                     return TRUE;
                 case IDC_GLOW_USE_GRADIENT:
