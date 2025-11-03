@@ -585,6 +585,10 @@ void ShellTabsListView::SetUseAccentColors(bool enabled) {
     }
 }
 
+void ShellTabsListView::SetCustomDrawObserver(CustomDrawObserver observer) {
+    m_customDrawObserver = std::move(observer);
+}
+
 bool ShellTabsListView::HitTest(const POINT& clientPoint, HitTestResult* result) {
     if (!m_listView || !IsWindow(m_listView)) {
         return false;
@@ -771,6 +775,9 @@ bool ShellTabsListView::HandleCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result) 
     }
 
     const DWORD stage = draw->nmcd.dwDrawStage;
+    if (m_customDrawObserver) {
+        m_customDrawObserver(stage);
+    }
     switch (stage) {
         case CDDS_PREPAINT: {
             *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYSUBITEMDRAW | CDRF_NOTIFYPOSTPAINT;

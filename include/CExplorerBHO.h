@@ -184,6 +184,11 @@ class ShellTabsListView;
                         }
                 };
 
+                struct CustomDrawMonitor {
+                        ULONGLONG lastStageTick = 0;
+                        bool forced = false;
+                };
+
                 struct PreparedMenuItem {
                         const ContextMenuItem* definition = nullptr;
                         ContextMenuItemType type = ContextMenuItemType::kCommand;
@@ -351,6 +356,13 @@ class ShellTabsListView;
                 bool AttachListView(HWND listView);
                 void DetachListView();
                 void DetachListViewHosts();
+                void OnListViewCustomDrawStage(DWORD stage);
+                void EvaluateListViewForcedHooks(UINT message);
+                void UpdateListViewDescriptor();
+                void OnStatusBarCustomDrawStage(DWORD stage);
+                void EvaluateStatusBarForcedHooks(UINT message);
+                void UpdateStatusBarDescriptor();
+                static ULONGLONG CurrentTickCount();
 		enum class BreadcrumbDiscoveryStage {
 			None,
 			ServiceUnavailable,
@@ -458,6 +470,8 @@ class ShellTabsListView;
                 bool m_statusBarThemeValid = false;
                 bool m_statusBarSubclassInstalled = false;
                 std::optional<ToolbarChromeSample> m_statusBarChromeSample;
+                CustomDrawMonitor m_listViewCustomDraw{};
+                CustomDrawMonitor m_statusBarCustomDraw{};
                 bool m_explorerPaneRetryPending = false;
                 UINT_PTR m_explorerPaneRetryTimerId = 0;
                 DWORD m_explorerPaneRetryDelayMs = 0;
@@ -506,6 +520,7 @@ class ShellTabsListView;
                 bool m_contextMenuInserted = false;
                 static constexpr UINT kOpenInNewTabCommandId = 0xE170;
                 static constexpr UINT kCustomCommandIdBase = 0xE200;
+                static constexpr ULONGLONG kCustomDrawTimeoutMs = 2000;
         };
 
 }  // namespace shelltabs

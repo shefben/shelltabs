@@ -4,7 +4,9 @@
 #include <CommCtrl.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <unordered_map>
 
 #include "BreadcrumbGradient.h"
 #include "OptionsStore.h"
@@ -32,6 +34,27 @@ struct GlowColorSet {
     COLORREF end = RGB(0, 0, 0);
 };
 
+enum class SurfacePaintRole {
+    Generic,
+    ListViewRows,
+    StatusPane,
+};
+
+struct SurfaceColorDescriptor {
+    ExplorerSurfaceKind kind = ExplorerSurfaceKind::ListView;
+    SurfacePaintRole role = SurfacePaintRole::Generic;
+    GlowColorSet fillColors{};
+    bool fillOverride = false;
+    COLORREF textColor = CLR_INVALID;
+    bool textOverride = false;
+    COLORREF backgroundColor = CLR_INVALID;
+    bool backgroundOverride = false;
+    bool forceOpaqueBackground = false;
+    bool forcedHooks = false;
+    bool userAccessibilityOptOut = false;
+    bool accessibilityOptOut = false;
+};
+
 struct ScrollbarGlowDefinition {
     GlowColorSet colors{};
     BYTE trackLineAlpha = 0;
@@ -55,16 +78,31 @@ public:
     const BreadcrumbGradientConfig& BreadcrumbFontGradient() const noexcept { return m_breadcrumbFontGradient; }
     bool BitmapInterceptEnabled() const noexcept { return m_bitmapInterceptEnabled; }
 
+    SurfaceColorDescriptor* AcquireSurfaceDescriptor(HWND hwnd, ExplorerSurfaceKind kind);
+    SurfaceColorDescriptor* LookupSurfaceDescriptor(HWND hwnd) const;
+    void ReleaseSurfaceDescriptor(HWND hwnd);
+    void UpdateSurfaceDescriptor(HWND hwnd, const SurfaceColorDescriptor& descriptor);
+    void SetSurfaceForcedHooks(HWND hwnd, bool forced);
+    void SetSurfaceRole(HWND hwnd, SurfacePaintRole role);
+    void SetSurfaceAccessibilityOptOut(HWND hwnd, bool optOut);
+
 private:
     const GlowSurfaceOptions* ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept;
     void UpdateAccentColor();
     bool RefreshAccessibilityState();
+    void RefreshDescriptorAccessibility();
+
+    struct HandleHasher {
+        size_t operator()(HWND hwnd) const noexcept { return reinterpret_cast<size_t>(hwnd); }
+    };
 
     GlowSurfacePalette m_palette{};
     BreadcrumbGradientConfig m_breadcrumbFontGradient{};
     bool m_glowEnabled = false;
     bool m_highContrastActive = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
+    mutable std::mutex m_descriptorMutex;
+    std::unordered_map<HWND, std::unique_ptr<SurfaceColorDescriptor>, HandleHasher> m_surfaceDescriptors;
     bool m_bitmapInterceptEnabled = true;
 };
 

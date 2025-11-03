@@ -42,6 +42,7 @@ public:
     };
     using BackgroundResolver = std::function<BackgroundSource()>;
     using AccentColorResolver = std::function<bool(COLORREF* accent, COLORREF* text)>;
+    using CustomDrawObserver = std::function<void(DWORD stage)>;
 
     struct HitTestResult {
         int index = -1;
@@ -77,6 +78,7 @@ public:
     void SetBackgroundResolver(BackgroundResolver resolver);
     void SetAccentColorResolver(AccentColorResolver resolver);
     void SetUseAccentColors(bool enabled);
+    void SetCustomDrawObserver(CustomDrawObserver observer);
 
     bool HitTest(const POINT& clientPoint, HitTestResult* result);
     bool SelectExclusive(int index);
@@ -153,6 +155,7 @@ private:
     BackgroundSurface m_backgroundSurface;
     AccentResources m_accentResources;
     bool m_suppressSelectionNotifications = false;
+    CustomDrawObserver m_customDrawObserver;
 };
 
 }  // namespace shelltabs

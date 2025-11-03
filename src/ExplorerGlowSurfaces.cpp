@@ -1780,12 +1780,16 @@ void ExplorerGlowCoordinator::Configure(const ShellTabsOptions& options) {
     m_bitmapInterceptEnabled = options.enableBitmapIntercept;
     RefreshAccessibilityState();
     UpdateAccentColor();
+    RefreshDescriptorAccessibility();
 }
 
 bool ExplorerGlowCoordinator::HandleThemeChanged() {
     const bool accessibilityChanged = RefreshAccessibilityState();
     const COLORREF previousAccent = m_accentColor;
     UpdateAccentColor();
+    if (accessibilityChanged) {
+        RefreshDescriptorAccessibility();
+    }
     return accessibilityChanged || (previousAccent != m_accentColor);
 }
 
@@ -1793,6 +1797,9 @@ bool ExplorerGlowCoordinator::HandleSettingChanged() {
     const bool accessibilityChanged = RefreshAccessibilityState();
     const COLORREF previousAccent = m_accentColor;
     UpdateAccentColor();
+    if (accessibilityChanged) {
+        RefreshDescriptorAccessibility();
+    }
     return accessibilityChanged || (previousAccent != m_accentColor);
 }
 
@@ -1897,6 +1904,127 @@ bool ExplorerGlowCoordinator::RefreshAccessibilityState() {
         return true;
     }
     return false;
+}
+
+SurfaceColorDescriptor* ExplorerGlowCoordinator::AcquireSurfaceDescriptor(HWND hwnd, ExplorerSurfaceKind kind) {
+    if (!hwnd) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    auto& slot = m_surfaceDescriptors[hwnd];
+    if (!slot) {
+        slot = std::make_unique<SurfaceColorDescriptor>();
+    }
+    slot->kind = kind;
+    slot->role = SurfacePaintRole::Generic;
+    slot->accessibilityOptOut = slot->userAccessibilityOptOut || m_highContrastActive;
+    if (slot->accessibilityOptOut) {
+        slot->forcedHooks = false;
+    }
+    return slot.get();
+}
+
+SurfaceColorDescriptor* ExplorerGlowCoordinator::LookupSurfaceDescriptor(HWND hwnd) const {
+    if (!hwnd) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    auto it = m_surfaceDescriptors.find(hwnd);
+    if (it == m_surfaceDescriptors.end() || !it->second) {
+        return nullptr;
+    }
+    return it->second.get();
+}
+
+void ExplorerGlowCoordinator::ReleaseSurfaceDescriptor(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    m_surfaceDescriptors.erase(hwnd);
+}
+
+void ExplorerGlowCoordinator::UpdateSurfaceDescriptor(HWND hwnd, const SurfaceColorDescriptor& descriptor) {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    auto& slot = m_surfaceDescriptors[hwnd];
+    if (!slot) {
+        slot = std::make_unique<SurfaceColorDescriptor>();
+    }
+    const bool wasForced = slot->forcedHooks;
+    slot->kind = descriptor.kind;
+    slot->role = descriptor.role;
+    slot->fillColors = descriptor.fillColors;
+    slot->fillOverride = descriptor.fillOverride;
+    slot->textColor = descriptor.textColor;
+    slot->textOverride = descriptor.textOverride;
+    slot->backgroundColor = descriptor.backgroundColor;
+    slot->backgroundOverride = descriptor.backgroundOverride;
+    slot->forceOpaqueBackground = descriptor.forceOpaqueBackground;
+    slot->userAccessibilityOptOut = descriptor.userAccessibilityOptOut;
+    slot->accessibilityOptOut = descriptor.userAccessibilityOptOut || m_highContrastActive;
+    slot->forcedHooks = wasForced && !slot->accessibilityOptOut;
+}
+
+void ExplorerGlowCoordinator::SetSurfaceForcedHooks(HWND hwnd, bool forced) {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    auto it = m_surfaceDescriptors.find(hwnd);
+    if (it == m_surfaceDescriptors.end() || !it->second) {
+        return;
+    }
+    SurfaceColorDescriptor& descriptor = *it->second;
+    if (descriptor.accessibilityOptOut) {
+        descriptor.forcedHooks = false;
+        return;
+    }
+    descriptor.forcedHooks = forced;
+}
+
+void ExplorerGlowCoordinator::SetSurfaceRole(HWND hwnd, SurfacePaintRole role) {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    auto it = m_surfaceDescriptors.find(hwnd);
+    if (it == m_surfaceDescriptors.end() || !it->second) {
+        return;
+    }
+    it->second->role = role;
+}
+
+void ExplorerGlowCoordinator::SetSurfaceAccessibilityOptOut(HWND hwnd, bool optOut) {
+    if (!hwnd) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    auto it = m_surfaceDescriptors.find(hwnd);
+    if (it == m_surfaceDescriptors.end() || !it->second) {
+        return;
+    }
+    SurfaceColorDescriptor& descriptor = *it->second;
+    descriptor.userAccessibilityOptOut = optOut;
+    descriptor.accessibilityOptOut = optOut || m_highContrastActive;
+    if (descriptor.accessibilityOptOut) {
+        descriptor.forcedHooks = false;
+    }
+}
+
+void ExplorerGlowCoordinator::RefreshDescriptorAccessibility() {
+    std::lock_guard<std::mutex> lock(m_descriptorMutex);
+    for (auto& entry : m_surfaceDescriptors) {
+        if (!entry.second) {
+            continue;
+        }
+        entry.second->accessibilityOptOut = entry.second->userAccessibilityOptOut || m_highContrastActive;
+        if (entry.second->accessibilityOptOut) {
+            entry.second->forcedHooks = false;
+        }
+    }
 }
 
 ExplorerGlowSurface::ExplorerGlowSurface(ExplorerSurfaceKind kind, ExplorerGlowCoordinator& coordinator)
