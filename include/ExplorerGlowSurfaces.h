@@ -76,6 +76,7 @@ public:
     GlowColorSet ResolveColors(ExplorerSurfaceKind kind) const;
     std::optional<ScrollbarGlowDefinition> ResolveScrollbarDefinition() const;
     const BreadcrumbGradientConfig& BreadcrumbFontGradient() const noexcept { return m_breadcrumbFontGradient; }
+    bool BitmapInterceptEnabled() const noexcept { return m_bitmapInterceptEnabled; }
 
     SurfaceColorDescriptor* AcquireSurfaceDescriptor(HWND hwnd, ExplorerSurfaceKind kind);
     SurfaceColorDescriptor* LookupSurfaceDescriptor(HWND hwnd) const;
@@ -102,6 +103,7 @@ private:
     COLORREF m_accentColor = RGB(0, 120, 215);
     mutable std::mutex m_descriptorMutex;
     std::unordered_map<HWND, std::unique_ptr<SurfaceColorDescriptor>, HandleHasher> m_surfaceDescriptors;
+    bool m_bitmapInterceptEnabled = true;
 };
 
 class ExplorerGlowSurface {

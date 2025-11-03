@@ -3187,7 +3187,20 @@ void CExplorerBHO::UpdateStatusBarTheme() {
 
     const COLORREF resolvedTop = resolveGradientColor(gradientTop);
     const COLORREF resolvedBottom = resolveGradientColor(gradientBottom);
-    const COLORREF text = ChooseStatusBarTextColor(resolvedTop, resolvedBottom);
+    COLORREF text = ChooseStatusBarTextColor(resolvedTop, resolvedBottom);
+
+    if (auto themeText = QueryStatusBarThemeTextColor(m_statusBar)) {
+        const double topLuminance = ComputeColorLuminance(resolvedTop);
+        const double bottomLuminance = ComputeColorLuminance(resolvedBottom);
+        const double themeLuminance = ComputeColorLuminance(themeText.value());
+        const double contrastTop = ComputeContrastRatio(topLuminance, themeLuminance);
+        const double contrastBottom = ComputeContrastRatio(bottomLuminance, themeLuminance);
+        const double themeContrast = std::min(contrastTop, contrastBottom);
+        constexpr double kThemeContrastThreshold = 4.5;
+        if (themeContrast >= kThemeContrastThreshold || !m_statusBarThemeValid) {
+            text = themeText.value();
+        }
+    }
 
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
     const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
@@ -7208,35 +7221,31 @@ bool CExplorerBHO::HandleProgressPaint(HWND hwnd) {
     return true;
 }
 
-bool CExplorerBHO::HandleAddressEditPaint(HWND hwnd) {
+void CExplorerBHO::PaintAddressEditOverlay(HWND hwnd, HDC dc, const RECT* clip) {
     if (!m_breadcrumbFontGradientEnabled || !m_gdiplusInitialized) {
-        return false;
-    }
-
-    PAINTSTRUCT ps{};
-    HDC dc = BeginPaint(hwnd, &ps);
-    if (!dc) {
-        return false;
-    }
-
-    DrawAddressEditContent(hwnd, dc);
-
-    EndPaint(hwnd, &ps);
-    return true;
-}
-
-bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc) {
-    if (!hwnd || !dc) {
-        return false;
+        return;
     }
 
     GradientEditRenderOptions options;
     options.hideCaret = true;
-    options.requestEraseBackground = true;
+    options.requestEraseBackground = false;
+    if (clip) {
+        options.clipRect = *clip;
+    }
 
-    RECT clip{};
-    if (GetClipBox(dc, &clip) != ERROR && !IsRectEmpty(&clip)) {
-        options.clipRect = clip;
+    DrawAddressEditContent(hwnd, dc, options);
+}
+
+bool CExplorerBHO::DrawAddressEditContent(HWND hwnd, HDC dc, GradientEditRenderOptions options) {
+    if (!hwnd || !dc) {
+        return false;
+    }
+
+    if (!options.clipRect.has_value()) {
+        RECT clip{};
+        if (GetClipBox(dc, &clip) != ERROR && !IsRectEmpty(&clip)) {
+            options.clipRect = clip;
+        }
     }
 
     const auto& gradientConfig = m_glowCoordinator.BreadcrumbFontGradient();
@@ -7428,19 +7437,61 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
                 self->m_addressEditRedrawTimerActive = false;
             }
             self->m_addressEditRedrawPending = false;
-            if (self->HandleAddressEditPaint(hwnd)) {
-                return 0;
+
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+            if (!self->m_breadcrumbFontGradientEnabled || !self->m_gdiplusInitialized) {
+                return result;
             }
-            break;
+
+            auto paintWithDc = [&](HDC targetDc, const RECT* clipRect, bool releaseDc) {
+                if (!targetDc) {
+                    return;
+                }
+                self->PaintAddressEditOverlay(hwnd, targetDc, clipRect);
+                if (releaseDc) {
+                    ReleaseDC(hwnd, targetDc);
+                }
+            };
+
+            if (wParam) {
+                RECT clipRect{};
+                const RECT* clipPtr = nullptr;
+                if (lParam) {
+                    clipRect = *reinterpret_cast<RECT*>(lParam);
+                    clipPtr = &clipRect;
+                }
+                paintWithDc(reinterpret_cast<HDC>(wParam), clipPtr, false);
+            } else {
+                UINT flags = DCX_CACHE | DCX_CLIPSIBLINGS | DCX_CLIPCHILDREN | DCX_WINDOW;
+                HDC targetDc = GetDCEx(hwnd, nullptr, flags);
+                RECT clip{};
+                const RECT* clipPtr = nullptr;
+                if (targetDc) {
+                    if (GetClipBox(targetDc, &clip) != ERROR && !IsRectEmpty(&clip)) {
+                        clipPtr = &clip;
+                    }
+                }
+                paintWithDc(targetDc, clipPtr, targetDc != nullptr);
+            }
+
+            return result;
         }
         case WM_PRINTCLIENT: {
-            if (self->m_breadcrumbFontGradientEnabled) {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (self->m_breadcrumbFontGradientEnabled && self->m_gdiplusInitialized) {
                 HDC dc = reinterpret_cast<HDC>(wParam);
-                if (self->DrawAddressEditContent(hwnd, dc)) {
-                    return 0;
+                if (dc) {
+                    GradientEditRenderOptions options;
+                    options.hideCaret = false;
+                    options.requestEraseBackground = false;
+                    if (lParam) {
+                        options.clipRect = *reinterpret_cast<RECT*>(lParam);
+                    }
+                    self->DrawAddressEditContent(hwnd, dc, options);
                 }
             }
-            break;
+            return result;
         }
         case WM_TIMER:
             if (wParam == kAddressEditRedrawTimerId) {

@@ -5,6 +5,8 @@
 #include <optional>
 #include <utility>
 #include <winreg.h>
+#include <uxtheme.h>
+#include <vssym32.h>
 
 namespace shelltabs {
 
@@ -144,6 +146,78 @@ std::optional<ToolbarChromeSample> SampleToolbarChrome(HWND window) {
     sample.topColor = topSample.value_or(bottomSample.value_or(0));
     sample.bottomColor = bottomSample.value_or(sample.topColor);
     return sample;
+}
+
+std::optional<COLORREF> QueryEditThemeTextColor(HWND editWindow) {
+    if (!editWindow || !IsWindow(editWindow)) {
+        return std::nullopt;
+    }
+
+    auto openTheme = [&](HWND target) -> HTHEME {
+        if (!target || !IsWindow(target)) {
+            return nullptr;
+        }
+        return OpenThemeData(target, L"Edit");
+    };
+
+    HTHEME theme = openTheme(editWindow);
+    if (!theme) {
+        HWND parent = GetParent(editWindow);
+        while (parent && IsWindow(parent) && !theme) {
+            theme = openTheme(parent);
+            if (!theme) {
+                parent = GetParent(parent);
+            }
+        }
+    }
+
+    if (!theme) {
+        return std::nullopt;
+    }
+
+    const int candidateStates[] = {ETS_NORMAL, ETS_HOT, ETS_SELECTED, ETS_FOCUSED, ETS_READONLY};
+    COLORREF textColor = 0;
+    HRESULT hr = E_FAIL;
+    for (int state : candidateStates) {
+        hr = GetThemeColor(theme, EP_EDITTEXT, state, TMT_TEXTCOLOR, &textColor);
+        if (SUCCEEDED(hr)) {
+            break;
+        }
+    }
+
+    CloseThemeData(theme);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    return textColor;
+}
+
+std::optional<COLORREF> QueryStatusBarThemeTextColor(HWND statusBar) {
+    if (!statusBar || !IsWindow(statusBar)) {
+        return std::nullopt;
+    }
+
+    HTHEME theme = OpenThemeData(statusBar, L"Status");
+    if (!theme) {
+        return std::nullopt;
+    }
+
+    COLORREF textColor = 0;
+    HRESULT hr = GetThemeColor(theme, SP_PANE, 0, TMT_TEXTCOLOR, &textColor);
+    if (FAILED(hr)) {
+        hr = GetThemeColor(theme, SP_PANE, 1, TMT_TEXTCOLOR, &textColor);
+    }
+    if (FAILED(hr)) {
+        hr = GetThemeColor(theme, SP_GRIPPERPANE, 0, TMT_TEXTCOLOR, &textColor);
+    }
+
+    CloseThemeData(theme);
+    if (FAILED(hr)) {
+        return std::nullopt;
+    }
+
+    return textColor;
 }
 
 }  // namespace shelltabs

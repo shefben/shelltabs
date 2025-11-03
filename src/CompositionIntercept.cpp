@@ -40,6 +40,8 @@ using DeviceCreateTargetForHwndFn =
 using TargetSetRootFn = HRESULT(STDMETHODCALLTYPE*)(IDCompositionTarget*, IDCompositionVisual*);
 using TargetReleaseFn = ULONG(STDMETHODCALLTYPE*)(IDCompositionTarget*);
 using GdiAlphaBlendFn = BOOL(WINAPI*)(HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
+using BitBltFn = BOOL(WINAPI*)(HDC, int, int, int, int, HDC, int, int, DWORD);
+using StretchBltFn = BOOL(WINAPI*)(HDC, int, int, int, int, HDC, int, int, int, int, DWORD);
 
 void* g_createDeviceAddress = nullptr;
 void* g_createDevice2Address = nullptr;
@@ -52,14 +54,48 @@ DCompositionCreateDeviceFn g_originalCreateDevice3 = nullptr;
 DeviceCreateTargetForHwndFn g_originalDeviceCreateTargetForHwnd = nullptr;
 TargetSetRootFn g_originalTargetSetRoot = nullptr;
 TargetReleaseFn g_originalTargetRelease = nullptr;
-GdiAlphaBlendFn g_originalGdiAlphaBlend = nullptr;
+GdiAlphaBlendFn g_originalGdi32AlphaBlend = nullptr;
+GdiAlphaBlendFn g_originalMsimgAlphaBlend = nullptr;
+BitBltFn g_originalBitBlt = nullptr;
+StretchBltFn g_originalStretchBlt = nullptr;
 
 void* g_deviceCreateTargetForHwndAddress = nullptr;
 void* g_targetSetRootAddress = nullptr;
 void* g_targetReleaseAddress = nullptr;
-void* g_gdiAlphaBlendAddress = nullptr;
+void* g_msimgAlphaBlendAddress = nullptr;
+void* g_gdi32AlphaBlendAddress = nullptr;
+void* g_bitBltAddress = nullptr;
+void* g_stretchBltAddress = nullptr;
 
 bool g_hooksInstalled = false;
+
+thread_local bool g_rasterInterceptActive = false;
+
+class RasterReentrancyGuard {
+public:
+    RasterReentrancyGuard() {
+        if (g_rasterInterceptActive) {
+            m_entered = false;
+        } else {
+            g_rasterInterceptActive = true;
+            m_entered = true;
+        }
+    }
+
+    ~RasterReentrancyGuard() {
+        if (m_entered) {
+            g_rasterInterceptActive = false;
+        }
+    }
+
+    RasterReentrancyGuard(const RasterReentrancyGuard&) = delete;
+    RasterReentrancyGuard& operator=(const RasterReentrancyGuard&) = delete;
+
+    bool Entered() const noexcept { return m_entered; }
+
+private:
+    bool m_entered = false;
+};
 
 ComPtr<ID2D1Factory1> g_d2dFactory;
 std::once_flag g_d2dFactoryInit;
@@ -88,6 +124,15 @@ struct ExplorerTargetContext : public std::enable_shared_from_this<ExplorerTarge
     std::mutex mutex;
     HBITMAP backgroundBitmap = nullptr;
     HBITMAP foregroundBitmap = nullptr;
+    RECT cachedPaintBounds{0, 0, 0, 0};
+    RECT cachedClipBounds{0, 0, 0, 0};
+    bool hasCachedPaintBounds = false;
+    bool hasCachedClipBounds = false;
+    HDC scratchDc = nullptr;
+    HBITMAP scratchBitmap = nullptr;
+    HGDIOBJ scratchOldBitmap = nullptr;
+    void* scratchBits = nullptr;
+    SIZE scratchSize{0, 0};
 
     ~ExplorerTargetContext() {
         if (backgroundBitmap) {
@@ -98,6 +143,19 @@ struct ExplorerTargetContext : public std::enable_shared_from_this<ExplorerTarge
             DeleteObject(foregroundBitmap);
             foregroundBitmap = nullptr;
         }
+        if (scratchDc) {
+            if (scratchBitmap && scratchOldBitmap) {
+                SelectObject(scratchDc, scratchOldBitmap);
+            }
+            if (scratchBitmap) {
+                DeleteObject(scratchBitmap);
+                scratchBitmap = nullptr;
+            }
+            DeleteDC(scratchDc);
+            scratchDc = nullptr;
+        }
+        scratchOldBitmap = nullptr;
+        scratchBits = nullptr;
     }
 };
 
@@ -176,6 +234,207 @@ std::shared_ptr<ExplorerTargetContext> LookupBitmapContext(HBITMAP bitmap) {
         return nullptr;
     }
     return it->second.lock();
+}
+
+struct InterceptParams {
+    std::shared_ptr<ExplorerTargetContext> context;
+    RECT bounds{0, 0, 0, 0};
+    RECT clip{0, 0, 0, 0};
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+bool PrepareIntercept(HDC dc, int x, int y, int width, int height, bool isSource, InterceptParams& params,
+                      std::unique_lock<std::mutex>& lock) {
+    UNREFERENCED_PARAMETER(isSource);
+    params = {};
+    if (!dc || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    HBITMAP bitmap = reinterpret_cast<HBITMAP>(GetCurrentObject(dc, OBJ_BITMAP));
+    if (!bitmap) {
+        return false;
+    }
+
+    auto context = LookupBitmapContext(bitmap);
+    if (!context) {
+        return false;
+    }
+
+    std::unique_lock<std::mutex> localLock(context->mutex);
+
+    if (context->surfacesDirty) {
+        UpdateGradientSurfacesLocked(context);
+    }
+
+    if (!context->coordinator || !context->coordinator->BitmapInterceptEnabled() ||
+        !context->coordinator->ShouldRender() || !context->lastColors.valid) {
+        return false;
+    }
+
+    RECT clip{};
+    const int clipType = GetClipBox(dc, &clip);
+    if (clipType == NULLREGION || clipType == ERROR) {
+        return false;
+    }
+
+    RECT bounds{x, y, x + width, y + height};
+    if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+        return false;
+    }
+
+    RECT clipIntersection{};
+    if (!IntersectRect(&clipIntersection, &bounds, &clip)) {
+        return false;
+    }
+
+    RECT newCachedBounds = bounds;
+    if (context->hasCachedPaintBounds) {
+        RECT expanded = context->cachedPaintBounds;
+        InflateRect(&expanded, 8, 8);
+        if (!IntersectRect(&clipIntersection, &expanded, &bounds)) {
+            return false;
+        }
+        RECT unionRect{};
+        UnionRect(&unionRect, &context->cachedPaintBounds, &bounds);
+        newCachedBounds = unionRect;
+    }
+
+    RECT newCachedClip = clip;
+    if (context->hasCachedClipBounds) {
+        RECT expandedClip = context->cachedClipBounds;
+        InflateRect(&expandedClip, 2, 2);
+        if (!IntersectRect(&clipIntersection, &expandedClip, &clip)) {
+            return false;
+        }
+        RECT unionClip{};
+        UnionRect(&unionClip, &context->cachedClipBounds, &clip);
+        newCachedClip = unionClip;
+    }
+
+    context->cachedPaintBounds = newCachedBounds;
+    context->cachedClipBounds = newCachedClip;
+    context->hasCachedPaintBounds = true;
+    context->hasCachedClipBounds = true;
+
+    params.context = context;
+    params.bounds = bounds;
+    params.clip = clip;
+    params.x = x;
+    params.y = y;
+    params.width = width;
+    params.height = height;
+
+    lock = std::move(localLock);
+    return true;
+}
+
+bool EnsureScratchSurfaceLocked(const std::shared_ptr<ExplorerTargetContext>& context, int width, int height) {
+    if (!context || width <= 0 || height <= 0) {
+        return false;
+    }
+    if (context->scratchDc && context->scratchBitmap && context->scratchSize.cx == width &&
+        context->scratchSize.cy == height) {
+        return true;
+    }
+
+    if (!context->scratchDc) {
+        context->scratchDc = CreateCompatibleDC(nullptr);
+        if (!context->scratchDc) {
+            return false;
+        }
+    }
+
+    if (context->scratchBitmap) {
+        if (context->scratchOldBitmap) {
+            SelectObject(context->scratchDc, context->scratchOldBitmap);
+        }
+        DeleteObject(context->scratchBitmap);
+        context->scratchBitmap = nullptr;
+        context->scratchBits = nullptr;
+    }
+
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) {
+        if (bitmap) {
+            DeleteObject(bitmap);
+        }
+        return false;
+    }
+
+    HGDIOBJ previous = SelectObject(context->scratchDc, bitmap);
+    if (!context->scratchOldBitmap) {
+        context->scratchOldBitmap = previous;
+    }
+
+    context->scratchBitmap = bitmap;
+    context->scratchBits = bits;
+    context->scratchSize.cx = width;
+    context->scratchSize.cy = height;
+    return true;
+}
+
+bool CopyDcRegionToScratchLocked(const InterceptParams& params, HDC dc) {
+    if (!params.context || !dc || !g_originalBitBlt) {
+        return false;
+    }
+    return g_originalBitBlt(params.context->scratchDc, 0, 0, params.width, params.height, dc, params.x, params.y,
+                            SRCCOPY) != FALSE;
+}
+
+bool FlushScratchToDcLocked(const InterceptParams& params, HDC dc) {
+    if (!params.context || !dc || !g_originalBitBlt) {
+        return false;
+    }
+    return g_originalBitBlt(dc, params.x, params.y, params.width, params.height, params.context->scratchDc, 0, 0,
+                            SRCCOPY) != FALSE;
+}
+
+void ApplyGradientOverlayLocked(const InterceptParams& params) {
+    auto context = params.context;
+    if (!context || params.width <= 0 || params.height <= 0) {
+        return;
+    }
+
+    bool applied = false;
+    if (context->backgroundBitmap && g_originalBitBlt && params.bounds.left >= 0 && params.bounds.top >= 0 &&
+        params.bounds.right <= context->lastSize.cx && params.bounds.bottom <= context->lastSize.cy) {
+        HDC gradientDc = CreateCompatibleDC(nullptr);
+        if (gradientDc) {
+            HGDIOBJ old = SelectObject(gradientDc, context->backgroundBitmap);
+            if (old) {
+                applied = g_originalBitBlt(context->scratchDc, 0, 0, params.width, params.height, gradientDc,
+                                           params.bounds.left, params.bounds.top, SRCCOPY) != FALSE;
+                if (context->foregroundBitmap) {
+                    HGDIOBJ foregroundOld = SelectObject(gradientDc, context->foregroundBitmap);
+                    if (foregroundOld) {
+                        g_originalBitBlt(context->scratchDc, 0, 0, params.width, params.height, gradientDc,
+                                         params.bounds.left, params.bounds.top, SRCCOPY);
+                        SelectObject(gradientDc, foregroundOld);
+                    }
+                }
+                SelectObject(gradientDc, old);
+            }
+            DeleteDC(gradientDc);
+        }
+    }
+
+    if (!applied && context->scratchBits) {
+        FillGradientPixels(static_cast<uint32_t*>(context->scratchBits), params.width, params.height,
+                           context->lastColors);
+    }
 }
 
 uint32_t PremultiplyChannel(uint8_t value, uint8_t alpha) noexcept {
@@ -394,6 +653,8 @@ void UpdateGradientSurfacesLocked(const std::shared_ptr<ExplorerTargetContext>& 
     context->lastSize.cx = width;
     context->lastSize.cy = height;
     context->surfacesDirty = false;
+    context->hasCachedPaintBounds = false;
+    context->hasCachedClipBounds = false;
 
     UpdateTrackedBitmapsLocked(context, width, height, colors);
 }
@@ -651,26 +912,187 @@ ULONG STDMETHODCALLTYPE TargetReleaseDetour(IDCompositionTarget* target) {
     return result;
 }
 
-BOOL WINAPI GdiAlphaBlendDetour(HDC dest, int destX, int destY, int destW, int destH, HDC src, int srcX, int srcY,
-                                int srcW, int srcH, BLENDFUNCTION blend) {
-    if (src) {
-        HBITMAP bitmap = reinterpret_cast<HBITMAP>(GetCurrentObject(src, OBJ_BITMAP));
-        if (bitmap) {
-            auto context = LookupBitmapContext(bitmap);
-            if (context) {
-                std::lock_guard<std::mutex> guard(context->mutex);
-                if (context->surfacesDirty) {
-                    UpdateGradientSurfacesLocked(context);
-                }
-                if (context->lastColors.valid) {
-                    UpdateGradientBitmap(bitmap, context->lastSize.cx, context->lastSize.cy, context->lastColors);
-                }
-            }
-        }
+BOOL HandleAlphaBlendCall(GdiAlphaBlendFn original, HDC dest, int destX, int destY, int destW, int destH, HDC src,
+                          int srcX, int srcY, int srcW, int srcH, BLENDFUNCTION blend) {
+    if (!original) {
+        return FALSE;
     }
-    return g_originalGdiAlphaBlend ?
-               g_originalGdiAlphaBlend(dest, destX, destY, destW, destH, src, srcX, srcY, srcW, srcH, blend)
-                                   : FALSE;
+
+    RasterReentrancyGuard guard;
+    if (!guard.Entered()) {
+        return original(dest, destX, destY, destW, destH, src, srcX, srcY, srcW, srcH, blend);
+    }
+
+    InterceptParams srcParams;
+    std::unique_lock<std::mutex> srcLock;
+    const bool srcReady = PrepareIntercept(src, srcX, srcY, srcW, srcH, true, srcParams, srcLock) &&
+                          EnsureScratchSurfaceLocked(srcParams.context, srcParams.width, srcParams.height) &&
+                          CopyDcRegionToScratchLocked(srcParams, src);
+
+    if (srcReady) {
+        ApplyGradientOverlayLocked(srcParams);
+    }
+
+    InterceptParams destParams;
+    std::unique_lock<std::mutex> destLock;
+    const bool destReady = PrepareIntercept(dest, destX, destY, destW, destH, false, destParams, destLock) &&
+                           EnsureScratchSurfaceLocked(destParams.context, destParams.width, destParams.height) &&
+                           CopyDcRegionToScratchLocked(destParams, dest);
+
+    if (destReady) {
+        ApplyGradientOverlayLocked(destParams);
+    }
+
+    HDC effectiveSrc = srcReady ? srcParams.context->scratchDc : src;
+    int effectiveSrcX = srcReady ? 0 : srcX;
+    int effectiveSrcY = srcReady ? 0 : srcY;
+    int effectiveSrcW = srcReady ? srcParams.width : srcW;
+    int effectiveSrcH = srcReady ? srcParams.height : srcH;
+
+    HDC effectiveDest = destReady ? destParams.context->scratchDc : dest;
+    int effectiveDestX = destReady ? 0 : destX;
+    int effectiveDestY = destReady ? 0 : destY;
+
+    BOOL result = original(effectiveDest, effectiveDestX, effectiveDestY, destW, destH, effectiveSrc, effectiveSrcX,
+                           effectiveSrcY, srcW, srcH, blend);
+
+    if (result && destReady) {
+        FlushScratchToDcLocked(destParams, dest);
+    }
+
+    return result;
+}
+
+BOOL WINAPI GdiAlphaBlendDetourGdi32(HDC dest, int destX, int destY, int destW, int destH, HDC src, int srcX,
+                                     int srcY, int srcW, int srcH, BLENDFUNCTION blend) {
+    return HandleAlphaBlendCall(g_originalGdi32AlphaBlend, dest, destX, destY, destW, destH, src, srcX, srcY, srcW,
+                                srcH, blend);
+}
+
+BOOL WINAPI GdiAlphaBlendDetourMsimg(HDC dest, int destX, int destY, int destW, int destH, HDC src, int srcX,
+                                     int srcY, int srcW, int srcH, BLENDFUNCTION blend) {
+    return HandleAlphaBlendCall(g_originalMsimgAlphaBlend, dest, destX, destY, destW, destH, src, srcX, srcY, srcW,
+                                srcH, blend);
+}
+
+BOOL HandleBitBltCall(BitBltFn original, HDC dest, int destX, int destY, int width, int height, HDC src, int srcX,
+                      int srcY, DWORD rop) {
+    if (!original) {
+        return FALSE;
+    }
+    if (rop != SRCCOPY) {
+        return original(dest, destX, destY, width, height, src, srcX, srcY, rop);
+    }
+
+    RasterReentrancyGuard guard;
+    if (!guard.Entered()) {
+        return original(dest, destX, destY, width, height, src, srcX, srcY, rop);
+    }
+
+    InterceptParams srcParams;
+    std::unique_lock<std::mutex> srcLock;
+    const bool srcReady = PrepareIntercept(src, srcX, srcY, width, height, true, srcParams, srcLock) &&
+                          EnsureScratchSurfaceLocked(srcParams.context, srcParams.width, srcParams.height) &&
+                          CopyDcRegionToScratchLocked(srcParams, src);
+
+    if (srcReady) {
+        ApplyGradientOverlayLocked(srcParams);
+    }
+
+    InterceptParams destParams;
+    std::unique_lock<std::mutex> destLock;
+    const bool destReady = PrepareIntercept(dest, destX, destY, width, height, false, destParams, destLock) &&
+                           EnsureScratchSurfaceLocked(destParams.context, destParams.width, destParams.height) &&
+                           CopyDcRegionToScratchLocked(destParams, dest);
+
+    if (destReady) {
+        ApplyGradientOverlayLocked(destParams);
+    }
+
+    HDC effectiveSrc = srcReady ? srcParams.context->scratchDc : src;
+    int effectiveSrcX = srcReady ? 0 : srcX;
+    int effectiveSrcY = srcReady ? 0 : srcY;
+
+    HDC effectiveDest = destReady ? destParams.context->scratchDc : dest;
+    int effectiveDestX = destReady ? 0 : destX;
+    int effectiveDestY = destReady ? 0 : destY;
+
+    BOOL result = original(effectiveDest, effectiveDestX, effectiveDestY, width, height, effectiveSrc, effectiveSrcX,
+                           effectiveSrcY, rop);
+
+    if (result && destReady) {
+        FlushScratchToDcLocked(destParams, dest);
+    }
+
+    return result;
+}
+
+BOOL WINAPI BitBltDetour(HDC dest, int destX, int destY, int width, int height, HDC src, int srcX, int srcY,
+                         DWORD rop) {
+    return HandleBitBltCall(g_originalBitBlt, dest, destX, destY, width, height, src, srcX, srcY, rop);
+}
+
+BOOL HandleStretchBltCall(StretchBltFn original, HDC dest, int destX, int destY, int destW, int destH, HDC src,
+                          int srcX, int srcY, int srcW, int srcH, DWORD rop) {
+    if (!original) {
+        return FALSE;
+    }
+    if (rop != SRCCOPY) {
+        return original(dest, destX, destY, destW, destH, src, srcX, srcY, srcW, srcH, rop);
+    }
+    if (destW <= 0 || destH <= 0 || srcW <= 0 || srcH <= 0) {
+        return original(dest, destX, destY, destW, destH, src, srcX, srcY, srcW, srcH, rop);
+    }
+
+    RasterReentrancyGuard guard;
+    if (!guard.Entered()) {
+        return original(dest, destX, destY, destW, destH, src, srcX, srcY, srcW, srcH, rop);
+    }
+
+    InterceptParams srcParams;
+    std::unique_lock<std::mutex> srcLock;
+    const bool srcReady = PrepareIntercept(src, srcX, srcY, srcW, srcH, true, srcParams, srcLock) &&
+                          EnsureScratchSurfaceLocked(srcParams.context, srcParams.width, srcParams.height) &&
+                          CopyDcRegionToScratchLocked(srcParams, src);
+
+    if (srcReady) {
+        ApplyGradientOverlayLocked(srcParams);
+    }
+
+    InterceptParams destParams;
+    std::unique_lock<std::mutex> destLock;
+    const bool destReady = PrepareIntercept(dest, destX, destY, destW, destH, false, destParams, destLock) &&
+                           EnsureScratchSurfaceLocked(destParams.context, destParams.width, destParams.height) &&
+                           CopyDcRegionToScratchLocked(destParams, dest);
+
+    if (destReady) {
+        ApplyGradientOverlayLocked(destParams);
+    }
+
+    HDC effectiveSrc = srcReady ? srcParams.context->scratchDc : src;
+    int effectiveSrcX = srcReady ? 0 : srcX;
+    int effectiveSrcY = srcReady ? 0 : srcY;
+    int effectiveSrcW = srcReady ? srcParams.width : srcW;
+    int effectiveSrcH = srcReady ? srcParams.height : srcH;
+
+    HDC effectiveDest = destReady ? destParams.context->scratchDc : dest;
+    int effectiveDestX = destReady ? 0 : destX;
+    int effectiveDestY = destReady ? 0 : destY;
+
+    BOOL result = original(effectiveDest, effectiveDestX, effectiveDestY, destW, destH, effectiveSrc, effectiveSrcX,
+                           effectiveSrcY, effectiveSrcW, effectiveSrcH, rop);
+
+    if (result && destReady) {
+        FlushScratchToDcLocked(destParams, dest);
+    }
+
+    return result;
+}
+
+BOOL WINAPI StretchBltDetour(HDC dest, int destX, int destY, int destW, int destH, HDC src, int srcX, int srcY,
+                             int srcW, int srcH, DWORD rop) {
+    return HandleStretchBltCall(g_originalStretchBlt, dest, destX, destY, destW, destH, src, srcX, srcY, srcW, srcH,
+                                rop);
 }
 
 HRESULT WrapDevice(IUnknown** object, REFIID iid) {
@@ -766,10 +1188,22 @@ bool InitializeCompositionIntercept() {
         return false;
     }
 
+    HMODULE gdi = GetModuleHandleW(L"gdi32.dll");
+    if (!gdi) {
+        gdi = LoadLibraryW(L"gdi32.dll");
+    }
+    if (!gdi) {
+        LogLastError(L"CompositionIntercept: LoadLibrary(gdi32.dll)", GetLastError());
+        return false;
+    }
+
     auto createDevice = reinterpret_cast<DCompositionCreateDeviceFn>(GetProcAddress(dcomp, "DCompositionCreateDevice"));
     auto createDevice2 = reinterpret_cast<DCompositionCreateDeviceFn>(GetProcAddress(dcomp, "DCompositionCreateDevice2"));
     auto createDevice3 = reinterpret_cast<DCompositionCreateDeviceFn>(GetProcAddress(dcomp, "DCompositionCreateDevice3"));
-    auto alphaBlend = reinterpret_cast<GdiAlphaBlendFn>(GetProcAddress(msimg, "GdiAlphaBlend"));
+    auto bitBlt = reinterpret_cast<BitBltFn>(GetProcAddress(gdi, "BitBlt"));
+    auto stretchBlt = reinterpret_cast<StretchBltFn>(GetProcAddress(gdi, "StretchBlt"));
+    auto gdiAlphaBlend = reinterpret_cast<GdiAlphaBlendFn>(GetProcAddress(gdi, "GdiAlphaBlend"));
+    auto msimgAlphaBlend = reinterpret_cast<GdiAlphaBlendFn>(GetProcAddress(msimg, "GdiAlphaBlend"));
 
     if (createDevice &&
         FAILED(InstallHook(reinterpret_cast<void*>(createDevice),
@@ -799,12 +1233,43 @@ bool InitializeCompositionIntercept() {
         g_createDevice3Address = reinterpret_cast<void*>(createDevice3);
     }
 
-    if (alphaBlend &&
-        FAILED(InstallHook(reinterpret_cast<void*>(alphaBlend), reinterpret_cast<void*>(&GdiAlphaBlendDetour),
-                           reinterpret_cast<void**>(&g_originalGdiAlphaBlend), L"GdiAlphaBlend"))) {
+    if (bitBlt &&
+        FAILED(InstallHook(reinterpret_cast<void*>(bitBlt), reinterpret_cast<void*>(&BitBltDetour),
+                           reinterpret_cast<void**>(&g_originalBitBlt), L"BitBlt"))) {
         return false;
     }
-    g_gdiAlphaBlendAddress = reinterpret_cast<void*>(alphaBlend);
+    if (bitBlt) {
+        g_bitBltAddress = reinterpret_cast<void*>(bitBlt);
+    }
+
+    if (stretchBlt &&
+        FAILED(InstallHook(reinterpret_cast<void*>(stretchBlt), reinterpret_cast<void*>(&StretchBltDetour),
+                           reinterpret_cast<void**>(&g_originalStretchBlt), L"StretchBlt"))) {
+        return false;
+    }
+    if (stretchBlt) {
+        g_stretchBltAddress = reinterpret_cast<void*>(stretchBlt);
+    }
+
+    if (gdiAlphaBlend &&
+        FAILED(InstallHook(reinterpret_cast<void*>(gdiAlphaBlend),
+                           reinterpret_cast<void*>(&GdiAlphaBlendDetourGdi32),
+                           reinterpret_cast<void**>(&g_originalGdi32AlphaBlend), L"GdiAlphaBlend (gdi32)"))) {
+        return false;
+    }
+    if (gdiAlphaBlend) {
+        g_gdi32AlphaBlendAddress = reinterpret_cast<void*>(gdiAlphaBlend);
+    }
+
+    if (msimgAlphaBlend &&
+        FAILED(InstallHook(reinterpret_cast<void*>(msimgAlphaBlend),
+                           reinterpret_cast<void*>(&GdiAlphaBlendDetourMsimg),
+                           reinterpret_cast<void**>(&g_originalMsimgAlphaBlend), L"GdiAlphaBlend (msimg32)"))) {
+        return false;
+    }
+    if (msimgAlphaBlend) {
+        g_msimgAlphaBlendAddress = reinterpret_cast<void*>(msimgAlphaBlend);
+    }
 
     g_hooksInstalled = true;
     LogMessage(LogLevel::Info, L"CompositionIntercept: hooks initialized");
@@ -819,7 +1284,10 @@ void ShutdownCompositionIntercept() {
         RemoveHook(g_deviceCreateTargetForHwndAddress, L"IDCompositionDevice::CreateTargetForHwnd");
         RemoveHook(g_targetSetRootAddress, L"IDCompositionTarget::SetRoot");
         RemoveHook(g_targetReleaseAddress, L"IDCompositionTarget::Release");
-        RemoveHook(g_gdiAlphaBlendAddress, L"GdiAlphaBlend");
+        RemoveHook(g_msimgAlphaBlendAddress, L"GdiAlphaBlend (msimg32)");
+        RemoveHook(g_gdi32AlphaBlendAddress, L"GdiAlphaBlend (gdi32)");
+        RemoveHook(g_bitBltAddress, L"BitBlt");
+        RemoveHook(g_stretchBltAddress, L"StretchBlt");
         g_hooksInstalled = false;
     }
 
