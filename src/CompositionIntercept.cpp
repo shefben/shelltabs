@@ -21,6 +21,11 @@ namespace shelltabs {
 namespace {
 
 using Microsoft::WRL::ComPtr;
+// Forward decls for functions used before definition.
+struct ExplorerTargetContext;  // incomplete type is fine for shared_ptr params
+
+void UpdateGradientSurfacesLocked(const std::shared_ptr<ExplorerTargetContext>& context);
+void FillGradientPixels(uint32_t* pixels, int width, int height, const GlowColorSet& colors);
 
 HRESULT STDMETHODCALLTYPE DeviceCreateTargetForHwndDetour(IDCompositionDevice* self, HWND hwnd, BOOL topmost,
                                                           IDCompositionTarget** target);
