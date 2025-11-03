@@ -18,6 +18,7 @@
 #include <array>
 #include <cassert>
 #include <cwchar>
+#include <limits>
 #include <malloc.h>
 #include <memory>
 #include <random>
@@ -2271,7 +2272,7 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
 
     auto appendControl = [&]() -> DLGITEMTEMPLATE* {
         AlignDialogBuffer(data);
-        size_t offset = data.size();
+        const size_t offset = data.size();
         data.resize(offset + sizeof(DLGITEMTEMPLATE));
         ++controlCount;
         return reinterpret_cast<DLGITEMTEMPLATE*>(data.data() + offset);
@@ -2434,7 +2435,10 @@ std::vector<BYTE> BuildContextMenuPageTemplate() {
     addButton(IDC_CONTEXT_EXTENSION_REMOVE, detailX + detailWidth - 58, 366, 58, 14, L"Remove",
               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON);
 
-    dlg->cdit = static_cast<WORD>(controlCount);
+    if (auto* finalTemplate = reinterpret_cast<DLGTEMPLATE*>(data.data())) {
+        assert(controlCount <= std::numeric_limits<WORD>::max());
+        finalTemplate->cdit = static_cast<WORD>(controlCount);
+    }
     gContextMenuTemplateControlCount = controlCount;
 
     return data;
