@@ -50,6 +50,9 @@ struct SurfaceColorDescriptor {
     COLORREF backgroundColor = CLR_INVALID;
     bool backgroundOverride = false;
     bool forceOpaqueBackground = false;
+    using BackgroundPaintCallback = bool (*)(HDC dc, HWND window, const RECT& rect, void* context);
+    BackgroundPaintCallback backgroundPaintCallback = nullptr;
+    void* backgroundPaintContext = nullptr;
     bool forcedHooks = false;
     bool userAccessibilityOptOut = false;
     bool accessibilityOptOut = false;

@@ -49,6 +49,21 @@ std::mutex g_registryMutex;
 std::unordered_map<HWND, ThemeSurfaceRegistration, HwndHasher> g_surfaceRegistry;
 std::unordered_set<HWND, HwndHasher> g_directUiHosts;
 
+bool TryPaintBackgroundOverride(HDC dc, HWND window, const RECT& rect,
+                                const ThemeSurfaceRegistration& registration) {
+    if (!registration.descriptor || !registration.descriptor->backgroundPaintCallback) {
+        return false;
+    }
+    if (rect.right <= rect.left || rect.bottom <= rect.top) {
+        return false;
+    }
+    if (!window) {
+        return false;
+    }
+    return registration.descriptor->backgroundPaintCallback(dc, window, rect,
+                                                            registration.descriptor->backgroundPaintContext);
+}
+
 struct ScrollbarPaintMetrics {
     UINT dpiX = 96u;
     UINT dpiY = 96u;
@@ -1026,6 +1041,13 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         paintRect = clipped;
     }
 
+    if (surface.has_value()) {
+        HWND backgroundWindow = paintWindow ? paintWindow : surface->window;
+        if (TryPaintBackgroundOverride(dc, backgroundWindow, paintRect, surface->registration)) {
+            return S_OK;
+        }
+    }
+
     if (surfaceKind == ExplorerSurfaceKind::DirectUi) {
         if (!surface.has_value()) {
             if (override && override->suppressFallback) {
@@ -1166,6 +1188,10 @@ int WINAPI FillRectDetour(HDC dc, const RECT* rect, HBRUSH brush) {
         return g_originalFillRect(dc, rect, brush);
     }
 
+    if (TryPaintBackgroundOverride(dc, surface->window, paintRect, surface->registration)) {
+        return 1;
+    }
+
     GlowColorSet colors = ResolveSurfaceColors(surface->registration);
     if (!colors.valid) {
         return g_originalFillRect(dc, rect, brush);
@@ -1222,6 +1248,10 @@ BOOL WINAPI GdiGradientFillDetour(HDC dc, PTRIVERTEX vertices, ULONG vertexCount
     RECT paintRect = ComputeBoundingRect(vertices, vertexCount);
     if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
+    }
+
+    if (TryPaintBackgroundOverride(dc, surface->window, paintRect, surface->registration)) {
+        return TRUE;
     }
 
     GradientOrientation orientation = (mode == GRADIENT_FILL_RECT_H) ? GradientOrientation::Horizontal

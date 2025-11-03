@@ -1441,7 +1441,7 @@ protected:
                             FillGradientRect(graphics, colors, RectToGdiplus(clipped), alpha, angle);
                         };
 
-                        const float horizontalAngle = 0.0f;
+                        const float horizontalAngle = 90.0f;
                         const float verticalAngle = 0.0f;
 
                         RECT topHaloRect = {mergedLocal.left - haloThicknessX, inner.top - haloThicknessY,
@@ -1963,6 +1963,8 @@ void ExplorerGlowCoordinator::UpdateSurfaceDescriptor(HWND hwnd, const SurfaceCo
     slot->backgroundColor = descriptor.backgroundColor;
     slot->backgroundOverride = descriptor.backgroundOverride;
     slot->forceOpaqueBackground = descriptor.forceOpaqueBackground;
+    slot->backgroundPaintCallback = descriptor.backgroundPaintCallback;
+    slot->backgroundPaintContext = descriptor.backgroundPaintContext;
     slot->userAccessibilityOptOut = descriptor.userAccessibilityOptOut;
     slot->accessibilityOptOut = descriptor.userAccessibilityOptOut || m_highContrastActive;
     slot->forcedHooks = wasForced && !slot->accessibilityOptOut;

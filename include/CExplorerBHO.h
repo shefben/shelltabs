@@ -270,6 +270,11 @@ class ShellTabsListView;
                 void InvalidateFolderBackgroundTargets() const;
                 std::wstring ResolveBackgroundCacheKey() const;
                 void RefreshListViewControlBackground();
+                static bool PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context);
+                bool PaintListViewBackground(HDC dc, HWND window, const RECT& rect) const;
+                bool EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
+                                                    Gdiplus::Bitmap* source) const;
+                void ResetListViewBackgroundSurface() const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
@@ -496,6 +501,12 @@ class ShellTabsListView;
                 mutable std::wstring m_universalBackgroundImagePath;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
+                struct FolderBackgroundSurfaceCache {
+                        std::wstring cacheKey;
+                        SIZE size{0, 0};
+                        std::unique_ptr<Gdiplus::Bitmap> bitmap;
+                };
+                mutable FolderBackgroundSurfaceCache m_listViewBackgroundSurface;
                 std::wstring m_currentFolderKey;
                 std::unique_ptr<ShellTabsListView> m_listViewControl;
                 HMENU m_trackedContextMenu = nullptr;
