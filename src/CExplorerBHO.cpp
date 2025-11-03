@@ -44,6 +44,7 @@
 #include "Logging.h"
 #include "Module.h"
 #include "ThemeHooks.h"
+#include "CompositionIntercept.h"
 #include "Notifications.h"
 #include "OptionsStore.h"
 #include "ShellTabsTreeView.h"
@@ -4290,6 +4291,12 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
 
             if (paletteUpdated) {
+                if (m_frameWindow && IsWindow(m_frameWindow)) {
+                    shelltabs::NotifyCompositionColorChange(m_frameWindow);
+                }
+                if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
+                    shelltabs::NotifyCompositionColorChange(m_shellViewWindow);
+                }
                 for (auto& entry : m_glowSurfaces) {
                     if (entry.second) {
                         entry.second->RequestRepaint();

@@ -65,6 +65,7 @@ add_library(ShellTabs SHARED
     src/DpiUtils.cpp
     src/EditGradientRenderer.cpp
     src/ExplorerGlowSurfaces.cpp
+    src/CompositionIntercept.cpp
     src/ThemeHooks.cpp
     src/PaneHooks.cpp
     src/ShellTabsListView.cpp
@@ -118,6 +119,7 @@ target_link_libraries(ShellTabs PRIVATE
     pathcch
     Shlwapi
     gdiplus
+    d2d1
     propsys
     uiautomationcore
     runtimeobject

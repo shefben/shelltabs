@@ -21,6 +21,7 @@
 
 #include "Logging.h"
 #include "DpiUtils.h"
+#include "CompositionIntercept.h"
 
 // Note: Some theme part constants may not be available in older Windows SDKs
 // They are conditionally included in the switch statement if defined
@@ -1506,6 +1507,7 @@ void RegisterThemeSurface(HWND hwnd, ExplorerSurfaceKind kind, ExplorerGlowCoord
     if (!hwnd || !coordinator) {
         return;
     }
+    RegisterCompositionSurface(hwnd, coordinator);
     std::lock_guard<std::mutex> guard(g_registryMutex);
     g_surfaceRegistry[hwnd] = ThemeSurfaceRegistration{coordinator, kind};
 }
@@ -1515,6 +1517,7 @@ void UnregisterThemeSurface(HWND hwnd) noexcept {
         return;
     }
     InvalidateScrollbarMetricsInternal(hwnd);
+    UnregisterCompositionSurface(hwnd);
     std::lock_guard<std::mutex> guard(g_registryMutex);
     g_surfaceRegistry.erase(hwnd);
 }
