@@ -2179,6 +2179,8 @@ void CExplorerBHO::DetachListView() {
 
     m_listViewControl.reset();
 
+    ResetListViewBackgroundSurface();
+
     if (m_nativeListView && IsWindow(m_nativeListView)) {
         EnableWindow(m_nativeListView, TRUE);
         ShowWindow(m_nativeListView, SW_SHOW);
@@ -3939,6 +3941,7 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_universalBackgroundBitmap.reset();
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
+    ResetListViewBackgroundSurface();
     RefreshListViewControlBackground();
 }
 
@@ -4085,6 +4088,7 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
 }
 
 void CExplorerBHO::RefreshListViewControlBackground() {
+    ResetListViewBackgroundSurface();
     if (!m_listViewControl) {
         return;
     }
@@ -4096,6 +4100,170 @@ void CExplorerBHO::RefreshListViewControlBackground() {
         return source;
     };
     m_listViewControl->SetBackgroundResolver(resolver);
+}
+
+bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(context);
+    if (!self) {
+        return false;
+    }
+    return self->PaintListViewBackground(dc, window, rect);
+}
+
+bool CExplorerBHO::PaintListViewBackground(HDC dc, HWND window, const RECT& rect) const {
+    if (!dc || !window || rect.right <= rect.left || rect.bottom <= rect.top) {
+        return false;
+    }
+    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
+        return false;
+    }
+
+    if (window != m_listView) {
+        return false;
+    }
+
+    if (!IsWindow(window)) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(window, &client) || client.right <= client.left || client.bottom <= client.top) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    Gdiplus::Bitmap* source = ResolveCurrentFolderBackground();
+    if (!source) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    const std::wstring cacheKey = ResolveBackgroundCacheKey();
+    if (!EnsureListViewBackgroundSurface(client, cacheKey, source)) {
+        return false;
+    }
+
+    const int width = rect.right - rect.left;
+    const int height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    if (!m_listViewBackgroundSurface.bitmap) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const int sourceX = rect.left - client.left;
+    const int sourceY = rect.top - client.top;
+    const LONG bitmapWidth = m_listViewBackgroundSurface.size.cx;
+    const LONG bitmapHeight = m_listViewBackgroundSurface.size.cy;
+    if (sourceX < 0 || sourceY < 0 || sourceX + width > bitmapWidth || sourceY + height > bitmapHeight) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    const Gdiplus::Status status = graphics.DrawImage(
+        m_listViewBackgroundSurface.bitmap.get(),
+        Gdiplus::Rect(rect.left, rect.top, width, height),
+        sourceX,
+        sourceY,
+        width,
+        height,
+        Gdiplus::UnitPixel);
+    if (status != Gdiplus::Ok) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    return true;
+}
+
+bool CExplorerBHO::EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
+                                                   Gdiplus::Bitmap* source) const {
+    if (!source) {
+        return false;
+    }
+
+    const LONG width = clientRect.right - clientRect.left;
+    const LONG height = clientRect.bottom - clientRect.top;
+    if (width <= 0 || height <= 0) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    if (m_listViewBackgroundSurface.bitmap && m_listViewBackgroundSurface.size.cx == width &&
+        m_listViewBackgroundSurface.size.cy == height &&
+        m_listViewBackgroundSurface.cacheKey == cacheKey) {
+        return true;
+    }
+
+    const UINT srcWidth = source->GetWidth();
+    const UINT srcHeight = source->GetHeight();
+    if (srcWidth == 0 || srcHeight == 0) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    if (srcWidth > static_cast<UINT>(std::numeric_limits<INT>::max()) ||
+        srcHeight > static_cast<UINT>(std::numeric_limits<INT>::max())) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    const int widthInt = static_cast<int>(width);
+    const int heightInt = static_cast<int>(height);
+
+    auto surface = std::make_unique<Gdiplus::Bitmap>(widthInt, heightInt, PixelFormat32bppARGB);
+    if (!surface || surface->GetLastStatus() != Gdiplus::Ok) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(surface.get());
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const Gdiplus::Status status = graphics.DrawImage(
+        source,
+        Gdiplus::Rect(0, 0, widthInt, heightInt),
+        0,
+        0,
+        static_cast<INT>(srcWidth),
+        static_cast<INT>(srcHeight),
+        Gdiplus::UnitPixel);
+    if (status != Gdiplus::Ok) {
+        ResetListViewBackgroundSurface();
+        return false;
+    }
+
+    m_listViewBackgroundSurface.bitmap = std::move(surface);
+    m_listViewBackgroundSurface.size = {width, height};
+    m_listViewBackgroundSurface.cacheKey = cacheKey;
+    return true;
+}
+
+void CExplorerBHO::ResetListViewBackgroundSurface() const {
+    m_listViewBackgroundSurface.bitmap.reset();
+    m_listViewBackgroundSurface.size = {0, 0};
+    m_listViewBackgroundSurface.cacheKey.clear();
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -4146,6 +4314,7 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
+    ResetListViewBackgroundSurface();
     auto requestRedraw = [](HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd)) {
             return;
@@ -4383,6 +4552,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case WM_SIZE: {
             if (isListView) {
+                ResetListViewBackgroundSurface();
                 RefreshListViewControlBackground();
             }
             break;
@@ -7765,6 +7935,13 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     descriptor.backgroundOverride = descriptor.fillOverride;
     descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
     descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+    if (m_folderBackgroundsEnabled) {
+        descriptor.backgroundPaintCallback = &CExplorerBHO::PaintListViewBackgroundCallback;
+        descriptor.backgroundPaintContext = this;
+    } else {
+        descriptor.backgroundPaintCallback = nullptr;
+        descriptor.backgroundPaintContext = nullptr;
+    }
     m_glowCoordinator.UpdateSurfaceDescriptor(m_listView, descriptor);
     m_glowCoordinator.SetSurfaceRole(m_listView, SurfacePaintRole::ListViewRows);
 }
