@@ -76,20 +76,6 @@ bool EnsureNewTabButtonClassRegistered() {
     return succeeded;
 }
 
-GlowColorSet BuildRebarGlowColors(const TabBandWindow::ThemePalette& palette) {
-    GlowColorSet colors{};
-    const COLORREF top = palette.rebarGradientValid ? palette.rebarGradientTop : palette.rebarBackground;
-    const COLORREF bottom = palette.rebarGradientValid ? palette.rebarGradientBottom : palette.rebarBackground;
-    colors.start = top;
-    colors.end = bottom;
-    colors.gradient = palette.rebarGradientValid && top != bottom;
-    colors.valid = true;
-    if (!colors.gradient) {
-        colors.end = colors.start;
-    }
-    return colors;
-}
-
 struct FontMetricsKey {
     LONG height = 0;
     LONG aveCharWidth = 0;
@@ -674,6 +660,20 @@ HWND CreateDragOverlayWindow() {
 
 }  // namespace
 
+GlowColorSet TabBandWindow::BuildRebarGlowColors(const ThemePalette& palette) const {
+    GlowColorSet colors{};
+    const COLORREF top = palette.rebarGradientValid ? palette.rebarGradientTop : palette.rebarBackground;
+    const COLORREF bottom = palette.rebarGradientValid ? palette.rebarGradientBottom : palette.rebarBackground;
+    colors.start = top;
+    colors.end = bottom;
+    colors.gradient = palette.rebarGradientValid && top != bottom;
+    colors.valid = true;
+    if (!colors.gradient) {
+        colors.end = colors.start;
+    }
+    return colors;
+}
+
 class TabBandWindow::BandDropTarget : public IDropTarget {
 public:
     explicit BandDropTarget(TabBandWindow* owner) : m_refCount(1), m_owner(owner) {}
@@ -875,7 +875,6 @@ void TabBandWindow::Destroy() {
     m_newTabButtonPressed = false;
     m_newTabButtonKeyboardPressed = false;
     m_newTabButtonTrackingMouse = false;
-    m_newTabButtonCommandPending = false;
     ResetThemePalette();
     ReleaseBackBuffer();
 
@@ -3610,12 +3609,7 @@ void TabBandWindow::TriggerNewTabButtonAction() {
     if (!m_hwnd || !m_newTabButton) {
         return;
     }
-    if (m_newTabButtonCommandPending) {
-        return;
-    }
-    m_newTabButtonCommandPending = true;
     SendMessageW(m_hwnd, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, BN_CLICKED), reinterpret_cast<LPARAM>(m_newTabButton));
-    m_newTabButtonCommandPending = false;
 }
 
 LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -5096,60 +5090,44 @@ void TabBandWindow::ClearCloseButtonHover() {
     }
 }
 
-void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
-    const UINT id = LOWORD(wParam);
-    const UINT notification = HIWORD(wParam);
+void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
+	if (!m_owner) {
+		return;
+	}
 
-    if (id == IDC_NEW_TAB) {
-        const HWND source = reinterpret_cast<HWND>(lParam);
-        const bool isButtonClick = (notification == BN_CLICKED) && source == m_newTabButton;
-        const bool isAccelerator = (notification == 0) && (source == nullptr);
+	const UINT id = LOWORD(wParam);
 
-        if (isButtonClick) {
-            if (!m_newTabButtonCommandPending) {
-                return;
-            }
-            m_newTabButtonCommandPending = false;
-        } else if (!isAccelerator) {
-            return;
-        }
+	if (id == IDC_NEW_TAB) {
+		m_owner->OnNewTabRequested();
+		return;
+	}
 
-        if (m_owner) {
-            m_owner->OnNewTabRequested();
-        }
-        return;
-    }
-
-    if (!m_owner) {
-        return;
-    }
-
-    if (id == IDM_CREATE_SAVED_GROUP) {
-        const int insertAfter = ResolveInsertGroupIndex();
-        m_owner->OnCreateSavedGroup(insertAfter);
-        ClearExplorerContext();
-        return;
-    }
-
-    if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
-        for (const auto& entry : m_savedGroupCommands) {
-            if (entry.first == id) {
+        if (id == IDM_CREATE_SAVED_GROUP) {
                 const int insertAfter = ResolveInsertGroupIndex();
-                m_owner->OnLoadSavedGroup(entry.second, insertAfter);
-                break;
-            }
+                m_owner->OnCreateSavedGroup(insertAfter);
+                ClearExplorerContext();
+                return;
         }
-        ClearExplorerContext();
-        return;
-    }
 
-    if (id == IDM_NEW_THISPC_TAB) {
-        if (m_owner) {
-            m_owner->OnNewTabRequested(-1);
+        if (id >= IDM_LOAD_SAVED_GROUP_BASE && id <= IDM_LOAD_SAVED_GROUP_LAST) {
+		for (const auto& entry : m_savedGroupCommands) {
+			if (entry.first == id) {
+				const int insertAfter = ResolveInsertGroupIndex();
+				m_owner->OnLoadSavedGroup(entry.second, insertAfter);
+				break;
+			}
+		}
+                ClearExplorerContext();
+                return;
         }
-        ClearExplorerContext();
-        return;
-    }
+
+        if (id == IDM_NEW_THISPC_TAB) {
+                if (m_owner) {
+                        m_owner->OnNewTabRequested(-1);
+                }
+                ClearExplorerContext();
+                return;
+        }
 
         if (id == IDM_MANAGE_GROUPS) {
                 if (m_owner) {

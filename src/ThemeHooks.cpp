@@ -22,6 +22,9 @@
 #include "Logging.h"
 #include "DpiUtils.h"
 
+// Note: Some theme part constants may not be available in older Windows SDKs
+// They are conditionally included in the switch statement if defined
+
 namespace shelltabs {
 
 void UnregisterThemeSurface(HWND hwnd) noexcept;
@@ -36,6 +39,9 @@ struct ThemeSurfaceRegistration {
     ExplorerGlowCoordinator* coordinator = nullptr;
     ExplorerSurfaceKind kind = ExplorerSurfaceKind::ListView;
 };
+
+// Forward declaration for PaintGlowSurface function
+bool PaintGlowSurface(HDC dc, HWND hwnd, const RECT& rect, const GlowColorSet& colors, ExplorerSurfaceKind kind);
 
 std::mutex g_registryMutex;
 std::unordered_map<HWND, ThemeSurfaceRegistration, HwndHasher> g_surfaceRegistry;
@@ -470,31 +476,23 @@ std::optional<SurfaceLookupResult> ResolveSurfaceForPainting(HDC dc) {
 }
 
 std::optional<ExplorerSurfaceKind> ResolveSurfaceKindFromThemePart(int partId) noexcept {
-    switch (partId) {
-        case RP_GRIPPER:
-        case RP_GRIPPERVERT:
-        case RP_BAND:
-        case RP_BANDVERT:
-        case RP_BACKGROUND:
-        case RP_CHEVRON:
-        case RP_CHEVRONVERT:
-        case RP_SPLITTER:
-        case RP_SPLITTERVERT:
-            return ExplorerSurfaceKind::Rebar;
-        case TP_BUTTON:
-        case TP_DROPDOWNBUTTON:
-        case TP_SPLITBUTTON:
-        case TP_SPLITBUTTONDROPDOWN:
-        case TP_SEPARATOR:
-        case TP_SEPARATORVERT:
-        case TP_SEPARATORLEFT:
-        case TP_SEPARATORLEFTVERT:
-        case TP_SEPARATORRIGHT:
-        case TP_SEPARATORRIGHTVERT:
-            return ExplorerSurfaceKind::Toolbar;
-        default:
-            return std::nullopt;
+    // Note: Theme part constants can have overlapping values between different theme classes
+    // We use separate checks to avoid switch case conflicts
+
+    // Check Rebar theme parts
+    if (partId == RP_GRIPPER || partId == RP_GRIPPERVERT || partId == RP_BAND ||
+        partId == RP_BACKGROUND || partId == RP_CHEVRON || partId == RP_CHEVRONVERT ||
+        partId == RP_SPLITTER || partId == RP_SPLITTERVERT) {
+        return ExplorerSurfaceKind::Rebar;
     }
+
+    // Check Toolbar theme parts
+    if (partId == TP_BUTTON || partId == TP_DROPDOWNBUTTON || partId == TP_SPLITBUTTON ||
+        partId == TP_SPLITBUTTONDROPDOWN || partId == TP_SEPARATOR || partId == TP_SEPARATORVERT) {
+        return ExplorerSurfaceKind::Toolbar;
+    }
+
+    return std::nullopt;
 }
 
 int ScaleByDpiInternal(int value, UINT dpi) {

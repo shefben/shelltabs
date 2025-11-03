@@ -4352,15 +4352,13 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 } else if ((customDraw->dwDrawStage & CDDS_ITEMPREPAINT) == CDDS_ITEMPREPAINT) {
                     if (m_statusBarThemeValid) {
                         if (m_statusBarTextColor != CLR_DEFAULT) {
-                            customDraw->clrText = m_statusBarTextColor;
-                        } else {
-                            customDraw->clrText = CLR_DEFAULT;
+                            ::SetTextColor(customDraw->hdc, m_statusBarTextColor);
                         }
-                        ::SetBkMode(customDraw->hdc, TRANSPARENT);
                         if (m_statusBarBackgroundColor != CLR_DEFAULT) {
-                            customDraw->clrTextBk = m_statusBarBackgroundColor;
+                            ::SetBkColor(customDraw->hdc, m_statusBarBackgroundColor);
+                            ::SetBkMode(customDraw->hdc, OPAQUE);
                         } else {
-                            customDraw->clrTextBk = CLR_DEFAULT;
+                            ::SetBkMode(customDraw->hdc, TRANSPARENT);
                         }
                     }
                     *result = CDRF_NEWFONT;
