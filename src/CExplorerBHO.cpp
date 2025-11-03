@@ -6612,11 +6612,14 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         return true;
     }
 
-    Gdiplus::StringFormat format;
+    Gdiplus::StringFormat format(Gdiplus::StringFormat::GenericTypographic());
     format.SetAlignment(Gdiplus::StringAlignmentNear);
     format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-    format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
-    format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    format.SetTrimming(Gdiplus::StringTrimmingNone);
+    UINT formatFlags = format.GetFormatFlags();
+    formatFlags |= Gdiplus::StringFormatFlagsNoWrap;
+    formatFlags &= ~Gdiplus::StringFormatFlagsNoClip;
+    format.SetFormatFlags(formatFlags);
 
     const int gradientTransparency = std::clamp<int>(m_breadcrumbGradientTransparency, 0, 100);
     const int gradientOpacityPercent = 100 - gradientTransparency;
