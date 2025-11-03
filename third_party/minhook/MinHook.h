@@ -94,10 +94,15 @@ extern "C" {
 	//   pTarget [in] A pointer to the target function.
 	MH_STATUS WINAPI MH_EnableHook(void* pTarget);
 
-	// Disables the already created hook.
-	// Parameters:
-	//   pTarget [in] A pointer to the target function.
-	MH_STATUS WINAPI MH_DisableHook(void* pTarget);
+        // Disables the already created hook.
+        // Parameters:
+        //   pTarget [in] A pointer to the target function.
+        MH_STATUS WINAPI MH_DisableHook(void* pTarget);
+
+        // Removes the already created hook.
+        // Parameters:
+        //   pTarget [in] A pointer to the target function.
+        MH_STATUS WINAPI MH_RemoveHook(void* pTarget);
 
 #if defined __cplusplus
 }

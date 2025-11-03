@@ -22,6 +22,11 @@ namespace {
 
 using Microsoft::WRL::ComPtr;
 
+HRESULT STDMETHODCALLTYPE DeviceCreateTargetForHwndDetour(IDCompositionDevice* self, HWND hwnd, BOOL topmost,
+                                                          IDCompositionTarget** target);
+HRESULT STDMETHODCALLTYPE TargetSetRootDetour(IDCompositionTarget* self, IDCompositionVisual* visual);
+ULONG STDMETHODCALLTYPE TargetReleaseDetour(IDCompositionTarget* self);
+
 struct HwndHasher {
     size_t operator()(HWND hwnd) const noexcept {
         return reinterpret_cast<size_t>(hwnd);
@@ -524,7 +529,7 @@ HRESULT DrawGradientToSurface(IDCompositionSurface* surface, int width, int heig
         return hr;
     }
 
-    dc->Clear(D2D1::ColorF(0.f, 0.f));
+    dc->Clear(D2D1::ColorF(D2D1::ColorF::Black, 0.0f));
 
     D2D1_GRADIENT_STOP stops[2];
     stops[0].position = 0.0f;
