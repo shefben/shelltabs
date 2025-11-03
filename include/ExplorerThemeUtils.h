@@ -21,5 +21,9 @@ bool IsAppDarkModePreferred();
 
 std::optional<ToolbarChromeSample> SampleToolbarChrome(HWND window);
 
+std::optional<COLORREF> QueryEditThemeTextColor(HWND editWindow);
+
+std::optional<COLORREF> QueryStatusBarThemeTextColor(HWND statusBar);
+
 }
 
