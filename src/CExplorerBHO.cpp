@@ -2146,6 +2146,11 @@ void CExplorerBHO::DetachListView() {
     HWND listView = m_listView;
     HWND controlWindow = m_listViewControlWindow;
 
+    if (listView && IsWindow(listView)) {
+        m_glowCoordinator.SetSurfaceForcedHooks(listView, false);
+    }
+    m_listViewCustomDraw = {};
+
     if (listView) {
         if (HWND header = ListView_GetHeader(listView)) {
             if (IsWindow(header)) {
@@ -2266,10 +2271,19 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     m_listViewControlWindow = controlWindow;
     m_listViewControl = std::move(control);
 
+    if (m_listViewControl) {
+        m_listViewControl->SetCustomDrawObserver([this](DWORD stage) { OnListViewCustomDrawStage(stage); });
+    }
+    m_listViewCustomDraw = {};
+    m_listViewCustomDraw.lastStageTick = CurrentTickCount();
+
     RegisterGlowSurface(newListView, ExplorerSurfaceKind::ListView, true);
     if (HWND header = ListView_GetHeader(m_listView)) {
         RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
     }
+
+    UpdateListViewDescriptor();
+    m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
 
     LogMessage(LogLevel::Info,
                L"Installed ShellTabs list view control (native=%p control=%p list=%p)", listView,
@@ -2820,15 +2834,22 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
             LogMessage(LogLevel::Info, L"Explorer status bar released (hwnd=%p)", m_statusBar);
             RemoveStatusBarSubclass(m_statusBar);
             ResetStatusBarTheme(m_statusBar);
+            m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
+            UnregisterThemeSurface(m_statusBar);
         }
         m_statusBar = statusBarCandidate;
         m_statusBarThemeValid = false;
         m_statusBarBackgroundColor = CLR_DEFAULT;
         m_statusBarTextColor = CLR_DEFAULT;
         m_statusBarChromeSample.reset();
+        m_statusBarCustomDraw = {};
         if (m_statusBar) {
             LogMessage(LogLevel::Info, L"Explorer status bar discovered (hwnd=%p)", m_statusBar);
             InstallStatusBarSubclass();
+            RegisterThemeSurface(m_statusBar, ExplorerSurfaceKind::Toolbar, &m_glowCoordinator);
+            UpdateStatusBarDescriptor();
+            m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
+            m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
         }
     }
 
@@ -2891,6 +2912,9 @@ void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
     m_statusBarBackgroundColor = CLR_DEFAULT;
     m_statusBarTextColor = CLR_DEFAULT;
     m_statusBarChromeSample.reset();
+    if (target && target == m_statusBar) {
+        UpdateStatusBarDescriptor();
+    }
 }
 
 void CExplorerBHO::InstallStatusBarSubclass() {
@@ -2943,6 +2967,7 @@ LRESULT CExplorerBHO::HandleStatusBarMessage(
             m_statusBarBackgroundColor = CLR_DEFAULT;
             m_statusBarTextColor = CLR_DEFAULT;
             m_statusBarChromeSample.reset();
+            m_statusBarCustomDraw = {};
         }
         if (handled) {
             *handled = true;
@@ -3018,6 +3043,7 @@ LRESULT CExplorerBHO::HandleStatusBarMessage(
 
     switch (msg) {
         case WM_ERASEBKGND: {
+            EvaluateStatusBarForcedHooks(msg);
             HDC dc = reinterpret_cast<HDC>(wParam);
             if (!dc) {
                 break;
@@ -3033,6 +3059,7 @@ LRESULT CExplorerBHO::HandleStatusBarMessage(
             return TRUE;
         }
         case WM_PRINTCLIENT: {
+            EvaluateStatusBarForcedHooks(msg);
             HDC dc = reinterpret_cast<HDC>(wParam);
             if (dc) {
                 RECT rect{};
@@ -3193,6 +3220,8 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     m_statusBarBackgroundColor = background;
     m_statusBarTextColor = text;
     m_statusBarChromeSample = chromeForStorage;
+
+    UpdateStatusBarDescriptor();
 
     InvalidateRect(m_statusBar, nullptr, TRUE);
 }
@@ -4237,6 +4266,18 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             }
         }
         UpdateGlowSurfaceTargets();
+        UpdateListViewDescriptor();
+        UpdateStatusBarDescriptor();
+        m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
+        m_listViewCustomDraw.lastStageTick = CurrentTickCount();
+        m_statusBarCustomDraw.forced = false;
+        m_listViewCustomDraw.forced = false;
+        if (m_statusBar && IsWindow(m_statusBar)) {
+            m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
+        }
+        if (m_listView && IsWindow(m_listView)) {
+            m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
+        }
         *result = 0;
         return true;
     }
@@ -4251,6 +4292,12 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_PAINT:
         case WM_ERASEBKGND:
         case WM_PRINTCLIENT: {
+            if (isListView || isListViewHost) {
+                EvaluateListViewForcedHooks(msg);
+            }
+            if (hwnd == m_statusBar) {
+                EvaluateStatusBarForcedHooks(msg);
+            }
             break;
         }
         case WM_PARENTNOTIFY: {
@@ -4355,8 +4402,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 if (!customDraw) {
                     *result = CDRF_DODEFAULT;
                 } else if ((customDraw->dwDrawStage & CDDS_PREPAINT) == CDDS_PREPAINT) {
+                    OnStatusBarCustomDrawStage(customDraw->dwDrawStage);
                     *result = CDRF_NOTIFYITEMDRAW;
                 } else if ((customDraw->dwDrawStage & CDDS_ITEMPREPAINT) == CDDS_ITEMPREPAINT) {
+                    OnStatusBarCustomDrawStage(customDraw->dwDrawStage);
                     if (m_statusBarThemeValid) {
                         if (m_statusBarTextColor != CLR_DEFAULT) {
                             ::SetTextColor(customDraw->hdc, m_statusBarTextColor);
@@ -7610,4 +7659,143 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
+
+void CExplorerBHO::OnListViewCustomDrawStage(DWORD) {
+    m_listViewCustomDraw.lastStageTick = CurrentTickCount();
+    if (m_listViewCustomDraw.forced && m_listView && IsWindow(m_listView)) {
+        m_listViewCustomDraw.forced = false;
+        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
+        LogMessage(LogLevel::Info, L"List view custom draw restored (hwnd=%p)", m_listView);
+    }
+}
+
+void CExplorerBHO::EvaluateListViewForcedHooks(UINT) {
+    if (!m_listView || !IsWindow(m_listView)) {
+        return;
+    }
+    if (!m_glowCoordinator.ShouldRenderSurface(ExplorerSurfaceKind::ListView)) {
+        return;
+    }
+
+    const ULONGLONG now = CurrentTickCount();
+    if (m_listViewCustomDraw.lastStageTick == 0) {
+        m_listViewCustomDraw.lastStageTick = now;
+        return;
+    }
+
+    const bool expired = (now - m_listViewCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
+    if (expired && !m_listViewCustomDraw.forced) {
+        m_listViewCustomDraw.forced = true;
+        UpdateListViewDescriptor();
+        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, true);
+        LogMessage(LogLevel::Warning, L"List view custom draw timeout; forcing theme detours (hwnd=%p)", m_listView);
+        InvalidateRect(m_listView, nullptr, FALSE);
+    } else if (!expired && m_listViewCustomDraw.forced) {
+        m_listViewCustomDraw.forced = false;
+        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
+        LogMessage(LogLevel::Info, L"List view custom draw signals resumed (hwnd=%p)", m_listView);
+        InvalidateRect(m_listView, nullptr, FALSE);
+    }
+}
+
+void CExplorerBHO::UpdateListViewDescriptor() {
+    if (!m_listView || !IsWindow(m_listView)) {
+        return;
+    }
+
+    SurfaceColorDescriptor descriptor{};
+    descriptor.kind = ExplorerSurfaceKind::ListView;
+    descriptor.role = SurfacePaintRole::ListViewRows;
+    descriptor.fillColors = m_glowCoordinator.ResolveColors(ExplorerSurfaceKind::ListView);
+    descriptor.fillOverride = descriptor.fillColors.valid;
+    descriptor.userAccessibilityOptOut = false;
+    descriptor.textOverride = false;
+    descriptor.backgroundOverride = descriptor.fillOverride;
+    descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
+    descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+    m_glowCoordinator.UpdateSurfaceDescriptor(m_listView, descriptor);
+    m_glowCoordinator.SetSurfaceRole(m_listView, SurfacePaintRole::ListViewRows);
+}
+
+void CExplorerBHO::OnStatusBarCustomDrawStage(DWORD) {
+    m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
+    if (m_statusBarCustomDraw.forced && m_statusBar && IsWindow(m_statusBar)) {
+        m_statusBarCustomDraw.forced = false;
+        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
+        LogMessage(LogLevel::Info, L"Status bar custom draw restored (hwnd=%p)", m_statusBar);
+    }
+}
+
+void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
+    if (!m_statusBar || !IsWindow(m_statusBar)) {
+        return;
+    }
+    if (!m_statusBarThemeValid) {
+        return;
+    }
+
+    const ULONGLONG now = CurrentTickCount();
+    if (m_statusBarCustomDraw.lastStageTick == 0) {
+        m_statusBarCustomDraw.lastStageTick = now;
+        return;
+    }
+
+    const bool expired = (now - m_statusBarCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
+    if (expired && !m_statusBarCustomDraw.forced) {
+        m_statusBarCustomDraw.forced = true;
+        UpdateStatusBarDescriptor();
+        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, true);
+        LogMessage(LogLevel::Warning, L"Status bar custom draw timeout; forcing theme detours (hwnd=%p)", m_statusBar);
+        InvalidateRect(m_statusBar, nullptr, FALSE);
+    } else if (!expired && m_statusBarCustomDraw.forced) {
+        m_statusBarCustomDraw.forced = false;
+        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
+        LogMessage(LogLevel::Info, L"Status bar custom draw signals resumed (hwnd=%p)", m_statusBar);
+        InvalidateRect(m_statusBar, nullptr, FALSE);
+    }
+}
+
+void CExplorerBHO::UpdateStatusBarDescriptor() {
+    if (!m_statusBar || !IsWindow(m_statusBar)) {
+        return;
+    }
+
+    SurfaceColorDescriptor descriptor{};
+    descriptor.kind = ExplorerSurfaceKind::Toolbar;
+    descriptor.role = SurfacePaintRole::StatusPane;
+    descriptor.userAccessibilityOptOut = false;
+
+    COLORREF fallback = m_statusBarBackgroundColor;
+    if (fallback == CLR_DEFAULT) {
+        fallback = GetSysColor(COLOR_3DFACE);
+    }
+    GlowColorSet fill{};
+    fill.valid = true;
+    fill.start = fallback;
+    fill.end = fallback;
+    fill.gradient = false;
+    if (m_statusBarThemeValid && m_statusBarChromeSample) {
+        COLORREF top = m_statusBarChromeSample->topColor == CLR_DEFAULT ? fallback : m_statusBarChromeSample->topColor;
+        COLORREF bottom = m_statusBarChromeSample->bottomColor == CLR_DEFAULT ? fallback : m_statusBarChromeSample->bottomColor;
+        fill.start = top;
+        fill.end = bottom;
+        fill.gradient = (top != bottom);
+    }
+    descriptor.fillColors = fill;
+    descriptor.fillOverride = fill.valid;
+    descriptor.backgroundColor = fill.start;
+    descriptor.backgroundOverride = descriptor.fillOverride;
+    descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+
+    if (m_statusBarThemeValid && m_statusBarTextColor != CLR_DEFAULT) {
+        descriptor.textColor = m_statusBarTextColor;
+        descriptor.textOverride = true;
+    } else {
+        descriptor.textOverride = false;
+    }
+
+    m_glowCoordinator.UpdateSurfaceDescriptor(m_statusBar, descriptor);
+    m_glowCoordinator.SetSurfaceRole(m_statusBar, SurfacePaintRole::StatusPane);
+}
 }  // namespace shelltabs

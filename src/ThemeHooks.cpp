@@ -39,6 +39,7 @@ struct HwndHasher {
 struct ThemeSurfaceRegistration {
     ExplorerGlowCoordinator* coordinator = nullptr;
     ExplorerSurfaceKind kind = ExplorerSurfaceKind::ListView;
+    SurfaceColorDescriptor* descriptor = nullptr;
 };
 
 // Forward declaration for PaintGlowSurface function
@@ -70,6 +71,9 @@ using DirectUiDrawFn = HRESULT(STDMETHODCALLTYPE*)(void*, HDC, const RECT*, UINT
 using TrackPopupMenuFn = BOOL(WINAPI*)(HMENU, UINT, int, int, int, HWND, const RECT*);
 using TrackPopupMenuExFn = BOOL(WINAPI*)(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
 using CreateWindowExWFn = HWND(WINAPI*)(DWORD, LPCWSTR, LPCWSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, LPVOID);
+using ExtTextOutWFn = BOOL(WINAPI*)(HDC, int, int, UINT, const RECT*, LPCWSTR, UINT, const INT*);
+using SetTextColorFn = COLORREF(WINAPI*)(HDC, COLORREF);
+using SetBkColorFn = COLORREF(WINAPI*)(HDC, COLORREF);
 
 DrawThemeBackgroundFn g_originalDrawThemeBackground = nullptr;
 DrawThemeEdgeFn g_originalDrawThemeEdge = nullptr;
@@ -78,6 +82,9 @@ GdiGradientFillFn g_originalGdiGradientFill = nullptr;
 TrackPopupMenuFn g_originalTrackPopupMenu = nullptr;
 TrackPopupMenuExFn g_originalTrackPopupMenuEx = nullptr;
 CreateWindowExWFn g_originalCreateWindowExW = nullptr;
+ExtTextOutWFn g_originalExtTextOutW = nullptr;
+SetTextColorFn g_originalSetTextColor = nullptr;
+SetBkColorFn g_originalSetBkColor = nullptr;
 void* g_drawThemeBackgroundTarget = nullptr;
 void* g_drawThemeEdgeTarget = nullptr;
 void* g_fillRectTarget = nullptr;
@@ -85,6 +92,9 @@ void* g_gdiGradientFillTarget = nullptr;
 void* g_trackPopupMenuTarget = nullptr;
 void* g_trackPopupMenuExTarget = nullptr;
 void* g_createWindowExWTarget = nullptr;
+void* g_extTextOutWTarget = nullptr;
+void* g_setTextColorTarget = nullptr;
+void* g_setBkColorTarget = nullptr;
 std::vector<void*> g_directUiDetourTargets;
 
 thread_local bool g_drawThemeBackgroundActive = false;
@@ -92,6 +102,9 @@ thread_local bool g_drawThemeEdgeActive = false;
 thread_local bool g_fillRectActive = false;
 thread_local bool g_gradientFillActive = false;
 thread_local bool g_directUiDrawActive = false;
+thread_local bool g_extTextOutActive = false;
+thread_local bool g_setTextColorActive = false;
+thread_local bool g_setBkColorActive = false;
 
 std::once_flag g_directUiThemeLogged;
 std::once_flag g_directUiComLogged;
@@ -108,6 +121,21 @@ thread_local ThemePaintOverrideState g_themePaintOverride{};
 
 const ThemePaintOverrideState* GetThemePaintOverride() noexcept {
     return g_themePaintOverride.active ? &g_themePaintOverride : nullptr;
+}
+
+bool ShouldForceHooks(const SurfaceColorDescriptor* descriptor) noexcept {
+    return descriptor && descriptor->forcedHooks && !descriptor->accessibilityOptOut;
+}
+
+GlowColorSet ResolveSurfaceColors(const ThemeSurfaceRegistration& registration) {
+    if (registration.descriptor && registration.descriptor->fillOverride &&
+        registration.descriptor->fillColors.valid) {
+        return registration.descriptor->fillColors;
+    }
+    if (registration.coordinator) {
+        return registration.coordinator->ResolveColors(registration.kind);
+    }
+    return {};
 }
 
 bool ActivateThemePaintOverride(HWND window, ExplorerSurfaceKind kind, const GlowColorSet& colors,
@@ -445,7 +473,9 @@ std::optional<SurfaceLookupResult> ResolveSurfaceFromWindowDc(HDC dc) {
                 continue;
             }
             ExplorerGlowCoordinator* coordinator = registration->coordinator;
-            if (coordinator && coordinator->ShouldRenderSurface(registration->kind)) {
+            SurfaceColorDescriptor* descriptor = registration->descriptor;
+            const bool forced = ShouldForceHooks(descriptor);
+            if (coordinator && (coordinator->ShouldRenderSurface(registration->kind) || forced)) {
                 SurfaceLookupResult result{};
                 result.registration = *registration;
                 result.window = current;
@@ -1136,7 +1166,7 @@ int WINAPI FillRectDetour(HDC dc, const RECT* rect, HBRUSH brush) {
         return g_originalFillRect(dc, rect, brush);
     }
 
-    GlowColorSet colors = surface->registration.coordinator->ResolveColors(surface->registration.kind);
+    GlowColorSet colors = ResolveSurfaceColors(surface->registration);
     if (!colors.valid) {
         return g_originalFillRect(dc, rect, brush);
     }
@@ -1184,7 +1214,7 @@ BOOL WINAPI GdiGradientFillDetour(HDC dc, PTRIVERTEX vertices, ULONG vertexCount
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
     }
 
-    GlowColorSet colors = surface->registration.coordinator->ResolveColors(surface->registration.kind);
+    GlowColorSet colors = ResolveSurfaceColors(surface->registration);
     if (!colors.valid) {
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
     }
@@ -1200,6 +1230,104 @@ BOOL WINAPI GdiGradientFillDetour(HDC dc, PTRIVERTEX vertices, ULONG vertexCount
         return g_originalGdiGradientFill(dc, vertices, vertexCount, mesh, meshCount, mode);
     }
     return TRUE;
+}
+
+BOOL WINAPI ExtTextOutWDetour(HDC dc, int x, int y, UINT options, const RECT* rect, LPCWSTR string, UINT count,
+                              const INT* dx) {
+    if (!g_originalExtTextOutW) {
+        return FALSE;
+    }
+    ReentrancyGuard guard(g_extTextOutActive);
+    if (!guard.Entered()) {
+        return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
+    }
+
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
+    }
+
+    SurfaceColorDescriptor* descriptor = surface->registration.descriptor;
+    if (!ShouldForceHooks(descriptor)) {
+        return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
+    }
+
+    COLORREF previousText = CLR_INVALID;
+    COLORREF previousBackground = CLR_INVALID;
+    int previousBkMode = 0;
+    bool restoreText = false;
+    bool restoreBackground = false;
+    bool restoreMode = false;
+
+    if (descriptor->textOverride && g_originalSetTextColor) {
+        previousText = g_originalSetTextColor(dc, descriptor->textColor);
+        restoreText = true;
+    }
+    if (descriptor->backgroundOverride && g_originalSetBkColor) {
+        previousBackground = g_originalSetBkColor(dc, descriptor->backgroundColor);
+        restoreBackground = true;
+    }
+    if (descriptor->forceOpaqueBackground) {
+        previousBkMode = SetBkMode(dc, OPAQUE);
+        restoreMode = true;
+    }
+
+    BOOL result = g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
+
+    if (restoreMode) {
+        SetBkMode(dc, previousBkMode);
+    }
+    if (restoreBackground && g_originalSetBkColor) {
+        g_originalSetBkColor(dc, previousBackground);
+    }
+    if (restoreText && g_originalSetTextColor) {
+        g_originalSetTextColor(dc, previousText);
+    }
+    return result;
+}
+
+COLORREF WINAPI SetTextColorDetour(HDC dc, COLORREF color) {
+    if (!g_originalSetTextColor) {
+        return CLR_INVALID;
+    }
+    ReentrancyGuard guard(g_setTextColorActive);
+    if (!guard.Entered()) {
+        return g_originalSetTextColor(dc, color);
+    }
+
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return g_originalSetTextColor(dc, color);
+    }
+
+    SurfaceColorDescriptor* descriptor = surface->registration.descriptor;
+    if (!ShouldForceHooks(descriptor) || !descriptor->textOverride) {
+        return g_originalSetTextColor(dc, color);
+    }
+
+    return g_originalSetTextColor(dc, descriptor->textColor);
+}
+
+COLORREF WINAPI SetBkColorDetour(HDC dc, COLORREF color) {
+    if (!g_originalSetBkColor) {
+        return CLR_INVALID;
+    }
+    ReentrancyGuard guard(g_setBkColorActive);
+    if (!guard.Entered()) {
+        return g_originalSetBkColor(dc, color);
+    }
+
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return g_originalSetBkColor(dc, color);
+    }
+
+    SurfaceColorDescriptor* descriptor = surface->registration.descriptor;
+    if (!ShouldForceHooks(descriptor) || !descriptor->backgroundOverride) {
+        return g_originalSetBkColor(dc, color);
+    }
+
+    return g_originalSetBkColor(dc, descriptor->backgroundColor);
 }
 
 void RegisterDirectUiHostInternal(HWND hwnd) noexcept {
@@ -1275,7 +1403,9 @@ void RegisterDirectUiRenderInterfaceInternal(void* element, size_t drawIndex, HW
     }
 
     DirectUiElementInfo elementInfo{};
-    elementInfo.registration = ThemeSurfaceRegistration{coordinator, ExplorerSurfaceKind::DirectUi};
+    elementInfo.registration.coordinator = coordinator;
+    elementInfo.registration.kind = ExplorerSurfaceKind::DirectUi;
+    elementInfo.registration.descriptor = coordinator->LookupSurfaceDescriptor(host);
     elementInfo.host = host;
     elementInfo.target = target;
     g_directUiElementInfo[element] = elementInfo;
@@ -1357,6 +1487,9 @@ bool InitializeThemeHooks() {
     g_drawThemeEdgeTarget = uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "DrawThemeEdge")) : nullptr;
     g_fillRectTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "FillRect")) : nullptr;
     g_gdiGradientFillTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "GdiGradientFill")) : nullptr;
+    g_extTextOutWTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "ExtTextOutW")) : nullptr;
+    g_setTextColorTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "SetTextColor")) : nullptr;
+    g_setBkColorTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "SetBkColor")) : nullptr;
     g_trackPopupMenuTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "TrackPopupMenu")) : nullptr;
     g_trackPopupMenuExTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "TrackPopupMenuEx")) : nullptr;
     g_createWindowExWTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "CreateWindowExW")) : nullptr;
@@ -1399,8 +1532,50 @@ bool InitializeThemeHooks() {
         return false;
     }
 
+    if (!InstallHook(g_extTextOutWTarget, reinterpret_cast<void*>(&ExtTextOutWDetour),
+                     reinterpret_cast<void**>(&g_originalExtTextOutW), L"ExtTextOutW")) {
+        DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
+        DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
+        DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
+        DisableHook(g_fillRectTarget, L"FillRect");
+        if (initializedHere) {
+            MH_Uninitialize();
+        }
+        return false;
+    }
+
+    if (!InstallHook(g_setTextColorTarget, reinterpret_cast<void*>(&SetTextColorDetour),
+                     reinterpret_cast<void**>(&g_originalSetTextColor), L"SetTextColor")) {
+        DisableHook(g_extTextOutWTarget, L"ExtTextOutW");
+        DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
+        DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
+        DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
+        DisableHook(g_fillRectTarget, L"FillRect");
+        if (initializedHere) {
+            MH_Uninitialize();
+        }
+        return false;
+    }
+
+    if (!InstallHook(g_setBkColorTarget, reinterpret_cast<void*>(&SetBkColorDetour),
+                     reinterpret_cast<void**>(&g_originalSetBkColor), L"SetBkColor")) {
+        DisableHook(g_setTextColorTarget, L"SetTextColor");
+        DisableHook(g_extTextOutWTarget, L"ExtTextOutW");
+        DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
+        DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
+        DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
+        DisableHook(g_fillRectTarget, L"FillRect");
+        if (initializedHere) {
+            MH_Uninitialize();
+        }
+        return false;
+    }
+
     if (!InstallHook(g_trackPopupMenuTarget, reinterpret_cast<void*>(&TrackPopupMenuDetour),
                      reinterpret_cast<void**>(&g_originalTrackPopupMenu), L"TrackPopupMenu")) {
+        DisableHook(g_setBkColorTarget, L"SetBkColor");
+        DisableHook(g_setTextColorTarget, L"SetTextColor");
+        DisableHook(g_extTextOutWTarget, L"ExtTextOutW");
         DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
         DisableHook(g_fillRectTarget, L"FillRect");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
@@ -1414,6 +1589,9 @@ bool InitializeThemeHooks() {
     if (!InstallHook(g_trackPopupMenuExTarget, reinterpret_cast<void*>(&TrackPopupMenuExDetour),
                      reinterpret_cast<void**>(&g_originalTrackPopupMenuEx), L"TrackPopupMenuEx")) {
         DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
+        DisableHook(g_setBkColorTarget, L"SetBkColor");
+        DisableHook(g_setTextColorTarget, L"SetTextColor");
+        DisableHook(g_extTextOutWTarget, L"ExtTextOutW");
         DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
         DisableHook(g_fillRectTarget, L"FillRect");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
@@ -1428,6 +1606,9 @@ bool InitializeThemeHooks() {
                      reinterpret_cast<void**>(&g_originalCreateWindowExW), L"CreateWindowExW")) {
         DisableHook(g_trackPopupMenuExTarget, L"TrackPopupMenuEx");
         DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
+        DisableHook(g_setBkColorTarget, L"SetBkColor");
+        DisableHook(g_setTextColorTarget, L"SetTextColor");
+        DisableHook(g_extTextOutWTarget, L"ExtTextOutW");
         DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
         DisableHook(g_fillRectTarget, L"FillRect");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
@@ -1452,6 +1633,9 @@ void ShutdownThemeHooks() {
     DisableHook(g_createWindowExWTarget, L"CreateWindowExW");
     DisableHook(g_trackPopupMenuExTarget, L"TrackPopupMenuEx");
     DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
+    DisableHook(g_setBkColorTarget, L"SetBkColor");
+    DisableHook(g_setTextColorTarget, L"SetTextColor");
+    DisableHook(g_extTextOutWTarget, L"ExtTextOutW");
     DisableHook(g_gdiGradientFillTarget, L"GdiGradientFill");
     DisableHook(g_fillRectTarget, L"FillRect");
     DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
@@ -1487,6 +1671,9 @@ void ShutdownThemeHooks() {
     g_originalDrawThemeEdge = nullptr;
     g_originalFillRect = nullptr;
     g_originalGdiGradientFill = nullptr;
+    g_originalExtTextOutW = nullptr;
+    g_originalSetTextColor = nullptr;
+    g_originalSetBkColor = nullptr;
     g_originalTrackPopupMenu = nullptr;
     g_originalTrackPopupMenuEx = nullptr;
     g_originalCreateWindowExW = nullptr;
@@ -1494,6 +1681,9 @@ void ShutdownThemeHooks() {
     g_drawThemeEdgeTarget = nullptr;
     g_fillRectTarget = nullptr;
     g_gdiGradientFillTarget = nullptr;
+    g_extTextOutWTarget = nullptr;
+    g_setTextColorTarget = nullptr;
+    g_setBkColorTarget = nullptr;
     g_trackPopupMenuTarget = nullptr;
     g_trackPopupMenuExTarget = nullptr;
     g_createWindowExWTarget = nullptr;
@@ -1509,7 +1699,12 @@ void RegisterThemeSurface(HWND hwnd, ExplorerSurfaceKind kind, ExplorerGlowCoord
     }
     RegisterCompositionSurface(hwnd, coordinator);
     std::lock_guard<std::mutex> guard(g_registryMutex);
-    g_surfaceRegistry[hwnd] = ThemeSurfaceRegistration{coordinator, kind};
+    SurfaceColorDescriptor* descriptor = coordinator->AcquireSurfaceDescriptor(hwnd, kind);
+    ThemeSurfaceRegistration registration{};
+    registration.coordinator = coordinator;
+    registration.kind = kind;
+    registration.descriptor = descriptor;
+    g_surfaceRegistry[hwnd] = registration;
 }
 
 void UnregisterThemeSurface(HWND hwnd) noexcept {
@@ -1518,8 +1713,18 @@ void UnregisterThemeSurface(HWND hwnd) noexcept {
     }
     InvalidateScrollbarMetricsInternal(hwnd);
     UnregisterCompositionSurface(hwnd);
-    std::lock_guard<std::mutex> guard(g_registryMutex);
-    g_surfaceRegistry.erase(hwnd);
+    ExplorerGlowCoordinator* coordinator = nullptr;
+    {
+        std::lock_guard<std::mutex> guard(g_registryMutex);
+        auto it = g_surfaceRegistry.find(hwnd);
+        if (it != g_surfaceRegistry.end()) {
+            coordinator = it->second.coordinator;
+            g_surfaceRegistry.erase(it);
+        }
+    }
+    if (coordinator) {
+        coordinator->ReleaseSurfaceDescriptor(hwnd);
+    }
 }
 
 ThemePaintOverrideGuard::ThemePaintOverrideGuard(HWND window, ExplorerSurfaceKind kind, GlowColorSet colors,
