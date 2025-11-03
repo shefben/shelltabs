@@ -169,11 +169,12 @@ bool RenderGradientEditContent(HWND hwnd, HDC dc, const BreadcrumbGradientConfig
     }
 
     const double backgroundLuminance = ComputeColorLuminance(backgroundColor);
-    const COLORREF systemTextColor = GetSysColor(COLOR_WINDOWTEXT);
-    const double systemTextLuminance = ComputeColorLuminance(systemTextColor);
+    const std::optional<COLORREF> themeTextColor = QueryEditThemeTextColor(hwnd);
+    const COLORREF baseTextColor = themeTextColor.value_or(GetSysColor(COLOR_WINDOWTEXT));
+    const double baseTextLuminance = ComputeColorLuminance(baseTextColor);
     const double blackLuminance = ComputeColorLuminance(RGB(0, 0, 0));
     const double whiteLuminance = ComputeColorLuminance(RGB(255, 255, 255));
-    const double systemContrastBaseline = ComputeContrastRatio(backgroundLuminance, systemTextLuminance);
+    const double baseContrastBaseline = ComputeContrastRatio(backgroundLuminance, baseTextLuminance);
     const double blackContrastBaseline = ComputeContrastRatio(backgroundLuminance, blackLuminance);
     const double whiteContrastBaseline = ComputeContrastRatio(backgroundLuminance, whiteLuminance);
     constexpr double kMinimumTextContrast = 4.5;
@@ -378,7 +379,7 @@ bool RenderGradientEditContent(HWND hwnd, HDC dc, const BreadcrumbGradientConfig
                     }
                 };
 
-                consider(systemTextColor, systemContrastBaseline);
+                consider(baseTextColor, baseContrastBaseline);
                 consider(RGB(0, 0, 0), blackContrastBaseline);
                 consider(RGB(255, 255, 255), whiteContrastBaseline);
 

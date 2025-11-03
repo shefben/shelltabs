@@ -33,6 +33,7 @@
 #include <wrl/client.h>
 
 #include "ExplorerGlowSurfaces.h"
+#include "EditGradientRenderer.h"
 #include "ExplorerThemeUtils.h"
 #include "OptionsStore.h"
 #include "PaneHooks.h"
@@ -318,8 +319,8 @@ class ShellTabsListView;
                 bool IsWindowOwnedByThisExplorer(HWND hwnd) const;
                 bool HandleBreadcrumbPaint(HWND hwnd);
                 bool HandleProgressPaint(HWND hwnd);
-                bool HandleAddressEditPaint(HWND hwnd);
-                bool DrawAddressEditContent(HWND hwnd, HDC dc);
+                void PaintAddressEditOverlay(HWND hwnd, HDC dc, const RECT* clip = nullptr);
+                bool DrawAddressEditContent(HWND hwnd, HDC dc, GradientEditRenderOptions options = {});
                 bool ShouldUseListViewAccentColors() const;
                 bool ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const;
                 void RefreshListViewAccentState();
