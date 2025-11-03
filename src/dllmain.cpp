@@ -16,6 +16,7 @@
 #include "Logging.h"
 #include "Module.h"
 #include "ThemeHooks.h"
+#include "CompositionIntercept.h"
 
 using namespace shelltabs;
 
@@ -979,6 +980,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         shelltabs::SetModuleHandleInstance(module);
         DisableThreadLibraryCalls(module);
 
+        if (!InitializeCompositionIntercept()) {
+            LogMessage(LogLevel::Warning,
+                       L"Failed to initialize composition intercept; Explorer gradients may not render in DComp");
+        }
+
         if (!InitializeThemeHooks()) {
             LogMessage(LogLevel::Warning, L"Failed to initialize theme hooks; gradients will fall back to system colors");
         }
@@ -992,6 +998,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         }
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
+        ShutdownCompositionIntercept();
         ShutdownThemeHooks();
         ShutdownLogging();
     }
