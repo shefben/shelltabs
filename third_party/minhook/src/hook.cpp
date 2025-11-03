@@ -293,12 +293,12 @@ namespace MinHook
 		return MH_OK;
 	}
 
-	MH_STATUS DisableHook(void* pTarget)
-	{
-		CriticalSection::ScopedLock lock(gCS);
+        MH_STATUS DisableHook(void* pTarget)
+        {
+                CriticalSection::ScopedLock lock(gCS);
 
-		if (!gIsInitialized)
-		{
+                if (!gIsInitialized)
+                {
 			return MH_ERROR_NOT_INITIALIZED;
 		}
 
@@ -328,14 +328,53 @@ namespace MinHook
 			VirtualProtect(pHook->pTarget, sizeof(JMP_REL), oldProtect, &oldProtect);
 		}
 
-		pHook->isEnabled = false;
+                pHook->isEnabled = false;
 
-		return MH_OK;
-	}
+                return MH_OK;
+        }
+
+        MH_STATUS RemoveHook(void* pTarget)
+        {
+                CriticalSection::ScopedLock lock(gCS);
+
+                if (!gIsInitialized)
+                {
+                        return MH_ERROR_NOT_INITIALIZED;
+                }
+
+                std::vector<HOOK_ENTRY>::iterator i
+                        = std::lower_bound(gHooks.begin(), gHooks.end(), pTarget);
+                if (i == gHooks.end() || i->pTarget != pTarget)
+                {
+                        return MH_ERROR_NOT_CREATED;
+                }
+
+                HOOK_ENTRY& hook = *i;
+                if (hook.isEnabled)
+                {
+                        ScopedThreadExclusive tex(hook.oldIPs, hook.newIPs);
+
+                        DWORD oldProtect;
+                        if (!VirtualProtect(hook.pTarget, sizeof(JMP_REL), PAGE_EXECUTE_READWRITE, &oldProtect))
+                        {
+                                return MH_ERROR_MEMORY_PROTECT;
+                        }
+
+                        memcpy(hook.pTarget, hook.pBackup, sizeof(JMP_REL));
+
+                        VirtualProtect(hook.pTarget, sizeof(JMP_REL), oldProtect, &oldProtect);
+
+                        hook.isEnabled = false;
+                }
+
+                gHooks.erase(i);
+
+                return MH_OK;
+        }
 }
 namespace MinHook { namespace
 {
-	HOOK_ENTRY* FindHook(void* const pTarget)
+        HOOK_ENTRY* FindHook(void* const pTarget)
 	{
 		std::vector<HOOK_ENTRY>::iterator i 
 			= std::lower_bound(gHooks.begin(), gHooks.end(), pTarget);
