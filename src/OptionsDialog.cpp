@@ -5557,6 +5557,17 @@ INT_PTR CALLBACK ContextMenuPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             }
             break;
         }
+        case WM_SHOWWINDOW: {
+            if (wParam) {
+                // Page is being shown - ensure all child controls are visible
+                auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                if (data) {
+                    RefreshContextMenuLayoutCache(hwnd, data);
+                    InvalidateRect(hwnd, nullptr, TRUE);
+                }
+            }
+            return FALSE;
+        }
         case WM_NOTIFY: {
             auto* data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
             if (!data) {
@@ -5565,6 +5576,14 @@ INT_PTR CALLBACK ContextMenuPageProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             auto* header = reinterpret_cast<LPNMHDR>(lParam);
             if (!header) {
                 break;
+            }
+            if (header->code == PSN_SETACTIVE) {
+                // Page is being activated - ensure controls are properly displayed
+                RefreshContextMenuLayoutCache(hwnd, data);
+                PopulateContextMenuDetailControls(hwnd, data);
+                UpdateContextMenuButtonStates(hwnd, data);
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, 0);
+                return TRUE;
             }
             if (header->idFrom == IDC_CONTEXT_TREE) {
                 switch (header->code) {

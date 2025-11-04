@@ -1044,7 +1044,9 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
     if (surface.has_value()) {
         HWND backgroundWindow = paintWindow ? paintWindow : surface->window;
         if (TryPaintBackgroundOverride(dc, backgroundWindow, paintRect, surface->registration)) {
-            return S_OK;
+            // Background was painted successfully. Now call the original DrawThemeBackground
+            // so that list view items are drawn on top of the background.
+            return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
         }
     }
 
