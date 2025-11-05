@@ -3652,6 +3652,9 @@ LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPA
             owner->HandleNewTabButtonLButtonUp(hwnd, pt);
             return 0;
         }
+        case WM_LBUTTONDBLCLK:
+            // Consume double-click to prevent creating multiple tabs
+            return 0;
         case WM_CAPTURECHANGED:
         case WM_CANCELMODE:
             owner->HandleNewTabButtonCaptureLost();
