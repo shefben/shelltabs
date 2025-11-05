@@ -2144,7 +2144,6 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
 
 void CExplorerBHO::DetachListView() {
     HWND listView = m_listView;
-    HWND controlWindow = m_listViewControlWindow;
 
     if (listView && IsWindow(listView)) {
         m_glowCoordinator.SetSurfaceForcedHooks(listView, false);
@@ -2169,23 +2168,10 @@ void CExplorerBHO::DetachListView() {
         UnregisterGlowSurface(listView);
     }
 
-    if (controlWindow) {
-        UnregisterGlowSurface(controlWindow);
-    }
-
     m_listView = nullptr;
     m_listViewSubclassInstalled = false;
-    m_listViewControlWindow = nullptr;
-
-    m_listViewControl.reset();
 
     ResetListViewBackgroundSurface();
-
-    if (m_nativeListView && IsWindow(m_nativeListView)) {
-        EnableWindow(m_nativeListView, TRUE);
-        ShowWindow(m_nativeListView, SW_SHOW);
-    }
-    m_nativeListView = nullptr;
 }
 
 bool CExplorerBHO::AttachListView(HWND listView) {
@@ -2194,106 +2180,38 @@ bool CExplorerBHO::AttachListView(HWND listView) {
         return false;
     }
 
-    if (ShellTabsListView::IsShellTabsListView(listView)) {
-        return m_listView == listView && m_listViewSubclassInstalled;
-    }
-
-    if (m_nativeListView == listView && m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
+    if (m_listView == listView && m_listViewSubclassInstalled) {
         return true;
     }
 
     DetachListView();
 
-    HWND parent = GetParent(listView);
-    if (!parent || !IsWindow(parent)) {
-        return false;
-    }
-
-    auto control = std::make_unique<ShellTabsListView>();
-
-    ShellTabsListView::HighlightResolver highlightResolver =
-        [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
-            return ResolveHighlightFromPidl(pidl, highlight);
-        };
-    ShellTabsListView::BackgroundResolver backgroundResolver =
-        [this]() -> ShellTabsListView::BackgroundSource {
-        ShellTabsListView::BackgroundSource source{};
-        source.cacheKey = ResolveBackgroundCacheKey();
-        source.bitmap = ResolveCurrentFolderBackground();
-        return source;
-    };
-    ShellTabsListView::AccentColorResolver accentResolver =
-        [this](COLORREF* accent, COLORREF* text) {
-            return ResolveActiveGroupAccent(accent, text);
-        };
-
-    if (!control->Initialize(parent, m_folderView2.Get(), std::move(highlightResolver),
-                             std::move(backgroundResolver), std::move(accentResolver),
-                             ShouldUseListViewAccentColors())) {
-        return false;
-    }
-
-    HWND controlWindow = control->GetWindow();
-    HWND newListView = control->GetListView();
-    if (!controlWindow || !IsWindow(controlWindow) || !newListView || !IsWindow(newListView)) {
-        return false;
-    }
-
-    const int controlId = GetDlgCtrlID(listView);
-    if (controlId != 0) {
-        SetWindowLongPtr(controlWindow, GWLP_ID, controlId);
-    }
-
-    RECT nativeRect{};
-    if (GetWindowRect(listView, &nativeRect)) {
-        POINT points[2] = {{nativeRect.left, nativeRect.top}, {nativeRect.right, nativeRect.bottom}};
-        MapWindowPoints(nullptr, parent, points, 2);
-        const int width = points[1].x - points[0].x;
-        const int height = points[1].y - points[0].y;
-        SetWindowPos(controlWindow, listView, points[0].x, points[0].y, width, height,
-                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    } else {
-        ShowWindow(controlWindow, SW_SHOW);
-    }
-
-    EnableWindow(listView, FALSE);
-    ShowWindow(listView, SW_HIDE);
-
-    if (!SetWindowSubclass(newListView, &CExplorerBHO::ExplorerViewSubclassProc,
+    // Directly attach to the native list view with a mini hook for backgrounds
+    if (!SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc,
                            reinterpret_cast<UINT_PTR>(this), 0)) {
-        EnableWindow(listView, TRUE);
-        ShowWindow(listView, SW_SHOW);
         LogLastError(L"SetWindowSubclass(list view)", GetLastError());
         return false;
     }
 
-    m_listView = newListView;
+    m_listView = listView;
     m_listViewSubclassInstalled = true;
-    m_nativeListView = listView;
-    m_listViewControlWindow = controlWindow;
-    m_listViewControl = std::move(control);
 
-    if (m_listViewControl) {
-        m_listViewControl->SetCustomDrawObserver([this](DWORD stage) { OnListViewCustomDrawStage(stage); });
-    }
     m_listViewCustomDraw = {};
     m_listViewCustomDraw.lastStageTick = CurrentTickCount();
 
-    RegisterGlowSurface(newListView, ExplorerSurfaceKind::ListView, true);
+    RegisterGlowSurface(listView, ExplorerSurfaceKind::ListView, true);
     if (HWND header = ListView_GetHeader(m_listView)) {
         RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
     }
 
+    // Set up the mini hook for folder backgrounds via the glow coordinator
     UpdateListViewDescriptor();
     m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
 
     LogMessage(LogLevel::Info,
-               L"Installed ShellTabs list view control (native=%p control=%p list=%p)", listView,
-               controlWindow, m_listView);
+               L"Installed mini hook for list view backgrounds (hwnd=%p)", listView);
 
-    RefreshListViewControlBackground();
-    RefreshListViewAccentState();
-    InvalidateRect(controlWindow, nullptr, FALSE);
+    InvalidateRect(listView, nullptr, FALSE);
     return true;
 }
 
@@ -2309,7 +2227,7 @@ bool CExplorerBHO::AttachTreeView(HWND treeView) {
         return false;
     }
 
-    if (treeView == m_listView || treeView == m_listViewControlWindow) {
+    if (treeView == m_listView) {
         return false;
     }
 
@@ -2347,8 +2265,7 @@ void CExplorerBHO::EnsureListViewHostSubclass(HWND hostWindow) {
         return;
     }
 
-    if (hostWindow == m_listView || hostWindow == m_listViewControlWindow || hostWindow == m_shellViewWindow ||
-        hostWindow == m_directUiView) {
+    if (hostWindow == m_listView || hostWindow == m_shellViewWindow || hostWindow == m_directUiView) {
         return;
     }
 
@@ -2821,7 +2738,6 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
     }
 
     registerScrollbarsFor(m_listView);
-    registerScrollbarsFor(m_listViewControlWindow);
     registerScrollbarsFor(m_shellViewWindow);
     registerScrollbarsFor(m_directUiView);
 
@@ -3558,7 +3474,6 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         }
 
         if (directUiHost && directUiHost != m_shellViewWindow && directUiHost != m_listView &&
-            directUiHost != m_listViewControlWindow &&
             IsWindow(directUiHost)) {
             if (SetWindowSubclass(directUiHost, &CExplorerBHO::ExplorerViewSubclassProc,
                                   reinterpret_cast<UINT_PTR>(this), 0)) {
@@ -3602,7 +3517,7 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         if (m_shellBrowser) {
             HWND browserTree = nullptr;
             if (SUCCEEDED(m_shellBrowser->GetControlWindow(FCW_TREE, &browserTree)) && browserTree &&
-                browserTree != m_listView && browserTree != m_listViewControlWindow && IsWindow(browserTree)) {
+                browserTree != m_listView && IsWindow(browserTree)) {
                 treeView = browserTree;
             }
         }
@@ -4089,17 +4004,10 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
 
 void CExplorerBHO::RefreshListViewControlBackground() {
     ResetListViewBackgroundSurface();
-    if (!m_listViewControl) {
-        return;
+    // Force repaint to use the mini hook
+    if (m_listView && IsWindow(m_listView)) {
+        InvalidateRect(m_listView, nullptr, FALSE);
     }
-
-    auto resolver = [this]() -> ShellTabsListView::BackgroundSource {
-        ShellTabsListView::BackgroundSource source{};
-        source.cacheKey = ResolveBackgroundCacheKey();
-        source.bitmap = ResolveCurrentFolderBackground();
-        return source;
-    };
-    m_listViewControl->SetBackgroundResolver(resolver);
 }
 
 bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
@@ -4323,7 +4231,6 @@ void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     };
 
     requestRedraw(m_listView);
-    requestRedraw(m_listViewControlWindow);
     requestRedraw(m_directUiView);
     for (HWND host : m_listViewHostSubclassed) {
         requestRedraw(host);
@@ -4382,13 +4289,8 @@ bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) co
 }
 
 void CExplorerBHO::RefreshListViewAccentState() {
-    if (m_listViewControl) {
-        auto resolver = [this](COLORREF* accent, COLORREF* text) {
-            return ResolveActiveGroupAccent(accent, text);
-        };
-        m_listViewControl->SetAccentColorResolver(resolver);
-        m_listViewControl->SetUseAccentColors(ShouldUseListViewAccentColors());
-    } else if (m_listView && IsWindow(m_listView)) {
+    // Mini hook handles accent colors via theme hooks
+    if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, FALSE);
     }
     InvalidateNamespaceTreeControl();
@@ -4757,10 +4659,6 @@ void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPo
     }
 
     if (target == m_listView) {
-        if (!m_listViewControl) {
-            return;
-        }
-
         if (screenPoint.x == -1 && screenPoint.y == -1) {
             return;
         }
@@ -4770,18 +4668,22 @@ void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPo
             return;
         }
 
-        ShellTabsListView::HitTestResult hit{};
-        if (!m_listViewControl->HitTest(clientPoint, &hit) || hit.index < 0 || (hit.flags & LVHT_ONITEM) == 0) {
+        LVHITTESTINFO hit{};
+        hit.pt = clientPoint;
+        int index = ListView_SubItemHitTest(m_listView, &hit);
+        if (index < 0 || (hit.flags & LVHT_ONITEM) == 0) {
             return;
         }
 
-        if ((m_listViewControl->GetItemState(hit.index, LVIS_SELECTED) & LVIS_SELECTED) != 0) {
+        UINT state = ListView_GetItemState(m_listView, index, LVIS_SELECTED);
+        if ((state & LVIS_SELECTED) != 0) {
             return;
         }
 
-        if (m_listViewControl->SelectExclusive(hit.index)) {
-            LogMessage(LogLevel::Info, L"Context menu selection synchronized to list view item %d", hit.index);
-        }
+        // Select the item under cursor for context menu
+        ListView_SetItemState(m_listView, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(m_listView, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        LogMessage(LogLevel::Info, L"Context menu selection synchronized to list view item %d", index);
         return;
     }
 
@@ -4982,42 +4884,33 @@ bool CExplorerBHO::CollectContextSelectionFromItemArray(IShellItemArray* items,
 }
 
 bool CExplorerBHO::CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const {
-    if (m_listViewControl) {
-        bool appended = false;
-        for (const auto& item : m_listViewControl->GetSelectionSnapshot()) {
-            if (!item.pidl) {
-                continue;
-            }
-            if (AppendSelectionItemFromPidl(item.pidl.get(), selection)) {
-                appended = true;
-            }
-        }
-
-        if (!appended) {
-            LogMessage(LogLevel::Info, L"CollectContextSelectionFromListView found no selection");
-        }
-
-        return appended;
+    if (!m_listView || !IsWindow(m_listView)) {
+        return false;
     }
 
-    if (!m_listView || !IsWindow(m_listView)) {
+    if (!m_folderView2) {
         return false;
     }
 
     int index = -1;
     bool appended = false;
     while ((index = ListView_GetNextItem(m_listView, index, LVNI_SELECTED)) != -1) {
-        LVITEMW item{};
-        item.mask = LVIF_PARAM;
-        item.iItem = index;
-        if (!ListView_GetItemW(m_listView, &item)) {
-            LogLastError(L"ListView_GetItem(selection)", GetLastError());
+        Microsoft::WRL::ComPtr<IUnknown> viewItem;
+        HRESULT hr = m_folderView2->GetItem(index, IID_PPV_ARGS(&viewItem));
+        if (FAILED(hr) || !viewItem) {
             continue;
         }
 
-        if (AppendSelectionItemFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), selection)) {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        hr = SHGetIDListFromObject(viewItem.Get(), &pidl);
+        if (FAILED(hr) || !pidl) {
+            continue;
+        }
+
+        if (AppendSelectionItemFromPidl(pidl, selection)) {
             appended = true;
         }
+        CoTaskMemFree(pidl);
     }
 
     if (!appended) {
@@ -7784,14 +7677,6 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         if (hwnd == self->m_listView) {
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
-        } else if (hwnd == self->m_listViewControlWindow) {
-            self->m_listViewControlWindow = nullptr;
-            self->m_listViewControl.reset();
-            if (self->m_nativeListView && IsWindow(self->m_nativeListView)) {
-                EnableWindow(self->m_nativeListView, TRUE);
-                ShowWindow(self->m_nativeListView, SW_SHOW);
-            }
-            self->m_nativeListView = nullptr;
         } else if (hwnd == self->m_directUiView) {
             self->m_directUiView = nullptr;
             self->m_directUiSubclassInstalled = false;
