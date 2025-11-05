@@ -12,6 +12,7 @@
 
 #include "ClassFactory.h"
 #include "ComUtils.h"
+#include "FolderBackgroundHooks.h"
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
