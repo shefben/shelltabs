@@ -1,0 +1,27 @@
+# Build directories
+build/
+out/
+
+# Visual Studio directories
+.vs/
+*.user
+*.suo
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Compiled binaries
+*.dll
+*.exe
+*.lib
+*.obj
+*.pdb
+*.ilk
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
