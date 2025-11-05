@@ -381,24 +381,32 @@ void NormalizeContextMenuItem(ContextMenuItem* item) {
 
     if (item->type == ContextMenuItemType::kSeparator) {
         item->label.clear();
-        item->commandTemplate.clear();
+        item->executable.clear();
+        item->arguments.clear();
     } else {
         item->label = Trim(item->label);
-        item->commandTemplate = Trim(item->commandTemplate);
+        item->executable = Trim(item->executable);
+        item->arguments = Trim(item->arguments);
     }
 
     item->iconSource = NormalizeContextMenuIconSource(item->iconSource);
-    item->scope.extensions = NormalizeContextMenuExtensions(item->scope.extensions);
+    item->workingDirectory = Trim(item->workingDirectory);
+    item->description = Trim(item->description);
+    item->id = Trim(item->id);
 
-    if (item->selection.minimumSelection < 0) {
-        item->selection.minimumSelection = 0;
+    // Normalize visibility patterns
+    item->visibility.filePatterns = NormalizeContextMenuPatterns(item->visibility.filePatterns);
+    item->visibility.excludePatterns = NormalizeContextMenuPatterns(item->visibility.excludePatterns);
+
+    if (item->visibility.minimumSelection < 0) {
+        item->visibility.minimumSelection = 0;
     }
-    if (item->selection.maximumSelection < 0) {
-        item->selection.maximumSelection = 0;
+    if (item->visibility.maximumSelection < 0) {
+        item->visibility.maximumSelection = 0;
     }
-    if (item->selection.maximumSelection > 0 &&
-        item->selection.maximumSelection < item->selection.minimumSelection) {
-        item->selection.maximumSelection = item->selection.minimumSelection;
+    if (item->visibility.maximumSelection > 0 &&
+        item->visibility.maximumSelection < item->visibility.minimumSelection) {
+        item->visibility.maximumSelection = item->visibility.minimumSelection;
     }
 }
 
@@ -412,6 +420,16 @@ void NormalizeContextMenuItems(std::vector<ContextMenuItem>* items) {
     }
 }
 
+// Helper to join patterns with delimiter
+std::wstring JoinPatterns(const std::vector<std::wstring>& patterns, wchar_t delimiter) {
+    std::wstring result;
+    for (size_t i = 0; i < patterns.size(); ++i) {
+        if (i > 0) result += delimiter;
+        result += patterns[i];
+    }
+    return result;
+}
+
 void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenuItem>& items) {
     for (const auto& item : items) {
         switch (item.type) {
@@ -420,19 +438,41 @@ void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenu
                 content += L"|";
                 content += item.label;
                 content += L"|";
-                content += item.commandTemplate;
+                content += item.executable;
+                content += L"|";
+                content += item.arguments;
                 content += L"|";
                 content += NormalizeContextMenuIconSource(item.iconSource);
                 content += L"|";
+                content += item.workingDirectory;
+                content += L"|";
+                content += std::to_wstring(static_cast<int>(item.windowState));
+                content += L"|";
+                content += item.runAsAdmin ? L"1" : L"0";
+                content += L"|";
+                content += item.waitForCompletion ? L"1" : L"0";
+                content += L"|";
                 content += ContextMenuAnchorToString(item.anchor);
                 content += L"|";
-                content += BuildContextMenuScopeString(item.scope);
+                content += item.enabled ? L"1" : L"0";
                 content += L"|";
-                content += BuildContextMenuExtensionsToken(item.scope.extensions);
+                content += std::to_wstring(std::max(item.visibility.minimumSelection, 0));
                 content += L"|";
-                content += std::to_wstring(std::max(item.selection.minimumSelection, 0));
+                content += std::to_wstring(item.visibility.maximumSelection > 0 ? item.visibility.maximumSelection : 0);
                 content += L"|";
-                content += std::to_wstring(item.selection.maximumSelection > 0 ? item.selection.maximumSelection : 0);
+                content += item.visibility.showForFiles ? L"1" : L"0";
+                content += L"|";
+                content += item.visibility.showForFolders ? L"1" : L"0";
+                content += L"|";
+                content += item.visibility.showForMultiple ? L"1" : L"0";
+                content += L"|";
+                content += JoinPatterns(item.visibility.filePatterns, L';');
+                content += L"|";
+                content += JoinPatterns(item.visibility.excludePatterns, L';');
+                content += L"|";
+                content += item.description;
+                content += L"|";
+                content += item.id;
                 content += L"\n";
                 break;
             }
@@ -445,13 +485,25 @@ void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenu
                 content += L"|";
                 content += ContextMenuAnchorToString(item.anchor);
                 content += L"|";
-                content += BuildContextMenuScopeString(item.scope);
+                content += item.enabled ? L"1" : L"0";
                 content += L"|";
-                content += BuildContextMenuExtensionsToken(item.scope.extensions);
+                content += std::to_wstring(std::max(item.visibility.minimumSelection, 0));
                 content += L"|";
-                content += std::to_wstring(std::max(item.selection.minimumSelection, 0));
+                content += std::to_wstring(item.visibility.maximumSelection > 0 ? item.visibility.maximumSelection : 0);
                 content += L"|";
-                content += std::to_wstring(item.selection.maximumSelection > 0 ? item.selection.maximumSelection : 0);
+                content += item.visibility.showForFiles ? L"1" : L"0";
+                content += L"|";
+                content += item.visibility.showForFolders ? L"1" : L"0";
+                content += L"|";
+                content += item.visibility.showForMultiple ? L"1" : L"0";
+                content += L"|";
+                content += JoinPatterns(item.visibility.filePatterns, L';');
+                content += L"|";
+                content += JoinPatterns(item.visibility.excludePatterns, L';');
+                content += L"|";
+                content += item.description;
+                content += L"|";
+                content += item.id;
                 content += L"\n";
                 AppendContextMenuItems(content, item.children);
                 content += kContextMenuEndToken;
@@ -463,13 +515,7 @@ void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenu
                 content += L"|";
                 content += ContextMenuAnchorToString(item.anchor);
                 content += L"|";
-                content += BuildContextMenuScopeString(item.scope);
-                content += L"|";
-                content += BuildContextMenuExtensionsToken(item.scope.extensions);
-                content += L"|";
-                content += std::to_wstring(std::max(item.selection.minimumSelection, 0));
-                content += L"|";
-                content += std::to_wstring(item.selection.maximumSelection > 0 ? item.selection.maximumSelection : 0);
+                content += item.enabled ? L"1" : L"0";
                 content += L"\n";
                 break;
             }
@@ -479,28 +525,348 @@ void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenu
 
 }  // namespace
 
-std::vector<std::wstring> NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions) {
+// ==================== Context Menu System Implementation ====================
+
+// Backward compatibility: split old commandTemplate into executable + arguments
+void MigrateCommandTemplate(ContextMenuItem* item) {
+    if (!item || item->type != ContextMenuItemType::kCommand) {
+        return;
+    }
+
+    // If we already have an executable, no need to migrate
+    if (!item->executable.empty()) {
+        return;
+    }
+
+    // This would be populated by old format - we'll leave the interface for now
+    // The old code can call SplitCommandTemplate manually if needed
+}
+
+// Helper to build command template from executable + arguments (for old code)
+std::wstring BuildCommandTemplateFromParts(const std::wstring& executable, const std::wstring& arguments) {
+    std::wstring result = executable;
+    if (!arguments.empty()) {
+        if (!result.empty()) {
+            result += L" ";
+        }
+        result += arguments;
+    }
+    return result;
+}
+
+// ==================== Context Menu System Implementation ====================
+
+// Pattern matching helper - supports wildcards (* and ?)
+bool MatchesContextMenuPattern(const std::wstring& filename, const std::wstring& pattern) {
+    if (pattern.empty()) {
+        return true;
+    }
+    if (filename.empty()) {
+        return false;
+    }
+
+    // Convert to lowercase for case-insensitive matching
+    std::wstring lowerFilename = filename;
+    std::wstring lowerPattern = pattern;
+    std::transform(lowerFilename.begin(), lowerFilename.end(), lowerFilename.begin(),
+                  [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+    std::transform(lowerPattern.begin(), lowerPattern.end(), lowerPattern.begin(),
+                  [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+
+    // Simple wildcard matching implementation
+    size_t fnPos = 0;
+    size_t patPos = 0;
+    size_t starPos = std::wstring::npos;
+    size_t matchPos = 0;
+
+    while (fnPos < lowerFilename.size()) {
+        if (patPos < lowerPattern.size() && (lowerPattern[patPos] == L'?' ||
+            lowerPattern[patPos] == lowerFilename[fnPos])) {
+            ++fnPos;
+            ++patPos;
+        } else if (patPos < lowerPattern.size() && lowerPattern[patPos] == L'*') {
+            starPos = patPos++;
+            matchPos = fnPos;
+        } else if (starPos != std::wstring::npos) {
+            patPos = starPos + 1;
+            fnPos = ++matchPos;
+        } else {
+            return false;
+        }
+    }
+
+    while (patPos < lowerPattern.size() && lowerPattern[patPos] == L'*') {
+        ++patPos;
+    }
+
+    return patPos == lowerPattern.size();
+}
+
+// Normalize file patterns (convert to lowercase, remove duplicates)
+std::vector<std::wstring> NormalizeContextMenuPatterns(const std::vector<std::wstring>& patterns) {
     std::vector<std::wstring> normalized;
-    normalized.reserve(extensions.size());
-    for (const auto& ext : extensions) {
-        std::wstring trimmed = Trim(ext);
+    normalized.reserve(patterns.size());
+
+    for (const auto& pattern : patterns) {
+        std::wstring trimmed = Trim(pattern);
         if (trimmed.empty()) {
             continue;
         }
-        if (!trimmed.empty() && trimmed.front() != L'.') {
-            trimmed.insert(trimmed.begin(), L'.');
-        }
-        std::transform(trimmed.begin(), trimmed.end(), trimmed.begin(), [](wchar_t ch) {
-            return static_cast<wchar_t>(std::towlower(static_cast<unsigned int>(ch)));
-        });
+
+        // Convert to lowercase
+        std::transform(trimmed.begin(), trimmed.end(), trimmed.begin(),
+                      [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+
+        // Add if not already present
         if (std::find(normalized.begin(), normalized.end(), trimmed) == normalized.end()) {
             normalized.emplace_back(std::move(trimmed));
         }
     }
 
     std::sort(normalized.begin(), normalized.end());
-    normalized.erase(std::unique(normalized.begin(), normalized.end()), normalized.end());
     return normalized;
+}
+
+// Legacy extension normalization (kept for compatibility)
+std::wstring NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions) {
+    std::wstring result;
+    auto normalized = NormalizeContextMenuPatterns(extensions);
+    for (size_t i = 0; i < normalized.size(); ++i) {
+        if (i > 0) result += L";";
+        result += normalized[i];
+    }
+    return result;
+}
+
+// Check if a context menu item matches the current selection
+bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionCount,
+                                    const std::vector<std::wstring>& selectedPaths,
+                                    bool hasFiles, bool hasFolders) {
+    const auto& rules = item.visibility;
+
+    // Check selection count constraints
+    if (rules.minimumSelection > 0 && selectionCount < rules.minimumSelection) {
+        return false;
+    }
+    if (rules.maximumSelection > 0 && selectionCount > rules.maximumSelection) {
+        return false;
+    }
+
+    // Check multiple selection constraint
+    if (selectionCount > 1 && !rules.showForMultiple) {
+        return false;
+    }
+
+    // Check file/folder type constraints
+    if (hasFiles && !rules.showForFiles) {
+        return false;
+    }
+    if (hasFolders && !rules.showForFolders) {
+        return false;
+    }
+
+    // Check file patterns if specified
+    if (!rules.filePatterns.empty() || !rules.excludePatterns.empty()) {
+        bool matchesPattern = false;
+
+        for (const auto& path : selectedPaths) {
+            size_t lastSlash = path.find_last_of(L"\\/");
+            std::wstring filename = (lastSlash != std::wstring::npos) ?
+                                   path.substr(lastSlash + 1) : path;
+
+            // Check exclude patterns first
+            bool excluded = false;
+            for (const auto& exclude : rules.excludePatterns) {
+                if (MatchesContextMenuPattern(filename, exclude)) {
+                    excluded = true;
+                    break;
+                }
+            }
+
+            if (excluded) {
+                continue;
+            }
+
+            // Check include patterns
+            if (rules.filePatterns.empty()) {
+                matchesPattern = true; // No patterns = match all (unless excluded)
+            } else {
+                for (const auto& pattern : rules.filePatterns) {
+                    if (MatchesContextMenuPattern(filename, pattern)) {
+                        matchesPattern = true;
+                        break;
+                    }
+                }
+            }
+
+            if (matchesPattern) {
+                break;
+            }
+        }
+
+        if (!matchesPattern) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Expand placeholders in strings
+std::wstring ExpandContextMenuPlaceholders(const std::wstring& text,
+                                          const std::vector<std::wstring>& selectedPaths) {
+    if (text.empty() || selectedPaths.empty()) {
+        return text;
+    }
+
+    std::wstring result = text;
+
+    // %1 = first selected item
+    if (result.find(L"%1") != std::wstring::npos && !selectedPaths.empty()) {
+        size_t pos = 0;
+        while ((pos = result.find(L"%1", pos)) != std::wstring::npos) {
+            result.replace(pos, 2, L"\"" + selectedPaths[0] + L"\"");
+            pos += selectedPaths[0].length() + 2;
+        }
+    }
+
+    // %V = all selected items (space-separated, quoted)
+    if (result.find(L"%V") != std::wstring::npos) {
+        std::wstring allPaths;
+        for (size_t i = 0; i < selectedPaths.size(); ++i) {
+            if (i > 0) allPaths += L" ";
+            allPaths += L"\"" + selectedPaths[i] + L"\"";
+        }
+        size_t pos = 0;
+        while ((pos = result.find(L"%V", pos)) != std::wstring::npos) {
+            result.replace(pos, 2, allPaths);
+            pos += allPaths.length();
+        }
+    }
+
+    // %N = number of selected items
+    if (result.find(L"%N") != std::wstring::npos) {
+        std::wstring count = std::to_wstring(selectedPaths.size());
+        size_t pos = 0;
+        while ((pos = result.find(L"%N", pos)) != std::wstring::npos) {
+            result.replace(pos, 2, count);
+            pos += count.length();
+        }
+    }
+
+    // %P = parent directory of first selected item
+    if (result.find(L"%P") != std::wstring::npos && !selectedPaths.empty()) {
+        std::wstring parentDir = selectedPaths[0];
+        size_t lastSlash = parentDir.find_last_of(L"\\/");
+        if (lastSlash != std::wstring::npos) {
+            parentDir = parentDir.substr(0, lastSlash);
+        }
+        size_t pos = 0;
+        while ((pos = result.find(L"%P", pos)) != std::wstring::npos) {
+            result.replace(pos, 2, L"\"" + parentDir + L"\"");
+            pos += parentDir.length() + 2;
+        }
+    }
+
+    return result;
+}
+
+// Validate a context menu item configuration
+void ValidateContextMenuItem(const ContextMenuItem& item, std::vector<std::wstring>& errors) {
+    if (item.type == ContextMenuItemType::kSeparator) {
+        return; // Separators don't need validation
+    }
+
+    if (item.label.empty()) {
+        errors.push_back(L"Menu item label cannot be empty");
+    }
+
+    if (item.type == ContextMenuItemType::kCommand) {
+        if (item.executable.empty()) {
+            errors.push_back(L"Command executable path cannot be empty");
+        }
+
+        // Check for invalid selection constraints
+        if (item.visibility.minimumSelection < 0) {
+            errors.push_back(L"Minimum selection cannot be negative");
+        }
+        if (item.visibility.maximumSelection < 0) {
+            errors.push_back(L"Maximum selection cannot be negative");
+        }
+        if (item.visibility.maximumSelection > 0 &&
+            item.visibility.maximumSelection < item.visibility.minimumSelection) {
+            errors.push_back(L"Maximum selection cannot be less than minimum selection");
+        }
+    }
+
+    if (item.type == ContextMenuItemType::kSubmenu) {
+        if (item.children.empty()) {
+            errors.push_back(L"Submenu must contain at least one child item");
+        } else {
+            // Recursively validate children
+            for (const auto& child : item.children) {
+                ValidateContextMenuItem(child, errors);
+            }
+        }
+    }
+}
+
+// Create a context menu item from a template
+ContextMenuItem CreateContextMenuTemplate(const std::wstring& templateType) {
+    ContextMenuItem item;
+    item.enabled = true;
+    item.anchor = ContextMenuInsertionAnchor::kDefault;
+
+    if (templateType == L"open_with") {
+        item.type = ContextMenuItemType::kCommand;
+        item.label = L"Open with...";
+        item.executable = L"rundll32.exe";
+        item.arguments = L"shell32.dll,OpenAs_RunDLL %1";
+        item.iconSource = L"shell32.dll,3";
+        item.visibility.maximumSelection = 1;
+        item.visibility.showForFiles = true;
+        item.visibility.showForFolders = false;
+    } else if (templateType == L"cmd_here") {
+        item.type = ContextMenuItemType::kCommand;
+        item.label = L"Command Prompt Here";
+        item.executable = L"cmd.exe";
+        item.arguments = L"/k cd /d %P";
+        item.iconSource = L"cmd.exe,0";
+        item.visibility.showForFiles = true;
+        item.visibility.showForFolders = true;
+        item.workingDirectory = L"%P";
+    } else if (templateType == L"powershell_here") {
+        item.type = ContextMenuItemType::kCommand;
+        item.label = L"PowerShell Here";
+        item.executable = L"powershell.exe";
+        item.arguments = L"-NoExit -Command Set-Location -Path %P";
+        item.iconSource = L"powershell.exe,0";
+        item.visibility.showForFiles = true;
+        item.visibility.showForFolders = true;
+        item.workingDirectory = L"%P";
+    } else if (templateType == L"copy_path") {
+        item.type = ContextMenuItemType::kCommand;
+        item.label = L"Copy Full Path";
+        item.executable = L"cmd.exe";
+        item.arguments = L"/c echo %1 | clip";
+        item.iconSource = L"shell32.dll,134";
+        item.windowState = ContextMenuWindowState::kHidden;
+    } else if (templateType == L"properties") {
+        item.type = ContextMenuItemType::kCommand;
+        item.label = L"Properties";
+        item.executable = L"rundll32.exe";
+        item.arguments = L"shell32.dll,Control_RunDLL shell32.dll,,Properties %1";
+        item.iconSource = L"shell32.dll,21";
+        item.visibility.maximumSelection = 1;
+    } else {
+        // Default empty command
+        item.type = ContextMenuItemType::kCommand;
+        item.label = L"New Command";
+        item.executable = L"";
+        item.arguments = L"";
+    }
+
+    return item;
 }
 
 std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource) {
@@ -1021,30 +1387,28 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             if (!contextMenuStack.empty()) {
                 ContextMenuItem item;
                 item.type = ContextMenuItemType::kCommand;
-                if (tokens.size() >= 2) {
-                    item.label = Trim(tokens[1]);
-                }
-                if (tokens.size() >= 3) {
-                    item.commandTemplate = Trim(tokens[2]);
-                }
-                if (tokens.size() >= 4) {
-                    item.iconSource = std::wstring(tokens[3]);
-                }
-                if (tokens.size() >= 5) {
-                    item.anchor = ParseContextMenuAnchor(tokens[4]);
-                }
-                if (tokens.size() >= 6) {
-                    item.scope = ParseContextMenuScope(tokens[5]);
-                }
-                if (tokens.size() >= 7) {
-                    item.scope.extensions = ParseContextMenuExtensions(tokens[6]);
-                }
-                if (tokens.size() >= 8) {
-                    item.selection.minimumSelection = ParseSelectionCount(tokens[7]);
-                }
-                if (tokens.size() >= 9) {
-                    item.selection.maximumSelection = ParseSelectionCount(tokens[8]);
-                }
+                size_t idx = 1;
+
+                if (tokens.size() > idx) item.label = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.executable = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.arguments = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.iconSource = std::wstring(tokens[idx++]);
+                if (tokens.size() > idx) item.workingDirectory = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.windowState = static_cast<ContextMenuWindowState>(ParseInt(tokens[idx++]));
+                if (tokens.size() > idx) item.runAsAdmin = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.waitForCompletion = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.anchor = ParseContextMenuAnchor(tokens[idx++]);
+                if (tokens.size() > idx) item.enabled = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.minimumSelection = ParseSelectionCount(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.maximumSelection = ParseSelectionCount(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.showForFiles = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.showForFolders = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.showForMultiple = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.filePatterns = ParseContextMenuExtensions(tokens[idx++]);
+                if (tokens.size() > idx) item.visibility.excludePatterns = ParseContextMenuExtensions(tokens[idx++]);
+                if (tokens.size() > idx) item.description = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.id = Trim(tokens[idx++]);
+
                 contextMenuStack.back()->push_back(std::move(item));
             }
             return true;
@@ -1054,27 +1418,22 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             if (!contextMenuStack.empty()) {
                 ContextMenuItem submenu;
                 submenu.type = ContextMenuItemType::kSubmenu;
-                if (tokens.size() >= 2) {
-                    submenu.label = Trim(tokens[1]);
-                }
-                if (tokens.size() >= 3) {
-                    submenu.iconSource = std::wstring(tokens[2]);
-                }
-                if (tokens.size() >= 4) {
-                    submenu.anchor = ParseContextMenuAnchor(tokens[3]);
-                }
-                if (tokens.size() >= 5) {
-                    submenu.scope = ParseContextMenuScope(tokens[4]);
-                }
-                if (tokens.size() >= 6) {
-                    submenu.scope.extensions = ParseContextMenuExtensions(tokens[5]);
-                }
-                if (tokens.size() >= 7) {
-                    submenu.selection.minimumSelection = ParseSelectionCount(tokens[6]);
-                }
-                if (tokens.size() >= 8) {
-                    submenu.selection.maximumSelection = ParseSelectionCount(tokens[7]);
-                }
+                size_t idx = 1;
+
+                if (tokens.size() > idx) submenu.label = Trim(tokens[idx++]);
+                if (tokens.size() > idx) submenu.iconSource = std::wstring(tokens[idx++]);
+                if (tokens.size() > idx) submenu.anchor = ParseContextMenuAnchor(tokens[idx++]);
+                if (tokens.size() > idx) submenu.enabled = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.minimumSelection = ParseSelectionCount(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.maximumSelection = ParseSelectionCount(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.showForFiles = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.showForFolders = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.showForMultiple = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.filePatterns = ParseContextMenuExtensions(tokens[idx++]);
+                if (tokens.size() > idx) submenu.visibility.excludePatterns = ParseContextMenuExtensions(tokens[idx++]);
+                if (tokens.size() > idx) submenu.description = Trim(tokens[idx++]);
+                if (tokens.size() > idx) submenu.id = Trim(tokens[idx++]);
+
                 contextMenuStack.back()->push_back(std::move(submenu));
                 ContextMenuItem& inserted = contextMenuStack.back()->back();
                 contextMenuStack.push_back(&inserted.children);
@@ -1086,21 +1445,11 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             if (!contextMenuStack.empty()) {
                 ContextMenuItem separator;
                 separator.type = ContextMenuItemType::kSeparator;
-                if (tokens.size() >= 2) {
-                    separator.anchor = ParseContextMenuAnchor(tokens[1]);
-                }
-                if (tokens.size() >= 3) {
-                    separator.scope = ParseContextMenuScope(tokens[2]);
-                }
-                if (tokens.size() >= 4) {
-                    separator.scope.extensions = ParseContextMenuExtensions(tokens[3]);
-                }
-                if (tokens.size() >= 5) {
-                    separator.selection.minimumSelection = ParseSelectionCount(tokens[4]);
-                }
-                if (tokens.size() >= 6) {
-                    separator.selection.maximumSelection = ParseSelectionCount(tokens[5]);
-                }
+                size_t idx = 1;
+
+                if (tokens.size() > idx) separator.anchor = ParseContextMenuAnchor(tokens[idx++]);
+                if (tokens.size() > idx) separator.enabled = ParseBool(tokens[idx++]);
+
                 contextMenuStack.back()->push_back(std::move(separator));
             }
             return true;
@@ -1366,21 +1715,32 @@ bool OptionsStore::Save() const {
     return true;
 }
 
-bool operator==(const ContextMenuSelectionRule& left, const ContextMenuSelectionRule& right) noexcept {
+bool operator==(const ContextMenuVisibilityRules& left, const ContextMenuVisibilityRules& right) noexcept {
     return left.minimumSelection == right.minimumSelection &&
-           left.maximumSelection == right.maximumSelection;
-}
-
-bool operator==(const ContextMenuItemScope& left, const ContextMenuItemScope& right) noexcept {
-    return left.includeAllFiles == right.includeAllFiles &&
-           left.includeAllFolders == right.includeAllFolders && left.extensions == right.extensions;
+           left.maximumSelection == right.maximumSelection &&
+           left.showForFiles == right.showForFiles &&
+           left.showForFolders == right.showForFolders &&
+           left.showForMultiple == right.showForMultiple &&
+           left.filePatterns == right.filePatterns &&
+           left.excludePatterns == right.excludePatterns;
 }
 
 bool operator==(const ContextMenuItem& left, const ContextMenuItem& right) noexcept {
-    return left.type == right.type && left.label == right.label &&
-           left.iconSource == right.iconSource && left.commandTemplate == right.commandTemplate &&
-           left.scope == right.scope && left.selection == right.selection && left.anchor == right.anchor &&
-           left.children == right.children;
+    return left.type == right.type &&
+           left.label == right.label &&
+           left.iconSource == right.iconSource &&
+           left.executable == right.executable &&
+           left.arguments == right.arguments &&
+           left.workingDirectory == right.workingDirectory &&
+           left.windowState == right.windowState &&
+           left.runAsAdmin == right.runAsAdmin &&
+           left.waitForCompletion == right.waitForCompletion &&
+           left.visibility == right.visibility &&
+           left.anchor == right.anchor &&
+           left.enabled == right.enabled &&
+           left.children == right.children &&
+           left.description == right.description &&
+           left.id == right.id;
 }
 
 bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& right) noexcept {

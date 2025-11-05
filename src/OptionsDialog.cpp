@@ -63,8 +63,8 @@ constexpr int kCustomizationScrollPageStep = 80;
 constexpr SIZE kUniversalPreviewSize = {96, 72};
 constexpr SIZE kFolderPreviewSize = {64, 64};
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
-constexpr int kContextDialogWidth = 360;
-constexpr int kContextDialogHeight = 430;
+constexpr int kContextDialogWidth = 520;
+constexpr int kContextDialogHeight = 480;
 
 size_t gContextMenuTemplateControlCount = 0;
 
@@ -200,6 +200,17 @@ enum ControlIds : int {
     IDC_CONTEXT_EXTENSION_ADD = 5524,
     IDC_CONTEXT_EXTENSION_LIST = 5525,
     IDC_CONTEXT_EXTENSION_REMOVE = 5526,
+    IDC_CONTEXT_WORKING_DIR_EDIT = 5527,
+    IDC_CONTEXT_WORKING_DIR_BROWSE = 5528,
+    IDC_CONTEXT_RUN_AS_ADMIN = 5529,
+    IDC_CONTEXT_WAIT_FOR_COMPLETION = 5530,
+    IDC_CONTEXT_WINDOW_STATE_COMBO = 5531,
+    IDC_CONTEXT_ENABLED_CHECK = 5532,
+    IDC_CONTEXT_DESCRIPTION_EDIT = 5533,
+    IDC_CONTEXT_ID_EDIT = 5534,
+    IDC_CONTEXT_SHOW_FOR_MULTIPLE = 5535,
+    IDC_CONTEXT_EXCLUDE_PATTERNS_EDIT = 5536,
+    IDC_CONTEXT_TEMPLATE_COMBO = 5537,
 };
 
 struct GlowSurfaceControlMapping {

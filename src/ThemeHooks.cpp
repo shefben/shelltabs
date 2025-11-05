@@ -89,6 +89,14 @@ using CreateWindowExWFn = HWND(WINAPI*)(DWORD, LPCWSTR, LPCWSTR, DWORD, int, int
 using ExtTextOutWFn = BOOL(WINAPI*)(HDC, int, int, UINT, const RECT*, LPCWSTR, UINT, const INT*);
 using SetTextColorFn = COLORREF(WINAPI*)(HDC, COLORREF);
 using SetBkColorFn = COLORREF(WINAPI*)(HDC, COLORREF);
+using LineToFn = BOOL(WINAPI*)(HDC, int, int);
+using PolylineFn = BOOL(WINAPI*)(HDC, const POINT*, int);
+using PolylineToFn = BOOL(WINAPI*)(HDC, const POINT*, DWORD);
+using MoveToExFn = BOOL(WINAPI*)(HDC, int, int, LPPOINT);
+using CreatePenFn = HPEN(WINAPI*)(int, int, COLORREF);
+using CreatePenIndirectFn = HPEN(WINAPI*)(const LOGPEN*);
+using ExtCreatePenFn = HPEN(WINAPI*)(DWORD, DWORD, const LOGBRUSH*, DWORD, const DWORD*);
+using SelectObjectFn = HGDIOBJ(WINAPI*)(HDC, HGDIOBJ);
 
 DrawThemeBackgroundFn g_originalDrawThemeBackground = nullptr;
 DrawThemeEdgeFn g_originalDrawThemeEdge = nullptr;
@@ -100,6 +108,14 @@ CreateWindowExWFn g_originalCreateWindowExW = nullptr;
 ExtTextOutWFn g_originalExtTextOutW = nullptr;
 SetTextColorFn g_originalSetTextColor = nullptr;
 SetBkColorFn g_originalSetBkColor = nullptr;
+LineToFn g_originalLineTo = nullptr;
+PolylineFn g_originalPolyline = nullptr;
+PolylineToFn g_originalPolylineTo = nullptr;
+MoveToExFn g_originalMoveToEx = nullptr;
+CreatePenFn g_originalCreatePen = nullptr;
+CreatePenIndirectFn g_originalCreatePenIndirect = nullptr;
+ExtCreatePenFn g_originalExtCreatePen = nullptr;
+SelectObjectFn g_originalSelectObject = nullptr;
 void* g_drawThemeBackgroundTarget = nullptr;
 void* g_drawThemeEdgeTarget = nullptr;
 void* g_fillRectTarget = nullptr;
@@ -110,6 +126,14 @@ void* g_createWindowExWTarget = nullptr;
 void* g_extTextOutWTarget = nullptr;
 void* g_setTextColorTarget = nullptr;
 void* g_setBkColorTarget = nullptr;
+void* g_lineToTarget = nullptr;
+void* g_polylineTarget = nullptr;
+void* g_polylineToTarget = nullptr;
+void* g_moveToExTarget = nullptr;
+void* g_createPenTarget = nullptr;
+void* g_createPenIndirectTarget = nullptr;
+void* g_extCreatePenTarget = nullptr;
+void* g_selectObjectTarget = nullptr;
 std::vector<void*> g_directUiDetourTargets;
 
 thread_local bool g_drawThemeBackgroundActive = false;
@@ -120,6 +144,14 @@ thread_local bool g_directUiDrawActive = false;
 thread_local bool g_extTextOutActive = false;
 thread_local bool g_setTextColorActive = false;
 thread_local bool g_setBkColorActive = false;
+thread_local bool g_lineToActive = false;
+thread_local bool g_polylineActive = false;
+thread_local bool g_polylineToActive = false;
+thread_local bool g_moveToExActive = false;
+thread_local bool g_createPenActive = false;
+thread_local bool g_createPenIndirectActive = false;
+thread_local bool g_extCreatePenActive = false;
+thread_local bool g_selectObjectActive = false;
 
 std::once_flag g_directUiThemeLogged;
 std::once_flag g_directUiComLogged;
@@ -1362,6 +1394,358 @@ COLORREF WINAPI SetBkColorDetour(HDC dc, COLORREF color) {
     return g_originalSetBkColor(dc, descriptor->backgroundColor);
 }
 
+// Pen tracking for gradient line drawing
+struct PenInfo {
+    HPEN handle = nullptr;
+    COLORREF originalColor = RGB(0, 0, 0);
+    int style = PS_SOLID;
+    int width = 1;
+    bool isGlowPen = false;
+};
+
+std::mutex g_penTrackingMutex;
+std::unordered_map<HPEN, PenInfo> g_trackedPens;
+thread_local HPEN g_currentPen = nullptr;
+
+COLORREF GetGlowColorForPosition(HDC dc, int x, int y) {
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return RGB(0, 0, 0);
+    }
+
+    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
+    if (!coordinator || !coordinator->ShouldRenderSurface(surface->registration.kind)) {
+        return RGB(0, 0, 0);
+    }
+
+    GlowColorSet colors = coordinator->ResolveColors(surface->registration.kind);
+    if (!colors.valid) {
+        return RGB(0, 0, 0);
+    }
+
+    // For gradient, interpolate between start and end colors based on position
+    if (colors.gradient && colors.start != colors.end) {
+        HWND hwnd = surface->window;
+        if (hwnd) {
+            RECT rect{};
+            GetClientRect(hwnd, &rect);
+            int height = rect.bottom - rect.top;
+            if (height > 0) {
+                float t = static_cast<float>(y) / static_cast<float>(height);
+                t = std::clamp(t, 0.0f, 1.0f);
+
+                int r1 = GetRValue(colors.start);
+                int g1 = GetGValue(colors.start);
+                int b1 = GetBValue(colors.start);
+                int r2 = GetRValue(colors.end);
+                int g2 = GetGValue(colors.end);
+                int b2 = GetBValue(colors.end);
+
+                int r = static_cast<int>(r1 + t * (r2 - r1));
+                int g = static_cast<int>(g1 + t * (g2 - g1));
+                int b = static_cast<int>(b1 + t * (b2 - b1));
+
+                return RGB(r, g, b);
+            }
+        }
+        // Fallback to middle color
+        int r = (GetRValue(colors.start) + GetRValue(colors.end)) / 2;
+        int g = (GetGValue(colors.start) + GetGValue(colors.end)) / 2;
+        int b = (GetBValue(colors.start) + GetBValue(colors.end)) / 2;
+        return RGB(r, g, b);
+    }
+
+    return colors.start;
+}
+
+HPEN WINAPI CreatePenDetour(int style, int width, COLORREF color) {
+    ReentrancyGuard guard(g_createPenActive);
+    if (!guard.Entered() || !g_originalCreatePen) {
+        return g_originalCreatePen ? g_originalCreatePen(style, width, color) : nullptr;
+    }
+
+    HPEN pen = g_originalCreatePen(style, width, color);
+    if (pen) {
+        std::lock_guard<std::mutex> lock(g_penTrackingMutex);
+        PenInfo info{};
+        info.handle = pen;
+        info.originalColor = color;
+        info.style = style;
+        info.width = width;
+        info.isGlowPen = false;
+        g_trackedPens[pen] = info;
+    }
+    return pen;
+}
+
+HPEN WINAPI CreatePenIndirectDetour(const LOGPEN* logpen) {
+    ReentrancyGuard guard(g_createPenIndirectActive);
+    if (!guard.Entered() || !g_originalCreatePenIndirect) {
+        return g_originalCreatePenIndirect ? g_originalCreatePenIndirect(logpen) : nullptr;
+    }
+
+    HPEN pen = g_originalCreatePenIndirect(logpen);
+    if (pen && logpen) {
+        std::lock_guard<std::mutex> lock(g_penTrackingMutex);
+        PenInfo info{};
+        info.handle = pen;
+        info.originalColor = logpen->lopnColor;
+        info.style = logpen->lopnStyle;
+        info.width = static_cast<int>(logpen->lopnWidth.x);
+        info.isGlowPen = false;
+        g_trackedPens[pen] = info;
+    }
+    return pen;
+}
+
+HPEN WINAPI ExtCreatePenDetour(DWORD penStyle, DWORD width, const LOGBRUSH* brush, DWORD styleCount, const DWORD* style) {
+    ReentrancyGuard guard(g_extCreatePenActive);
+    if (!guard.Entered() || !g_originalExtCreatePen) {
+        return g_originalExtCreatePen ? g_originalExtCreatePen(penStyle, width, brush, styleCount, style) : nullptr;
+    }
+
+    HPEN pen = g_originalExtCreatePen(penStyle, width, brush, styleCount, style);
+    if (pen && brush) {
+        std::lock_guard<std::mutex> lock(g_penTrackingMutex);
+        PenInfo info{};
+        info.handle = pen;
+        info.originalColor = brush->lbColor;
+        info.style = static_cast<int>(penStyle & PS_STYLE_MASK);
+        info.width = static_cast<int>(width);
+        info.isGlowPen = false;
+        g_trackedPens[pen] = info;
+    }
+    return pen;
+}
+
+HGDIOBJ WINAPI SelectObjectDetour(HDC dc, HGDIOBJ object) {
+    ReentrancyGuard guard(g_selectObjectActive);
+    if (!guard.Entered() || !g_originalSelectObject) {
+        return g_originalSelectObject ? g_originalSelectObject(dc, object) : nullptr;
+    }
+
+    // Check if this is a pen being selected
+    if (GetObjectType(object) == OBJ_PEN) {
+        g_currentPen = reinterpret_cast<HPEN>(object);
+    }
+
+    return g_originalSelectObject(dc, object);
+}
+
+BOOL WINAPI MoveToExDetour(HDC dc, int x, int y, LPPOINT point) {
+    ReentrancyGuard guard(g_moveToExActive);
+    if (!guard.Entered() || !g_originalMoveToEx) {
+        return g_originalMoveToEx ? g_originalMoveToEx(dc, x, y, point) : FALSE;
+    }
+
+    return g_originalMoveToEx(dc, x, y, point);
+}
+
+BOOL WINAPI LineToDetour(HDC dc, int x, int y) {
+    ReentrancyGuard guard(g_lineToActive);
+    if (!guard.Entered() || !g_originalLineTo) {
+        return g_originalLineTo ? g_originalLineTo(dc, x, y) : FALSE;
+    }
+
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return g_originalLineTo(dc, x, y);
+    }
+
+    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
+    if (!coordinator || !coordinator->ShouldRenderSurface(surface->registration.kind)) {
+        return g_originalLineTo(dc, x, y);
+    }
+
+    // Get current position
+    POINT currentPos{};
+    if (!GetCurrentPositionEx(dc, &currentPos)) {
+        return g_originalLineTo(dc, x, y);
+    }
+
+    // Draw line with gradient glow effect
+    GlowColorSet colors = coordinator->ResolveColors(surface->registration.kind);
+    if (colors.valid) {
+        // Draw halo (glow effect) first - thicker, more transparent line
+        HPEN haloPen = nullptr;
+        if (colors.gradient) {
+            // For gradient, use middle color for halo
+            int r = (GetRValue(colors.start) + GetRValue(colors.end)) / 2;
+            int g = (GetGValue(colors.start) + GetGValue(colors.end)) / 2;
+            int b = (GetBValue(colors.start) + GetBValue(colors.end)) / 2;
+            haloPen = g_originalCreatePen(PS_SOLID, 5, RGB(r, g, b));
+        } else {
+            haloPen = g_originalCreatePen(PS_SOLID, 5, colors.start);
+        }
+
+        if (haloPen) {
+            HGDIOBJ oldPen = g_originalSelectObject(dc, haloPen);
+            g_originalMoveToEx(dc, currentPos.x, currentPos.y, nullptr);
+            g_originalLineTo(dc, x, y);
+            g_originalSelectObject(dc, oldPen);
+            DeleteObject(haloPen);
+        }
+
+        // Draw main line - thinner, more opaque
+        HPEN mainPen = nullptr;
+        if (colors.gradient) {
+            // Use gradient color based on Y position
+            COLORREF lineColor = GetGlowColorForPosition(dc, (currentPos.x + x) / 2, (currentPos.y + y) / 2);
+            mainPen = g_originalCreatePen(PS_SOLID, 2, lineColor);
+        } else {
+            mainPen = g_originalCreatePen(PS_SOLID, 2, colors.start);
+        }
+
+        if (mainPen) {
+            HGDIOBJ oldPen = g_originalSelectObject(dc, mainPen);
+            g_originalMoveToEx(dc, currentPos.x, currentPos.y, nullptr);
+            BOOL result = g_originalLineTo(dc, x, y);
+            g_originalSelectObject(dc, oldPen);
+            DeleteObject(mainPen);
+            return result;
+        }
+    }
+
+    return g_originalLineTo(dc, x, y);
+}
+
+BOOL WINAPI PolylineDetour(HDC dc, const POINT* points, int count) {
+    ReentrancyGuard guard(g_polylineActive);
+    if (!guard.Entered() || !g_originalPolyline) {
+        return g_originalPolyline ? g_originalPolyline(dc, points, count) : FALSE;
+    }
+
+    if (!points || count < 2) {
+        return g_originalPolyline(dc, points, count);
+    }
+
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return g_originalPolyline(dc, points, count);
+    }
+
+    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
+    if (!coordinator || !coordinator->ShouldRenderSurface(surface->registration.kind)) {
+        return g_originalPolyline(dc, points, count);
+    }
+
+    GlowColorSet colors = coordinator->ResolveColors(surface->registration.kind);
+    if (colors.valid) {
+        // Draw halo (glow effect) first
+        HPEN haloPen = nullptr;
+        if (colors.gradient) {
+            int r = (GetRValue(colors.start) + GetRValue(colors.end)) / 2;
+            int g = (GetGValue(colors.start) + GetGValue(colors.end)) / 2;
+            int b = (GetBValue(colors.start) + GetBValue(colors.end)) / 2;
+            haloPen = g_originalCreatePen(PS_SOLID, 5, RGB(r, g, b));
+        } else {
+            haloPen = g_originalCreatePen(PS_SOLID, 5, colors.start);
+        }
+
+        if (haloPen) {
+            HGDIOBJ oldPen = g_originalSelectObject(dc, haloPen);
+            g_originalPolyline(dc, points, count);
+            g_originalSelectObject(dc, oldPen);
+            DeleteObject(haloPen);
+        }
+
+        // Draw main polyline
+        HPEN mainPen = nullptr;
+        if (colors.gradient) {
+            // Use average position for color
+            int avgY = 0;
+            for (int i = 0; i < count; ++i) {
+                avgY += points[i].y;
+            }
+            avgY /= count;
+            COLORREF lineColor = GetGlowColorForPosition(dc, points[0].x, avgY);
+            mainPen = g_originalCreatePen(PS_SOLID, 2, lineColor);
+        } else {
+            mainPen = g_originalCreatePen(PS_SOLID, 2, colors.start);
+        }
+
+        if (mainPen) {
+            HGDIOBJ oldPen = g_originalSelectObject(dc, mainPen);
+            BOOL result = g_originalPolyline(dc, points, count);
+            g_originalSelectObject(dc, oldPen);
+            DeleteObject(mainPen);
+            return result;
+        }
+    }
+
+    return g_originalPolyline(dc, points, count);
+}
+
+BOOL WINAPI PolylineToDetour(HDC dc, const POINT* points, DWORD count) {
+    ReentrancyGuard guard(g_polylineToActive);
+    if (!guard.Entered() || !g_originalPolylineTo) {
+        return g_originalPolylineTo ? g_originalPolylineTo(dc, points, count) : FALSE;
+    }
+
+    if (!points || count < 1) {
+        return g_originalPolylineTo(dc, points, count);
+    }
+
+    auto surface = ResolveSurfaceForPainting(dc);
+    if (!surface.has_value()) {
+        return g_originalPolylineTo(dc, points, count);
+    }
+
+    ExplorerGlowCoordinator* coordinator = surface->registration.coordinator;
+    if (!coordinator || !coordinator->ShouldRenderSurface(surface->registration.kind)) {
+        return g_originalPolylineTo(dc, points, count);
+    }
+
+    GlowColorSet colors = coordinator->ResolveColors(surface->registration.kind);
+    if (colors.valid) {
+        // Draw halo (glow effect) first
+        HPEN haloPen = nullptr;
+        if (colors.gradient) {
+            int r = (GetRValue(colors.start) + GetRValue(colors.end)) / 2;
+            int g = (GetGValue(colors.start) + GetGValue(colors.end)) / 2;
+            int b = (GetBValue(colors.start) + GetBValue(colors.end)) / 2;
+            haloPen = g_originalCreatePen(PS_SOLID, 5, RGB(r, g, b));
+        } else {
+            haloPen = g_originalCreatePen(PS_SOLID, 5, colors.start);
+        }
+
+        if (haloPen) {
+            HGDIOBJ oldPen = g_originalSelectObject(dc, haloPen);
+            POINT currentPos{};
+            GetCurrentPositionEx(dc, &currentPos);
+            g_originalPolylineTo(dc, points, count);
+            g_originalSelectObject(dc, oldPen);
+            DeleteObject(haloPen);
+            g_originalMoveToEx(dc, currentPos.x, currentPos.y, nullptr);
+        }
+
+        // Draw main polyline
+        HPEN mainPen = nullptr;
+        if (colors.gradient) {
+            // Use average position for color
+            int avgY = 0;
+            for (DWORD i = 0; i < count; ++i) {
+                avgY += points[i].y;
+            }
+            avgY /= static_cast<int>(count);
+            COLORREF lineColor = GetGlowColorForPosition(dc, points[0].x, avgY);
+            mainPen = g_originalCreatePen(PS_SOLID, 2, lineColor);
+        } else {
+            mainPen = g_originalCreatePen(PS_SOLID, 2, colors.start);
+        }
+
+        if (mainPen) {
+            HGDIOBJ oldPen = g_originalSelectObject(dc, mainPen);
+            BOOL result = g_originalPolylineTo(dc, points, count);
+            g_originalSelectObject(dc, oldPen);
+            DeleteObject(mainPen);
+            return result;
+        }
+    }
+
+    return g_originalPolylineTo(dc, points, count);
+}
+
 void RegisterDirectUiHostInternal(HWND hwnd) noexcept {
     if (!hwnd) {
         return;
@@ -1525,6 +1909,14 @@ bool InitializeThemeHooks() {
     g_trackPopupMenuTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "TrackPopupMenu")) : nullptr;
     g_trackPopupMenuExTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "TrackPopupMenuEx")) : nullptr;
     g_createWindowExWTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32, "CreateWindowExW")) : nullptr;
+    g_lineToTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "LineTo")) : nullptr;
+    g_polylineTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "Polyline")) : nullptr;
+    g_polylineToTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "PolylineTo")) : nullptr;
+    g_moveToExTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "MoveToEx")) : nullptr;
+    g_createPenTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "CreatePen")) : nullptr;
+    g_createPenIndirectTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "CreatePenIndirect")) : nullptr;
+    g_extCreatePenTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "ExtCreatePen")) : nullptr;
+    g_selectObjectTarget = gdi32 ? reinterpret_cast<void*>(GetProcAddress(gdi32, "SelectObject")) : nullptr;
 
     if (!InstallHook(g_drawThemeBackgroundTarget, reinterpret_cast<void*>(&DrawThemeBackgroundDetour),
                      reinterpret_cast<void**>(&g_originalDrawThemeBackground), L"DrawThemeBackground")) {
@@ -1651,8 +2043,26 @@ bool InitializeThemeHooks() {
         return false;
     }
 
+    // Install line drawing hooks for native gradient neon glow
+    InstallHook(g_lineToTarget, reinterpret_cast<void*>(&LineToDetour),
+                reinterpret_cast<void**>(&g_originalLineTo), L"LineTo");
+    InstallHook(g_polylineTarget, reinterpret_cast<void*>(&PolylineDetour),
+                reinterpret_cast<void**>(&g_originalPolyline), L"Polyline");
+    InstallHook(g_polylineToTarget, reinterpret_cast<void*>(&PolylineToDetour),
+                reinterpret_cast<void**>(&g_originalPolylineTo), L"PolylineTo");
+    InstallHook(g_moveToExTarget, reinterpret_cast<void*>(&MoveToExDetour),
+                reinterpret_cast<void**>(&g_originalMoveToEx), L"MoveToEx");
+    InstallHook(g_createPenTarget, reinterpret_cast<void*>(&CreatePenDetour),
+                reinterpret_cast<void**>(&g_originalCreatePen), L"CreatePen");
+    InstallHook(g_createPenIndirectTarget, reinterpret_cast<void*>(&CreatePenIndirectDetour),
+                reinterpret_cast<void**>(&g_originalCreatePenIndirect), L"CreatePenIndirect");
+    InstallHook(g_extCreatePenTarget, reinterpret_cast<void*>(&ExtCreatePenDetour),
+                reinterpret_cast<void**>(&g_originalExtCreatePen), L"ExtCreatePen");
+    InstallHook(g_selectObjectTarget, reinterpret_cast<void*>(&SelectObjectDetour),
+                reinterpret_cast<void**>(&g_originalSelectObject), L"SelectObject");
+
     g_hooksActive = true;
-    LogMessage(LogLevel::Info, L"ThemeHooks: installed theme detours");
+    LogMessage(LogLevel::Info, L"ThemeHooks: installed theme detours (including line drawing hooks)");
     return true;
 }
 
@@ -1662,6 +2072,14 @@ void ShutdownThemeHooks() {
         return;
     }
 
+    DisableHook(g_selectObjectTarget, L"SelectObject");
+    DisableHook(g_extCreatePenTarget, L"ExtCreatePen");
+    DisableHook(g_createPenIndirectTarget, L"CreatePenIndirect");
+    DisableHook(g_createPenTarget, L"CreatePen");
+    DisableHook(g_moveToExTarget, L"MoveToEx");
+    DisableHook(g_polylineToTarget, L"PolylineTo");
+    DisableHook(g_polylineTarget, L"Polyline");
+    DisableHook(g_lineToTarget, L"LineTo");
     DisableHook(g_createWindowExWTarget, L"CreateWindowExW");
     DisableHook(g_trackPopupMenuExTarget, L"TrackPopupMenuEx");
     DisableHook(g_trackPopupMenuTarget, L"TrackPopupMenu");
@@ -1699,6 +2117,11 @@ void ShutdownThemeHooks() {
         g_scrollbarMetrics.clear();
     }
 
+    {
+        std::lock_guard<std::mutex> penGuard(g_penTrackingMutex);
+        g_trackedPens.clear();
+    }
+
     g_originalDrawThemeBackground = nullptr;
     g_originalDrawThemeEdge = nullptr;
     g_originalFillRect = nullptr;
@@ -1709,6 +2132,14 @@ void ShutdownThemeHooks() {
     g_originalTrackPopupMenu = nullptr;
     g_originalTrackPopupMenuEx = nullptr;
     g_originalCreateWindowExW = nullptr;
+    g_originalLineTo = nullptr;
+    g_originalPolyline = nullptr;
+    g_originalPolylineTo = nullptr;
+    g_originalMoveToEx = nullptr;
+    g_originalCreatePen = nullptr;
+    g_originalCreatePenIndirect = nullptr;
+    g_originalExtCreatePen = nullptr;
+    g_originalSelectObject = nullptr;
     g_drawThemeBackgroundTarget = nullptr;
     g_drawThemeEdgeTarget = nullptr;
     g_fillRectTarget = nullptr;
@@ -1719,8 +2150,16 @@ void ShutdownThemeHooks() {
     g_trackPopupMenuTarget = nullptr;
     g_trackPopupMenuExTarget = nullptr;
     g_createWindowExWTarget = nullptr;
+    g_lineToTarget = nullptr;
+    g_polylineTarget = nullptr;
+    g_polylineToTarget = nullptr;
+    g_moveToExTarget = nullptr;
+    g_createPenTarget = nullptr;
+    g_createPenIndirectTarget = nullptr;
+    g_extCreatePenTarget = nullptr;
+    g_selectObjectTarget = nullptr;
     g_hooksActive = false;
-    LogMessage(LogLevel::Info, L"ThemeHooks: detached theme detours");
+    LogMessage(LogLevel::Info, L"ThemeHooks: detached theme detours (including line drawing hooks)");
 }
 
 bool AreThemeHooksActive() noexcept { return g_hooksActive; }
