@@ -32,6 +32,19 @@ enum class ContextMenuWindowState {
     kHidden,
 };
 
+// Legacy selection rule for backward compatibility
+struct ContextMenuSelectionRule {
+    int minimumSelection = 0;
+    int maximumSelection = 0;
+};
+
+// Legacy scope definition for backward compatibility
+struct ContextMenuItemScope {
+    bool includeAllFiles = true;
+    bool includeAllFolders = true;
+    std::vector<std::wstring> extensions;
+};
+
 // Defines when a context menu item should be visible
 struct ContextMenuVisibilityRules {
     // Selection count constraints
@@ -74,6 +87,11 @@ struct ContextMenuItem {
     // Metadata
     std::wstring description;     // Tooltip/description
     std::wstring id;              // Unique identifier for reference
+
+    // Legacy fields for backward compatibility
+    std::wstring commandTemplate; // Legacy: combined executable + arguments
+    ContextMenuSelectionRule selection; // Legacy: selection constraints
+    ContextMenuItemScope scope;   // Legacy: file/folder scope
 };
 
 // Context Menu Helper Functions

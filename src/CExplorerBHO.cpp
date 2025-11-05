@@ -4054,7 +4054,10 @@ void CExplorerBHO::RefreshListViewControlBackground() {
     // Update the background image in the hook system
     std::wstring cacheKey = ResolveBackgroundCacheKey();
     Gdiplus::Bitmap* bitmap = ResolveCurrentFolderBackground();
-    UpdateFolderBackgroundImage(m_listView, cacheKey, bitmap);
+    // TODO: Implement folder background hooks
+    // UpdateFolderBackgroundImage(m_listView, cacheKey, bitmap);
+    (void)cacheKey; // Suppress unused variable warning
+    (void)bitmap;   // Suppress unused variable warning
 }
 
 bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
