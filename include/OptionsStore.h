@@ -9,6 +9,8 @@
 
 namespace shelltabs {
 
+// Context Menu System - Rewritten for Enhanced Customization
+
 enum class ContextMenuInsertionAnchor {
     kDefault = 0,
     kTop,
@@ -23,31 +25,70 @@ enum class ContextMenuItemType {
     kSeparator,
 };
 
-struct ContextMenuSelectionRule {
-    int minimumSelection = 0;
-    int maximumSelection = 0;  // 0 == unlimited
+enum class ContextMenuWindowState {
+    kNormal = 0,
+    kMinimized,
+    kMaximized,
+    kHidden,
 };
 
-struct ContextMenuItemScope {
-    bool includeAllFiles = true;
-    bool includeAllFolders = true;
-    std::vector<std::wstring> extensions;
+// Defines when a context menu item should be visible
+struct ContextMenuVisibilityRules {
+    // Selection count constraints
+    int minimumSelection = 0;     // Minimum items selected (0 = no minimum)
+    int maximumSelection = 0;     // Maximum items selected (0 = unlimited)
+
+    // Item type filters
+    bool showForFiles = true;      // Show for file items
+    bool showForFolders = true;    // Show for folder items
+    bool showForMultiple = true;   // Show when multiple items selected
+
+    // File pattern matching (supports wildcards: *.txt, file*.log, etc.)
+    std::vector<std::wstring> filePatterns;    // File patterns to match
+    std::vector<std::wstring> excludePatterns; // Patterns to exclude
 };
 
+// Enhanced context menu item with full customization support
 struct ContextMenuItem {
+    // Item identification
     ContextMenuItemType type = ContextMenuItemType::kCommand;
-    std::wstring label;
-    std::wstring iconSource;
-    std::wstring commandTemplate;
-    ContextMenuItemScope scope;
-    ContextMenuSelectionRule selection;
+    std::wstring label;           // Display text (supports %1, %V, %N placeholders)
+    std::wstring iconSource;      // Icon path or resource (e.g., "shell32.dll,3")
+
+    // Command configuration (for kCommand type)
+    std::wstring executable;      // Command executable path
+    std::wstring arguments;       // Command arguments (supports %1, %V, %P, %N placeholders)
+    std::wstring workingDirectory; // Working directory (supports %P for parent dir)
+    ContextMenuWindowState windowState = ContextMenuWindowState::kNormal;
+    bool runAsAdmin = false;      // Run with elevated privileges
+    bool waitForCompletion = false; // Wait for command to complete
+
+    // Visibility and positioning
+    ContextMenuVisibilityRules visibility;
     ContextMenuInsertionAnchor anchor = ContextMenuInsertionAnchor::kDefault;
+    bool enabled = true;          // Can be disabled without removing
+
+    // Submenu support
     std::vector<ContextMenuItem> children;
+
+    // Metadata
+    std::wstring description;     // Tooltip/description
+    std::wstring id;              // Unique identifier for reference
 };
 
+// Context Menu Helper Functions
 IconCache::Reference ResolveContextMenuIcon(const std::wstring& iconSource, UINT iconFlags);
 std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource);
-std::vector<std::wstring> NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions);
+std::vector<std::wstring> NormalizeContextMenuPatterns(const std::vector<std::wstring>& patterns);
+std::wstring NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions); // Legacy support
+bool MatchesContextMenuPattern(const std::wstring& filename, const std::wstring& pattern);
+bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionCount,
+                                     const std::vector<std::wstring>& selectedPaths,
+                                     bool hasFiles, bool hasFolders);
+std::wstring ExpandContextMenuPlaceholders(const std::wstring& text,
+                                          const std::vector<std::wstring>& selectedPaths);
+void ValidateContextMenuItem(const ContextMenuItem& item, std::vector<std::wstring>& errors);
+ContextMenuItem CreateContextMenuTemplate(const std::wstring& templateType);
 
 struct CachedImageMetadata {
     std::wstring cachedImagePath;
@@ -179,13 +220,8 @@ inline bool operator!=(const GlowSurfacePalette& left, const GlowSurfacePalette&
     return !(left == right);
 }
 
-bool operator==(const ContextMenuSelectionRule& left, const ContextMenuSelectionRule& right) noexcept;
-inline bool operator!=(const ContextMenuSelectionRule& left, const ContextMenuSelectionRule& right) noexcept {
-    return !(left == right);
-}
-
-bool operator==(const ContextMenuItemScope& left, const ContextMenuItemScope& right) noexcept;
-inline bool operator!=(const ContextMenuItemScope& left, const ContextMenuItemScope& right) noexcept {
+bool operator==(const ContextMenuVisibilityRules& left, const ContextMenuVisibilityRules& right) noexcept;
+inline bool operator!=(const ContextMenuVisibilityRules& left, const ContextMenuVisibilityRules& right) noexcept {
     return !(left == right);
 }
 
