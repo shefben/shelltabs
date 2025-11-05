@@ -1380,7 +1380,13 @@ protected:
             return;
         }
 
-        BufferedPaintClear(buffer, nullptr);
+        // Copy existing content from target DC to preserve text that was already painted
+        // (by default paint handler and gradient renderer). This prevents the black/white
+        // overlay issue when gradient text and glow effects are both enabled.
+        BitBlt(bufferDc, paintRect.left, paintRect.top,
+               paintRect.right - paintRect.left, paintRect.bottom - paintRect.top,
+               targetDc, paintRect.left, paintRect.top, SRCCOPY);
+
         Gdiplus::Graphics graphics(bufferDc);
         graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
                                     -static_cast<Gdiplus::REAL>(paintRect.top));
