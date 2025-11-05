@@ -916,6 +916,9 @@ void CALLBACK CExplorerBHO::EnsureBandTimerProc(HWND, UINT, UINT_PTR timerId, DW
         auto it = s_ensureTimers.find(timerId);
         if (it != s_ensureTimers.end()) {
             instance = it->second;
+            // AddRef to keep the object alive during callback execution
+            // This prevents use-after-free if the object is being destroyed on another thread
+            instance->AddRef();
             s_ensureTimers.erase(it);
         }
     }
@@ -924,6 +927,8 @@ void CALLBACK CExplorerBHO::EnsureBandTimerProc(HWND, UINT, UINT_PTR timerId, DW
 
     if (instance) {
         instance->HandleEnsureBandTimer(timerId);
+        // Release the reference we added above
+        instance->Release();
     }
 }
 
@@ -985,6 +990,9 @@ void CALLBACK CExplorerBHO::OpenInNewTabTimerProc(HWND, UINT, UINT_PTR timerId, 
         auto it = s_openInNewTabTimers.find(timerId);
         if (it != s_openInNewTabTimers.end()) {
             instance = it->second;
+            // AddRef to keep the object alive during callback execution
+            // This prevents use-after-free if the object is being destroyed on another thread
+            instance->AddRef();
             s_openInNewTabTimers.erase(it);
         }
     }
@@ -993,6 +1001,8 @@ void CALLBACK CExplorerBHO::OpenInNewTabTimerProc(HWND, UINT, UINT_PTR timerId, 
 
     if (instance) {
         instance->HandleOpenInNewTabTimer(timerId);
+        // Release the reference we added above
+        instance->Release();
     }
 }
 IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
@@ -2153,15 +2163,15 @@ void CExplorerBHO::DetachListView() {
 
     if (listView) {
         if (HWND header = ListView_GetHeader(listView)) {
-            if (IsWindow(header)) {
-                RemoveWindowSubclass(header, &CExplorerBHO::ExplorerViewSubclassProc,
-                                     reinterpret_cast<UINT_PTR>(this));
-            }
+            // RemoveWindowSubclass will fail gracefully if window is already destroyed
+            RemoveWindowSubclass(header, &CExplorerBHO::ExplorerViewSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
             UnregisterGlowSurface(header);
         }
     }
 
-    if (listView && m_listViewSubclassInstalled && IsWindow(listView)) {
+    if (listView && m_listViewSubclassInstalled) {
+        // RemoveWindowSubclass will fail gracefully if window is already destroyed
         RemoveWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
 
@@ -2305,7 +2315,8 @@ void CExplorerBHO::EnsureListViewHostSubclass(HWND hostWindow) {
 
 void CExplorerBHO::DetachListViewHosts() {
     for (HWND hostWindow : m_listViewHostSubclassed) {
-        if (hostWindow && IsWindow(hostWindow)) {
+        if (hostWindow) {
+            // RemoveWindowSubclass will fail gracefully if window is already destroyed
             RemoveWindowSubclass(hostWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
         }
     }
@@ -3461,8 +3472,11 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     }
 
     if (m_directUiView && (!IsWindow(m_directUiView) || !m_directUiSubclassInstalled)) {
-        if (m_directUiView && m_directUiSubclassInstalled && IsWindow(m_directUiView)) {
-            RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
+        // Cache the window handle to avoid TOCTOU race
+        HWND cachedView = m_directUiView;
+        if (cachedView && m_directUiSubclassInstalled) {
+            // RemoveWindowSubclass will fail gracefully if window is already destroyed
+            RemoveWindowSubclass(cachedView, &CExplorerBHO::ExplorerViewSubclassProc,
                                  reinterpret_cast<UINT_PTR>(this));
         }
         UnregisterGlowSurface(m_directUiView);
@@ -3476,8 +3490,11 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
     }
 
     if (m_treeView && (!IsWindow(m_treeView) || !m_treeViewSubclassInstalled)) {
-        if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
-            RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc,
+        // Cache the window handle to avoid TOCTOU race
+        HWND cachedTreeView = m_treeView;
+        if (cachedTreeView && m_treeViewSubclassInstalled) {
+            // RemoveWindowSubclass will fail gracefully if window is already destroyed
+            RemoveWindowSubclass(cachedTreeView, &CExplorerBHO::ExplorerViewSubclassProc,
                                  reinterpret_cast<UINT_PTR>(this));
         }
         m_treeView = nullptr;
@@ -3746,22 +3763,24 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
     UpdateExplorerPaneCreationWatch(false, false);
     ResetNamespaceTreeControl();
 
-    if (m_shellViewWindow && m_shellViewWindowSubclassInstalled && IsWindow(m_shellViewWindow)) {
+    // Cache window handles to avoid TOCTOU races
+    // RemoveWindowSubclass will fail gracefully if window is already destroyed
+    if (m_shellViewWindow && m_shellViewWindowSubclassInstalled) {
         RemoveWindowSubclass(m_shellViewWindow, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
     }
-    if (m_frameWindow && m_frameSubclassInstalled && IsWindow(m_frameWindow)) {
+    if (m_frameWindow && m_frameSubclassInstalled) {
         RemoveWindowSubclass(m_frameWindow, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
     }
     DetachListView();
     DetachListViewHosts();
-    if (m_directUiView && m_directUiSubclassInstalled && IsWindow(m_directUiView)) {
+    if (m_directUiView && m_directUiSubclassInstalled) {
         RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
                              reinterpret_cast<UINT_PTR>(this));
     }
     UnregisterGlowSurface(m_directUiView);
-    if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
+    if (m_treeView && m_treeViewSubclassInstalled) {
         RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
     }
 

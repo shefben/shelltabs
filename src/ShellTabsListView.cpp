@@ -215,15 +215,21 @@ bool ShellTabsListView::EnsureListView() {
 }
 
 void ShellTabsListView::DestroyListView() {
-    if (m_listView && IsWindow(m_listView)) {
-        UnsubscribeListViewForHighlights(m_listView);
-        RemoveWindowSubclass(m_listView, &ShellTabsListView::ListViewSubclassProc, 0);
-        DestroyWindow(m_listView);
-    }
-    {
+    // Cache the window handle to avoid use-after-free
+    HWND cachedListView = m_listView;
+
+    // Erase from registry BEFORE destroying to prevent other threads from finding it
+    if (cachedListView) {
         std::scoped_lock lock(g_listViewRegistryMutex);
-        g_listViewRegistry.erase(m_listView);
+        g_listViewRegistry.erase(cachedListView);
     }
+
+    if (cachedListView && IsWindow(cachedListView)) {
+        UnsubscribeListViewForHighlights(cachedListView);
+        RemoveWindowSubclass(cachedListView, &ShellTabsListView::ListViewSubclassProc, 0);
+        DestroyWindow(cachedListView);
+    }
+
     ResetBackgroundSurface();
     ResetAccentResources();
     m_listView = nullptr;
