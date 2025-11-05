@@ -905,7 +905,7 @@ bool ApplyContextMenuDetailsFromControls(HWND page, OptionsDialogData* data, boo
         }
 
         std::vector<std::wstring> extensions = CollectExtensionsFromList(page);
-        std::vector<std::wstring> normalized = NormalizeContextMenuExtensions(extensions);
+        std::vector<std::wstring> normalized = NormalizeContextMenuPatterns(extensions);
         if (item->scope.extensions != normalized) {
             item->scope.extensions = std::move(normalized);
             changed = true;
@@ -1217,7 +1217,7 @@ bool HandleContextMenuExtensionAdd(HWND page, OptionsDialogData* data) {
     if (extension.empty()) {
         return false;
     }
-    std::vector<std::wstring> normalized = NormalizeContextMenuExtensions({extension});
+    std::vector<std::wstring> normalized = NormalizeContextMenuPatterns({extension});
     if (normalized.empty()) {
         return false;
     }

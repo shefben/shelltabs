@@ -346,11 +346,11 @@ std::vector<std::wstring> ParseContextMenuExtensions(std::wstring_view token) {
         extensions.emplace_back(std::move(trimmed));
     }
 
-    return NormalizeContextMenuExtensions(extensions);
+    return NormalizeContextMenuPatterns(extensions);
 }
 
 std::wstring BuildContextMenuExtensionsToken(const std::vector<std::wstring>& extensions) {
-    const std::vector<std::wstring> normalized = NormalizeContextMenuExtensions(extensions);
+    const std::vector<std::wstring> normalized = NormalizeContextMenuPatterns(extensions);
     std::wstring result;
     for (size_t i = 0; i < normalized.size(); ++i) {
         if (i > 0) {
