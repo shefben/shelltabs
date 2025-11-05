@@ -14,8 +14,10 @@
 #include <unordered_map>
 #include <utility>
 
+#include "BreadcrumbGradient.h"
 #include "ExplorerThemeUtils.h"
 #include "Module.h"
+#include "OptionsStore.h"
 
 namespace shelltabs {
 namespace {
@@ -835,9 +837,99 @@ bool ShellTabsListView::HandleCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT* result) 
             } else if (!isSubItemStage) {
                 *result |= CDRF_NOTIFYSUBITEMDRAW;
             }
+
+            // Request postpaint notification if gradient font is enabled
+            const ShellTabsOptions& options = OptionsStore::Instance().Get();
+            if (options.enableFileGradientFont && (draw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+                *result |= CDRF_NOTIFYPOSTPAINT;
+            }
+
             return true;
         }
         case CDDS_ITEMPOSTPAINT: {
+            const int index = static_cast<int>(draw->nmcd.dwItemSpec);
+            const ShellTabsOptions& options = OptionsStore::Instance().Get();
+
+            // Render gradient text if enabled and item is not selected
+            if (options.enableFileGradientFont && (draw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+                wchar_t textBuffer[MAX_PATH];
+                LVITEMW item{};
+                item.mask = LVIF_TEXT;
+                item.iItem = index;
+                item.iSubItem = 0;
+                item.pszText = textBuffer;
+                item.cchTextMax = MAX_PATH;
+
+                if (ListView_GetItem(m_listView, &item) && item.pszText && item.pszText[0] != L'\0') {
+                    const std::wstring text(item.pszText);
+
+                    // Resolve gradient palette
+                    BreadcrumbGradientConfig gradientConfig{};
+                    gradientConfig.enabled = true;
+                    gradientConfig.brightness = options.breadcrumbFontBrightness;
+                    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+                    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+                    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+                    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+                    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+                    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+
+                    const BreadcrumbGradientPalette palette = ResolveBreadcrumbGradientPalette(gradientConfig);
+
+                    // Get the font
+                    HFONT font = reinterpret_cast<HFONT>(SendMessageW(m_listView, WM_GETFONT, 0, 0));
+                    if (!font) {
+                        font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+                    }
+                    HFONT oldFont = nullptr;
+                    if (font) {
+                        oldFont = static_cast<HFONT>(SelectObject(draw->nmcd.hdc, font));
+                    }
+
+                    const int oldBkMode = SetBkMode(draw->nmcd.hdc, TRANSPARENT);
+
+                    // Calculate text rectangle with proper padding
+                    RECT textRect = draw->nmcd.rc;
+                    textRect.left += 2;  // Small padding from left edge
+
+                    // Measure the total text width to calculate gradient bounds
+                    SIZE totalSize{};
+                    GetTextExtentPoint32W(draw->nmcd.hdc, text.c_str(), static_cast<int>(text.size()), &totalSize);
+
+                    const double gradientWidth = std::max(1.0, static_cast<double>(totalSize.cx));
+                    double currentX = static_cast<double>(textRect.left);
+
+                    // Draw each character with gradient color
+                    for (size_t i = 0; i < text.size(); ++i) {
+                        SIZE charSize{};
+                        if (!GetTextExtentPoint32W(draw->nmcd.hdc, &text[i], 1, &charSize)) {
+                            continue;
+                        }
+
+                        const double charCenterX = currentX + static_cast<double>(charSize.cx) * 0.5;
+                        const double position = std::clamp((charCenterX - static_cast<double>(textRect.left)) / gradientWidth, 0.0, 1.0);
+                        const COLORREF color = EvaluateBreadcrumbGradientColor(palette, position);
+
+                        SetTextColor(draw->nmcd.hdc, color);
+
+                        RECT charRect = textRect;
+                        charRect.left = static_cast<LONG>(currentX);
+                        charRect.right = charRect.left + charSize.cx;
+
+                        DrawTextW(draw->nmcd.hdc, &text[i], 1, &charRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+                        currentX += static_cast<double>(charSize.cx);
+                    }
+
+                    SetBkMode(draw->nmcd.hdc, oldBkMode);
+
+                    if (oldFont) {
+                        SelectObject(draw->nmcd.hdc, oldFont);
+                    }
+                }
+            }
+
+            // Draw focus rectangle for selected items
             if ((draw->nmcd.uItemState & CDIS_SELECTED) != 0 && (draw->nmcd.uItemState & CDIS_FOCUS) != 0) {
                 AccentResources* resources = nullptr;
                 if (EnsureAccentResources(&resources) && resources && resources->focusPen) {
