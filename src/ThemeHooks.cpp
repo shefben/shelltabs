@@ -1408,6 +1408,7 @@ std::unordered_map<HPEN, PenInfo> g_trackedPens;
 thread_local HPEN g_currentPen = nullptr;
 
 COLORREF GetGlowColorForPosition(HDC dc, int x, int y) {
+    (void)x; // Unused parameter - gradient currently only uses vertical (y) position
     auto surface = ResolveSurfaceForPainting(dc);
     if (!surface.has_value()) {
         return RGB(0, 0, 0);
