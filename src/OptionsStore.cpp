@@ -44,6 +44,7 @@ constexpr wchar_t kGlowEnabledToken[] = L"neon_glow_enabled";
 constexpr wchar_t kGlowGradientToken[] = L"neon_glow_gradient";
 constexpr wchar_t kGlowColorsToken[] = L"neon_glow_colors";
 constexpr wchar_t kBitmapInterceptToken[] = L"glow_bitmap_intercept";
+constexpr wchar_t kFileGradientFontToken[] = L"file_gradient_font";
 constexpr wchar_t kGlowSurfaceToken[] = L"glow_surface";
 constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
@@ -1284,6 +1285,13 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kFileGradientFontToken) {
+            if (tokens.size() >= 2) {
+                m_options.enableFileGradientFont = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
         if (header == kGlowSurfaceToken) {
             if (tokens.size() >= 2) {
                 size_t surfaceIndex = 0;
@@ -1621,6 +1629,10 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += options.enableBitmapIntercept ? L"1" : L"0";
     content += L"\n";
+    content += kFileGradientFontToken;
+    content += L"|";
+    content += options.enableFileGradientFont ? L"1" : L"0";
+    content += L"\n";
     for (const auto& mapping : kGlowSurfaceMappings) {
         const GlowSurfaceOptions* surface = GetGlowSurfaceOptions(&options, mapping);
         if (!surface) {
@@ -1787,6 +1799,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.neonGlowPrimaryColor == right.neonGlowPrimaryColor &&
            left.neonGlowSecondaryColor == right.neonGlowSecondaryColor &&
            left.enableBitmapIntercept == right.enableBitmapIntercept &&
+           left.enableFileGradientFont == right.enableFileGradientFont &&
            left.useCustomTabSelectedColor == right.useCustomTabSelectedColor &&
            left.customTabSelectedColor == right.customTabSelectedColor &&
            left.useCustomTabUnselectedColor == right.useCustomTabUnselectedColor &&
