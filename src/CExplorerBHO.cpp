@@ -4349,6 +4349,15 @@ bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) co
     if (!accent || !text) {
         return false;
     }
+
+    // Mini hook: Override folder view selection color to red
+    const COLORREF redAccent = RGB(255, 0, 0);
+    *accent = redAccent;
+    *text = ChooseAccentTextColor(redAccent);
+    return true;
+
+    // Original implementation (commented out for mini hook override)
+    /*
     HWND frame = GetTopLevelExplorerWindow();
     if (!frame) {
         return false;
@@ -4379,6 +4388,7 @@ bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) co
     *accent = resolved;
     *text = ChooseAccentTextColor(resolved);
     return true;
+    */
 }
 
 void CExplorerBHO::RefreshListViewAccentState() {
