@@ -163,6 +163,7 @@ LRESULT CALLBACK CustomFileListView::WindowProc(HWND hwnd, UINT msg,
 }
 
 LRESULT CustomFileListView::HandleCreate(HWND hwnd, LPCREATESTRUCT createStruct) {
+    UNREFERENCED_PARAMETER(createStruct);
     m_hwnd = hwnd;
 
     // Initialize Direct2D resources
@@ -273,6 +274,7 @@ LRESULT CustomFileListView::HandleLeftButtonDown(POINT pt) {
 }
 
 LRESULT CustomFileListView::HandleLeftButtonUp(POINT pt) {
+    UNREFERENCED_PARAMETER(pt);
     if (m_isDragging) {
         // End drag operation
         m_isDragging = false;
@@ -1279,9 +1281,6 @@ HICON CustomFileListView::GetShellIcon(LPITEMIDLIST pidl, bool large) const {
     }
 
     // Fallback to SHGetFileInfo
-    // Need to get the full PIDL (desktop-relative)
-    LPITEMIDLIST fullPidl = nullptr;
-
     // Try to get the full path for file system items
     STRRET strret;
     if (SUCCEEDED(m_shellFolder->GetDisplayNameOf(pidl, SHGDN_FORPARSING, &strret))) {
@@ -1576,6 +1575,8 @@ void CustomFileListView::UnregisterShellChangeNotify() {
 }
 
 void CustomFileListView::OnShellChange(LONG eventId, LPITEMIDLIST pidl1, LPITEMIDLIST pidl2) {
+    UNREFERENCED_PARAMETER(pidl1);
+    UNREFERENCED_PARAMETER(pidl2);
     LogMessage(LogLevel::Verbose, L"Shell change notification: event=0x%08X", eventId);
 
     // Handle various shell change events
