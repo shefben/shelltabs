@@ -5099,8 +5099,9 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 	}
 
 	const UINT id = LOWORD(wParam);
+	const UINT code = HIWORD(wParam);
 
-	if (id == IDC_NEW_TAB) {
+	if (id == IDC_NEW_TAB && code == BN_CLICKED) {
 		m_owner->OnNewTabRequested();
 		return;
 	}
