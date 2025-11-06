@@ -25,17 +25,43 @@ struct SurfaceColorDescriptor;
 
 namespace ShellTabs {
 
+// Column definitions for Details view
+enum class ColumnType {
+    Name,
+    Size,
+    Type,
+    DateModified,
+    DateCreated,
+    Attributes
+};
+
+struct ColumnInfo {
+    ColumnType type;
+    std::wstring title;
+    int width;
+    bool visible;
+};
+
+// Sort state
+struct SortState {
+    ColumnType column = ColumnType::Name;
+    bool ascending = true;
+};
+
 // Represents a single file or folder item in the view
 struct FileListItem {
     std::wstring displayName;
     std::wstring fullPath;
+    std::wstring fileType;  // File extension or "Folder"
     HICON icon = nullptr;
     IWICBitmapSource* thumbnail = nullptr;
     bool isFolder = false;
     bool isSelected = false;
     bool isHovered = false;
     FILETIME dateModified{};
+    FILETIME dateCreated{};
     ULONGLONG fileSize = 0;
+    DWORD attributes = 0;
     RECT bounds{};  // Item position in view
     int itemIndex = -1;
     LPITEMIDLIST pidl = nullptr;  // Item identifier for shell operations
@@ -80,10 +106,26 @@ public:
     void SetViewMode(FileListViewMode mode);
     FileListViewMode GetViewMode() const { return m_viewMode; }
 
+    // Sorting and columns
+    void SortBy(ColumnType column, bool ascending);
+    void SortItems();
+    void ToggleSort(ColumnType column);
+    const SortState& GetSortState() const { return m_sortState; }
+    void SetColumns(const std::vector<ColumnInfo>& columns);
+    const std::vector<ColumnInfo>& GetColumns() const { return m_columns; }
+
     // Selection management
     void SelectItem(int index, bool addToSelection = false);
     void DeselectAll();
     std::vector<int> GetSelectedIndices() const;
+
+    // Search and filter
+    void SetFilter(const std::wstring& filter);
+    void ClearFilter();
+    const std::wstring& GetFilter() const { return m_filterText; }
+    void BeginTypeAhead();
+    void AddTypeAheadChar(wchar_t ch);
+    void EndTypeAhead();
 
     // Custom rendering control
     void SetBackgroundPaintCallback(
@@ -146,6 +188,9 @@ private:
     void RenderItemSelection(HDC dc, const FileListItem& item);
     void RenderItemThumbnail(HDC dc, const FileListItem& item);
     void RenderColumnsHeader(HDC dc, const RECT& clientRect);
+    void RenderColumnHeader(HDC dc, const ColumnInfo& column, const RECT& rect, bool isSortColumn);
+    void RenderSortArrow(HDC dc, const RECT& rect, bool ascending);
+    void RenderThumbnailDirect2D(ID2D1RenderTarget* rt, const FileListItem& item, const RECT& rect);
 
     // Layout calculation
     void RecalculateLayout();
@@ -154,10 +199,27 @@ private:
     SIZE GetItemSize() const;
     int GetItemsPerRow() const;
     int GetVisibleItemCount() const;
+    int GetHeaderHeight() const { return m_viewMode == FileListViewMode::Details ? m_headerHeight : 0; }
+    int HitTestColumn(POINT pt) const;
+    RECT GetColumnRect(int columnIndex) const;
 
     // Scrolling
     void UpdateScrollbars();
     void DoScroll(int dx, int dy);
+
+    // Sorting helpers
+    static bool CompareItems(const FileListItem& a, const FileListItem& b, ColumnType column, bool ascending);
+    static int CompareFileTime(const FILETIME& a, const FILETIME& b);
+    static std::wstring FormatFileSize(ULONGLONG size);
+    static std::wstring FormatFileTime(const FILETIME& ft);
+
+    // Filter helpers
+    void ApplyFilter();
+    bool MatchesFilter(const FileListItem& item) const;
+    void SelectFirstMatch();
+
+    // Initialization
+    void InitializeDefaultColumns();
 
     // Shell integration
     void SyncWithShellView();
@@ -197,12 +259,26 @@ private:
 
     // View state
     std::vector<FileListItem> m_items;
+    std::vector<FileListItem> m_filteredItems;  // Filtered view of m_items
     FileListViewMode m_viewMode = FileListViewMode::Details;
     int m_scrollY = 0;
     int m_scrollX = 0;
     int m_hoveredIndex = -1;
     int m_lastSelectedIndex = -1;
     POINT m_lastMousePos{};
+
+    // Sorting and columns
+    SortState m_sortState;
+    std::vector<ColumnInfo> m_columns;
+    int m_headerHeight = 25;
+    int m_hoveredColumnIndex = -1;
+
+    // Search and filter
+    std::wstring m_filterText;
+    bool m_hasFilter = false;
+    std::wstring m_typeAheadText;
+    UINT_PTR m_typeAheadTimer = 0;
+    bool m_isTypeAhead = false;
 
     // Interaction state
     bool m_isDragging = false;

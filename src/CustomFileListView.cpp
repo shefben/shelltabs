@@ -26,6 +26,7 @@ namespace {
 // ============================================================================
 
 CustomFileListView::CustomFileListView() {
+    InitializeDefaultColumns();
 }
 
 CustomFileListView::~CustomFileListView() {
@@ -144,6 +145,13 @@ LRESULT CALLBACK CustomFileListView::WindowProc(HWND hwnd, UINT msg,
                     }
                     return 0;
                 }
+            case WM_TIMER:
+                if (wParam == pThis->m_typeAheadTimer) {
+                    // Type-ahead timeout - end type-ahead mode
+                    pThis->EndTypeAhead();
+                    return 0;
+                }
+                break;
             case WM_DESTROY:
                 return pThis->HandleDestroy();
         }
@@ -239,6 +247,15 @@ LRESULT CustomFileListView::HandleMouseMove(POINT pt) {
 
 LRESULT CustomFileListView::HandleLeftButtonDown(POINT pt) {
     SetFocus(m_hwnd);
+
+    // Check for column header click in Details view
+    if (m_viewMode == FileListViewMode::Details && pt.y < m_headerHeight) {
+        int columnIndex = HitTestColumn(pt);
+        if (columnIndex >= 0 && columnIndex < static_cast<int>(m_columns.size())) {
+            ToggleSort(m_columns[columnIndex].type);
+            return 0;
+        }
+    }
 
     int hitIndex = HitTest(pt);
     if (hitIndex >= 0) {
@@ -420,13 +437,35 @@ LRESULT CustomFileListView::HandleKeyDown(WPARAM key) {
 }
 
 LRESULT CustomFileListView::HandleChar(WPARAM charCode) {
-    // Quick search by typing
-    // For now, just ignore characters during rename
+    // Ignore characters during rename
     if (m_isRenaming) {
         return 0;
     }
 
-    // Could implement type-ahead find here
+    // Ignore control characters except backspace
+    if (charCode < 32 && charCode != VK_BACK) {
+        return 0;
+    }
+
+    // Type-ahead find
+    if (charCode == VK_BACK) {
+        // Backspace - remove last character
+        if (!m_typeAheadText.empty()) {
+            m_typeAheadText.pop_back();
+            if (m_typeAheadText.empty()) {
+                EndTypeAhead();
+            } else {
+                SelectFirstMatch();
+            }
+        }
+    } else {
+        // Add character to search
+        if (!m_isTypeAhead) {
+            BeginTypeAhead();
+        }
+        AddTypeAheadChar(static_cast<wchar_t>(charCode));
+    }
+
     return 0;
 }
 
@@ -639,14 +678,24 @@ void CustomFileListView::RenderItemThumbnail(HDC dc, const FileListItem& item) {
 }
 
 void CustomFileListView::RenderColumnsHeader(HDC dc, const RECT& clientRect) {
-    // Render column headers for details view
-    // Would show Name, Size, Type, Date Modified columns
-    RECT headerRect = clientRect;
-    headerRect.bottom = headerRect.top + 25;
+    if (m_viewMode != FileListViewMode::Details) return;
 
-    HBRUSH brush = CreateSolidBrush(RGB(240, 240, 240));
-    FillRect(dc, &headerRect, brush);
-    DeleteObject(brush);
+    RECT headerRect = clientRect;
+    headerRect.bottom = headerRect.top + m_headerHeight;
+
+    int x = -m_scrollX;
+    for (size_t i = 0; i < m_columns.size(); ++i) {
+        if (!m_columns[i].visible) continue;
+
+        RECT colRect = headerRect;
+        colRect.left = x;
+        colRect.right = x + m_columns[i].width;
+
+        bool isSortColumn = (m_columns[i].type == m_sortState.column);
+        RenderColumnHeader(dc, m_columns[i], colRect, isSortColumn);
+
+        x += m_columns[i].width;
+    }
 }
 
 void CustomFileListView::RecalculateLayout() {
@@ -1129,17 +1178,40 @@ void CustomFileListView::QueryShellViewItems() {
             item.isFolder = (attributes & SFGAO_FOLDER) != 0;
         }
 
-        // Get file information (size, date) for file system items
-        if (!item.fullPath.empty() && !item.isFolder) {
+        // Get file information (size, date, attributes) for file system items
+        if (!item.fullPath.empty()) {
             WIN32_FIND_DATAW findData;
             HANDLE hFind = FindFirstFileW(item.fullPath.c_str(), &findData);
             if (hFind != INVALID_HANDLE_VALUE) {
                 item.dateModified = findData.ftLastWriteTime;
-                ULARGE_INTEGER fileSize;
-                fileSize.LowPart = findData.nFileSizeLow;
-                fileSize.HighPart = findData.nFileSizeHigh;
-                item.fileSize = fileSize.QuadPart;
+                item.dateCreated = findData.ftCreationTime;
+                item.attributes = findData.dwFileAttributes;
+
+                if (!item.isFolder) {
+                    ULARGE_INTEGER fileSize;
+                    fileSize.LowPart = findData.nFileSizeLow;
+                    fileSize.HighPart = findData.nFileSizeHigh;
+                    item.fileSize = fileSize.QuadPart;
+                }
+
                 FindClose(hFind);
+            }
+        }
+
+        // Get file type
+        if (item.isFolder) {
+            item.fileType = L"File folder";
+        } else if (!item.fullPath.empty()) {
+            // Get file extension
+            const wchar_t* ext = wcsrchr(item.fullPath.c_str(), L'.');
+            if (ext && ext[1]) {
+                item.fileType = ext + 1;  // Skip the dot
+                // Convert to uppercase
+                std::transform(item.fileType.begin(), item.fileType.end(),
+                             item.fileType.begin(), ::towupper);
+                item.fileType += L" File";
+            } else {
+                item.fileType = L"File";
             }
         }
 
@@ -1155,6 +1227,9 @@ void CustomFileListView::QueryShellViewItems() {
     }
 
     LogMessage(LogLevel::Info, L"QueryShellViewItems: Loaded %zu items", m_items.size());
+
+    // Sort items by default sort state
+    SortItems();
 
     // Trigger layout recalculation
     InvalidateLayout();
@@ -1954,6 +2029,369 @@ void CustomFileListView::BeginDrag(int index) {
 bool CustomFileListView::HasClipboardData() const {
     Microsoft::WRL::ComPtr<IDataObject> dataObject;
     return SUCCEEDED(OleGetClipboard(&dataObject)) && dataObject;
+}
+
+// ============================================================================
+// Phase 4: Advanced Features - Sorting, Columns, Filter, Type-Ahead
+// ============================================================================
+
+void CustomFileListView::InitializeDefaultColumns() {
+    m_columns.clear();
+
+    m_columns.push_back({ColumnType::Name, L"Name", 300, true});
+    m_columns.push_back({ColumnType::DateModified, L"Date modified", 150, true});
+    m_columns.push_back({ColumnType::Type, L"Type", 120, true});
+    m_columns.push_back({ColumnType::Size, L"Size", 100, true});
+    m_columns.push_back({ColumnType::DateCreated, L"Date created", 150, false});
+    m_columns.push_back({ColumnType::Attributes, L"Attributes", 100, false});
+}
+
+void CustomFileListView::SortBy(ColumnType column, bool ascending) {
+    m_sortState.column = column;
+    m_sortState.ascending = ascending;
+    SortItems();
+}
+
+void CustomFileListView::ToggleSort(ColumnType column) {
+    if (m_sortState.column == column) {
+        m_sortState.ascending = !m_sortState.ascending;
+    } else {
+        m_sortState.column = column;
+        m_sortState.ascending = true;
+    }
+    SortItems();
+}
+
+void CustomFileListView::SortItems() {
+    // Sort the items vector
+    std::sort(m_items.begin(), m_items.end(),
+             [this](const FileListItem& a, const FileListItem& b) {
+                 return CompareItems(a, b, m_sortState.column, m_sortState.ascending);
+             });
+
+    // Update indices
+    for (size_t i = 0; i < m_items.size(); ++i) {
+        m_items[i].itemIndex = static_cast<int>(i);
+    }
+
+    InvalidateLayout();
+    LogMessage(LogLevel::Info, L"Sorted by column %d (%s)",
+              static_cast<int>(m_sortState.column),
+              m_sortState.ascending ? L"ascending" : L"descending");
+}
+
+bool CustomFileListView::CompareItems(const FileListItem& a, const FileListItem& b,
+                                      ColumnType column, bool ascending) {
+    // Folders always come first
+    if (a.isFolder != b.isFolder) {
+        return a.isFolder;
+    }
+
+    int result = 0;
+
+    switch (column) {
+        case ColumnType::Name:
+            result = _wcsicmp(a.displayName.c_str(), b.displayName.c_str());
+            break;
+
+        case ColumnType::Size:
+            if (a.fileSize < b.fileSize) result = -1;
+            else if (a.fileSize > b.fileSize) result = 1;
+            break;
+
+        case ColumnType::Type:
+            result = _wcsicmp(a.fileType.c_str(), b.fileType.c_str());
+            break;
+
+        case ColumnType::DateModified:
+            result = CompareFileTime(a.dateModified, b.dateModified);
+            break;
+
+        case ColumnType::DateCreated:
+            result = CompareFileTime(a.dateCreated, b.dateCreated);
+            break;
+
+        case ColumnType::Attributes:
+            if (a.attributes < b.attributes) result = -1;
+            else if (a.attributes > b.attributes) result = 1;
+            break;
+    }
+
+    return ascending ? (result < 0) : (result > 0);
+}
+
+int CustomFileListView::CompareFileTime(const FILETIME& a, const FILETIME& b) {
+    ULARGE_INTEGER ua, ub;
+    ua.LowPart = a.dwLowDateTime;
+    ua.HighPart = a.dwHighDateTime;
+    ub.LowPart = b.dwLowDateTime;
+    ub.HighPart = b.dwHighDateTime;
+
+    if (ua.QuadPart < ub.QuadPart) return -1;
+    if (ua.QuadPart > ub.QuadPart) return 1;
+    return 0;
+}
+
+std::wstring CustomFileListView::FormatFileSize(ULONGLONG size) {
+    if (size == 0) return L"0 bytes";
+
+    const wchar_t* units[] = {L"bytes", L"KB", L"MB", L"GB", L"TB"};
+    int unitIndex = 0;
+    double displaySize = static_cast<double>(size);
+
+    while (displaySize >= 1024.0 && unitIndex < 4) {
+        displaySize /= 1024.0;
+        unitIndex++;
+    }
+
+    wchar_t buffer[64];
+    if (unitIndex == 0) {
+        swprintf_s(buffer, L"%llu %s", size, units[unitIndex]);
+    } else {
+        swprintf_s(buffer, L"%.2f %s", displaySize, units[unitIndex]);
+    }
+
+    return buffer;
+}
+
+std::wstring CustomFileListView::FormatFileTime(const FILETIME& ft) {
+    SYSTEMTIME st, localSt;
+    FileTimeToSystemTime(&ft, &st);
+    SystemTimeToTzSpecificLocalTime(nullptr, &st, &localSt);
+
+    wchar_t buffer[128];
+    swprintf_s(buffer, L"%04d/%02d/%02d %02d:%02d",
+              localSt.wYear, localSt.wMonth, localSt.wDay,
+              localSt.wHour, localSt.wMinute);
+
+    return buffer;
+}
+
+void CustomFileListView::SetColumns(const std::vector<ColumnInfo>& columns) {
+    m_columns = columns;
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+int CustomFileListView::HitTestColumn(POINT pt) const {
+    if (m_viewMode != FileListViewMode::Details) return -1;
+    if (pt.y >= m_headerHeight) return -1;
+
+    int x = -m_scrollX;
+    for (size_t i = 0; i < m_columns.size(); ++i) {
+        if (!m_columns[i].visible) continue;
+
+        if (pt.x >= x && pt.x < x + m_columns[i].width) {
+            return static_cast<int>(i);
+        }
+        x += m_columns[i].width;
+    }
+
+    return -1;
+}
+
+RECT CustomFileListView::GetColumnRect(int columnIndex) const {
+    RECT rect = {0, 0, 0, m_headerHeight};
+
+    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
+        return rect;
+    }
+
+    int x = -m_scrollX;
+    for (int i = 0; i < columnIndex; ++i) {
+        if (m_columns[i].visible) {
+            x += m_columns[i].width;
+        }
+    }
+
+    rect.left = x;
+    rect.right = x + m_columns[columnIndex].width;
+
+    return rect;
+}
+
+void CustomFileListView::RenderColumnHeader(HDC dc, const ColumnInfo& column,
+                                            const RECT& rect, bool isSortColumn) {
+    // Draw background
+    COLORREF bgColor = RGB(240, 240, 240);
+    if (isSortColumn) {
+        bgColor = RGB(220, 230, 240);  // Slightly highlighted
+    }
+
+    HBRUSH brush = CreateSolidBrush(bgColor);
+    FillRect(dc, &rect, brush);
+    DeleteObject(brush);
+
+    // Draw border
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(180, 180, 180));
+    HPEN oldPen = (HPEN)SelectObject(dc, pen);
+    MoveToEx(dc, rect.right - 1, rect.top, nullptr);
+    LineTo(dc, rect.right - 1, rect.bottom);
+    MoveToEx(dc, rect.left, rect.bottom - 1, nullptr);
+    LineTo(dc, rect.right, rect.bottom - 1);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+
+    // Draw text
+    RECT textRect = rect;
+    textRect.left += 8;
+    textRect.right -= 8;
+
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(0, 0, 0));
+
+    HFONT oldFont = (HFONT)SelectObject(dc, m_font);
+    DrawTextW(dc, column.title.c_str(), -1, &textRect,
+             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(dc, oldFont);
+
+    // Draw sort arrow if this is the sort column
+    if (isSortColumn) {
+        RECT arrowRect = rect;
+        arrowRect.left = arrowRect.right - 20;
+        RenderSortArrow(dc, arrowRect, m_sortState.ascending);
+    }
+}
+
+void CustomFileListView::RenderSortArrow(HDC dc, const RECT& rect, bool ascending) {
+    int centerX = (rect.left + rect.right) / 2;
+    int centerY = (rect.top + rect.bottom) / 2;
+
+    HPEN pen = CreatePen(PS_SOLID, 2, RGB(60, 60, 60));
+    HPEN oldPen = (HPEN)SelectObject(dc, pen);
+
+    if (ascending) {
+        // Up arrow
+        MoveToEx(dc, centerX, centerY - 4, nullptr);
+        LineTo(dc, centerX - 4, centerY + 2);
+        MoveToEx(dc, centerX, centerY - 4, nullptr);
+        LineTo(dc, centerX + 4, centerY + 2);
+    } else {
+        // Down arrow
+        MoveToEx(dc, centerX, centerY + 4, nullptr);
+        LineTo(dc, centerX - 4, centerY - 2);
+        MoveToEx(dc, centerX, centerY + 4, nullptr);
+        LineTo(dc, centerX + 4, centerY - 2);
+    }
+
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+void CustomFileListView::SetFilter(const std::wstring& filter) {
+    m_filterText = filter;
+    m_hasFilter = !filter.empty();
+    ApplyFilter();
+}
+
+void CustomFileListView::ClearFilter() {
+    m_filterText.clear();
+    m_hasFilter = false;
+    m_filteredItems.clear();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void CustomFileListView::ApplyFilter() {
+    if (!m_hasFilter) {
+        m_filteredItems.clear();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+
+    m_filteredItems.clear();
+    for (const auto& item : m_items) {
+        if (MatchesFilter(item)) {
+            m_filteredItems.push_back(item);
+        }
+    }
+
+    InvalidateLayout();
+    LogMessage(LogLevel::Info, L"Filter applied: %zu of %zu items match",
+              m_filteredItems.size(), m_items.size());
+}
+
+bool CustomFileListView::MatchesFilter(const FileListItem& item) const {
+    if (!m_hasFilter) return true;
+
+    // Simple case-insensitive substring match
+    std::wstring lowerName = item.displayName;
+    std::wstring lowerFilter = m_filterText;
+
+    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::towlower);
+    std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::towlower);
+
+    return lowerName.find(lowerFilter) != std::wstring::npos;
+}
+
+void CustomFileListView::BeginTypeAhead() {
+    m_typeAheadText.clear();
+    m_isTypeAhead = true;
+}
+
+void CustomFileListView::AddTypeAheadChar(wchar_t ch) {
+    m_typeAheadText += ch;
+
+    // Find and select first match
+    SelectFirstMatch();
+
+    // Reset timer
+    if (m_typeAheadTimer) {
+        KillTimer(m_hwnd, m_typeAheadTimer);
+    }
+    m_typeAheadTimer = SetTimer(m_hwnd, 1, 1000, nullptr);  // 1 second timeout
+
+    LogMessage(LogLevel::Verbose, L"Type-ahead: '%s'", m_typeAheadText.c_str());
+}
+
+void CustomFileListView::EndTypeAhead() {
+    m_typeAheadText.clear();
+    m_isTypeAhead = false;
+
+    if (m_typeAheadTimer) {
+        KillTimer(m_hwnd, m_typeAheadTimer);
+        m_typeAheadTimer = 0;
+    }
+}
+
+void CustomFileListView::SelectFirstMatch() {
+    if (m_typeAheadText.empty()) return;
+
+    std::wstring lowerSearch = m_typeAheadText;
+    std::transform(lowerSearch.begin(), lowerSearch.end(), lowerSearch.begin(), ::towlower);
+
+    for (size_t i = 0; i < m_items.size(); ++i) {
+        std::wstring lowerName = m_items[i].displayName;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::towlower);
+
+        if (lowerName.find(lowerSearch) == 0) {  // Starts with
+            DeselectAll();
+            SelectItem(static_cast<int>(i), false);
+            EnsureVisible(static_cast<int>(i));
+            break;
+        }
+    }
+}
+
+void CustomFileListView::RenderThumbnailDirect2D(ID2D1RenderTarget* rt,
+                                                 const FileListItem& item,
+                                                 const RECT& rect) {
+    if (!item.thumbnail || !rt) return;
+
+    // Convert WIC bitmap to D2D bitmap
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> d2dBitmap;
+    HRESULT hr = rt->CreateBitmapFromWicBitmap(item.thumbnail, &d2dBitmap);
+
+    if (SUCCEEDED(hr) && d2dBitmap) {
+        D2D1_SIZE_F size = d2dBitmap->GetSize();
+        D2D1_RECT_F destRect = D2D1::RectF(
+            static_cast<FLOAT>(rect.left),
+            static_cast<FLOAT>(rect.top),
+            static_cast<FLOAT>(rect.right),
+            static_cast<FLOAT>(rect.bottom)
+        );
+
+        rt->DrawBitmap(d2dBitmap.Get(), destRect, 1.0f,
+                      D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
 }
 
 } // namespace ShellTabs
