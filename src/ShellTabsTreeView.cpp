@@ -53,6 +53,37 @@ COLORREF ChooseSelectionTextColor(COLORREF background) {
     return luminance > 0.6 ? RGB(0, 0, 0) : RGB(255, 255, 255);
 }
 
+// Compute gradient text color for tree view items
+// Gradient goes from blue (top) to purple (bottom)
+COLORREF ComputeGradientTextColor(HWND treeView, HTREEITEM item, const RECT& itemRect) {
+    if (!treeView || !item) {
+        return RGB(0, 0, 0);  // Default black
+    }
+
+    RECT clientRect{};
+    if (!GetClientRect(treeView, &clientRect) || clientRect.bottom <= clientRect.top) {
+        return RGB(0, 0, 128);  // Default dark blue
+    }
+
+    // Define gradient colors: start (blue) and end (purple/magenta)
+    constexpr COLORREF gradientStart = RGB(0, 64, 255);    // Bright blue
+    constexpr COLORREF gradientEnd = RGB(192, 0, 192);     // Purple/Magenta
+
+    // Calculate item's relative position in the visible area (0.0 to 1.0)
+    const int itemCenter = (itemRect.top + itemRect.bottom) / 2;
+    const int clientHeight = clientRect.bottom - clientRect.top;
+
+    if (clientHeight <= 0) {
+        return gradientStart;
+    }
+
+    double position = static_cast<double>(itemCenter - clientRect.top) / static_cast<double>(clientHeight);
+    position = std::clamp(position, 0.0, 1.0);
+
+    // Interpolate between gradient colors
+    return BlendColor(gradientStart, gradientEnd, position);
+}
+
 bool PaintTreeSelection(NMTVCUSTOMDRAW* draw, HWND treeView) {
     if (!draw || !treeView || !IsWindow(treeView)) {
         return false;
@@ -342,17 +373,21 @@ bool ShellTabsTreeView::HandleCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT* result) 
             }
 
             PaneHighlight highlight{};
-            if (!ResolveHighlight(item, &highlight)) {
-                *result = CDRF_DODEFAULT;
-                return true;
-            }
+            bool hasHighlight = ResolveHighlight(item, &highlight);
 
             bool applied = false;
-            if (highlight.hasTextColor) {
+
+            // Apply gradient text color to all items (unless they have a custom highlight color)
+            if (!hasHighlight || !highlight.hasTextColor) {
+                COLORREF gradientColor = ComputeGradientTextColor(m_treeView, item, draw->nmcd.rc);
+                draw->clrText = gradientColor;
+                applied = true;
+            } else if (highlight.hasTextColor) {
                 draw->clrText = highlight.textColor;
                 applied = true;
             }
-            if (highlight.hasBackgroundColor) {
+
+            if (hasHighlight && highlight.hasBackgroundColor) {
                 draw->clrTextBk = highlight.backgroundColor;
                 applied = true;
             }
