@@ -275,11 +275,8 @@ class ShellTabsListView;
                 bool EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
                                                     Gdiplus::Bitmap* source) const;
                 void ResetListViewBackgroundSurface() const;
-                static bool PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context);
-                bool PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const;
-                bool EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
-                                                    Gdiplus::Bitmap* source) const;
-                void ResetDirectUIBackgroundSurface() const;
+                void SetDirectUIBackgroundWatermark();
+                void ClearDirectUIBackgroundWatermark();
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
@@ -513,7 +510,7 @@ class ShellTabsListView;
                         std::unique_ptr<Gdiplus::Bitmap> bitmap;
                 };
                 mutable FolderBackgroundSurfaceCache m_listViewBackgroundSurface;
-                mutable FolderBackgroundSurfaceCache m_directUIBackgroundSurface;
+                HBITMAP m_directUIWatermarkBitmap = nullptr;
                 std::wstring m_currentFolderKey;
                 std::unique_ptr<ShellTabsListView> m_listViewControl;
                 HMENU m_trackedContextMenu = nullptr;
