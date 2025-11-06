@@ -578,30 +578,6 @@ HRESULT RegisterDeskBandKey(const std::wstring& clsidString, const wchar_t* frie
         });
 }
 
-HRESULT RegisterExplorerBar(const std::wstring& clsidString, const wchar_t* friendlyName) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Internet Explorer\\Explorer Bars\\" + clsidString;
-    DeleteRegistryKeyForTargets(UserTargets(), keyPath, /*ignoreAccessDenied=*/true);
-
-    return WriteWithMachinePreference(
-        [&](const RegistryTarget& target) -> HRESULT {
-            ScopedRegKey key;
-            HRESULT hr = CreateRegistryKey(target, keyPath, KEY_READ | KEY_WRITE, &key);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            hr = WriteRegistryStringValue(key.get(), nullptr, friendlyName);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            hr = WriteRegistryStringValue(key.get(), L"MenuText", friendlyName);
-            if (FAILED(hr)) {
-                return hr;
-            }
-            return WriteRegistryStringValue(key.get(), L"HelpText", friendlyName);
-        },
-        /*allowUserFallback=*/false);
-}
-
 HRESULT RegisterToolbarValue(const std::wstring& clsidString, const wchar_t* friendlyName) {
     constexpr const wchar_t* kToolbarKey = L"Software\\Microsoft\\Internet Explorer\\Toolbar";
     constexpr const wchar_t* kShellBrowserKey =
@@ -933,11 +909,6 @@ HRESULT UnregisterBrowserHelper(const std::wstring& clsidString) {
     return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
 }
 
-HRESULT UnregisterExplorerBar(const std::wstring& clsidString) {
-    const std::wstring keyPath = L"Software\\Microsoft\\Internet Explorer\\Explorer Bars\\" + clsidString;
-    return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
-}
-
 HRESULT UnregisterDeskBandKey(const std::wstring& clsidString) {
     const std::wstring keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\DeskBand\\" + clsidString;
     return DeleteRegistryKeyEverywhere(keyPath, /*ignoreAccessDenied=*/true);
@@ -1051,7 +1022,6 @@ STDAPI DllRegisterServer(void) {
                                               kBandProgIdVersion, kBandProgId,
                                               {CATID_DeskBand, CATID_InfoBand, CATID_CommBand}));
     RETURN_IF_FAILED_LOG(L"RegisterDeskBandKey", RegisterDeskBandKey(bandClsid, kBandFriendlyName));
-    RETURN_IF_FAILED_LOG(L"RegisterExplorerBar", RegisterExplorerBar(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (band)", RegisterExplorerApproved(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"RegisterToolbarValue", RegisterToolbarValue(bandClsid, kBandFriendlyName));
     RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
@@ -1099,7 +1069,6 @@ STDAPI DllUnregisterServer(void) {
                          DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + bandClsid, /*ignoreAccessDenied=*/true));
     RETURN_IF_FAILED_LOG(L"UnregisterProgIds (band)", UnregisterProgIds(kBandProgIdVersion, kBandProgId));
     RETURN_IF_FAILED_LOG(L"UnregisterDeskBandKey", UnregisterDeskBandKey(bandClsid));
-    RETURN_IF_FAILED_LOG(L"UnregisterExplorerBar", UnregisterExplorerBar(bandClsid));
     RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (band)", UnregisterApprovedExtension(bandClsid));
     RETURN_IF_FAILED_LOG(L"UnregisterToolbarValue", UnregisterToolbarValue(bandClsid));
     RETURN_IF_FAILED_LOG(L"ClearExplorerBandCache", ClearExplorerBandCache());
