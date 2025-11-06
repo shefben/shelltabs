@@ -4051,13 +4051,8 @@ void CExplorerBHO::RefreshListViewControlBackground() {
         return;
     }
 
-    // Update the background image in the hook system
-    std::wstring cacheKey = ResolveBackgroundCacheKey();
-    Gdiplus::Bitmap* bitmap = ResolveCurrentFolderBackground();
-    // TODO: Implement folder background hooks
-    // UpdateFolderBackgroundImage(m_listView, cacheKey, bitmap);
-    (void)cacheKey; // Suppress unused variable warning
-    (void)bitmap;   // Suppress unused variable warning
+    // Force the list view to repaint with the new/removed background
+    InvalidateRect(m_listView, nullptr, TRUE);
 }
 
 bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
@@ -4430,13 +4425,34 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
 
     switch (msg) {
         case WM_PAINT:
-        case WM_ERASEBKGND:
         case WM_PRINTCLIENT: {
             if (isListView || isListViewHost) {
                 EvaluateListViewForcedHooks(msg);
             }
             if (hwnd == m_statusBar) {
                 EvaluateStatusBarForcedHooks(msg);
+            }
+            break;
+        }
+        case WM_ERASEBKGND: {
+            if (isListView || isListViewHost) {
+                EvaluateListViewForcedHooks(msg);
+            }
+            if (hwnd == m_statusBar) {
+                EvaluateStatusBarForcedHooks(msg);
+            }
+            // Handle custom background painting for list view
+            if (isListView && m_folderBackgroundsEnabled) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                if (dc) {
+                    RECT rect{};
+                    if (GetClientRect(hwnd, &rect)) {
+                        if (PaintListViewBackground(dc, hwnd, rect)) {
+                            *result = TRUE;
+                            return true;
+                        }
+                    }
+                }
             }
             break;
         }
@@ -7978,7 +7994,12 @@ void CExplorerBHO::UpdateStatusBarDescriptor() {
         descriptor.textColor = m_statusBarTextColor;
         descriptor.textOverride = true;
     } else {
-        descriptor.textOverride = false;
+        // Use appropriate text color based on background luminance to ensure readability
+        COLORREF bgColor = fill.valid ? fill.start : GetSysColor(COLOR_3DFACE);
+        double bgLuminance = ComputeColorLuminance(bgColor);
+        // Use white text on dark backgrounds, black text on light backgrounds
+        descriptor.textColor = (bgLuminance < 0.5) ? RGB(255, 255, 255) : RGB(0, 0, 0);
+        descriptor.textOverride = true;
     }
 
     m_glowCoordinator.UpdateSurfaceDescriptor(m_statusBar, descriptor);

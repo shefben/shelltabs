@@ -3372,7 +3372,7 @@ void RepositionCustomizationChildren(HWND hwnd, OptionsDialogData* data) {
     HDWP deferHandle = childCount > 0
                             ? BeginDeferWindowPos(static_cast<int>(childCount))
                             : nullptr;
-    constexpr UINT repositionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
+    constexpr UINT repositionFlags = SWP_NOZORDER | SWP_NOACTIVATE;
     bool repositionedChild = false;
 
     for (const auto& placement : data->customizationChildPlacements) {
