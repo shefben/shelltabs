@@ -298,54 +298,6 @@ void InvalidateTreeRegion(HWND treeView, const RECT* rect) {
     InvalidateRect(treeView, rect, FALSE);
 }
 
-void InvalidateTreeSelectionChange(HWND treeView, HTREEITEM oldItem, HTREEITEM newItem) {
-    if (!treeView || !IsWindow(treeView)) {
-        return;
-    }
-
-    RECT invalidRect{};
-    bool hasRect = false;
-
-    RECT itemRect{};
-    if (TryGetTreeItemRect(treeView, oldItem, &itemRect)) {
-        invalidRect = itemRect;
-        hasRect = true;
-    }
-
-    if (TryGetTreeItemRect(treeView, newItem, &itemRect)) {
-        if (hasRect) {
-            UnionRect(&invalidRect, &invalidRect, &itemRect);
-        } else {
-            invalidRect = itemRect;
-            hasRect = true;
-        }
-    }
-
-    if (hasRect) {
-        InvalidateTreeRegion(treeView, &invalidRect);
-    } else {
-        InvalidateTreeRegion(treeView, nullptr);
-    }
-}
-
-void InvalidateTreeItemBranch(HWND treeView, HTREEITEM item) {
-    if (!treeView || !IsWindow(treeView)) {
-        return;
-    }
-
-    RECT itemRect{};
-    if (TryGetTreeItemRect(treeView, item, &itemRect)) {
-        RECT clientRect{};
-        if (GetClientRect(treeView, &clientRect)) {
-            RECT invalidRect{clientRect.left, itemRect.top, clientRect.right, clientRect.bottom};
-            InvalidateTreeRegion(treeView, &invalidRect);
-            return;
-        }
-    }
-
-    InvalidateTreeRegion(treeView, nullptr);
-}
-
 }  // namespace
 
 PaneHookRouter::PaneHookRouter() = default;
