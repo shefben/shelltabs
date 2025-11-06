@@ -337,10 +337,23 @@ public:
     static CustomFileListView* GetInstance(HWND hwnd);
 
 private:
+    // Window creation hooks
     static HWND WINAPI CreateWindowExW_Hook(
         DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
         DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
         HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
+
+    static HWND WINAPI CreateWindowW_Hook(
+        LPCWSTR lpClassName, LPCWSTR lpWindowName,
+        DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
+        HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
+
+    // Window search hooks
+    static HWND WINAPI FindWindowW_Hook(
+        LPCWSTR lpClassName, LPCWSTR lpWindowName);
+
+    static HWND WINAPI FindWindowExW_Hook(
+        HWND hWndParent, HWND hWndChildAfter, LPCWSTR lpClassName, LPCWSTR lpWindowName);
 
     static bool IsDirectUIClassName(LPCWSTR className);
     static HWND CreateReplacementWindow(DWORD dwExStyle, DWORD dwStyle,
@@ -349,6 +362,9 @@ private:
 
     static bool s_enabled;
     static void* s_originalCreateWindowExW;
+    static void* s_originalCreateWindowW;
+    static void* s_originalFindWindowW;
+    static void* s_originalFindWindowExW;
     static std::unordered_map<HWND, CustomFileListView*> s_instances;
 };
 
