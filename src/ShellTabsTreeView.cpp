@@ -14,7 +14,8 @@ namespace {
 std::mutex g_treeRegistryMutex;
 std::unordered_map<HWND, ShellTabsTreeView*> g_treeRegistry;
 
-constexpr COLORREF kTreeSelectionAccent = RGB(240, 64, 64);
+// Mini hook: Override tree selection color to red
+constexpr COLORREF kTreeSelectionAccent = RGB(255, 0, 0);
 constexpr double kTreeSelectionBaseBlend = 0.38;
 constexpr double kTreeSelectionFocusBoost = 0.14;
 constexpr double kTreeSelectionBorderBlend = 0.55;
