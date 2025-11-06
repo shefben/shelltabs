@@ -1,7 +1,6 @@
 #pragma once
 
 #include <windows.h>
-
 #include <string>
 #include <utility>
 #include <vector>
@@ -10,12 +9,14 @@
 
 namespace shelltabs {
 
+// Modern options dialog with improved UX and organization
 enum class OptionsDialogPage : int {
     kGeneral = 0,
-    kCustomizations = 1,
-    kGlow = 2,
-    kContextMenus = 3,
-    kGroups = 4,
+    kAppearance = 1,
+    kGlowEffects = 2,
+    kBackgrounds = 3,
+    kContextMenus = 4,
+    kGroups = 5,
 };
 
 struct OptionsDialogResult {
@@ -28,9 +29,8 @@ struct OptionsDialogResult {
 };
 
 OptionsDialogResult ShowOptionsDialog(HWND parent,
-                                     OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
-                                     const wchar_t* focusSavedGroupId = nullptr,
-                                     bool editFocusedGroup = false);
+                                      OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
+                                      const wchar_t* focusSavedGroupId = nullptr,
+                                      bool editFocusedGroup = false);
 
 }  // namespace shelltabs
-
