@@ -38,10 +38,16 @@
 #include "OptionsStore.h"
 #include "PaneHooks.h"
 #include "Utilities.h"
+#include "DirectUIReplacementIntegration.h"
 
 namespace Gdiplus {
 class Bitmap;
 }
+
+namespace ShellTabs {
+class CustomFileListView;
+}
+
 namespace shelltabs {
 
 struct ShellTabsOptions;
@@ -347,6 +353,7 @@ class ShellTabsListView;
                 bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
                 void UnregisterGlowSurface(HWND hwnd);
                 void TryInstallDirectUiRenderHooks(HWND directUiHost);
+                void OnCustomFileListViewCreated(ShellTabs::CustomFileListView* view, HWND hwnd);
                 ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd);
                 const ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd) const;
                 bool ShouldSuppressScrollbarDrawing(HWND hwnd) const;
@@ -465,6 +472,7 @@ class ShellTabsListView;
                 HWND m_directUiView = nullptr;
                 bool m_directUiSubclassInstalled = false;
                 bool m_directUiRenderHooksAttempted = false;
+                ShellTabs::CustomFileListView* m_customFileListView = nullptr;
                 HWND m_nativeListView = nullptr;
                 HWND m_listViewControlWindow = nullptr;
                 HWND m_listView = nullptr;

@@ -72,6 +72,8 @@ add_library(ShellTabs SHARED
     src/ShellTabsTreeView.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
+    src/CustomFileListView.cpp
+    src/DirectUIReplacementIntegration.cpp
     src/resource.rc
 )
 
@@ -120,6 +122,7 @@ target_link_libraries(ShellTabs PRIVATE
     Shlwapi
     gdiplus
     d2d1
+    dwrite
     propsys
     uiautomationcore
     runtimeobject
