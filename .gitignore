@@ -1,27 +1,54 @@
 # Build directories
 build/
 out/
+bin/
+obj/
 
-# Visual Studio directories
-.vs/
-*.user
-*.suo
-
-# CMake files
+# CMake
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
+Makefile
 
-# Compiled binaries
-*.dll
-*.exe
-*.lib
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+*.vcxproj.filters
+*.vcxproj.user
+
+# Compiled Object files
+*.o
 *.obj
+
+# Precompiled Headers
+*.pch
+*.lo
+*.slo
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
 *.pdb
 *.ilk
+*.exp
 
-# IDE files
-.idea/
-*.swp
-*.swo
-*~
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

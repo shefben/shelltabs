@@ -964,7 +964,7 @@ BOOL HandleAlphaBlendCall(GdiAlphaBlendFn original, HDC dest, int destX, int des
     int effectiveDestY = destReady ? 0 : destY;
 
     BOOL result = original(effectiveDest, effectiveDestX, effectiveDestY, destW, destH, effectiveSrc, effectiveSrcX,
-                           effectiveSrcY, srcW, srcH, blend);
+                           effectiveSrcY, effectiveSrcW, effectiveSrcH, blend);
 
     if (result && destReady) {
         FlushScratchToDcLocked(destParams, dest);
@@ -1106,6 +1106,7 @@ BOOL WINAPI StretchBltDetour(HDC dest, int destX, int destY, int destW, int dest
 }
 
 HRESULT WrapDevice(IUnknown** object, REFIID iid) {
+    (void)iid; // Unused parameter - part of API signature
     if (!object || !*object) {
         return S_OK;
     }

@@ -12,6 +12,7 @@
 
 #include "ClassFactory.h"
 #include "ComUtils.h"
+// #include "FolderBackgroundHooks.h" // TODO: Implement folder background hooks
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
