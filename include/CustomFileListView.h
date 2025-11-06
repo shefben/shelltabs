@@ -20,8 +20,10 @@
 #define WM_SHELL_NOTIFY (WM_USER + 100)
 
 // Forward declarations
-class ExplorerGlowCoordinator;
-struct SurfaceColorDescriptor;
+namespace shelltabs {
+    class ExplorerGlowCoordinator;
+    struct SurfaceColorDescriptor;
+}
 
 namespace ShellTabs {
 
@@ -137,8 +139,8 @@ public:
         void* context);
 
     // Coordinator for theme integration
-    void SetGlowCoordinator(ExplorerGlowCoordinator* coordinator);
-    void SetColorDescriptor(const SurfaceColorDescriptor* descriptor);
+    void SetGlowCoordinator(shelltabs::ExplorerGlowCoordinator* coordinator);
+    void SetColorDescriptor(const shelltabs::SurfaceColorDescriptor* descriptor);
 
     // Scrolling and layout
     void ScrollTo(int index);
@@ -303,8 +305,8 @@ private:
     void* m_itemPaintContext = nullptr;
 
     // Theme integration
-    ExplorerGlowCoordinator* m_coordinator = nullptr;
-    const SurfaceColorDescriptor* m_colorDescriptor = nullptr;
+    shelltabs::ExplorerGlowCoordinator* m_coordinator = nullptr;
+    const shelltabs::SurfaceColorDescriptor* m_colorDescriptor = nullptr;
 
     // Direct2D resources for advanced rendering
     ID2D1Factory* m_d2dFactory = nullptr;

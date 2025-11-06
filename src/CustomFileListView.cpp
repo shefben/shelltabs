@@ -2,6 +2,7 @@
 #include "ExplorerGlowSurfaces.h"
 #include "MinHook.h"
 #include "Logging.h"
+#include "DirectUIReplacementIntegration.h"
 #include <algorithm>
 #include <mutex>
 #include <Shlwapi.h>
@@ -9,6 +10,7 @@
 #include <ShObjIdl.h>
 #include <commoncontrols.h>
 #include <wrl/client.h>
+#include <windowsx.h>
 
 #pragma comment(lib, "Shlwapi.lib")
 
@@ -83,7 +85,7 @@ HWND CustomFileListView::Create(DWORD dwExStyle, DWORD dwStyle, int x, int y,
 
     if (m_hwnd) {
         // Notify integration layer that view was created
-        shelltabs::DirectUIReplacementIntegration::NotifyViewCreated(this, m_hwnd);
+        DirectUIReplacementIntegration::NotifyViewCreated(this, m_hwnd);
     }
 
     return m_hwnd;
@@ -794,7 +796,7 @@ int CustomFileListView::GetItemsPerRow() const {
     int clientWidth = clientRect.right - clientRect.left;
 
     SIZE itemSize = GetItemSize();
-    int itemsPerRow = std::max(1, clientWidth / (itemSize.cx + m_itemSpacing));
+    int itemsPerRow = std::max(1, static_cast<int>(clientWidth / (itemSize.cx + m_itemSpacing)));
 
     return itemsPerRow;
 }
@@ -930,11 +932,6 @@ void CustomFileListView::NotifySelectionChanged() {
     nmhdr.hwndFrom = m_hwnd;
     nmhdr.code = LVN_ITEMCHANGED;
     SendMessage(GetParent(m_hwnd), WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmhdr));
-}
-
-void CustomFileListView::ShowContextMenu(POINT pt, int itemIndex) {
-    // Would integrate with IContextMenu to show shell context menu
-    // For now, just a placeholder
 }
 
 void CustomFileListView::AddItem(const FileListItem& item) {
@@ -1687,13 +1684,14 @@ bool CustomFileListView::InvokeContextMenu(const std::vector<int>& itemIndices, 
 
     // Get context menu for items
     Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+    UINT reserved = 0;
     HRESULT hr = m_shellFolder->GetUIObjectOf(
         m_hwnd,
         static_cast<UINT>(pidls.size()),
         pidls.data(),
         IID_IContextMenu,
-        nullptr,
-        reinterpret_cast<void**>(&contextMenu)
+        &reserved,
+        reinterpret_cast<void**>(contextMenu.GetAddressOf())
     );
 
     if (FAILED(hr) || !contextMenu) {
@@ -1747,14 +1745,15 @@ void CustomFileListView::OpenItem(int index) {
     // Execute the default verb
     Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
     LPCITEMIDLIST pidl = item.pidl;
+    UINT reserved = 0;
 
     HRESULT hr = m_shellFolder->GetUIObjectOf(
         m_hwnd,
         1,
         &pidl,
         IID_IContextMenu,
-        nullptr,
-        reinterpret_cast<void**>(&contextMenu)
+        &reserved,
+        reinterpret_cast<void**>(contextMenu.GetAddressOf())
     );
 
     if (FAILED(hr) || !contextMenu) {
@@ -1800,13 +1799,14 @@ void CustomFileListView::DeleteSelectedItems() {
 
     // Get IContextMenu and invoke "delete" command
     Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+    UINT reserved = 0;
     HRESULT hr = m_shellFolder->GetUIObjectOf(
         m_hwnd,
         static_cast<UINT>(pidls.size()),
         pidls.data(),
         IID_IContextMenu,
-        nullptr,
-        reinterpret_cast<void**>(&contextMenu)
+        &reserved,
+        reinterpret_cast<void**>(contextMenu.GetAddressOf())
     );
 
     if (SUCCEEDED(hr) && contextMenu) {
@@ -1952,13 +1952,14 @@ void CustomFileListView::CopySelectedItems() {
 
     // Get IDataObject
     Microsoft::WRL::ComPtr<IDataObject> dataObject;
+    UINT reserved = 0;
     HRESULT hr = m_shellFolder->GetUIObjectOf(
         m_hwnd,
         static_cast<UINT>(pidls.size()),
         pidls.data(),
         IID_IDataObject,
-        nullptr,
-        reinterpret_cast<void**>(&dataObject)
+        &reserved,
+        reinterpret_cast<void**>(dataObject.GetAddressOf())
     );
 
     if (SUCCEEDED(hr) && dataObject) {
