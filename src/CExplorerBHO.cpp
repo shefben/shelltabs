@@ -2240,6 +2240,12 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     LogMessage(LogLevel::Info,
                L"Attached to native list view using MinHook (list=%p)", m_listView);
 
+    // CRITICAL: Enable custom draw for gradient text
+    // Set extended styles to ensure NM_CUSTOMDRAW notifications are sent
+    DWORD exStyle = ListView_GetExtendedListViewStyle(m_listView);
+    exStyle |= LVS_EX_DOUBLEBUFFER;  // Enable double buffering for smooth rendering
+    ListView_SetExtendedListViewStyle(m_listView, exStyle);
+
     // Set up ListView background transparency and initial state
     RefreshListViewControlBackground();
     RefreshListViewAccentState();
@@ -2292,6 +2298,12 @@ bool CExplorerBHO::AttachTreeView(HWND treeView) {
     // Register as glow surface for gradient text support
     RegisterGlowSurface(m_treeView, ExplorerSurfaceKind::ListView, true);
     UpdateTreeViewDescriptor();
+
+    // CRITICAL: Enable custom draw for gradient text on TreeView
+    // TreeView automatically sends NM_CUSTOMDRAW if TVS_NOTOOLTIPS is not set
+    DWORD style = GetWindowLongW(m_treeView, GWL_STYLE);
+    style &= ~TVS_NOTOOLTIPS;  // Ensure tooltips are enabled (needed for custom draw)
+    SetWindowLongW(m_treeView, GWL_STYLE, style);
 
     LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
     return true;
@@ -4631,22 +4643,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (hwnd == m_statusBar) {
                 EvaluateStatusBarForcedHooks(msg);
             }
-            // Handle custom background painting for list view
-            // Paint the background here and return TRUE to prevent default erase (no flicker)
+            // For ListView with custom backgrounds, prevent default erase
+            // Background is painted in custom draw CDDS_PREPAINT instead
             if (isListView && m_folderBackgroundsEnabled) {
-                HDC dc = reinterpret_cast<HDC>(wParam);
-                if (dc) {
-                    RECT rect{};
-                    if (GetClientRect(hwnd, &rect)) {
-                        // Paint our custom background
-                        if (PaintListViewBackground(dc, hwnd, rect)) {
-                            *result = TRUE;  // Indicate we handled background erase
-                            return true;
-                        }
-                    }
-                }
-                // Even if painting failed, prevent default erase to avoid flicker
-                *result = TRUE;
+                *result = TRUE;  // Prevent default background erase
                 return true;
             }
             // Handle custom background painting for DirectUIHWND
@@ -8114,6 +8114,17 @@ bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, 
 
     if (drawStage == CDDS_PREPAINT) {
         OnListViewCustomDrawStage(drawStage);
+
+        // CRITICAL: Paint background HERE at PREPAINT stage
+        // This ensures background is painted FIRST, before items, in correct z-order
+        if (m_folderBackgroundsEnabled && m_listView) {
+            RECT client{};
+            if (GetClientRect(m_listView, &client)) {
+                // Paint background image behind all items
+                PaintListViewBackground(customDraw->nmcd.hdc, m_listView, client);
+            }
+        }
+
         *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
         return true;
     }
