@@ -1,14 +1,21 @@
 #include "CustomFileListView.h"
 #include "ExplorerGlowSurfaces.h"
 #include "MinHook.h"
+#include "Logging.h"
 #include <algorithm>
 #include <mutex>
 #include <Shlwapi.h>
+#include <ShlObj.h>
+#include <ShObjIdl.h>
 #include <commoncontrols.h>
+#include <wrl/client.h>
 
 #pragma comment(lib, "Shlwapi.lib")
 
 namespace ShellTabs {
+
+using shelltabs::LogMessage;
+using shelltabs::LogLevel;
 
 namespace {
     std::mutex g_instanceMutex;
@@ -115,6 +122,24 @@ LRESULT CALLBACK CustomFileListView::WindowProc(HWND hwnd, UINT msg,
                 return pThis->HandleKeyDown(wParam);
             case WM_ERASEBKGND:
                 return 1;  // We handle all painting
+            case WM_SHELL_NOTIFY:
+                {
+                    // Handle shell change notification
+                    LONG eventId;
+                    LPITEMIDLIST* ppidl;
+                    HANDLE hNotifyLock = SHChangeNotification_Lock(
+                        reinterpret_cast<HANDLE>(wParam),
+                        static_cast<DWORD>(lParam),
+                        &ppidl,
+                        &eventId
+                    );
+
+                    if (hNotifyLock) {
+                        pThis->OnShellChange(eventId, ppidl[0], ppidl[1]);
+                        SHChangeNotification_Unlock(hNotifyLock);
+                    }
+                    return 0;
+                }
             case WM_DESTROY:
                 return pThis->HandleDestroy();
         }
@@ -305,6 +330,7 @@ LRESULT CustomFileListView::HandleKeyDown(WPARAM key) {
 }
 
 LRESULT CustomFileListView::HandleDestroy() {
+    UnregisterShellChangeNotify();
     DirectUIReplacementHook::UnregisterInstance(m_hwnd);
     return 0;
 }
@@ -881,19 +907,67 @@ void CustomFileListView::SetColorDescriptor(const SurfaceColorDescriptor* descri
 bool CustomFileListView::AttachToShellView(IShellView* shellView) {
     if (!shellView) return false;
 
+    // Release old references
+    if (m_shellView) m_shellView->Release();
+    if (m_shellFolderView) m_shellFolderView->Release();
+    if (m_shellFolder) m_shellFolder->Release();
+
     m_shellView = shellView;
     m_shellView->AddRef();
 
     // Query for IShellFolderView interface
-    shellView->QueryInterface(IID_PPV_ARGS(&m_shellFolderView));
-
-    // Get the shell folder
-    if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&m_shellFolder)))) {
-        // Sync items from shell view
-        RefreshItems();
+    HRESULT hr = shellView->QueryInterface(IID_PPV_ARGS(&m_shellFolderView));
+    if (FAILED(hr)) {
+        // Try to get it through IFolderView
+        Microsoft::WRL::ComPtr<IFolderView> folderView;
+        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&folderView)))) {
+            folderView->QueryInterface(IID_PPV_ARGS(&m_shellFolderView));
+        }
     }
 
-    return true;
+    // Get the IShellFolder interface
+    Microsoft::WRL::ComPtr<IPersistFolder2> persistFolder;
+    hr = shellView->QueryInterface(IID_PPV_ARGS(&persistFolder));
+    if (SUCCEEDED(hr) && persistFolder) {
+        LPITEMIDLIST pidlFolder = nullptr;
+        if (SUCCEEDED(persistFolder->GetCurFolder(&pidlFolder)) && pidlFolder) {
+            SHGetDesktopFolder(&m_shellFolder);
+
+            // If not desktop, bind to the folder
+            if (pidlFolder->mkid.cb != 0) {
+                IShellFolder* desktop = m_shellFolder;
+                m_shellFolder = nullptr;
+                desktop->BindToObject(pidlFolder, nullptr, IID_PPV_ARGS(&m_shellFolder));
+                desktop->Release();
+            }
+
+            CoTaskMemFree(pidlFolder);
+        }
+    }
+
+    // If still don't have folder, try IServiceProvider
+    if (!m_shellFolder) {
+        Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
+        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&serviceProvider)))) {
+            serviceProvider->QueryService(SID_SFolderView, IID_PPV_ARGS(&m_shellFolder));
+        }
+    }
+
+    // Sync items from shell view
+    if (m_shellFolder) {
+        // Sync view mode from Explorer
+        SyncViewModeFromShellView();
+
+        // Register for shell change notifications
+        RegisterShellChangeNotify();
+
+        // Load items
+        RefreshItems();
+
+        return true;
+    }
+
+    return false;
 }
 
 void CustomFileListView::SyncWithShellView() {
@@ -902,15 +976,147 @@ void CustomFileListView::SyncWithShellView() {
 }
 
 void CustomFileListView::QueryShellViewItems() {
-    if (!m_shellFolderView) return;
+    if (!m_shellFolder) {
+        LogMessage(LogLevel::Warning, L"QueryShellViewItems: No shell folder available");
+        return;
+    }
 
-    // This would enumerate items from IShellFolderView
-    // For now, placeholder implementation
+    // Enumerate items from the shell folder
+    Microsoft::WRL::ComPtr<IEnumIDList> enumIDList;
+    HRESULT hr = m_shellFolder->EnumObjects(
+        m_hwnd,
+        SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN,
+        &enumIDList
+    );
+
+    if (FAILED(hr) || !enumIDList) {
+        LogMessage(LogLevel::Warning, L"QueryShellViewItems: Failed to enumerate objects (hr=0x%08X)", hr);
+        return;
+    }
+
+    // Clear existing items first
+    ClearItems();
+
+    LPITEMIDLIST pidl = nullptr;
+    ULONG fetched = 0;
+    int itemIndex = 0;
+
+    while (enumIDList->Next(1, &pidl, &fetched) == S_OK && pidl) {
+        FileListItem item;
+        item.pidl = pidl;  // Store the PIDL
+        item.itemIndex = itemIndex++;
+
+        // Get display name
+        STRRET strret;
+        if (SUCCEEDED(m_shellFolder->GetDisplayNameOf(pidl, SHGDN_NORMAL, &strret))) {
+            wchar_t displayName[MAX_PATH] = {};
+            StrRetToBufW(&strret, pidl, displayName, MAX_PATH);
+            item.displayName = displayName;
+        }
+
+        // Get full path for file system items
+        STRRET pathStrret;
+        if (SUCCEEDED(m_shellFolder->GetDisplayNameOf(pidl, SHGDN_FORPARSING, &pathStrret))) {
+            wchar_t fullPath[MAX_PATH] = {};
+            StrRetToBufW(&pathStrret, pidl, fullPath, MAX_PATH);
+            item.fullPath = fullPath;
+        }
+
+        // Check if it's a folder
+        SFGAOF attributes = SFGAO_FOLDER;
+        if (SUCCEEDED(m_shellFolder->GetAttributesOf(1, (LPCITEMIDLIST*)&pidl, &attributes))) {
+            item.isFolder = (attributes & SFGAO_FOLDER) != 0;
+        }
+
+        // Get file information (size, date) for file system items
+        if (!item.fullPath.empty() && !item.isFolder) {
+            WIN32_FIND_DATAW findData;
+            HANDLE hFind = FindFirstFileW(item.fullPath.c_str(), &findData);
+            if (hFind != INVALID_HANDLE_VALUE) {
+                item.dateModified = findData.ftLastWriteTime;
+                ULARGE_INTEGER fileSize;
+                fileSize.LowPart = findData.nFileSizeLow;
+                fileSize.HighPart = findData.nFileSizeHigh;
+                item.fileSize = fileSize.QuadPart;
+                FindClose(hFind);
+            }
+        }
+
+        // Get icon (will be loaded on demand)
+        item.icon = GetShellIcon(pidl, m_viewMode == FileListViewMode::ExtraLargeIcons ||
+                                       m_viewMode == FileListViewMode::LargeIcons);
+
+        // Add the item
+        m_items.push_back(item);
+
+        // Don't free pidl here - we store it in the item
+        pidl = nullptr;
+    }
+
+    LogMessage(LogLevel::Info, L"QueryShellViewItems: Loaded %zu items", m_items.size());
+
+    // Trigger layout recalculation
+    InvalidateLayout();
 }
 
 HICON CustomFileListView::GetShellIcon(LPITEMIDLIST pidl, bool large) const {
     if (!pidl || !m_shellFolder) return nullptr;
 
+    // Try to get icon using IExtractIcon for better quality
+    Microsoft::WRL::ComPtr<IExtractIconW> extractIcon;
+    HRESULT hr = m_shellFolder->GetUIObjectOf(
+        m_hwnd,
+        1,
+        (LPCITEMIDLIST*)&pidl,
+        IID_IExtractIconW,
+        nullptr,
+        (void**)&extractIcon
+    );
+
+    if (SUCCEEDED(hr) && extractIcon) {
+        wchar_t iconPath[MAX_PATH] = {};
+        int iconIndex = 0;
+        UINT flags = 0;
+
+        hr = extractIcon->GetIconLocation(
+            large ? GIL_FORSHELL : GIL_FORSHELL,
+            iconPath,
+            MAX_PATH,
+            &iconIndex,
+            &flags
+        );
+
+        if (SUCCEEDED(hr)) {
+            HICON hIconLarge = nullptr;
+            HICON hIconSmall = nullptr;
+
+            hr = extractIcon->Extract(iconPath, iconIndex, &hIconLarge, &hIconSmall,
+                                     MAKELONG(large ? 32 : 16, large ? 32 : 16));
+
+            if (SUCCEEDED(hr)) {
+                return large ? hIconLarge : hIconSmall;
+            }
+        }
+    }
+
+    // Fallback to SHGetFileInfo
+    // Need to get the full PIDL (desktop-relative)
+    LPITEMIDLIST fullPidl = nullptr;
+
+    // Try to get the full path for file system items
+    STRRET strret;
+    if (SUCCEEDED(m_shellFolder->GetDisplayNameOf(pidl, SHGDN_FORPARSING, &strret))) {
+        wchar_t path[MAX_PATH] = {};
+        StrRetToBufW(&strret, pidl, path, MAX_PATH);
+
+        SHFILEINFOW sfi = {};
+        if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi),
+                          SHGFI_ICON | (large ? SHGFI_LARGEICON : SHGFI_SMALLICON))) {
+            return sfi.hIcon;
+        }
+    }
+
+    // Last resort: use PIDL directly with SHGetFileInfo
     SHFILEINFOW sfi = {};
     SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
                    SHGFI_PIDL | SHGFI_ICON | (large ? SHGFI_LARGEICON : SHGFI_SMALLICON));
@@ -919,8 +1125,54 @@ HICON CustomFileListView::GetShellIcon(LPITEMIDLIST pidl, bool large) const {
 }
 
 IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const {
-    // Would use IShellItemImageFactory to get thumbnail
-    return nullptr;
+    if (!pidl || !m_shellFolder || !m_wicFactory) return nullptr;
+
+    // Get IShellItem from PIDL
+    Microsoft::WRL::ComPtr<IShellItem> shellItem;
+
+    // Get full path
+    STRRET strret;
+    if (FAILED(m_shellFolder->GetDisplayNameOf(pidl, SHGDN_FORPARSING, &strret))) {
+        return nullptr;
+    }
+
+    wchar_t path[MAX_PATH] = {};
+    StrRetToBufW(&strret, pidl, path, MAX_PATH);
+
+    HRESULT hr = SHCreateItemFromParsingName(path, nullptr, IID_PPV_ARGS(&shellItem));
+    if (FAILED(hr) || !shellItem) {
+        return nullptr;
+    }
+
+    // Get IShellItemImageFactory
+    Microsoft::WRL::ComPtr<IShellItemImageFactory> imageFactory;
+    hr = shellItem.As(&imageFactory);
+    if (FAILED(hr) || !imageFactory) {
+        return nullptr;
+    }
+
+    // Request thumbnail (256x256 for extra large icons)
+    SIZE thumbnailSize = { 256, 256 };
+    if (m_viewMode == FileListViewMode::LargeIcons) {
+        thumbnailSize.cx = thumbnailSize.cy = 96;
+    } else if (m_viewMode == FileListViewMode::MediumIcons) {
+        thumbnailSize.cx = thumbnailSize.cy = 48;
+    }
+
+    HBITMAP hBitmap = nullptr;
+    hr = imageFactory->GetImage(thumbnailSize, SIIGBF_THUMBNAILONLY, &hBitmap);
+
+    if (FAILED(hr) || !hBitmap) {
+        return nullptr;
+    }
+
+    // Convert HBITMAP to WIC bitmap
+    IWICBitmap* wicBitmap = nullptr;
+    hr = m_wicFactory->CreateBitmapFromHBITMAP(hBitmap, nullptr, WICBitmapUseAlpha, &wicBitmap);
+
+    DeleteObject(hBitmap);
+
+    return wicBitmap;
 }
 
 // ============================================================================
@@ -1020,6 +1272,166 @@ HWND DirectUIReplacementHook::CreateReplacementWindow(
     }
 
     return hwnd;
+}
+
+void CustomFileListView::SyncViewModeFromShellView() {
+    if (!m_shellView) return;
+
+    // Try to get IFolderView2 for view mode info
+    Microsoft::WRL::ComPtr<IFolderView2> folderView2;
+    if (SUCCEEDED(m_shellView->QueryInterface(IID_PPV_ARGS(&folderView2)))) {
+        FOLDERVIEWMODE fvm;
+        if (SUCCEEDED(folderView2->GetViewModeAndIconSize(&fvm, nullptr))) {
+            // Map Explorer's view mode to our view mode
+            switch (fvm) {
+                case FVM_ICON:
+                    m_viewMode = FileListViewMode::ExtraLargeIcons;
+                    m_iconSize = 256;
+                    break;
+                case FVM_SMALLICON:
+                    m_viewMode = FileListViewMode::SmallIcons;
+                    m_iconSize = 16;
+                    break;
+                case FVM_LIST:
+                    m_viewMode = FileListViewMode::List;
+                    m_iconSize = 16;
+                    break;
+                case FVM_DETAILS:
+                    m_viewMode = FileListViewMode::Details;
+                    m_iconSize = 16;
+                    break;
+                case FVM_THUMBNAIL:
+                    m_viewMode = FileListViewMode::LargeIcons;
+                    m_iconSize = 96;
+                    break;
+                case FVM_TILE:
+                    m_viewMode = FileListViewMode::Tiles;
+                    m_iconSize = 48;
+                    break;
+                case FVM_CONTENT:
+                    m_viewMode = FileListViewMode::Content;
+                    m_iconSize = 48;
+                    break;
+                default:
+                    m_viewMode = FileListViewMode::Details;
+                    m_iconSize = 16;
+                    break;
+            }
+
+            LogMessage(LogLevel::Info, L"Synced view mode from Explorer: mode=%d, iconSize=%d",
+                      static_cast<int>(m_viewMode), m_iconSize);
+
+            InvalidateLayout();
+        }
+    }
+}
+
+void CustomFileListView::RegisterShellChangeNotify() {
+    if (m_shellChangeNotifyId != 0) {
+        return;  // Already registered
+    }
+
+    if (m_currentFolderPath.empty()) {
+        // Try to get current folder path
+        if (m_shellFolder) {
+            Microsoft::WRL::ComPtr<IPersistFolder2> persistFolder;
+            if (SUCCEEDED(m_shellFolder->QueryInterface(IID_PPV_ARGS(&persistFolder)))) {
+                LPITEMIDLIST pidl = nullptr;
+                if (SUCCEEDED(persistFolder->GetCurFolder(&pidl)) && pidl) {
+                    wchar_t path[MAX_PATH] = {};
+                    if (SHGetPathFromIDListW(pidl, path)) {
+                        m_currentFolderPath = path;
+                    }
+                    CoTaskMemFree(pidl);
+                }
+            }
+        }
+    }
+
+    if (m_currentFolderPath.empty()) {
+        return;  // Can't register without a path
+    }
+
+    // Register for shell change notifications
+    SHChangeNotifyEntry entry = {};
+    entry.pidl = nullptr;
+    entry.fRecursive = FALSE;
+
+    // Convert path to PIDL
+    LPITEMIDLIST pidl = nullptr;
+    if (SUCCEEDED(SHParseDisplayName(m_currentFolderPath.c_str(), nullptr, &pidl, 0, nullptr))) {
+        entry.pidl = pidl;
+
+        // Register for all file system changes
+        LONG events = SHCNE_CREATE | SHCNE_DELETE | SHCNE_RENAMEITEM |
+                     SHCNE_RENAMEFOLDER | SHCNE_MKDIR | SHCNE_RMDIR |
+                     SHCNE_UPDATEITEM | SHCNE_UPDATEDIR;
+
+        m_shellChangeNotifyId = SHChangeNotifyRegister(
+            m_hwnd,
+            SHCNRF_ShellLevel | SHCNRF_NewDelivery,
+            events,
+            WM_SHELL_NOTIFY,
+            1,
+            &entry
+        );
+
+        CoTaskMemFree(pidl);
+
+        if (m_shellChangeNotifyId != 0) {
+            LogMessage(LogLevel::Info, L"Registered shell change notifications for %s (id=%lu)",
+                      m_currentFolderPath.c_str(), m_shellChangeNotifyId);
+        } else {
+            LogMessage(LogLevel::Warning, L"Failed to register shell change notifications");
+        }
+    }
+}
+
+void CustomFileListView::UnregisterShellChangeNotify() {
+    if (m_shellChangeNotifyId != 0) {
+        SHChangeNotifyDeregister(m_shellChangeNotifyId);
+        LogMessage(LogLevel::Info, L"Unregistered shell change notifications (id=%lu)",
+                  m_shellChangeNotifyId);
+        m_shellChangeNotifyId = 0;
+    }
+}
+
+void CustomFileListView::OnShellChange(LONG eventId, LPITEMIDLIST pidl1, LPITEMIDLIST pidl2) {
+    LogMessage(LogLevel::Verbose, L"Shell change notification: event=0x%08X", eventId);
+
+    // Handle various shell change events
+    switch (eventId) {
+        case SHCNE_CREATE:
+        case SHCNE_MKDIR:
+            // New item created - refresh to add it
+            LogMessage(LogLevel::Info, L"Shell notification: Item created");
+            RefreshItems();
+            break;
+
+        case SHCNE_DELETE:
+        case SHCNE_RMDIR:
+            // Item deleted - refresh to remove it
+            LogMessage(LogLevel::Info, L"Shell notification: Item deleted");
+            RefreshItems();
+            break;
+
+        case SHCNE_RENAMEITEM:
+        case SHCNE_RENAMEFOLDER:
+            // Item renamed - refresh to update name
+            LogMessage(LogLevel::Info, L"Shell notification: Item renamed");
+            RefreshItems();
+            break;
+
+        case SHCNE_UPDATEITEM:
+        case SHCNE_UPDATEDIR:
+            // Item updated - refresh to update properties
+            LogMessage(LogLevel::Verbose, L"Shell notification: Item updated");
+            RefreshItems();
+            break;
+
+        default:
+            break;
+    }
 }
 
 } // namespace ShellTabs

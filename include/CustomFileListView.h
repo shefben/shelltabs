@@ -5,6 +5,8 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include <ShlObj.h>
+#include <ShObjIdl.h>
+#include <wrl/client.h>
 #include <vector>
 #include <memory>
 #include <string>
@@ -13,6 +15,9 @@
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "windowscodecs.lib")
+
+// Custom message for shell change notifications
+#define WM_SHELL_NOTIFY (WM_USER + 100)
 
 // Forward declarations
 class ExplorerGlowCoordinator;
@@ -104,6 +109,14 @@ public:
 
     HWND GetHWND() const { return m_hwnd; }
 
+    // View mode synchronization
+    void SyncViewModeFromShellView();
+
+    // Shell change notifications
+    void RegisterShellChangeNotify();
+    void UnregisterShellChangeNotify();
+    void OnShellChange(LONG eventId, LPITEMIDLIST pidl1, LPITEMIDLIST pidl2);
+
 private:
     // Window procedure for message handling
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -174,6 +187,8 @@ private:
     IShellView* m_shellView = nullptr;
     IShellFolder* m_shellFolder = nullptr;
     IShellFolderView* m_shellFolderView = nullptr;
+    ULONG m_shellChangeNotifyId = 0;
+    std::wstring m_currentFolderPath;
 
     // Custom rendering
     bool (*m_backgroundPaintCallback)(HDC, HWND, const RECT&, void*) = nullptr;
