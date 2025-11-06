@@ -3640,21 +3640,10 @@ LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPA
         case WM_MOUSELEAVE:
             owner->HandleNewTabButtonMouseLeave(hwnd);
             return 0;
-        case WM_LBUTTONDOWN:
-            owner->HandleNewTabButtonLButtonDown(hwnd);
-            return 0;
-        case WM_LBUTTONUP: {
-            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            owner->HandleNewTabButtonLButtonUp(hwnd, pt);
-            return 0;
-        }
-        case WM_LBUTTONDBLCLK:
-            // Consume double-click to prevent creating multiple tabs
-            return 0;
-        case WM_CAPTURECHANGED:
-        case WM_CANCELMODE:
-            owner->HandleNewTabButtonCaptureLost();
-            return 0;
+        case WM_MOUSEACTIVATE:
+            // Trigger new tab action when the button is clicked to activate it
+            owner->TriggerNewTabButtonAction();
+            return MA_ACTIVATE;
         case WM_SETFOCUS:
             owner->HandleNewTabButtonFocusChanged(hwnd, true);
             return 0;
@@ -5095,9 +5084,8 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 	}
 
 	const UINT id = LOWORD(wParam);
-	const UINT code = HIWORD(wParam);
 
-	if (id == IDC_NEW_TAB && code == BN_CLICKED) {
+	if (id == IDC_NEW_TAB) {
 		m_owner->OnNewTabRequested(-1);
 		return;
 	}
