@@ -4252,9 +4252,9 @@ void CExplorerBHO::SetDirectUIBackgroundWatermark() {
         int yOffsetPercent;
     };
 
-    constexpr ULONG LVBKIF_SOURCE_HBITMAP = 0x00000001;
-    constexpr ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
-    constexpr UINT LVM_SETBKIMAGE = (0x1000 + 138);  // LVM_FIRST + 138
+    const ULONG LVBKIF_SOURCE_HBITMAP = 0x00000001;
+    const ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
+    const UINT LVM_SETBKIMAGE = (0x1000 + 138);  // LVM_FIRST + 138
 
     // Clear existing watermark first
     LVBKIMAGE clearImage{};
@@ -4306,8 +4306,8 @@ void CExplorerBHO::ClearDirectUIBackgroundWatermark() {
             int yOffsetPercent;
         };
 
-        constexpr ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
-        constexpr UINT LVM_SETBKIMAGE = (0x1000 + 138);
+        const ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
+        const UINT LVM_SETBKIMAGE = (0x1000 + 138);
 
         LVBKIMAGE clearImage{};
         clearImage.ulFlags = LVBKIF_TYPE_WATERMARK;
