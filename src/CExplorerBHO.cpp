@@ -4748,6 +4748,31 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 break;
             }
             bool handled = false;
+
+            // FAILSAFE GRADIENT TEXT: Handle ListView custom draw notifications directly
+            if (m_listView && header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
+                auto* customDraw = reinterpret_cast<NMLVCUSTOMDRAW*>(lParam);
+                if (customDraw) {
+                    LRESULT gradientResult = 0;
+                    if (HandleListViewGradientCustomDraw(customDraw, &gradientResult)) {
+                        *result = gradientResult;
+                        return true;
+                    }
+                }
+            }
+
+            // FAILSAFE GRADIENT TEXT: Handle TreeView custom draw notifications directly
+            if (m_treeView && header->hwndFrom == m_treeView && header->code == NM_CUSTOMDRAW) {
+                auto* customDraw = reinterpret_cast<NMTVCUSTOMDRAW*>(lParam);
+                if (customDraw) {
+                    LRESULT gradientResult = 0;
+                    if (HandleTreeViewGradientCustomDraw(customDraw, &gradientResult)) {
+                        *result = gradientResult;
+                        return true;
+                    }
+                }
+            }
+
             if (m_paneHooks.HandleNotify(header, result)) {
                 handled = true;
             }
@@ -8066,6 +8091,222 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
 }
 
 ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
+
+// FAILSAFE GRADIENT TEXT: Direct custom draw handler for ListView items
+bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result) {
+    if (!customDraw || !result) {
+        return false;
+    }
+
+    const ShellTabsOptions& options = OptionsStore::Instance().Get();
+    BreadcrumbGradientConfig gradientConfig{};
+    gradientConfig.enabled = true;
+    gradientConfig.brightness = options.breadcrumbFontBrightness;
+    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+    BreadcrumbGradientPalette palette = ResolveBreadcrumbGradientPalette(gradientConfig);
+
+    const DWORD drawStage = customDraw->nmcd.dwDrawStage;
+
+    if (drawStage == CDDS_PREPAINT) {
+        OnListViewCustomDrawStage(drawStage);
+        *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
+        return true;
+    }
+
+    if (drawStage == CDDS_ITEMPREPAINT) {
+        OnListViewCustomDrawStage(drawStage);
+        *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NEWFONT;
+        return true;
+    }
+
+    if ((drawStage & CDDS_SUBITEM) == CDDS_SUBITEM) {
+        // Get the item text
+        wchar_t textBuffer[MAX_PATH * 2] = {};
+        LVITEMW item{};
+        item.iItem = static_cast<int>(customDraw->nmcd.dwItemSpec);
+        item.iSubItem = customDraw->iSubItem;
+        item.pszText = textBuffer;
+        item.cchTextMax = ARRAYSIZE(textBuffer);
+        item.mask = LVIF_TEXT;
+
+        if (!SendMessageW(m_listView, LVM_GETITEMTEXTW, item.iItem,
+                         reinterpret_cast<LPARAM>(&item)) || !textBuffer[0]) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        const size_t textLen = wcslen(textBuffer);
+        if (textLen == 0) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        // Get the subitem rect
+        RECT textRect = customDraw->nmcd.rc;
+        if (customDraw->iSubItem > 0) {
+            RECT subItemRect{};
+            subItemRect.left = LVIR_LABEL;
+            subItemRect.top = customDraw->iSubItem;
+            if (SendMessageW(m_listView, LVM_GETSUBITEMRECT, item.iItem,
+                           reinterpret_cast<LPARAM>(&subItemRect))) {
+                textRect = subItemRect;
+            }
+        }
+
+        // Render gradient text character by character
+        HDC dc = customDraw->nmcd.hdc;
+        const int oldBkMode = SetBkMode(dc, TRANSPARENT);
+
+        // Calculate total text width for gradient mapping
+        SIZE totalSize{};
+        if (!GetTextExtentPoint32W(dc, textBuffer, static_cast<int>(textLen), &totalSize)) {
+            SetBkMode(dc, oldBkMode);
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        const double gradientWidth = std::max(1.0, static_cast<double>(totalSize.cx));
+        double currentX = static_cast<double>(textRect.left) + 2.0; // Small left padding
+
+        // Draw each character with its gradient color
+        for (size_t i = 0; i < textLen; ++i) {
+            SIZE charSize{};
+            if (!GetTextExtentPoint32W(dc, &textBuffer[i], 1, &charSize)) {
+                continue;
+            }
+
+            // Calculate gradient position (0.0 to 1.0) based on character center
+            const double charCenterX = currentX + static_cast<double>(charSize.cx) * 0.5;
+            const double position = std::clamp((charCenterX - static_cast<double>(textRect.left)) / gradientWidth, 0.0, 1.0);
+            const COLORREF color = EvaluateBreadcrumbGradientColor(palette, position);
+
+            // Set the gradient color for this character
+            SetTextColor(dc, color);
+
+            // Draw the character
+            RECT charRect = textRect;
+            charRect.left = static_cast<LONG>(currentX);
+            charRect.right = charRect.left + charSize.cx;
+            DrawTextW(dc, &textBuffer[i], 1, &charRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+            // Advance position
+            currentX += static_cast<double>(charSize.cx);
+        }
+
+        SetBkMode(dc, oldBkMode);
+        *result = CDRF_SKIPDEFAULT;  // We drew the text, skip default
+        return true;
+    }
+
+    return false;
+}
+
+// FAILSAFE GRADIENT TEXT: Direct custom draw handler for TreeView items
+bool CExplorerBHO::HandleTreeViewGradientCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result) {
+    if (!customDraw || !result) {
+        return false;
+    }
+
+    const ShellTabsOptions& options = OptionsStore::Instance().Get();
+    BreadcrumbGradientConfig gradientConfig{};
+    gradientConfig.enabled = true;
+    gradientConfig.brightness = options.breadcrumbFontBrightness;
+    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+    BreadcrumbGradientPalette palette = ResolveBreadcrumbGradientPalette(gradientConfig);
+
+    const DWORD drawStage = customDraw->nmcd.dwDrawStage;
+
+    if (drawStage == CDDS_PREPAINT) {
+        *result = CDRF_NOTIFYITEMDRAW;
+        return true;
+    }
+
+    if (drawStage == CDDS_ITEMPREPAINT) {
+        // Get the item handle and text
+        HTREEITEM hItem = reinterpret_cast<HTREEITEM>(customDraw->nmcd.dwItemSpec);
+        if (!hItem) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        wchar_t textBuffer[MAX_PATH * 2] = {};
+        TVITEMEXW item{};
+        item.hItem = hItem;
+        item.mask = TVIF_TEXT;
+        item.pszText = textBuffer;
+        item.cchTextMax = ARRAYSIZE(textBuffer);
+
+        if (!TreeView_GetItem(m_treeView, &item) || !textBuffer[0]) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        const size_t textLen = wcslen(textBuffer);
+        if (textLen == 0) {
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        // Get item rect for text positioning
+        RECT textRect = customDraw->nmcd.rc;
+
+        // Render gradient text character by character
+        HDC dc = customDraw->nmcd.hdc;
+        const int oldBkMode = SetBkMode(dc, TRANSPARENT);
+
+        // Calculate total text width for gradient mapping
+        SIZE totalSize{};
+        if (!GetTextExtentPoint32W(dc, textBuffer, static_cast<int>(textLen), &totalSize)) {
+            SetBkMode(dc, oldBkMode);
+            *result = CDRF_DODEFAULT;
+            return true;
+        }
+
+        const double gradientWidth = std::max(1.0, static_cast<double>(totalSize.cx));
+        double currentX = static_cast<double>(textRect.left);
+
+        // Draw each character with its gradient color
+        for (size_t i = 0; i < textLen; ++i) {
+            SIZE charSize{};
+            if (!GetTextExtentPoint32W(dc, &textBuffer[i], 1, &charSize)) {
+                continue;
+            }
+
+            // Calculate gradient position (0.0 to 1.0) based on character center
+            const double charCenterX = currentX + static_cast<double>(charSize.cx) * 0.5;
+            const double position = std::clamp((charCenterX - static_cast<double>(textRect.left)) / gradientWidth, 0.0, 1.0);
+            const COLORREF color = EvaluateBreadcrumbGradientColor(palette, position);
+
+            // Set the gradient color for this character
+            SetTextColor(dc, color);
+
+            // Draw the character
+            RECT charRect = textRect;
+            charRect.left = static_cast<LONG>(currentX);
+            charRect.right = charRect.left + charSize.cx;
+            DrawTextW(dc, &textBuffer[i], 1, &charRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+            // Advance position
+            currentX += static_cast<double>(charSize.cx);
+        }
+
+        SetBkMode(dc, oldBkMode);
+        *result = CDRF_SKIPDEFAULT;  // We drew the text, skip default
+        return true;
+    }
+
+    return false;
+}
 
 void CExplorerBHO::OnListViewCustomDrawStage(DWORD) {
     m_listViewCustomDraw.lastStageTick = CurrentTickCount();

@@ -366,6 +366,8 @@ class ShellTabsListView;
                 bool AttachListView(HWND listView);
                 void DetachListView();
                 void DetachListViewHosts();
+                bool HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
+                bool HandleTreeViewGradientCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result);
                 void OnListViewCustomDrawStage(DWORD stage);
                 void EvaluateListViewForcedHooks(UINT message);
                 void UpdateListViewDescriptor();
