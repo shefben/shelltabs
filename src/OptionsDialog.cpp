@@ -1040,6 +1040,10 @@ DialogTemplatePtr CreatePlaceholderPageTemplate(const wchar_t* message) {
 }
 
 INT_PTR CALLBACK PlaceholderPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
+    UNREFERENCED_PARAMETER(page);
+    UNREFERENCED_PARAMETER(msg);
+    UNREFERENCED_PARAMETER(wParam);
+    UNREFERENCED_PARAMETER(lParam);
     return FALSE;
 }
 
