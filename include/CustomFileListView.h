@@ -128,9 +128,11 @@ private:
     LRESULT HandleMouseMove(POINT pt);
     LRESULT HandleLeftButtonDown(POINT pt);
     LRESULT HandleLeftButtonUp(POINT pt);
+    LRESULT HandleLeftButtonDoubleClick(POINT pt);
     LRESULT HandleRightButtonDown(POINT pt);
     LRESULT HandleMouseWheel(int delta);
     LRESULT HandleKeyDown(WPARAM key);
+    LRESULT HandleChar(WPARAM charCode);
     LRESULT HandleDestroy();
 
     // Rendering methods
@@ -169,6 +171,25 @@ private:
 
     // Context menu
     void ShowContextMenu(POINT pt, int itemIndex);
+    bool InvokeContextMenu(const std::vector<int>& itemIndices, POINT pt);
+
+    // File operations
+    void OpenItem(int index);
+    void OpenSelectedItems();
+    void DeleteSelectedItems();
+    void RenameItem(int index);
+    void BeginInPlaceRename(int index);
+    void EndInPlaceRename(bool commit);
+    void CopySelectedItems();
+    void CutSelectedItems();
+    void PasteItems();
+
+    // Drag and drop
+    void BeginDrag(int index);
+    bool IsDragging() const { return m_isDragging; }
+
+    // Clipboard operations
+    bool HasClipboardData() const;
 
 private:
     HWND m_hwnd = nullptr;
@@ -182,6 +203,15 @@ private:
     int m_hoveredIndex = -1;
     int m_lastSelectedIndex = -1;
     POINT m_lastMousePos{};
+
+    // Interaction state
+    bool m_isDragging = false;
+    int m_dragStartIndex = -1;
+    POINT m_dragStartPos{};
+    bool m_isRenaming = false;
+    int m_renameIndex = -1;
+    HWND m_renameEdit = nullptr;
+    std::wstring m_renameOriginalText;
 
     // Shell integration
     IShellView* m_shellView = nullptr;

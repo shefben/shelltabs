@@ -114,12 +114,16 @@ LRESULT CALLBACK CustomFileListView::WindowProc(HWND hwnd, UINT msg,
                 return pThis->HandleLeftButtonDown({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
             case WM_LBUTTONUP:
                 return pThis->HandleLeftButtonUp({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
+            case WM_LBUTTONDBLCLK:
+                return pThis->HandleLeftButtonDoubleClick({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
             case WM_RBUTTONDOWN:
                 return pThis->HandleRightButtonDown({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)});
             case WM_MOUSEWHEEL:
                 return pThis->HandleMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
             case WM_KEYDOWN:
                 return pThis->HandleKeyDown(wParam);
+            case WM_CHAR:
+                return pThis->HandleChar(wParam);
             case WM_ERASEBKGND:
                 return 1;  // We handle all painting
             case WM_SHELL_NOTIFY:
@@ -250,7 +254,19 @@ LRESULT CustomFileListView::HandleLeftButtonDown(POINT pt) {
 }
 
 LRESULT CustomFileListView::HandleLeftButtonUp(POINT pt) {
-    // Handle item activation on double-click (tracked elsewhere)
+    if (m_isDragging) {
+        // End drag operation
+        m_isDragging = false;
+        ReleaseCapture();
+    }
+    return 0;
+}
+
+LRESULT CustomFileListView::HandleLeftButtonDoubleClick(POINT pt) {
+    int hitIndex = HitTest(pt);
+    if (hitIndex >= 0) {
+        OpenItem(hitIndex);
+    }
     return 0;
 }
 
@@ -279,6 +295,82 @@ LRESULT CustomFileListView::HandleMouseWheel(int delta) {
 }
 
 LRESULT CustomFileListView::HandleKeyDown(WPARAM key) {
+    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+    // Handle special keys first
+    switch (key) {
+        case VK_RETURN:
+            // Open selected items
+            if (!ctrl && !shift) {
+                OpenSelectedItems();
+                return 0;
+            }
+            break;
+
+        case VK_DELETE:
+            // Delete selected items
+            if (!ctrl && !shift) {
+                DeleteSelectedItems();
+                return 0;
+            }
+            break;
+
+        case VK_F2:
+            // Rename selected item
+            if (!ctrl && !shift && m_lastSelectedIndex >= 0) {
+                BeginInPlaceRename(m_lastSelectedIndex);
+                return 0;
+            }
+            break;
+
+        case VK_ESCAPE:
+            // Cancel rename if active
+            if (m_isRenaming) {
+                EndInPlaceRename(false);
+                return 0;
+            }
+            // Otherwise deselect all
+            DeselectAll();
+            return 0;
+
+        case 'A':
+            // Select all (Ctrl+A)
+            if (ctrl && !shift) {
+                for (size_t i = 0; i < m_items.size(); ++i) {
+                    m_items[i].isSelected = true;
+                }
+                InvalidateRect(m_hwnd, nullptr, FALSE);
+                return 0;
+            }
+            break;
+
+        case 'C':
+            // Copy (Ctrl+C)
+            if (ctrl && !shift) {
+                CopySelectedItems();
+                return 0;
+            }
+            break;
+
+        case 'X':
+            // Cut (Ctrl+X)
+            if (ctrl && !shift) {
+                CutSelectedItems();
+                return 0;
+            }
+            break;
+
+        case 'V':
+            // Paste (Ctrl+V)
+            if (ctrl && !shift) {
+                PasteItems();
+                return 0;
+            }
+            break;
+    }
+
+    // Handle navigation keys
     int selectedIndex = m_lastSelectedIndex;
     if (selectedIndex < 0 && !m_items.empty()) {
         selectedIndex = 0;
@@ -320,12 +412,21 @@ LRESULT CustomFileListView::HandleKeyDown(WPARAM key) {
     }
 
     if (newIndex != selectedIndex) {
-        bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         UpdateSelection(newIndex, ctrl, shift);
         EnsureVisible(newIndex);
     }
 
+    return 0;
+}
+
+LRESULT CustomFileListView::HandleChar(WPARAM charCode) {
+    // Quick search by typing
+    // For now, just ignore characters during rename
+    if (m_isRenaming) {
+        return 0;
+    }
+
+    // Could implement type-ahead find here
     return 0;
 }
 
@@ -1432,6 +1533,427 @@ void CustomFileListView::OnShellChange(LONG eventId, LPITEMIDLIST pidl1, LPITEMI
         default:
             break;
     }
+}
+
+// ============================================================================
+// Context Menu and File Operations
+// ============================================================================
+
+void CustomFileListView::ShowContextMenu(POINT pt, int itemIndex) {
+    // Get selected items
+    std::vector<int> selectedIndices = GetSelectedIndices();
+
+    // If clicking on an item, ensure it's selected
+    if (itemIndex >= 0) {
+        bool itemSelected = false;
+        for (int idx : selectedIndices) {
+            if (idx == itemIndex) {
+                itemSelected = true;
+                break;
+            }
+        }
+
+        if (!itemSelected) {
+            selectedIndices.clear();
+            selectedIndices.push_back(itemIndex);
+        }
+    }
+
+    // Convert client to screen coordinates
+    POINT screenPt = pt;
+    ClientToScreen(m_hwnd, &screenPt);
+
+    // Invoke context menu
+    InvokeContextMenu(selectedIndices, screenPt);
+}
+
+bool CustomFileListView::InvokeContextMenu(const std::vector<int>& itemIndices, POINT pt) {
+    if (!m_shellFolder) return false;
+
+    // Build array of PIDLs
+    std::vector<LPCITEMIDLIST> pidls;
+    for (int idx : itemIndices) {
+        if (idx >= 0 && idx < static_cast<int>(m_items.size())) {
+            pidls.push_back(m_items[idx].pidl);
+        }
+    }
+
+    if (pidls.empty()) {
+        // Show background context menu
+        Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+        HRESULT hr = m_shellFolder->CreateViewObject(m_hwnd, IID_PPV_ARGS(&contextMenu));
+        if (FAILED(hr) || !contextMenu) {
+            return false;
+        }
+
+        HMENU hMenu = CreatePopupMenu();
+        if (!hMenu) return false;
+
+        hr = contextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL);
+        if (FAILED(hr)) {
+            DestroyMenu(hMenu);
+            return false;
+        }
+
+        int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, m_hwnd, nullptr);
+        if (cmd > 0) {
+            CMINVOKECOMMANDINFO ici = {};
+            ici.cbSize = sizeof(ici);
+            ici.hwnd = m_hwnd;
+            ici.lpVerb = MAKEINTRESOURCEA(cmd - 1);
+            ici.nShow = SW_SHOWNORMAL;
+
+            contextMenu->InvokeCommand(&ici);
+        }
+
+        DestroyMenu(hMenu);
+        return true;
+    }
+
+    // Get context menu for items
+    Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+    HRESULT hr = m_shellFolder->GetUIObjectOf(
+        m_hwnd,
+        static_cast<UINT>(pidls.size()),
+        pidls.data(),
+        IID_IContextMenu,
+        nullptr,
+        reinterpret_cast<void**>(&contextMenu)
+    );
+
+    if (FAILED(hr) || !contextMenu) {
+        LogMessage(LogLevel::Warning, L"Failed to get IContextMenu (hr=0x%08X)", hr);
+        return false;
+    }
+
+    // Create and populate menu
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return false;
+
+    hr = contextMenu->QueryContextMenu(hMenu, 0, 1, 0x7FFF, CMF_NORMAL | CMF_EXPLORE);
+    if (FAILED(hr)) {
+        DestroyMenu(hMenu);
+        LogMessage(LogLevel::Warning, L"QueryContextMenu failed (hr=0x%08X)", hr);
+        return false;
+    }
+
+    // Show menu and get command
+    int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, m_hwnd, nullptr);
+
+    if (cmd > 0) {
+        CMINVOKECOMMANDINFO ici = {};
+        ici.cbSize = sizeof(ici);
+        ici.hwnd = m_hwnd;
+        ici.lpVerb = MAKEINTRESOURCEA(cmd - 1);
+        ici.nShow = SW_SHOWNORMAL;
+
+        hr = contextMenu->InvokeCommand(&ici);
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning, L"InvokeCommand failed (hr=0x%08X)", hr);
+        }
+    }
+
+    DestroyMenu(hMenu);
+    return true;
+}
+
+void CustomFileListView::OpenItem(int index) {
+    if (index < 0 || index >= static_cast<int>(m_items.size())) {
+        return;
+    }
+
+    const auto& item = m_items[index];
+
+    if (!m_shellFolder || !item.pidl) {
+        LogMessage(LogLevel::Warning, L"OpenItem: No shell folder or PIDL");
+        return;
+    }
+
+    // Execute the default verb
+    Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+    LPCITEMIDLIST pidl = item.pidl;
+
+    HRESULT hr = m_shellFolder->GetUIObjectOf(
+        m_hwnd,
+        1,
+        &pidl,
+        IID_IContextMenu,
+        nullptr,
+        reinterpret_cast<void**>(&contextMenu)
+    );
+
+    if (FAILED(hr) || !contextMenu) {
+        LogMessage(LogLevel::Warning, L"OpenItem: Failed to get IContextMenu (hr=0x%08X)", hr);
+        return;
+    }
+
+    // Invoke default command
+    CMINVOKECOMMANDINFO ici = {};
+    ici.cbSize = sizeof(ici);
+    ici.hwnd = m_hwnd;
+    ici.lpVerb = nullptr;  // Default verb
+    ici.nShow = SW_SHOWNORMAL;
+
+    hr = contextMenu->InvokeCommand(&ici);
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"OpenItem: InvokeCommand failed (hr=0x%08X)", hr);
+    } else {
+        LogMessage(LogLevel::Info, L"Opened item: %s", item.displayName.c_str());
+    }
+}
+
+void CustomFileListView::OpenSelectedItems() {
+    auto selected = GetSelectedIndices();
+    for (int idx : selected) {
+        OpenItem(idx);
+    }
+}
+
+void CustomFileListView::DeleteSelectedItems() {
+    auto selected = GetSelectedIndices();
+    if (selected.empty()) return;
+
+    // Build PIDL array
+    std::vector<LPCITEMIDLIST> pidls;
+    for (int idx : selected) {
+        if (idx >= 0 && idx < static_cast<int>(m_items.size())) {
+            pidls.push_back(m_items[idx].pidl);
+        }
+    }
+
+    if (pidls.empty() || !m_shellFolder) return;
+
+    // Get IContextMenu and invoke "delete" command
+    Microsoft::WRL::ComPtr<IContextMenu> contextMenu;
+    HRESULT hr = m_shellFolder->GetUIObjectOf(
+        m_hwnd,
+        static_cast<UINT>(pidls.size()),
+        pidls.data(),
+        IID_IContextMenu,
+        nullptr,
+        reinterpret_cast<void**>(&contextMenu)
+    );
+
+    if (SUCCEEDED(hr) && contextMenu) {
+        CMINVOKECOMMANDINFO ici = {};
+        ici.cbSize = sizeof(ici);
+        ici.hwnd = m_hwnd;
+        ici.lpVerb = "delete";  // Delete verb
+        ici.nShow = SW_SHOWNORMAL;
+
+        hr = contextMenu->InvokeCommand(&ici);
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning, L"DeleteSelectedItems: InvokeCommand failed (hr=0x%08X)", hr);
+        } else {
+            LogMessage(LogLevel::Info, L"Deleted %zu items", selected.size());
+        }
+    }
+}
+
+void CustomFileListView::RenameItem(int index) {
+    if (index < 0 || index >= static_cast<int>(m_items.size())) {
+        return;
+    }
+
+    BeginInPlaceRename(index);
+}
+
+void CustomFileListView::BeginInPlaceRename(int index) {
+    if (index < 0 || index >= static_cast<int>(m_items.size())) {
+        return;
+    }
+
+    if (m_isRenaming) {
+        EndInPlaceRename(false);
+    }
+
+    m_renameIndex = index;
+    m_isRenaming = true;
+
+    const auto& item = m_items[index];
+    m_renameOriginalText = item.displayName;
+
+    // Get item rect for edit control
+    RECT itemRect = item.bounds;
+    OffsetRect(&itemRect, -m_scrollX, -m_scrollY);
+
+    // Adjust for icon
+    itemRect.left += m_iconSize + 8;
+
+    // Create edit control
+    m_renameEdit = CreateWindowExW(
+        0,
+        L"EDIT",
+        item.displayName.c_str(),
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+        itemRect.left, itemRect.top,
+        itemRect.right - itemRect.left, itemRect.bottom - itemRect.top,
+        m_hwnd,
+        nullptr,
+        m_hInstance,
+        nullptr
+    );
+
+    if (m_renameEdit) {
+        // Set font
+        SendMessageW(m_renameEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font), TRUE);
+
+        // Select all text
+        SendMessageW(m_renameEdit, EM_SETSEL, 0, -1);
+
+        // Focus
+        SetFocus(m_renameEdit);
+
+        LogMessage(LogLevel::Info, L"Begin rename: %s", item.displayName.c_str());
+    }
+}
+
+void CustomFileListView::EndInPlaceRename(bool commit) {
+    if (!m_isRenaming || !m_renameEdit) {
+        return;
+    }
+
+    if (commit && m_renameIndex >= 0 && m_renameIndex < static_cast<int>(m_items.size())) {
+        // Get new name from edit control
+        wchar_t newName[MAX_PATH] = {};
+        GetWindowTextW(m_renameEdit, newName, MAX_PATH);
+
+        if (wcscmp(newName, m_renameOriginalText.c_str()) != 0) {
+            // Name changed - perform rename via shell
+            const auto& item = m_items[m_renameIndex];
+
+            if (m_shellFolder && item.pidl) {
+                // Use IShellFolder::SetNameOf to rename
+                LPITEMIDLIST pidlNew = nullptr;
+                HRESULT hr = m_shellFolder->SetNameOf(
+                    m_hwnd,
+                    item.pidl,
+                    newName,
+                    SHGDN_INFOLDER,
+                    &pidlNew
+                );
+
+                if (SUCCEEDED(hr)) {
+                    LogMessage(LogLevel::Info, L"Renamed: %s -> %s",
+                              m_renameOriginalText.c_str(), newName);
+
+                    if (pidlNew) {
+                        CoTaskMemFree(pidlNew);
+                    }
+
+                    // Refresh to show new name
+                    RefreshItems();
+                } else {
+                    LogMessage(LogLevel::Warning, L"Rename failed (hr=0x%08X)", hr);
+                }
+            }
+        }
+    }
+
+    // Cleanup
+    DestroyWindow(m_renameEdit);
+    m_renameEdit = nullptr;
+    m_isRenaming = false;
+    m_renameIndex = -1;
+    m_renameOriginalText.clear();
+
+    // Restore focus
+    SetFocus(m_hwnd);
+}
+
+void CustomFileListView::CopySelectedItems() {
+    auto selected = GetSelectedIndices();
+    if (selected.empty() || !m_shellFolder) return;
+
+    // Build PIDL array
+    std::vector<LPCITEMIDLIST> pidls;
+    for (int idx : selected) {
+        if (idx >= 0 && idx < static_cast<int>(m_items.size())) {
+            pidls.push_back(m_items[idx].pidl);
+        }
+    }
+
+    if (pidls.empty()) return;
+
+    // Get IDataObject
+    Microsoft::WRL::ComPtr<IDataObject> dataObject;
+    HRESULT hr = m_shellFolder->GetUIObjectOf(
+        m_hwnd,
+        static_cast<UINT>(pidls.size()),
+        pidls.data(),
+        IID_IDataObject,
+        nullptr,
+        reinterpret_cast<void**>(&dataObject)
+    );
+
+    if (SUCCEEDED(hr) && dataObject) {
+        // Set to clipboard
+        OleSetClipboard(dataObject.Get());
+        LogMessage(LogLevel::Info, L"Copied %zu items to clipboard", selected.size());
+    } else {
+        LogMessage(LogLevel::Warning, L"CopySelectedItems: Failed to get IDataObject (hr=0x%08X)", hr);
+    }
+}
+
+void CustomFileListView::CutSelectedItems() {
+    // For cut, we use the same as copy but set a "preferred drop effect"
+    CopySelectedItems();
+
+    // TODO: Mark items with cut visual indication
+    LogMessage(LogLevel::Info, L"Cut items (copy with move effect)");
+}
+
+void CustomFileListView::PasteItems() {
+    // Get data from clipboard
+    Microsoft::WRL::ComPtr<IDataObject> dataObject;
+    HRESULT hr = OleGetClipboard(&dataObject);
+
+    if (FAILED(hr) || !dataObject) {
+        LogMessage(LogLevel::Warning, L"PasteItems: No clipboard data");
+        return;
+    }
+
+    if (!m_shellFolder) return;
+
+    // Get IDropTarget from current folder
+    Microsoft::WRL::ComPtr<IDropTarget> dropTarget;
+    hr = m_shellFolder->CreateViewObject(m_hwnd, IID_PPV_ARGS(&dropTarget));
+
+    if (SUCCEEDED(hr) && dropTarget) {
+        POINTL pt = { 0, 0 };
+        DWORD effect = DROPEFFECT_COPY;
+
+        hr = dropTarget->DragEnter(dataObject.Get(), MK_LBUTTON, pt, &effect);
+        if (SUCCEEDED(hr)) {
+            hr = dropTarget->Drop(dataObject.Get(), MK_LBUTTON, pt, &effect);
+            if (SUCCEEDED(hr)) {
+                LogMessage(LogLevel::Info, L"Pasted items");
+            } else {
+                LogMessage(LogLevel::Warning, L"PasteItems: Drop failed (hr=0x%08X)", hr);
+            }
+        }
+    } else {
+        LogMessage(LogLevel::Warning, L"PasteItems: Failed to get IDropTarget (hr=0x%08X)", hr);
+    }
+}
+
+void CustomFileListView::BeginDrag(int index) {
+    if (index < 0 || index >= static_cast<int>(m_items.size())) {
+        return;
+    }
+
+    m_isDragging = true;
+    m_dragStartIndex = index;
+    SetCapture(m_hwnd);
+
+    LogMessage(LogLevel::Info, L"Begin drag: %s", m_items[index].displayName.c_str());
+
+    // TODO: Implement full drag-drop with IDropSource
+}
+
+bool CustomFileListView::HasClipboardData() const {
+    Microsoft::WRL::ComPtr<IDataObject> dataObject;
+    return SUCCEEDED(OleGetClipboard(&dataObject)) && dataObject;
 }
 
 } // namespace ShellTabs
