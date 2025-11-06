@@ -85,7 +85,7 @@ HWND CustomFileListView::Create(DWORD dwExStyle, DWORD dwStyle, int x, int y,
 
     if (m_hwnd) {
         // Notify integration layer that view was created
-        DirectUIReplacementIntegration::NotifyViewCreated(this, m_hwnd);
+        shelltabs::DirectUIReplacementIntegration::NotifyViewCreated(this, m_hwnd);
     }
 
     return m_hwnd;
@@ -547,9 +547,15 @@ void CustomFileListView::RenderBackground(HDC dc, const RECT& clientRect) {
         if (colors.gradient && colors.start != colors.end) {
             TRIVERTEX vertices[2] = {
                 { clientRect.left, clientRect.top,
-                  GetRValue(colors.start) << 8, GetGValue(colors.start) << 8, GetBValue(colors.start) << 8, 0xFF00 },
+                  static_cast<COLOR16>(GetRValue(colors.start) << 8),
+                  static_cast<COLOR16>(GetGValue(colors.start) << 8),
+                  static_cast<COLOR16>(GetBValue(colors.start) << 8),
+                  static_cast<COLOR16>(0xFF00) },
                 { clientRect.right, clientRect.bottom,
-                  GetRValue(colors.end) << 8, GetGValue(colors.end) << 8, GetBValue(colors.end) << 8, 0xFF00 }
+                  static_cast<COLOR16>(GetRValue(colors.end) << 8),
+                  static_cast<COLOR16>(GetGValue(colors.end) << 8),
+                  static_cast<COLOR16>(GetBValue(colors.end) << 8),
+                  static_cast<COLOR16>(0xFF00) }
             };
             GRADIENT_RECT gradRect = { 0, 1 };
             GdiGradientFill(dc, vertices, 2, &gradRect, 1, GRADIENT_FILL_RECT_V);
@@ -1043,11 +1049,11 @@ void CustomFileListView::SetItemPaintCallback(
     m_itemPaintContext = context;
 }
 
-void CustomFileListView::SetGlowCoordinator(ExplorerGlowCoordinator* coordinator) {
+void CustomFileListView::SetGlowCoordinator(shelltabs::ExplorerGlowCoordinator* coordinator) {
     m_coordinator = coordinator;
 }
 
-void CustomFileListView::SetColorDescriptor(const SurfaceColorDescriptor* descriptor) {
+void CustomFileListView::SetColorDescriptor(const shelltabs::SurfaceColorDescriptor* descriptor) {
     m_colorDescriptor = descriptor;
 }
 
