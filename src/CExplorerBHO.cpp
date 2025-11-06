@@ -4252,14 +4252,14 @@ void CExplorerBHO::SetDirectUIBackgroundWatermark() {
         int yOffsetPercent;
     };
 
-    const ULONG LVBKIF_SOURCE_HBITMAP = 0x00000001;
-    const ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
-    const UINT LVM_SETBKIMAGE = (0x1000 + 138);  // LVM_FIRST + 138
+    // LVM_SETBKIMAGE = LVM_FIRST (0x1000) + 138
+    // LVBKIF_SOURCE_HBITMAP = 0x00000001
+    // LVBKIF_TYPE_WATERMARK = 0x10000000
 
     // Clear existing watermark first
     LVBKIMAGE clearImage{};
-    clearImage.ulFlags = LVBKIF_TYPE_WATERMARK;
-    SendMessageW(m_directUiView, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&clearImage));
+    clearImage.ulFlags = 0x10000000;  // LVBKIF_TYPE_WATERMARK
+    SendMessageW(m_directUiView, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
 
     // Clear old bitmap if exists
     if (m_directUIWatermarkBitmap) {
@@ -4275,12 +4275,12 @@ void CExplorerBHO::SetDirectUIBackgroundWatermark() {
 
         // Set watermark
         LVBKIMAGE bkImage{};
-        bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP | LVBKIF_TYPE_WATERMARK;
+        bkImage.ulFlags = 0x00000001 | 0x10000000;  // LVBKIF_SOURCE_HBITMAP | LVBKIF_TYPE_WATERMARK
         bkImage.hbm = m_directUIWatermarkBitmap;
         bkImage.xOffsetPercent = 0;
         bkImage.yOffsetPercent = 0;
 
-        if (!SendMessageW(m_directUiView, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage))) {
+        if (!SendMessageW(m_directUiView, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&bkImage))) {  // LVM_SETBKIMAGE
             LogMessage(LogLevel::Warning, L"Failed to set DirectUI watermark background");
             DeleteObject(m_directUIWatermarkBitmap);
             m_directUIWatermarkBitmap = nullptr;
@@ -4306,12 +4306,9 @@ void CExplorerBHO::ClearDirectUIBackgroundWatermark() {
             int yOffsetPercent;
         };
 
-        const ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
-        const UINT LVM_SETBKIMAGE = (0x1000 + 138);
-
         LVBKIMAGE clearImage{};
-        clearImage.ulFlags = LVBKIF_TYPE_WATERMARK;
-        SendMessageW(m_directUiView, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&clearImage));
+        clearImage.ulFlags = 0x10000000;  // LVBKIF_TYPE_WATERMARK
+        SendMessageW(m_directUiView, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
     }
 }
 
