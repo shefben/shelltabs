@@ -351,33 +351,6 @@ BOOL TreeView_GetItemW(HWND hwnd, TVITEMEXW* item) {
 }
 #endif
 
-bool MatchesClass(HWND hwnd, const wchar_t* className) {
-    if (!hwnd || !className) {
-        return false;
-    }
-    wchar_t buffer[256];
-    const int length = GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer));
-    if (length <= 0) {
-        return false;
-    }
-    return _wcsicmp(buffer, className) == 0;
-}
-
-HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
-    if (!parent || !className) {
-        return nullptr;
-    }
-    for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-        if (MatchesClass(child, className)) {
-            return child;
-        }
-        if (HWND found = FindDescendantWindow(child, className)) {
-            return found;
-        }
-    }
-    return nullptr;
-}
-
 std::wstring NormalizeMenuText(const std::wstring& value) {
     if (value.empty()) {
         return {};
@@ -758,6 +731,34 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
 }
 
 }  // namespace
+
+// Global utility function for finding descendant windows by class name
+bool MatchesClass(HWND hwnd, const wchar_t* className) {
+    if (!hwnd || !className) {
+        return false;
+    }
+    wchar_t buffer[256];
+    const int length = GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer));
+    if (length <= 0) {
+        return false;
+    }
+    return _wcsicmp(buffer, className) == 0;
+}
+
+HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
+    if (!parent || !className) {
+        return nullptr;
+    }
+    for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (MatchesClass(child, className)) {
+            return child;
+        }
+        if (HWND found = FindDescendantWindow(child, className)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
 
 // --- CExplorerBHO private state (treat these as class members) ---
 
