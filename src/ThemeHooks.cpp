@@ -22,6 +22,7 @@
 #include "Logging.h"
 #include "DpiUtils.h"
 #include "CompositionIntercept.h"
+#include "BreadcrumbGradient.h"
 
 // Note: Some theme part constants may not be available in older Windows SDKs
 // They are conditionally included in the switch statement if defined
@@ -1316,6 +1317,67 @@ BOOL WINAPI ExtTextOutWDetour(HDC dc, int x, int y, UINT options, const RECT* re
         return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
     }
 
+    // Handle gradient text rendering
+    if (descriptor->gradientTextEnabled && string && count > 0) {
+        const int previousBkMode = SetBkMode(dc, TRANSPARENT);
+
+        // Draw background if needed
+        if (rect && (options & ETO_OPAQUE)) {
+            COLORREF bgColor = descriptor->backgroundOverride ? descriptor->backgroundColor : GetBkColor(dc);
+            if (bgColor != CLR_INVALID) {
+                HBRUSH bgBrush = CreateSolidBrush(bgColor);
+                if (bgBrush) {
+                    FillRect(dc, rect, bgBrush);
+                    DeleteObject(bgBrush);
+                }
+            }
+        }
+
+        // Calculate total text width
+        SIZE totalSize{};
+        if (!GetTextExtentPoint32W(dc, string, static_cast<int>(count), &totalSize)) {
+            SetBkMode(dc, previousBkMode);
+            return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
+        }
+
+        const double gradientWidth = std::max(1.0, static_cast<double>(totalSize.cx));
+        double currentX = static_cast<double>(x);
+
+        // Draw each character with gradient color
+        for (UINT i = 0; i < count; ++i) {
+            SIZE charSize{};
+            if (!GetTextExtentPoint32W(dc, &string[i], 1, &charSize)) {
+                continue;
+            }
+
+            // Calculate gradient position (0.0 to 1.0)
+            const double charCenterX = currentX + static_cast<double>(charSize.cx) * 0.5;
+            const double position = std::clamp((charCenterX - static_cast<double>(x)) / gradientWidth, 0.0, 1.0);
+            const COLORREF color = EvaluateBreadcrumbGradientColor(descriptor->gradientTextPalette, position);
+
+            // Set the gradient color for this character
+            if (g_originalSetTextColor) {
+                g_originalSetTextColor(dc, color);
+            }
+
+            // Draw the character
+            const int charX = static_cast<int>(currentX);
+            const INT* charDx = dx ? &dx[i] : nullptr;
+            g_originalExtTextOutW(dc, charX, y, options & ~ETO_OPAQUE, nullptr, &string[i], 1, charDx);
+
+            // Advance position
+            if (dx && i < count) {
+                currentX += static_cast<double>(dx[i]);
+            } else {
+                currentX += static_cast<double>(charSize.cx);
+            }
+        }
+
+        SetBkMode(dc, previousBkMode);
+        return TRUE;
+    }
+
+    // Standard text color override (non-gradient)
     COLORREF previousText = CLR_INVALID;
     COLORREF previousBackground = CLR_INVALID;
     int previousBkMode = 0;

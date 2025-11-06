@@ -364,6 +364,7 @@ class ShellTabsListView;
                 void OnListViewCustomDrawStage(DWORD stage);
                 void EvaluateListViewForcedHooks(UINT message);
                 void UpdateListViewDescriptor();
+                void UpdateTreeViewDescriptor();
                 void OnStatusBarCustomDrawStage(DWORD stage);
                 void EvaluateStatusBarForcedHooks(UINT message);
                 void UpdateStatusBarDescriptor();

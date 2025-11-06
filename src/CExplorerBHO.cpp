@@ -2287,6 +2287,11 @@ bool CExplorerBHO::AttachTreeView(HWND treeView) {
             return ResolveHighlightFromPidl(pidl, highlight);
         },
         m_namespaceTreeControl.Get());
+
+    // Register as glow surface for gradient text support
+    RegisterGlowSurface(m_treeView, ExplorerSurfaceKind::ListView, true);
+    UpdateTreeViewDescriptor();
+
     LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
     return true;
 }
@@ -4402,6 +4407,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         UpdateGlowSurfaceTargets();
         UpdateListViewDescriptor();
+        UpdateTreeViewDescriptor();
         UpdateStatusBarDescriptor();
         m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
         m_listViewCustomDraw.lastStageTick = CurrentTickCount();
@@ -4412,6 +4418,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         if (m_listView && IsWindow(m_listView)) {
             m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
+        }
+        if (m_treeView && IsWindow(m_treeView)) {
+            m_glowCoordinator.SetSurfaceForcedHooks(m_treeView, false);
+            InvalidateRect(m_treeView, nullptr, FALSE);
         }
         *result = 0;
         return true;
@@ -7916,8 +7926,64 @@ void CExplorerBHO::UpdateListViewDescriptor() {
         descriptor.backgroundPaintCallback = nullptr;
         descriptor.backgroundPaintContext = nullptr;
     }
+
+    // Configure gradient text if enabled
+    const ShellTabsOptions& options = OptionsStore::Instance().Get();
+    if (options.enableFileGradientFont) {
+        descriptor.gradientTextEnabled = true;
+        BreadcrumbGradientConfig gradientConfig{};
+        gradientConfig.enabled = true;
+        gradientConfig.brightness = options.breadcrumbFontBrightness;
+        gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+        gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+        gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+        gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+        gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+        gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+        descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
+    } else {
+        descriptor.gradientTextEnabled = false;
+    }
+
     m_glowCoordinator.UpdateSurfaceDescriptor(m_listView, descriptor);
     m_glowCoordinator.SetSurfaceRole(m_listView, SurfacePaintRole::ListViewRows);
+}
+
+void CExplorerBHO::UpdateTreeViewDescriptor() {
+    if (!m_treeView || !IsWindow(m_treeView)) {
+        return;
+    }
+
+    SurfaceColorDescriptor descriptor{};
+    descriptor.kind = ExplorerSurfaceKind::ListView;
+    descriptor.role = SurfacePaintRole::Generic;
+    descriptor.fillColors = m_glowCoordinator.ResolveColors(ExplorerSurfaceKind::ListView);
+    descriptor.fillOverride = descriptor.fillColors.valid;
+    descriptor.userAccessibilityOptOut = false;
+    descriptor.textOverride = false;
+    descriptor.backgroundOverride = false;
+    descriptor.forceOpaqueBackground = false;
+
+    // Configure gradient text if enabled
+    const ShellTabsOptions& options = OptionsStore::Instance().Get();
+    if (options.enableFileGradientFont) {
+        descriptor.gradientTextEnabled = true;
+        BreadcrumbGradientConfig gradientConfig{};
+        gradientConfig.enabled = true;
+        gradientConfig.brightness = options.breadcrumbFontBrightness;
+        gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+        gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+        gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+        gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+        gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+        gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+        descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
+    } else {
+        descriptor.gradientTextEnabled = false;
+    }
+
+    m_glowCoordinator.UpdateSurfaceDescriptor(m_treeView, descriptor);
+    m_glowCoordinator.SetSurfaceRole(m_treeView, SurfacePaintRole::Generic);
 }
 
 void CExplorerBHO::OnStatusBarCustomDrawStage(DWORD) {
