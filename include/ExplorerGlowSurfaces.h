@@ -56,6 +56,8 @@ struct SurfaceColorDescriptor {
     bool forcedHooks = false;
     bool userAccessibilityOptOut = false;
     bool accessibilityOptOut = false;
+    bool gradientTextEnabled = false;
+    BreadcrumbGradientPalette gradientTextPalette{};
 };
 
 struct ScrollbarGlowDefinition {
