@@ -2528,9 +2528,9 @@ void CExplorerBHO::OnCustomFileListViewCreated(ShellTabs::CustomFileListView* vi
     view->SetGlowCoordinator(&m_glowCoordinator);
 
     // Get the color descriptor for DirectUI surfaces
-    auto* surface = ResolveGlowSurface(hwnd);
-    if (surface) {
-        view->SetColorDescriptor(&surface->GetDescriptor());
+    auto* descriptor = m_glowCoordinator.LookupSurfaceDescriptor(hwnd);
+    if (descriptor) {
+        view->SetColorDescriptor(descriptor);
     }
 
     // Attach to the current shell view for item synchronization
