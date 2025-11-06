@@ -5095,6 +5095,7 @@ void TabBandWindow::ClearCloseButtonHover() {
 
 void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 	if (!m_owner) {
+		LogMessage(LogLevel::Warning, L"HandleCommand: m_owner is null!");
 		return;
 	}
 
@@ -5102,6 +5103,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 	const UINT code = HIWORD(wParam);
 
 	if (id == IDC_NEW_TAB && code == BN_CLICKED) {
+		LogMessage(LogLevel::Info, L"New tab button clicked - calling OnNewTabRequested");
 		m_owner->OnNewTabRequested(-1);
 		return;
 	}

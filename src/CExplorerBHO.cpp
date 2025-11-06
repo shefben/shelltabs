@@ -4225,9 +4225,20 @@ void CExplorerBHO::ResetListViewBackgroundSurface() const {
     m_listViewBackgroundSurface.cacheKey.clear();
 }
 
-// DirectUIHWND background using ListView watermark API (native approach)
+// DirectUIHWND/ListView background using ListView watermark API (native approach)
 void CExplorerBHO::SetDirectUIBackgroundWatermark() {
-    if (!m_directUiView || !IsWindow(m_directUiView)) {
+    // LVM_SETBKIMAGE only works on SysListView32, not DirectUIHWND!
+    // Use m_listView (the actual ListView control) instead
+    HWND targetWindow = m_listView;
+
+    if (!targetWindow || !IsWindow(targetWindow)) {
+        // Fallback: try to find SysListView32 child window
+        if (m_directUiView && IsWindow(m_directUiView)) {
+            targetWindow = FindDescendantWindow(m_directUiView, L"SysListView32");
+        }
+    }
+
+    if (!targetWindow || !IsWindow(targetWindow)) {
         return;
     }
 
@@ -4259,7 +4270,7 @@ void CExplorerBHO::SetDirectUIBackgroundWatermark() {
     // Clear existing watermark first
     LVBKIMAGE clearImage{};
     clearImage.ulFlags = 0x10000000;  // LVBKIF_TYPE_WATERMARK
-    SendMessageW(m_directUiView, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
+    SendMessageW(targetWindow, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
 
     // Clear old bitmap if exists
     if (m_directUIWatermarkBitmap) {
@@ -4280,12 +4291,13 @@ void CExplorerBHO::SetDirectUIBackgroundWatermark() {
         bkImage.xOffsetPercent = 0;
         bkImage.yOffsetPercent = 0;
 
-        if (!SendMessageW(m_directUiView, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&bkImage))) {  // LVM_SETBKIMAGE
-            LogMessage(LogLevel::Warning, L"Failed to set DirectUI watermark background");
+        LRESULT result = SendMessageW(targetWindow, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&bkImage));  // LVM_SETBKIMAGE
+        if (!result) {
+            LogMessage(LogLevel::Warning, L"Failed to set ListView watermark background (hwnd=%p, result=%ld)", targetWindow, result);
             DeleteObject(m_directUIWatermarkBitmap);
             m_directUIWatermarkBitmap = nullptr;
         } else {
-            LogMessage(LogLevel::Info, L"Set DirectUI watermark background (hwnd=%p)", m_directUiView);
+            LogMessage(LogLevel::Info, L"Set ListView watermark background (hwnd=%p, result=%ld)", targetWindow, result);
         }
     }
 }
@@ -4296,7 +4308,17 @@ void CExplorerBHO::ClearDirectUIBackgroundWatermark() {
         m_directUIWatermarkBitmap = nullptr;
     }
 
+    // Clear watermark from both possible targets
+    HWND targets[] = {m_listView, nullptr};
     if (m_directUiView && IsWindow(m_directUiView)) {
+        targets[1] = FindDescendantWindow(m_directUiView, L"SysListView32");
+    }
+
+    for (HWND targetWindow : targets) {
+        if (!targetWindow || !IsWindow(targetWindow)) {
+            continue;
+        }
+
         struct LVBKIMAGE {
             ULONG ulFlags;
             HBITMAP hbm;
@@ -4308,7 +4330,7 @@ void CExplorerBHO::ClearDirectUIBackgroundWatermark() {
 
         LVBKIMAGE clearImage{};
         clearImage.ulFlags = 0x10000000;  // LVBKIF_TYPE_WATERMARK
-        SendMessageW(m_directUiView, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
+        SendMessageW(targetWindow, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
     }
 }
 

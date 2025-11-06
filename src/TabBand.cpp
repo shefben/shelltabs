@@ -623,12 +623,14 @@ void TabBand::OnTabSelected(TabLocation location) {
 }
 
 void TabBand::OnNewTabRequested(int targetGroup) {
+    LogMessage(LogLevel::Info, L"OnNewTabRequested called (targetGroup=%d)", targetGroup);
     EnsureOptionsLoaded();
 
     const TabLocation current = m_tabs.SelectedLocation();
     if (targetGroup < 0) {
         targetGroup = current.groupIndex >= 0 ? current.groupIndex : 0;
     }
+    LogMessage(LogLevel::Info, L"OnNewTabRequested: resolved targetGroup=%d, template=%d", targetGroup, static_cast<int>(m_options.newTabTemplate));
 
     auto finalize = [&](UniquePidl pidl, std::wstring name, std::wstring tooltip) {
         if (!pidl) {
