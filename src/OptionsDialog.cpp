@@ -748,7 +748,7 @@ void InitGeneralPage(HWND page, OptionsDialogData* data) {
     if (groupCombo) {
         for (const auto& group : data->workingGroups) {
             int idx = ComboBox_AddString(groupCombo, group.name.c_str());
-            if (group.id == data->workingOptions.newTabSavedGroup) {
+            if (group.name == data->workingOptions.newTabSavedGroup) {
                 ComboBox_SetCurSel(groupCombo, idx);
             }
         }
@@ -839,7 +839,7 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
                 HWND combo = GetDlgItem(page, IDC_GEN_NEWTAB_GROUP);
                 int sel = ComboBox_GetCurSel(combo);
                 if (sel >= 0 && sel < static_cast<int>(data->workingGroups.size())) {
-                    data->workingOptions.newTabSavedGroup = data->workingGroups[sel].id;
+                    data->workingOptions.newTabSavedGroup = data->workingGroups[sel].name;
                     PropSheet_Changed(GetParent(page), page);
                 }
             }
@@ -885,7 +885,7 @@ DialogTemplatePtr CreateAppearancePageTemplate() {
     builder.AddStatic(IDC_APP_BREADCRUMB_TRANS_VAL, L"45%",
         kMargin + kGroupMargin + 310, y, 40, kLabelHeight);
 
-    y += kSliderHeight + kGroupSpacing * 2;
+    y += kSliderHeight + kSpacing * 2;
 
     // Tab colors section
     builder.AddGroupBox(IDC_APP_TAB_GROUP, L"Tab Colors",
@@ -1070,10 +1070,10 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     // Load groups
     GroupStore& groupStore = GroupStore::Instance();
     if (groupStore.Load()) {
-        data->originalGroups = groupStore.GetAllGroups();
+        data->originalGroups = groupStore.Groups();
         data->workingGroups = data->originalGroups;
         for (const auto& group : data->originalGroups) {
-            data->workingGroupIds.push_back(group.id);
+            data->workingGroupIds.push_back(group.name);
         }
     }
 
