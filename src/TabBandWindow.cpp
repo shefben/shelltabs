@@ -3530,11 +3530,9 @@ void TabBandWindow::HandleNewTabButtonMouseLeave(HWND hwnd) {
 void TabBandWindow::HandleNewTabButtonLButtonDown(HWND hwnd) {
     SetFocus(hwnd);
     SetCapture(hwnd);
-    if (!m_newTabButtonPressed || m_newTabButtonKeyboardPressed) {
-        m_newTabButtonPressed = true;
-        m_newTabButtonKeyboardPressed = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
+    m_newTabButtonPressed = true;
+    m_newTabButtonKeyboardPressed = false;
+    InvalidateRect(hwnd, nullptr, FALSE);
 }
 
 void TabBandWindow::HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt) {
@@ -3585,11 +3583,9 @@ void TabBandWindow::HandleNewTabButtonKeyDown(HWND hwnd, UINT key, bool repeat) 
     if (repeat) {
         return;
     }
-    if (!m_newTabButtonPressed || !m_newTabButtonKeyboardPressed) {
-        m_newTabButtonPressed = true;
-        m_newTabButtonKeyboardPressed = true;
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
+    m_newTabButtonPressed = true;
+    m_newTabButtonKeyboardPressed = true;
+    InvalidateRect(hwnd, nullptr, FALSE);
 }
 
 void TabBandWindow::HandleNewTabButtonKeyUp(HWND hwnd, UINT key) {
