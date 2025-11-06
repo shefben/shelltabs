@@ -3905,7 +3905,7 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
     ResetListViewBackgroundSurface();
-    ClearDirectUIBackgroundWatermark();
+    ResetDirectUIBackgroundSurface();
     RefreshListViewControlBackground();
 }
 
@@ -4225,113 +4225,159 @@ void CExplorerBHO::ResetListViewBackgroundSurface() const {
     m_listViewBackgroundSurface.cacheKey.clear();
 }
 
-// DirectUIHWND/ListView background using ListView watermark API (native approach)
-void CExplorerBHO::SetDirectUIBackgroundWatermark() {
-    // LVM_SETBKIMAGE only works on SysListView32, not DirectUIHWND!
-    // Use m_listView (the actual ListView control) instead
-    HWND targetWindow = m_listView;
-
-    if (!targetWindow || !IsWindow(targetWindow)) {
-        // Fallback: try to find SysListView32 child window
-        if (m_directUiView && IsWindow(m_directUiView)) {
-            targetWindow = FindDescendantWindow(m_directUiView, L"SysListView32");
-        }
+bool CExplorerBHO::PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(context);
+    if (!self) {
+        return false;
     }
+    return self->PaintDirectUIBackground(dc, window, rect);
+}
 
-    if (!targetWindow || !IsWindow(targetWindow)) {
-        return;
+bool CExplorerBHO::PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const {
+    if (!dc || !window || rect.right <= rect.left || rect.bottom <= rect.top) {
+        return false;
     }
-
     if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        ClearDirectUIBackgroundWatermark();
-        return;
+        return false;
+    }
+
+    if (window != m_directUiView) {
+        return false;
+    }
+
+    if (!IsWindow(window)) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(window, &client) || client.right <= client.left || client.bottom <= client.top) {
+        ResetDirectUIBackgroundSurface();
+        return false;
     }
 
     Gdiplus::Bitmap* source = ResolveCurrentFolderBackground();
     if (!source) {
-        ClearDirectUIBackgroundWatermark();
-        return;
+        ResetDirectUIBackgroundSurface();
+        return false;
     }
 
-    // LVBKIMAGE structure
-    struct LVBKIMAGE {
-        ULONG ulFlags;
-        HBITMAP hbm;
-        LPWSTR pszImage;
-        UINT cchImageMax;
-        int xOffsetPercent;
-        int yOffsetPercent;
-    };
-
-    // LVM_SETBKIMAGE = LVM_FIRST (0x1000) + 138
-    // LVBKIF_SOURCE_HBITMAP = 0x00000001
-    // LVBKIF_TYPE_WATERMARK = 0x10000000
-
-    // Clear existing watermark first
-    LVBKIMAGE clearImage{};
-    clearImage.ulFlags = 0x10000000;  // LVBKIF_TYPE_WATERMARK
-    SendMessageW(targetWindow, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
-
-    // Clear old bitmap if exists
-    if (m_directUIWatermarkBitmap) {
-        DeleteObject(m_directUIWatermarkBitmap);
-        m_directUIWatermarkBitmap = nullptr;
+    const std::wstring cacheKey = ResolveBackgroundCacheKey();
+    if (!EnsureDirectUIBackgroundSurface(client, cacheKey, source)) {
+        return false;
     }
 
-    // Create HBITMAP from GDI+ bitmap
-    Gdiplus::Color blackColor(255, 0, 0, 0);
-    HBITMAP hbm = nullptr;
-    if (source->GetHBITMAP(blackColor, &hbm) == Gdiplus::Ok && hbm) {
-        m_directUIWatermarkBitmap = hbm;
-
-        // Set watermark
-        LVBKIMAGE bkImage{};
-        bkImage.ulFlags = 0x00000001 | 0x10000000;  // LVBKIF_SOURCE_HBITMAP | LVBKIF_TYPE_WATERMARK
-        bkImage.hbm = m_directUIWatermarkBitmap;
-        bkImage.xOffsetPercent = 0;
-        bkImage.yOffsetPercent = 0;
-
-        LRESULT result = SendMessageW(targetWindow, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&bkImage));  // LVM_SETBKIMAGE
-        if (!result) {
-            LogMessage(LogLevel::Warning, L"Failed to set ListView watermark background (hwnd=%p, result=%ld)", targetWindow, result);
-            DeleteObject(m_directUIWatermarkBitmap);
-            m_directUIWatermarkBitmap = nullptr;
-        } else {
-            LogMessage(LogLevel::Info, L"Set ListView watermark background (hwnd=%p, result=%ld)", targetWindow, result);
-        }
+    const int width = rect.right - rect.left;
+    const int height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0) {
+        return false;
     }
+
+    if (!m_directUIBackgroundSurface.bitmap) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const int sourceX = rect.left - client.left;
+    const int sourceY = rect.top - client.top;
+    const LONG bitmapWidth = m_directUIBackgroundSurface.size.cx;
+    const LONG bitmapHeight = m_directUIBackgroundSurface.size.cy;
+    if (sourceX < 0 || sourceY < 0 || sourceX + width > bitmapWidth || sourceY + height > bitmapHeight) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    const Gdiplus::Status status = graphics.DrawImage(
+        m_directUIBackgroundSurface.bitmap.get(),
+        Gdiplus::Rect(rect.left, rect.top, width, height),
+        sourceX,
+        sourceY,
+        width,
+        height,
+        Gdiplus::UnitPixel);
+    if (status != Gdiplus::Ok) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    return true;
 }
 
-void CExplorerBHO::ClearDirectUIBackgroundWatermark() {
-    if (m_directUIWatermarkBitmap) {
-        DeleteObject(m_directUIWatermarkBitmap);
-        m_directUIWatermarkBitmap = nullptr;
+bool CExplorerBHO::EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
+                                                    Gdiplus::Bitmap* source) const {
+    if (!source) {
+        return false;
     }
 
-    // Clear watermark from both possible targets
-    HWND targets[] = {m_listView, nullptr};
-    if (m_directUiView && IsWindow(m_directUiView)) {
-        targets[1] = FindDescendantWindow(m_directUiView, L"SysListView32");
+    const LONG width = clientRect.right - clientRect.left;
+    const LONG height = clientRect.bottom - clientRect.top;
+    if (width <= 0 || height <= 0) {
+        ResetDirectUIBackgroundSurface();
+        return false;
     }
 
-    for (HWND targetWindow : targets) {
-        if (!targetWindow || !IsWindow(targetWindow)) {
-            continue;
-        }
-
-        struct LVBKIMAGE {
-            ULONG ulFlags;
-            HBITMAP hbm;
-            LPWSTR pszImage;
-            UINT cchImageMax;
-            int xOffsetPercent;
-            int yOffsetPercent;
-        };
-
-        LVBKIMAGE clearImage{};
-        clearImage.ulFlags = 0x10000000;  // LVBKIF_TYPE_WATERMARK
-        SendMessageW(targetWindow, 0x1000 + 138, 0, reinterpret_cast<LPARAM>(&clearImage));  // LVM_SETBKIMAGE
+    if (m_directUIBackgroundSurface.bitmap && m_directUIBackgroundSurface.cacheKey == cacheKey &&
+        m_directUIBackgroundSurface.size.cx == width && m_directUIBackgroundSurface.size.cy == height) {
+        return true;
     }
+
+    auto bitmap = std::make_unique<Gdiplus::Bitmap>(width, height, PixelFormat32bppPARGB);
+    if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    Gdiplus::Graphics graphics(bitmap.get());
+    if (graphics.GetLastStatus() != Gdiplus::Ok) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+    const UINT sourceWidth = source->GetWidth();
+    const UINT sourceHeight = source->GetHeight();
+    if (sourceWidth == 0 || sourceHeight == 0) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    const Gdiplus::Status status = graphics.DrawImage(
+        source,
+        Gdiplus::Rect(0, 0, width, height),
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
+        Gdiplus::UnitPixel);
+    if (status != Gdiplus::Ok) {
+        ResetDirectUIBackgroundSurface();
+        return false;
+    }
+
+    m_directUIBackgroundSurface.bitmap = std::move(bitmap);
+    m_directUIBackgroundSurface.size.cx = width;
+    m_directUIBackgroundSurface.size.cy = height;
+    m_directUIBackgroundSurface.cacheKey = cacheKey;
+    return true;
+}
+
+void CExplorerBHO::ResetDirectUIBackgroundSurface() const {
+    m_directUIBackgroundSurface.bitmap.reset();
+    m_directUIBackgroundSurface.size = {0, 0};
+    m_directUIBackgroundSurface.cacheKey.clear();
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -4383,7 +4429,7 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     ResetListViewBackgroundSurface();
-    const_cast<CExplorerBHO*>(this)->SetDirectUIBackgroundWatermark();
+    ResetDirectUIBackgroundSurface();
     auto requestRedraw = [](HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd)) {
             return;
@@ -4585,7 +4631,19 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                     }
                 }
             }
-            // DirectUIHWND uses watermark API instead of WM_ERASEBKGND
+            // Handle custom background painting for DirectUIHWND
+            if (isDirectUiHost && m_folderBackgroundsEnabled) {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                if (dc) {
+                    RECT rect{};
+                    if (GetClientRect(hwnd, &rect)) {
+                        if (PaintDirectUIBackground(dc, hwnd, rect)) {
+                            *result = TRUE;
+                            return true;
+                        }
+                    }
+                }
+            }
             break;
         }
         case WM_PARENTNOTIFY: {
@@ -4662,7 +4720,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 RefreshListViewControlBackground();
             }
             if (isDirectUiHost) {
-                SetDirectUIBackgroundWatermark();
+                ResetDirectUIBackgroundSurface();
             }
             break;
         }
@@ -8053,24 +8111,20 @@ void CExplorerBHO::UpdateListViewDescriptor() {
         descriptor.backgroundPaintContext = nullptr;
     }
 
-    // Configure gradient text if enabled
+    // Configure gradient text - FORCED ALWAYS ENABLED
     const ShellTabsOptions& options = OptionsStore::Instance().Get();
-    if (options.enableFileGradientFont) {
-        descriptor.gradientTextEnabled = true;
-        descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
-        BreadcrumbGradientConfig gradientConfig{};
-        gradientConfig.enabled = true;
-        gradientConfig.brightness = options.breadcrumbFontBrightness;
-        gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
-        gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
-        gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
-        gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
-        gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
-        gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
-        descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
-    } else {
-        descriptor.gradientTextEnabled = false;
-    }
+    descriptor.gradientTextEnabled = true;  // FORCED: Always enable gradient text for files/folders
+    descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
+    BreadcrumbGradientConfig gradientConfig{};
+    gradientConfig.enabled = true;
+    gradientConfig.brightness = options.breadcrumbFontBrightness;
+    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+    descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
 
     m_glowCoordinator.UpdateSurfaceDescriptor(m_listView, descriptor);
     m_glowCoordinator.SetSurfaceRole(m_listView, SurfacePaintRole::ListViewRows);
@@ -8091,24 +8145,20 @@ void CExplorerBHO::UpdateTreeViewDescriptor() {
     descriptor.backgroundOverride = false;
     descriptor.forceOpaqueBackground = false;
 
-    // Configure gradient text if enabled
+    // Configure gradient text - FORCED ALWAYS ENABLED
     const ShellTabsOptions& options = OptionsStore::Instance().Get();
-    if (options.enableFileGradientFont) {
-        descriptor.gradientTextEnabled = true;
-        descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
-        BreadcrumbGradientConfig gradientConfig{};
-        gradientConfig.enabled = true;
-        gradientConfig.brightness = options.breadcrumbFontBrightness;
-        gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
-        gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
-        gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
-        gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
-        gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
-        gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
-        descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
-    } else {
-        descriptor.gradientTextEnabled = false;
-    }
+    descriptor.gradientTextEnabled = true;  // FORCED: Always enable gradient text for TreeView items
+    descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
+    BreadcrumbGradientConfig gradientConfig{};
+    gradientConfig.enabled = true;
+    gradientConfig.brightness = options.breadcrumbFontBrightness;
+    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
+    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
+    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
+    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
+    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
+    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
+    descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
 
     m_glowCoordinator.UpdateSurfaceDescriptor(m_treeView, descriptor);
     m_glowCoordinator.SetSurfaceRole(m_treeView, SurfacePaintRole::Generic);
