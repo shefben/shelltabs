@@ -7932,6 +7932,7 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     if (m_folderBackgroundsEnabled) {
         descriptor.backgroundPaintCallback = &CExplorerBHO::PaintListViewBackgroundCallback;
         descriptor.backgroundPaintContext = this;
+        descriptor.forcedHooks = true;  // Required for background painting via ThemeHooks
     } else {
         descriptor.backgroundPaintCallback = nullptr;
         descriptor.backgroundPaintContext = nullptr;
@@ -7941,6 +7942,7 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     const ShellTabsOptions& options = OptionsStore::Instance().Get();
     if (options.enableFileGradientFont) {
         descriptor.gradientTextEnabled = true;
+        descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
         BreadcrumbGradientConfig gradientConfig{};
         gradientConfig.enabled = true;
         gradientConfig.brightness = options.breadcrumbFontBrightness;
@@ -7978,6 +7980,7 @@ void CExplorerBHO::UpdateTreeViewDescriptor() {
     const ShellTabsOptions& options = OptionsStore::Instance().Get();
     if (options.enableFileGradientFont) {
         descriptor.gradientTextEnabled = true;
+        descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
         BreadcrumbGradientConfig gradientConfig{};
         gradientConfig.enabled = true;
         gradientConfig.brightness = options.breadcrumbFontBrightness;
