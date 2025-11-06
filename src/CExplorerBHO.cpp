@@ -2240,6 +2240,7 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     LogMessage(LogLevel::Info,
                L"Attached to native list view using MinHook (list=%p)", m_listView);
 
+    // Set up ListView background transparency and initial state
     RefreshListViewControlBackground();
     RefreshListViewAccentState();
     InvalidateRect(m_listView, nullptr, FALSE);
@@ -4057,8 +4058,20 @@ void CExplorerBHO::RefreshListViewControlBackground() {
         return;
     }
 
-    // Force the list view to repaint with the new/removed background
-    InvalidateRect(m_listView, nullptr, TRUE);
+    // Set ListView background to transparent so our custom background shows through
+    // Using CLR_NONE ensures the ListView doesn't paint its own background
+    if (m_folderBackgroundsEnabled) {
+        ListView_SetBkColor(m_listView, CLR_NONE);
+        ListView_SetTextBkColor(m_listView, CLR_NONE);
+    } else {
+        // Restore default background when backgrounds are disabled
+        ListView_SetBkColor(m_listView, CLR_DEFAULT);
+        ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
+    }
+
+    // Use FALSE to prevent background erase - we'll paint it ourselves
+    // This eliminates the flicker caused by erase/paint cycles
+    InvalidateRect(m_listView, nullptr, FALSE);
 }
 
 bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
@@ -4619,17 +4632,22 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 EvaluateStatusBarForcedHooks(msg);
             }
             // Handle custom background painting for list view
+            // Paint the background here and return TRUE to prevent default erase (no flicker)
             if (isListView && m_folderBackgroundsEnabled) {
                 HDC dc = reinterpret_cast<HDC>(wParam);
                 if (dc) {
                     RECT rect{};
                     if (GetClientRect(hwnd, &rect)) {
+                        // Paint our custom background
                         if (PaintListViewBackground(dc, hwnd, rect)) {
-                            *result = TRUE;
+                            *result = TRUE;  // Indicate we handled background erase
                             return true;
                         }
                     }
                 }
+                // Even if painting failed, prevent default erase to avoid flicker
+                *result = TRUE;
+                return true;
             }
             // Handle custom background painting for DirectUIHWND
             if (isDirectUiHost && m_folderBackgroundsEnabled) {
