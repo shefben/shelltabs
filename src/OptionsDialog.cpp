@@ -1561,32 +1561,146 @@ DialogTemplatePtr CreateContextMenusPageTemplate() {
     return builder.Build();
 }
 
+// Helper: Store ContextMenuItem pointer in tree item's LPARAM
+void PopulateContextMenuTree(HWND tree, const std::vector<ContextMenuItem>& items, HTREEITEM parent = TVI_ROOT) {
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto& item = items[i];
+
+        TVINSERTSTRUCTW insert{};
+        insert.hParent = parent;
+        insert.hInsertAfter = TVI_LAST;
+        insert.item.mask = TVIF_TEXT | TVIF_PARAM;
+
+        std::wstring displayText;
+        if (item.type == ContextMenuItemType::kSeparator) {
+            displayText = L"─────────────";
+        } else {
+            displayText = item.label.empty() ? L"(Unnamed)" : item.label;
+        }
+
+        insert.item.pszText = const_cast<wchar_t*>(displayText.c_str());
+        // Store index in LPARAM for retrieval
+        insert.item.lParam = static_cast<LPARAM>(i);
+
+        HTREEITEM hItem = TreeView_InsertItem(tree, &insert);
+
+        // Recursively add children for submenus
+        if (item.type == ContextMenuItemType::kSubmenu && !item.children.empty()) {
+            PopulateContextMenuTree(tree, item.children, hItem);
+        }
+    }
+}
+
+void RefreshContextMenuTree(HWND page, OptionsDialogData* data) {
+    if (!data) return;
+
+    HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+    if (!tree) return;
+
+    TreeView_DeleteAllItems(tree);
+
+    if (data->workingOptions.contextMenuItems.empty()) {
+        TVINSERTSTRUCTW insert{};
+        insert.hParent = TVI_ROOT;
+        insert.hInsertAfter = TVI_LAST;
+        insert.item.mask = TVIF_TEXT;
+        std::wstring text = L"(No custom menu items - use buttons below to add)";
+        insert.item.pszText = text.data();
+        TreeView_InsertItem(tree, &insert);
+    } else {
+        PopulateContextMenuTree(tree, data->workingOptions.contextMenuItems);
+    }
+}
+
 void InitContextMenusPage(HWND page, OptionsDialogData* data) {
     if (!data) return;
 
     HWND combo = GetDlgItem(page, IDC_CTX_TEMPLATE);
     if (combo) {
         ComboBox_AddString(combo, L"Empty");
-        ComboBox_AddString(combo, L"Command Prompt");
-        ComboBox_AddString(combo, L"PowerShell");
+        ComboBox_AddString(combo, L"Command Prompt Here");
+        ComboBox_AddString(combo, L"PowerShell Here");
+        ComboBox_AddString(combo, L"Open with VS Code");
         ComboBox_SetCurSel(combo, 0);
     }
 
-    // Initialize tree with current items
-    HWND tree = GetDlgItem(page, IDC_CTX_TREE);
-    if (tree) {
-        TreeView_DeleteAllItems(tree);
-        // TODO: Populate tree with actual menu items
-        if (data->workingOptions.contextMenuItems.empty()) {
-            TVINSERTSTRUCTW insert{};
-            insert.hParent = TVI_ROOT;
-            insert.hInsertAfter = TVI_LAST;
-            insert.item.mask = TVIF_TEXT;
-            std::wstring text = L"(No custom menu items)";
-            insert.item.pszText = text.data();
-            TreeView_InsertItem(tree, &insert);
-        }
+    // Initialize window state combo
+    HWND windowStateCombo = GetDlgItem(page, IDC_CTX_WINDOW_STATE);
+    if (windowStateCombo) {
+        ComboBox_AddString(windowStateCombo, L"Normal");
+        ComboBox_AddString(windowStateCombo, L"Minimized");
+        ComboBox_AddString(windowStateCombo, L"Maximized");
+        ComboBox_AddString(windowStateCombo, L"Hidden");
+        ComboBox_SetCurSel(windowStateCombo, 0);
     }
+
+    // Initialize anchor combo
+    HWND anchorCombo = GetDlgItem(page, IDC_CTX_ANCHOR);
+    if (anchorCombo) {
+        ComboBox_AddString(anchorCombo, L"Default");
+        ComboBox_AddString(anchorCombo, L"Top");
+        ComboBox_AddString(anchorCombo, L"Bottom");
+        ComboBox_AddString(anchorCombo, L"Before Shell Items");
+        ComboBox_AddString(anchorCombo, L"After Shell Items");
+        ComboBox_SetCurSel(anchorCombo, 0);
+    }
+
+    RefreshContextMenuTree(page, data);
+}
+
+// Helper to create template menu items
+ContextMenuItem CreateCommandPromptMenuItem() {
+    ContextMenuItem item{};
+    item.type = ContextMenuItemType::kCommand;
+    item.label = L"Command Prompt Here";
+    item.executable = L"cmd.exe";
+    item.arguments = L"/k cd /d \"%V\"";
+    item.workingDirectory = L"%V";
+    item.windowState = ContextMenuWindowState::kNormal;
+    item.runAsAdmin = false;
+    item.enabled = true;
+    item.anchor = ContextMenuInsertionAnchor::kDefault;
+    item.visibility.showForFiles = true;
+    item.visibility.showForFolders = true;
+    item.visibility.minimumSelection = 0;
+    item.visibility.maximumSelection = 100;
+    return item;
+}
+
+ContextMenuItem CreatePowerShellMenuItem() {
+    ContextMenuItem item{};
+    item.type = ContextMenuItemType::kCommand;
+    item.label = L"PowerShell Here";
+    item.executable = L"powershell.exe";
+    item.arguments = L"-NoExit -Command \"Set-Location -Path '%V'\"";
+    item.workingDirectory = L"%V";
+    item.windowState = ContextMenuWindowState::kNormal;
+    item.runAsAdmin = false;
+    item.enabled = true;
+    item.anchor = ContextMenuInsertionAnchor::kDefault;
+    item.visibility.showForFiles = true;
+    item.visibility.showForFolders = true;
+    item.visibility.minimumSelection = 0;
+    item.visibility.maximumSelection = 100;
+    return item;
+}
+
+ContextMenuItem CreateVSCodeMenuItem() {
+    ContextMenuItem item{};
+    item.type = ContextMenuItemType::kCommand;
+    item.label = L"Open with VS Code";
+    item.executable = L"code";
+    item.arguments = L"\"%V\"";
+    item.workingDirectory = L"%V";
+    item.windowState = ContextMenuWindowState::kNormal;
+    item.runAsAdmin = false;
+    item.enabled = true;
+    item.anchor = ContextMenuInsertionAnchor::kDefault;
+    item.visibility.showForFiles = true;
+    item.visibility.showForFolders = true;
+    item.visibility.minimumSelection = 0;
+    item.visibility.maximumSelection = 100;
+    return item;
 }
 
 INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1603,9 +1717,174 @@ INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM
     data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
 
     switch (msg) {
+        case WM_COMMAND: {
+            if (!data) break;
+
+            const UINT id = LOWORD(wParam);
+            const UINT code = HIWORD(wParam);
+
+            // Handle template selection
+            if (id == IDC_CTX_TEMPLATE && code == CBN_SELCHANGE) {
+                HWND combo = GetDlgItem(page, IDC_CTX_TEMPLATE);
+                int sel = ComboBox_GetCurSel(combo);
+
+                ContextMenuItem newItem;
+                bool addItem = false;
+
+                switch (sel) {
+                    case 1: // Command Prompt
+                        newItem = CreateCommandPromptMenuItem();
+                        addItem = true;
+                        break;
+                    case 2: // PowerShell
+                        newItem = CreatePowerShellMenuItem();
+                        addItem = true;
+                        break;
+                    case 3: // VS Code
+                        newItem = CreateVSCodeMenuItem();
+                        addItem = true;
+                        break;
+                }
+
+                if (addItem) {
+                    data->workingOptions.contextMenuItems.push_back(newItem);
+                    RefreshContextMenuTree(page, data);
+                    ComboBox_SetCurSel(combo, 0); // Reset to "Empty"
+                    PropSheet_Changed(GetParent(page), page);
+                }
+                return TRUE;
+            }
+
+            // Add Command button
+            if (id == IDC_CTX_ADD_COMMAND) {
+                ContextMenuItem item{};
+                item.type = ContextMenuItemType::kCommand;
+                item.label = L"New Command";
+                item.enabled = true;
+                item.anchor = ContextMenuInsertionAnchor::kDefault;
+                item.windowState = ContextMenuWindowState::kNormal;
+                item.visibility.showForFiles = true;
+                item.visibility.showForFolders = true;
+                item.visibility.minimumSelection = 0;
+                item.visibility.maximumSelection = 100;
+
+                data->workingOptions.contextMenuItems.push_back(item);
+                RefreshContextMenuTree(page, data);
+                PropSheet_Changed(GetParent(page), page);
+                return TRUE;
+            }
+
+            // Add Submenu button
+            if (id == IDC_CTX_ADD_SUBMENU) {
+                ContextMenuItem item{};
+                item.type = ContextMenuItemType::kSubmenu;
+                item.label = L"New Submenu";
+                item.enabled = true;
+                item.anchor = ContextMenuInsertionAnchor::kDefault;
+
+                data->workingOptions.contextMenuItems.push_back(item);
+                RefreshContextMenuTree(page, data);
+                PropSheet_Changed(GetParent(page), page);
+                return TRUE;
+            }
+
+            // Add Separator button
+            if (id == IDC_CTX_ADD_SEPARATOR) {
+                ContextMenuItem item{};
+                item.type = ContextMenuItemType::kSeparator;
+                item.enabled = true;
+                item.anchor = ContextMenuInsertionAnchor::kDefault;
+
+                data->workingOptions.contextMenuItems.push_back(item);
+                RefreshContextMenuTree(page, data);
+                PropSheet_Changed(GetParent(page), page);
+                return TRUE;
+            }
+
+            // Remove button
+            if (id == IDC_CTX_REMOVE) {
+                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                HTREEITEM selected = TreeView_GetSelection(tree);
+
+                if (selected && !data->workingOptions.contextMenuItems.empty()) {
+                    TVITEMW item{};
+                    item.hItem = selected;
+                    item.mask = TVIF_PARAM;
+
+                    if (TreeView_GetItem(tree, &item)) {
+                        size_t index = static_cast<size_t>(item.lParam);
+                        if (index < data->workingOptions.contextMenuItems.size()) {
+                            data->workingOptions.contextMenuItems.erase(
+                                data->workingOptions.contextMenuItems.begin() + index
+                            );
+                            RefreshContextMenuTree(page, data);
+                            PropSheet_Changed(GetParent(page), page);
+                        }
+                    }
+                }
+                return TRUE;
+            }
+
+            // Move Up button
+            if (id == IDC_CTX_MOVE_UP) {
+                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                HTREEITEM selected = TreeView_GetSelection(tree);
+
+                if (selected && !data->workingOptions.contextMenuItems.empty()) {
+                    TVITEMW item{};
+                    item.hItem = selected;
+                    item.mask = TVIF_PARAM;
+
+                    if (TreeView_GetItem(tree, &item)) {
+                        size_t index = static_cast<size_t>(item.lParam);
+                        if (index > 0 && index < data->workingOptions.contextMenuItems.size()) {
+                            std::swap(data->workingOptions.contextMenuItems[index],
+                                    data->workingOptions.contextMenuItems[index - 1]);
+                            RefreshContextMenuTree(page, data);
+                            PropSheet_Changed(GetParent(page), page);
+                        }
+                    }
+                }
+                return TRUE;
+            }
+
+            // Move Down button
+            if (id == IDC_CTX_MOVE_DOWN) {
+                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                HTREEITEM selected = TreeView_GetSelection(tree);
+
+                if (selected && !data->workingOptions.contextMenuItems.empty()) {
+                    TVITEMW item{};
+                    item.hItem = selected;
+                    item.mask = TVIF_PARAM;
+
+                    if (TreeView_GetItem(tree, &item)) {
+                        size_t index = static_cast<size_t>(item.lParam);
+                        if (index < data->workingOptions.contextMenuItems.size() - 1) {
+                            std::swap(data->workingOptions.contextMenuItems[index],
+                                    data->workingOptions.contextMenuItems[index + 1]);
+                            RefreshContextMenuTree(page, data);
+                            PropSheet_Changed(GetParent(page), page);
+                        }
+                    }
+                }
+                return TRUE;
+            }
+
+            break;
+        }
+
         case WM_NOTIFY: {
             NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+
+            // Handle tree view selection changes
+            if (nmhdr->idFrom == IDC_CTX_TREE && nmhdr->code == TVN_SELCHANGED) {
+                // TODO: Load selected item properties into edit controls
+                return TRUE;
+            }
+
             if (nmhdr->code == PSN_APPLY && data) {
+                // Changes are already in workingOptions, which will be saved by the main dialog
                 return PSNRET_NOERROR;
             }
             break;
@@ -1645,6 +1924,307 @@ DialogTemplatePtr CreateGroupsPageTemplate() {
         kMargin + 310, y, 100, kButtonHeight);
 
     return builder.Build();
+}
+
+// Group Editor Dialog Data
+struct GroupEditorData {
+    SavedGroup* group = nullptr;
+    bool isNew = false;
+    OptionsDialogData* optionsData = nullptr;
+};
+
+INT_PTR CALLBACK GroupEditorDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPARAM lParam) {
+    GroupEditorData* data = reinterpret_cast<GroupEditorData*>(GetWindowLongPtrW(dialog, GWLP_USERDATA));
+
+    switch (msg) {
+        case WM_INITDIALOG: {
+            data = reinterpret_cast<GroupEditorData*>(lParam);
+            SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+
+            // Set dialog title
+            SetWindowTextW(dialog, data->isNew ? L"New Group" : L"Edit Group");
+
+            // Resize dialog
+            SetWindowPos(dialog, nullptr, 0, 0, 500, 450, SWP_NOMOVE | SWP_NOZORDER);
+
+            // Create controls using DialogBuilder approach but manually
+            HINSTANCE hInst = GetModuleHandleInstance();
+            HFONT hFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+            int y = 10;
+            int x = 10;
+            int labelWidth = 480;
+            int editWidth = 480;
+
+            // Name label and edit
+            HWND label = CreateWindowW(L"STATIC", L"Group Name:",
+                WS_CHILD | WS_VISIBLE, x, y, labelWidth, 16,
+                dialog, nullptr, hInst, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 20;
+
+            HWND nameEdit = CreateWindowW(L"EDIT", data->group->name.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+                x, y, editWidth, 24,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_NAME), hInst, nullptr);
+            SendMessageW(nameEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 34;
+
+            // Paths label and listbox
+            label = CreateWindowW(L"STATIC", L"Folder Paths:",
+                WS_CHILD | WS_VISIBLE, x, y, labelWidth, 16,
+                dialog, nullptr, hInst, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 20;
+
+            HWND pathList = CreateWindowW(L"LISTBOX", nullptr,
+                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+                x, y, editWidth, 150,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_PATHS), hInst, nullptr);
+            SendMessageW(pathList, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            // Populate paths
+            for (const auto& path : data->group->tabPaths) {
+                SendMessageW(pathList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(path.c_str()));
+            }
+            y += 160;
+
+            // Path buttons
+            int btnX = x;
+            HWND btnAdd = CreateWindowW(L"BUTTON", L"Add Path...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                btnX, y, 100, 24,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_ADD), hInst, nullptr);
+            SendMessageW(btnAdd, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            btnX += 105;
+
+            HWND btnEdit = CreateWindowW(L"BUTTON", L"Edit Path...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                btnX, y, 100, 24,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_EDIT_PATH), hInst, nullptr);
+            SendMessageW(btnEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            EnableWindow(btnEdit, FALSE);
+            btnX += 105;
+
+            HWND btnRemove = CreateWindowW(L"BUTTON", L"Remove",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                btnX, y, 100, 24,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_REMOVE_PATH), hInst, nullptr);
+            SendMessageW(btnRemove, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            EnableWindow(btnRemove, FALSE);
+            y += 34;
+
+            // Color
+            label = CreateWindowW(L"STATIC", L"Color:",
+                WS_CHILD | WS_VISIBLE, x, y, labelWidth, 16,
+                dialog, nullptr, hInst, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 20;
+
+            HWND colorPreview = CreateWindowW(L"STATIC", L"",
+                WS_CHILD | WS_VISIBLE | SS_OWNERDRAW | WS_BORDER,
+                x, y, 50, 24,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_COLOR_PREVIEW), hInst, nullptr);
+
+            HWND btnColor = CreateWindowW(L"BUTTON", L"Choose Color...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                x + 60, y, 120, 24,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_COLOR_BTN), hInst, nullptr);
+            SendMessageW(btnColor, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 34;
+
+            // Outline style
+            label = CreateWindowW(L"STATIC", L"Outline Style:",
+                WS_CHILD | WS_VISIBLE, x, y, labelWidth, 16,
+                dialog, nullptr, hInst, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 20;
+
+            HWND styleCombo = CreateWindowW(L"COMBOBOX", nullptr,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                x, y, 150, 200,
+                dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_STYLE), hInst, nullptr);
+            SendMessageW(styleCombo, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            ComboBox_AddString(styleCombo, L"Solid");
+            ComboBox_AddString(styleCombo, L"Dashed");
+            ComboBox_AddString(styleCombo, L"Dotted");
+            ComboBox_SetCurSel(styleCombo, static_cast<int>(data->group->outlineStyle));
+            y += 34;
+
+            // OK/Cancel buttons
+            int btnY = y + 10;
+            HWND btnOK = CreateWindowW(L"BUTTON", L"OK",
+                WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                300, btnY, 80, 24,
+                dialog, reinterpret_cast<HMENU>(IDOK), hInst, nullptr);
+            SendMessageW(btnOK, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnCancel = CreateWindowW(L"BUTTON", L"Cancel",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                390, btnY, 80, 24,
+                dialog, reinterpret_cast<HMENU>(IDCANCEL), hInst, nullptr);
+            SendMessageW(btnCancel, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            return TRUE;
+        }
+
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (dis->CtlID == IDC_GRP_ED_COLOR_PREVIEW && data && data->group) {
+                HBRUSH brush = CreateSolidBrush(data->group->color);
+                FillRect(dis->hDC, &dis->rcItem, brush);
+                DeleteObject(brush);
+                return TRUE;
+            }
+            break;
+        }
+
+        case WM_COMMAND: {
+            if (!data) break;
+
+            int id = LOWORD(wParam);
+            int code = HIWORD(wParam);
+
+            if (id == IDC_GRP_ED_PATHS && code == LBN_SELCHANGE) {
+                HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
+                bool hasSelection = (SendMessageW(pathList, LB_GETCURSEL, 0, 0) != LB_ERR);
+                EnableWindow(GetDlgItem(dialog, IDC_GRP_ED_EDIT_PATH), hasSelection);
+                EnableWindow(GetDlgItem(dialog, IDC_GRP_ED_REMOVE_PATH), hasSelection);
+            }
+            else if (id == IDC_GRP_ED_ADD && code == BN_CLICKED) {
+                // Browse for folder
+                BROWSEINFOW bi{};
+                bi.hwndOwner = dialog;
+                bi.lpszTitle = L"Select folder to add to group:";
+                bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
+
+                PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+                if (pidl) {
+                    wchar_t path[MAX_PATH];
+                    if (SHGetPathFromIDListW(pidl, path)) {
+                        HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
+                        data->group->tabPaths.push_back(path);
+                        SendMessageW(pathList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(path));
+                    }
+                    CoTaskMemFree(pidl);
+                }
+            }
+            else if (id == IDC_GRP_ED_EDIT_PATH && code == BN_CLICKED) {
+                HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
+                int sel = static_cast<int>(SendMessageW(pathList, LB_GETCURSEL, 0, 0));
+                if (sel >= 0 && sel < static_cast<int>(data->group->tabPaths.size())) {
+                    BROWSEINFOW bi{};
+                    bi.hwndOwner = dialog;
+                    bi.lpszTitle = L"Select folder:";
+                    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
+
+                    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+                    if (pidl) {
+                        wchar_t path[MAX_PATH];
+                        if (SHGetPathFromIDListW(pidl, path)) {
+                            data->group->tabPaths[sel] = path;
+                            SendMessageW(pathList, LB_DELETESTRING, sel, 0);
+                            SendMessageW(pathList, LB_INSERTSTRING, sel, reinterpret_cast<LPARAM>(path));
+                            SendMessageW(pathList, LB_SETCURSEL, sel, 0);
+                        }
+                        CoTaskMemFree(pidl);
+                    }
+                }
+            }
+            else if (id == IDC_GRP_ED_REMOVE_PATH && code == BN_CLICKED) {
+                HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
+                int sel = static_cast<int>(SendMessageW(pathList, LB_GETCURSEL, 0, 0));
+                if (sel >= 0 && sel < static_cast<int>(data->group->tabPaths.size())) {
+                    data->group->tabPaths.erase(data->group->tabPaths.begin() + sel);
+                    SendMessageW(pathList, LB_DELETESTRING, sel, 0);
+                }
+            }
+            else if (id == IDC_GRP_ED_COLOR_BTN && code == BN_CLICKED) {
+                CHOOSECOLORW cc{};
+                static COLORREF customColors[16] = {};
+                cc.lStructSize = sizeof(cc);
+                cc.hwndOwner = dialog;
+                cc.rgbResult = data->group->color;
+                cc.lpCustColors = customColors;
+                cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+
+                if (ChooseColorW(&cc)) {
+                    data->group->color = cc.rgbResult;
+                    InvalidateRect(GetDlgItem(dialog, IDC_GRP_ED_COLOR_PREVIEW), nullptr, TRUE);
+                }
+            }
+            else if (id == IDOK && code == BN_CLICKED) {
+                // Get name
+                wchar_t name[256];
+                GetDlgItemTextW(dialog, IDC_GRP_ED_NAME, name, 256);
+                std::wstring newName = name;
+
+                if (newName.empty()) {
+                    MessageBoxW(dialog, L"Group name cannot be empty.", L"Validation Error", MB_OK | MB_ICONWARNING);
+                    return TRUE;
+                }
+
+                // Check for duplicate names (only if renaming or new)
+                if (data->optionsData && (data->isNew || newName != data->group->name)) {
+                    for (const auto& g : data->optionsData->workingGroups) {
+                        if (g.name == newName && &g != data->group) {
+                            MessageBoxW(dialog, L"A group with this name already exists.", L"Validation Error", MB_OK | MB_ICONWARNING);
+                            return TRUE;
+                        }
+                    }
+                }
+
+                data->group->name = newName;
+
+                // Get outline style
+                HWND styleCombo = GetDlgItem(dialog, IDC_GRP_ED_STYLE);
+                int styleIdx = ComboBox_GetCurSel(styleCombo);
+                if (styleIdx >= 0) {
+                    data->group->outlineStyle = static_cast<TabGroupOutlineStyle>(styleIdx);
+                }
+
+                EndDialog(dialog, IDOK);
+                return TRUE;
+            }
+            else if (id == IDCANCEL && code == BN_CLICKED) {
+                EndDialog(dialog, IDCANCEL);
+                return TRUE;
+            }
+            break;
+        }
+    }
+
+    return FALSE;
+}
+
+bool ShowGroupEditorDialog(HWND parent, SavedGroup& group, bool isNew, OptionsDialogData* optionsData) {
+    GroupEditorData editorData;
+    editorData.group = &group;
+    editorData.isNew = isNew;
+    editorData.optionsData = optionsData;
+
+    // Create a runtime dialog template
+    struct {
+        DLGTEMPLATE dlg;
+        WORD menu;
+        WORD windowClass;
+        WORD title;
+    } template_data = {};
+
+    template_data.dlg.style = DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    template_data.dlg.dwExtendedStyle = 0;
+    template_data.dlg.cdit = 0;  // We'll create controls manually in WM_INITDIALOG
+    template_data.dlg.x = 0;
+    template_data.dlg.y = 0;
+    template_data.dlg.cx = 300;
+    template_data.dlg.cy = 200;
+
+    INT_PTR result = DialogBoxIndirectParamW(GetModuleHandleInstance(),
+                                              reinterpret_cast<LPCDLGTEMPLATEW>(&template_data),
+                                              parent, GroupEditorDialogProc,
+                                              reinterpret_cast<LPARAM>(&editorData));
+
+    return result == IDOK;
 }
 
 void InitGroupsPage(HWND page, OptionsDialogData* data) {
@@ -1692,12 +2272,30 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
                 EnableWindow(GetDlgItem(page, IDC_GRP_REMOVE), hasSelection);
             }
             else if (id == IDC_GRP_NEW && code == BN_CLICKED) {
-                MessageBoxW(page, L"Group editor dialog not yet implemented in this simplified version.",
-                    L"Not Implemented", MB_OK | MB_ICONINFORMATION);
+                SavedGroup newGroup;
+                newGroup.name = L"New Group";
+                newGroup.color = RGB(0, 120, 215);
+                newGroup.outlineStyle = TabGroupOutlineStyle::kSolid;
+
+                if (ShowGroupEditorDialog(page, newGroup, true, data)) {
+                    data->workingGroups.push_back(newGroup);
+                    data->groupsChanged = true;
+                    InitGroupsPage(page, data);
+                    PropSheet_Changed(GetParent(page), page);
+                }
             }
             else if (id == IDC_GRP_EDIT && code == BN_CLICKED) {
-                MessageBoxW(page, L"Group editor dialog not yet implemented in this simplified version.",
-                    L"Not Implemented", MB_OK | MB_ICONINFORMATION);
+                HWND list = GetDlgItem(page, IDC_GRP_LIST);
+                int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+                if (sel >= 0 && sel < static_cast<int>(data->workingGroups.size())) {
+                    SavedGroup groupCopy = data->workingGroups[sel];
+                    if (ShowGroupEditorDialog(page, groupCopy, false, data)) {
+                        data->workingGroups[sel] = groupCopy;
+                        data->groupsChanged = true;
+                        InitGroupsPage(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
             }
             else if (id == IDC_GRP_REMOVE && code == BN_CLICKED) {
                 HWND list = GetDlgItem(page, IDC_GRP_LIST);
