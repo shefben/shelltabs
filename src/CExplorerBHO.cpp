@@ -3905,7 +3905,7 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
     ResetListViewBackgroundSurface();
-    ResetDirectUIBackgroundSurface();
+    ClearDirectUIBackgroundWatermark();
     RefreshListViewControlBackground();
 }
 
@@ -4225,159 +4225,94 @@ void CExplorerBHO::ResetListViewBackgroundSurface() const {
     m_listViewBackgroundSurface.cacheKey.clear();
 }
 
-bool CExplorerBHO::PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    auto* self = reinterpret_cast<CExplorerBHO*>(context);
-    if (!self) {
-        return false;
+// DirectUIHWND background using ListView watermark API (native approach)
+void CExplorerBHO::SetDirectUIBackgroundWatermark() {
+    if (!m_directUiView || !IsWindow(m_directUiView)) {
+        return;
     }
-    return self->PaintDirectUIBackground(dc, window, rect);
-}
 
-bool CExplorerBHO::PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const {
-    if (!dc || !window || rect.right <= rect.left || rect.bottom <= rect.top) {
-        return false;
-    }
     if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        return false;
-    }
-
-    if (window != m_directUiView) {
-        return false;
-    }
-
-    if (!IsWindow(window)) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= client.left || client.bottom <= client.top) {
-        ResetDirectUIBackgroundSurface();
-        return false;
+        ClearDirectUIBackgroundWatermark();
+        return;
     }
 
     Gdiplus::Bitmap* source = ResolveCurrentFolderBackground();
     if (!source) {
-        ResetDirectUIBackgroundSurface();
-        return false;
+        ClearDirectUIBackgroundWatermark();
+        return;
     }
 
-    const std::wstring cacheKey = ResolveBackgroundCacheKey();
-    if (!EnsureDirectUIBackgroundSurface(client, cacheKey, source)) {
-        return false;
+    // LVBKIMAGE structure
+    struct LVBKIMAGE {
+        ULONG ulFlags;
+        HBITMAP hbm;
+        LPWSTR pszImage;
+        UINT cchImageMax;
+        int xOffsetPercent;
+        int yOffsetPercent;
+    };
+
+    constexpr ULONG LVBKIF_SOURCE_HBITMAP = 0x00000001;
+    constexpr ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
+    constexpr UINT LVM_SETBKIMAGE = (0x1000 + 138);  // LVM_FIRST + 138
+
+    // Clear existing watermark first
+    LVBKIMAGE clearImage{};
+    clearImage.ulFlags = LVBKIF_TYPE_WATERMARK;
+    SendMessageW(m_directUiView, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&clearImage));
+
+    // Clear old bitmap if exists
+    if (m_directUIWatermarkBitmap) {
+        DeleteObject(m_directUIWatermarkBitmap);
+        m_directUIWatermarkBitmap = nullptr;
     }
 
-    const int width = rect.right - rect.left;
-    const int height = rect.bottom - rect.top;
-    if (width <= 0 || height <= 0) {
-        return false;
+    // Create HBITMAP from GDI+ bitmap
+    Gdiplus::Color blackColor(255, 0, 0, 0);
+    HBITMAP hbm = nullptr;
+    if (source->GetHBITMAP(blackColor, &hbm) == Gdiplus::Ok && hbm) {
+        m_directUIWatermarkBitmap = hbm;
+
+        // Set watermark
+        LVBKIMAGE bkImage{};
+        bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP | LVBKIF_TYPE_WATERMARK;
+        bkImage.hbm = m_directUIWatermarkBitmap;
+        bkImage.xOffsetPercent = 0;
+        bkImage.yOffsetPercent = 0;
+
+        if (!SendMessageW(m_directUiView, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage))) {
+            LogMessage(LogLevel::Warning, L"Failed to set DirectUI watermark background");
+            DeleteObject(m_directUIWatermarkBitmap);
+            m_directUIWatermarkBitmap = nullptr;
+        } else {
+            LogMessage(LogLevel::Info, L"Set DirectUI watermark background (hwnd=%p)", m_directUiView);
+        }
     }
-
-    if (!m_directUIBackgroundSurface.bitmap) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(dc);
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const int sourceX = rect.left - client.left;
-    const int sourceY = rect.top - client.top;
-    const LONG bitmapWidth = m_directUIBackgroundSurface.size.cx;
-    const LONG bitmapHeight = m_directUIBackgroundSurface.size.cy;
-    if (sourceX < 0 || sourceY < 0 || sourceX + width > bitmapWidth || sourceY + height > bitmapHeight) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    const Gdiplus::Status status = graphics.DrawImage(
-        m_directUIBackgroundSurface.bitmap.get(),
-        Gdiplus::Rect(rect.left, rect.top, width, height),
-        sourceX,
-        sourceY,
-        width,
-        height,
-        Gdiplus::UnitPixel);
-    if (status != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    return true;
 }
 
-bool CExplorerBHO::EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
-                                                    Gdiplus::Bitmap* source) const {
-    if (!source) {
-        return false;
+void CExplorerBHO::ClearDirectUIBackgroundWatermark() {
+    if (m_directUIWatermarkBitmap) {
+        DeleteObject(m_directUIWatermarkBitmap);
+        m_directUIWatermarkBitmap = nullptr;
     }
 
-    const LONG width = clientRect.right - clientRect.left;
-    const LONG height = clientRect.bottom - clientRect.top;
-    if (width <= 0 || height <= 0) {
-        ResetDirectUIBackgroundSurface();
-        return false;
+    if (m_directUiView && IsWindow(m_directUiView)) {
+        struct LVBKIMAGE {
+            ULONG ulFlags;
+            HBITMAP hbm;
+            LPWSTR pszImage;
+            UINT cchImageMax;
+            int xOffsetPercent;
+            int yOffsetPercent;
+        };
+
+        constexpr ULONG LVBKIF_TYPE_WATERMARK = 0x10000000;
+        constexpr UINT LVM_SETBKIMAGE = (0x1000 + 138);
+
+        LVBKIMAGE clearImage{};
+        clearImage.ulFlags = LVBKIF_TYPE_WATERMARK;
+        SendMessageW(m_directUiView, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&clearImage));
     }
-
-    if (m_directUIBackgroundSurface.bitmap && m_directUIBackgroundSurface.cacheKey == cacheKey &&
-        m_directUIBackgroundSurface.size.cx == width && m_directUIBackgroundSurface.size.cy == height) {
-        return true;
-    }
-
-    auto bitmap = std::make_unique<Gdiplus::Bitmap>(width, height, PixelFormat32bppPARGB);
-    if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(bitmap.get());
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const UINT sourceWidth = source->GetWidth();
-    const UINT sourceHeight = source->GetHeight();
-    if (sourceWidth == 0 || sourceHeight == 0) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    const Gdiplus::Status status = graphics.DrawImage(
-        source,
-        Gdiplus::Rect(0, 0, width, height),
-        0,
-        0,
-        sourceWidth,
-        sourceHeight,
-        Gdiplus::UnitPixel);
-    if (status != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    m_directUIBackgroundSurface.bitmap = std::move(bitmap);
-    m_directUIBackgroundSurface.size.cx = width;
-    m_directUIBackgroundSurface.size.cy = height;
-    m_directUIBackgroundSurface.cacheKey = cacheKey;
-    return true;
-}
-
-void CExplorerBHO::ResetDirectUIBackgroundSurface() const {
-    m_directUIBackgroundSurface.bitmap.reset();
-    m_directUIBackgroundSurface.size = {0, 0};
-    m_directUIBackgroundSurface.cacheKey.clear();
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -4429,7 +4364,7 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     ResetListViewBackgroundSurface();
-    ResetDirectUIBackgroundSurface();
+    const_cast<CExplorerBHO*>(this)->SetDirectUIBackgroundWatermark();
     auto requestRedraw = [](HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd)) {
             return;
@@ -4631,19 +4566,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                     }
                 }
             }
-            // Handle custom background painting for DirectUIHWND
-            if (isDirectUiHost && m_folderBackgroundsEnabled) {
-                HDC dc = reinterpret_cast<HDC>(wParam);
-                if (dc) {
-                    RECT rect{};
-                    if (GetClientRect(hwnd, &rect)) {
-                        if (PaintDirectUIBackground(dc, hwnd, rect)) {
-                            *result = TRUE;
-                            return true;
-                        }
-                    }
-                }
-            }
+            // DirectUIHWND uses watermark API instead of WM_ERASEBKGND
             break;
         }
         case WM_PARENTNOTIFY: {
@@ -4720,7 +4643,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 RefreshListViewControlBackground();
             }
             if (isDirectUiHost) {
-                ResetDirectUIBackgroundSurface();
+                SetDirectUIBackgroundWatermark();
             }
             break;
         }
