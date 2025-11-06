@@ -1355,41 +1355,118 @@ IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const
 
 // ============================================================================
 // DirectUIReplacementHook Implementation
+//
+// This hook system ensures that our custom DirectUIHWND implementation is used
+// everywhere in explorer.exe by hooking multiple Windows API functions:
+//
+// 1. CreateWindowExW - Extended window creation (primary hook)
+// 2. CreateWindowW - Standard window creation (fallback)
+// 3. FindWindowW - Window search by class name
+// 4. FindWindowExW - Extended window search
+//
+// When explorer.exe tries to create or find a DirectUIHWND window, we intercept
+// the call and substitute our ShellTabsFileListView custom implementation instead.
 // ============================================================================
 
 bool DirectUIReplacementHook::s_enabled = false;
 void* DirectUIReplacementHook::s_originalCreateWindowExW = nullptr;
+void* DirectUIReplacementHook::s_originalCreateWindowW = nullptr;
+void* DirectUIReplacementHook::s_originalFindWindowW = nullptr;
+void* DirectUIReplacementHook::s_originalFindWindowExW = nullptr;
 std::unordered_map<HWND, CustomFileListView*> DirectUIReplacementHook::s_instances;
 
 bool DirectUIReplacementHook::Initialize() {
     if (s_enabled) return true;
 
     if (MH_Initialize() != MH_OK) {
+        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to initialize MinHook");
         return false;
     }
 
     // Hook CreateWindowExW
     if (MH_CreateHook(&CreateWindowExW, &CreateWindowExW_Hook,
                       &s_originalCreateWindowExW) != MH_OK) {
+        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to create CreateWindowExW hook");
+        MH_Uninitialize();
         return false;
     }
 
     if (MH_EnableHook(&CreateWindowExW) != MH_OK) {
+        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook");
+        MH_Uninitialize();
         return false;
     }
 
+    // Hook CreateWindowW
+    if (MH_CreateHook(&CreateWindowW, &CreateWindowW_Hook,
+                      &s_originalCreateWindowW) != MH_OK) {
+        LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to create CreateWindowW hook");
+        // Continue anyway - this is not critical
+    } else {
+        if (MH_EnableHook(&CreateWindowW) != MH_OK) {
+            LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to enable CreateWindowW hook");
+        } else {
+            LogMessage(LogLevel::Info, L"DirectUIReplacementHook: CreateWindowW hooked successfully");
+        }
+    }
+
+    // Hook FindWindowW
+    if (MH_CreateHook(&FindWindowW, &FindWindowW_Hook,
+                      &s_originalFindWindowW) != MH_OK) {
+        LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to create FindWindowW hook");
+    } else {
+        if (MH_EnableHook(&FindWindowW) != MH_OK) {
+            LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to enable FindWindowW hook");
+        } else {
+            LogMessage(LogLevel::Info, L"DirectUIReplacementHook: FindWindowW hooked successfully");
+        }
+    }
+
+    // Hook FindWindowExW
+    if (MH_CreateHook(&FindWindowExW, &FindWindowExW_Hook,
+                      &s_originalFindWindowExW) != MH_OK) {
+        LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to create FindWindowExW hook");
+    } else {
+        if (MH_EnableHook(&FindWindowExW) != MH_OK) {
+            LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to enable FindWindowExW hook");
+        } else {
+            LogMessage(LogLevel::Info, L"DirectUIReplacementHook: FindWindowExW hooked successfully");
+        }
+    }
+
     s_enabled = true;
+    LogMessage(LogLevel::Info, L"DirectUIReplacementHook: All hooks initialized successfully");
     return true;
 }
 
 void DirectUIReplacementHook::Shutdown() {
     if (!s_enabled) return;
 
-    MH_DisableHook(&CreateWindowExW);
-    MH_RemoveHook(&CreateWindowExW);
+    // Disable and remove all hooks
+    if (s_originalCreateWindowExW) {
+        MH_DisableHook(&CreateWindowExW);
+        MH_RemoveHook(&CreateWindowExW);
+    }
+
+    if (s_originalCreateWindowW) {
+        MH_DisableHook(&CreateWindowW);
+        MH_RemoveHook(&CreateWindowW);
+    }
+
+    if (s_originalFindWindowW) {
+        MH_DisableHook(&FindWindowW);
+        MH_RemoveHook(&FindWindowW);
+    }
+
+    if (s_originalFindWindowExW) {
+        MH_DisableHook(&FindWindowExW);
+        MH_RemoveHook(&FindWindowExW);
+    }
+
     MH_Uninitialize();
 
     s_enabled = false;
+    LogMessage(LogLevel::Info, L"DirectUIReplacementHook: All hooks shut down");
 }
 
 void DirectUIReplacementHook::RegisterInstance(HWND hwnd, CustomFileListView* view) {
@@ -1415,6 +1492,7 @@ HWND WINAPI DirectUIReplacementHook::CreateWindowExW_Hook(
 
     // Check if this is a DirectUIHWND window
     if (IsDirectUIClassName(lpClassName)) {
+        LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND");
         return CreateReplacementWindow(dwExStyle, dwStyle, X, Y,
                                       nWidth, nHeight, hWndParent, hInstance);
     }
@@ -1423,6 +1501,61 @@ HWND WINAPI DirectUIReplacementHook::CreateWindowExW_Hook(
     auto original = reinterpret_cast<decltype(&CreateWindowExW)>(s_originalCreateWindowExW);
     return original(dwExStyle, lpClassName, lpWindowName, dwStyle,
                    X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
+}
+
+HWND WINAPI DirectUIReplacementHook::CreateWindowW_Hook(
+    LPCWSTR lpClassName, LPCWSTR lpWindowName,
+    DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
+    HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam) {
+
+    // Check if this is a DirectUIHWND window
+    if (IsDirectUIClassName(lpClassName)) {
+        LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowW for DirectUIHWND");
+        return CreateReplacementWindow(0, dwStyle, X, Y,
+                                      nWidth, nHeight, hWndParent, hInstance);
+    }
+
+    // Call original CreateWindowW
+    auto original = reinterpret_cast<decltype(&CreateWindowW)>(s_originalCreateWindowW);
+    return original(lpClassName, lpWindowName, dwStyle,
+                   X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
+}
+
+HWND WINAPI DirectUIReplacementHook::FindWindowW_Hook(
+    LPCWSTR lpClassName, LPCWSTR lpWindowName) {
+
+    // If searching for DirectUIHWND by class name, search for our replacement too
+    if (lpClassName && !lpWindowName && IsDirectUIClassName(lpClassName)) {
+        // First try to find our custom window
+        HWND customWindow = ::FindWindowW(L"ShellTabsFileListView", nullptr);
+        if (customWindow) {
+            LogMessage(LogLevel::Verbose, L"DirectUIReplacementHook: FindWindowW returning custom window");
+            return customWindow;
+        }
+    }
+
+    // Call original FindWindowW
+    auto original = reinterpret_cast<decltype(&FindWindowW)>(s_originalFindWindowW);
+    return original(lpClassName, lpWindowName);
+}
+
+HWND WINAPI DirectUIReplacementHook::FindWindowExW_Hook(
+    HWND hWndParent, HWND hWndChildAfter, LPCWSTR lpClassName, LPCWSTR lpWindowName) {
+
+    // If searching for DirectUIHWND by class name, search for our replacement too
+    if (lpClassName && IsDirectUIClassName(lpClassName)) {
+        // First try to find our custom window
+        HWND customWindow = ::FindWindowExW(hWndParent, hWndChildAfter,
+                                           L"ShellTabsFileListView", lpWindowName);
+        if (customWindow) {
+            LogMessage(LogLevel::Verbose, L"DirectUIReplacementHook: FindWindowExW returning custom window");
+            return customWindow;
+        }
+    }
+
+    // Call original FindWindowExW
+    auto original = reinterpret_cast<decltype(&FindWindowExW)>(s_originalFindWindowExW);
+    return original(hWndParent, hWndChildAfter, lpClassName, lpWindowName);
 }
 
 bool DirectUIReplacementHook::IsDirectUIClassName(LPCWSTR className) {
