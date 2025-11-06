@@ -3,9 +3,6 @@
 #include "Utilities.h"
 #include <mutex>
 
-// Forward declaration for helper function defined in CExplorerBHO.cpp
-extern HWND FindDescendantWindow(HWND parent, const wchar_t* className);
-
 namespace shelltabs {
 
 // Static member initialization
