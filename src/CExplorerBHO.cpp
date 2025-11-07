@@ -74,7 +74,7 @@
 #define LVS_EX_TRANSPARENTBKGND 0x00400000
 #endif
 
-// ListView background image structures and constants (not always in SDK)
+// ListView background image constants (use SDK definitions where available)
 #ifndef LVM_SETBKIMAGE
 #define LVM_SETBKIMAGE (LVM_FIRST + 68)  // 0x1044
 #endif
@@ -83,25 +83,38 @@
 #define LVM_GETBKIMAGE (LVM_FIRST + 69)  // 0x1045
 #endif
 
-// LVBKIMAGE structure for setting ListView background images
-struct LVBKIMAGEW {
-    ULONG ulFlags;
-    HBITMAP hbm;
-    LPWSTR pszImage;
-    UINT cchImageMax;
-    int xOffsetPercent;
-    int yOffsetPercent;
-};
-
-// LVBKIMAGE flags
+// LVBKIMAGE flags (use SDK definitions where available)
+#ifndef LVBKIF_SOURCE_NONE
 #define LVBKIF_SOURCE_NONE      0x00000000
-#define LVBKIF_SOURCE_HBITMAP   0x00000001  // Use hbm field
-#define LVBKIF_SOURCE_URL       0x00000002  // Use pszImage field
+#endif
+
+#ifndef LVBKIF_SOURCE_HBITMAP
+#define LVBKIF_SOURCE_HBITMAP   0x00000001
+#endif
+
+#ifndef LVBKIF_SOURCE_URL
+#define LVBKIF_SOURCE_URL       0x00000002
+#endif
+
+#ifndef LVBKIF_STYLE_NORMAL
 #define LVBKIF_STYLE_NORMAL     0x00000000
-#define LVBKIF_STYLE_TILE       0x00000010  // Tile the image
+#endif
+
+#ifndef LVBKIF_STYLE_TILE
+#define LVBKIF_STYLE_TILE       0x00000010
+#endif
+
+#ifndef LVBKIF_FLAG_TILEOFFSET
 #define LVBKIF_FLAG_TILEOFFSET  0x00000100
-#define LVBKIF_TYPE_WATERMARK   0x10000000  // Watermark mode (Vista+)
-#define LVBKIF_FLAG_ALPHABLEND  0x20000000  // Enable alpha blending
+#endif
+
+#ifndef LVBKIF_TYPE_WATERMARK
+#define LVBKIF_TYPE_WATERMARK   0x10000000
+#endif
+
+#ifndef LVBKIF_FLAG_ALPHABLEND
+#define LVBKIF_FLAG_ALPHABLEND  0x20000000
+#endif
 
 
 namespace {
@@ -288,7 +301,7 @@ HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
 }
 
 // Clear ListView background image using LVM_SETBKIMAGE
-void ClearListViewBackgroundImage(HWND hwnd) {
+void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
     if (!hwnd || !IsWindow(hwnd)) {
         return;
     }
@@ -302,10 +315,16 @@ void ClearListViewBackgroundImage(HWND hwnd) {
     // Clear bitmap type
     bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP;
     SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+
+    // Delete the tracked bitmap if provided
+    if (trackedBitmap && *trackedBitmap) {
+        DeleteObject(*trackedBitmap);
+        *trackedBitmap = nullptr;
+    }
 }
 
 // Set ListView background image using LVM_SETBKIMAGE (QTTabBar approach)
-bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool useWatermarkMode = false) {
+bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr, bool useWatermarkMode = false) {
     if (!listView || !IsWindow(listView)) {
         return false;
     }
@@ -319,8 +338,8 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool use
         LogMessage(LogLevel::Info, L"Found DirectUIHWND for background image: %p", directUiHwnd);
     }
 
-    // Clear any existing background image
-    ClearListViewBackgroundImage(targetWindow);
+    // Clear any existing background image and delete the old bitmap
+    ClearListViewBackgroundImage(targetWindow, trackedBitmap);
 
     // If no bitmap provided, we're just clearing
     if (!bitmap) {
@@ -355,10 +374,17 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool use
     if (result) {
         LogMessage(LogLevel::Info, L"Successfully set ListView background image (hwnd=%p, mode=%s)",
                    targetWindow, useWatermarkMode ? L"watermark" : L"tiled");
+
+        // Track the new bitmap so we can clean it up later
+        if (trackedBitmap) {
+            *trackedBitmap = hBitmap;
+        }
+
         return true;
     } else {
         LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
-        // Don't delete hBitmap here - ListView takes ownership
+        // Failed to set, so delete the bitmap we created
+        DeleteObject(hBitmap);
         return false;
     }
 }
@@ -955,6 +981,13 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DestroyProgressGradientResources();
+
+    // Clean up the background bitmap
+    if (m_currentBackgroundBitmap) {
+        DeleteObject(m_currentBackgroundBitmap);
+        m_currentBackgroundBitmap = nullptr;
+    }
+
     m_glowSurfaces.clear();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
@@ -2360,7 +2393,7 @@ void CExplorerBHO::DetachListView() {
 
     m_listViewControl.reset();
 
-    ResetListViewBackgroundSurface();
+    // Surface caching removed with LVM_SETBKIMAGE approach
 
     m_nativeListView = nullptr;
 }
@@ -2687,17 +2720,8 @@ void CExplorerBHO::OnCustomFileListViewCreated(ShellTabs::CustomFileListView* vi
         view->AttachToShellView(m_shellView.Get());
     }
 
-    // Set up background paint callback
-    view->SetBackgroundPaintCallback(
-        [](HDC dc, HWND window, const RECT& rect, void* context) -> bool {
-            auto* self = static_cast<CExplorerBHO*>(context);
-            if (self) {
-                return self->PaintDirectUIBackground(dc, window, rect);
-            }
-            return false;
-        },
-        this
-    );
+    // Background images now set via LVM_SETBKIMAGE, no custom paint callback needed
+    view->SetBackgroundPaintCallback(nullptr, nullptr);
 
     // Register as a glow surface
     RegisterGlowSurface(hwnd, ExplorerSurfaceKind::DirectUi, false);
@@ -4128,6 +4152,13 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_universalBackgroundBitmap.reset();
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
+
+    // Delete the tracked background bitmap
+    if (m_currentBackgroundBitmap) {
+        DeleteObject(m_currentBackgroundBitmap);
+        m_currentBackgroundBitmap = nullptr;
+    }
+
     // Clear the ListView background image
     RefreshListViewControlBackground();
 }
@@ -4289,58 +4320,16 @@ void CExplorerBHO::RefreshListViewControlBackground() {
 
         // Set the background image using native ListView API (QTTabBar approach)
         // Use watermark mode for better alpha blending on Vista+
-        SetListViewBackgroundImage(m_listView, background, true);
+        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true);
     } else {
         // Clear background image and restore default colors
-        SetListViewBackgroundImage(m_listView, nullptr, false);
+        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false);
         ListView_SetBkColor(m_listView, CLR_DEFAULT);
         ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
     }
 
     // Invalidate to redraw with new background
     InvalidateRect(m_listView, nullptr, TRUE);
-}
-
-// Old painting callbacks - no longer needed with LVM_SETBKIMAGE approach
-// Kept as stubs for compatibility with existing glow coordinator registration
-bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::PaintListViewBackground(HDC dc, HWND window, const RECT& rect) const {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
-                                                   Gdiplus::Bitmap* source) const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-    return false;
-}
-
-void CExplorerBHO::ResetListViewBackgroundSurface() const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-}
-
-bool CExplorerBHO::PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
-                                                    Gdiplus::Bitmap* source) const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-    return false;
-}
-
-void CExplorerBHO::ResetDirectUIBackgroundSurface() const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -4654,12 +4643,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case WM_SIZE: {
             if (isListView) {
-                ResetListViewBackgroundSurface();
+                // Surface caching removed with LVM_SETBKIMAGE approach
                 RefreshListViewControlBackground();
             }
-            if (isDirectUiHost) {
-                ResetDirectUIBackgroundSurface();
-            }
+            // DirectUI background no longer needs manual surface management
             break;
         }
         case WM_NOTIFY: {
@@ -8285,14 +8272,10 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     descriptor.backgroundOverride = descriptor.fillOverride;
     descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
     descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
-    if (m_folderBackgroundsEnabled) {
-        descriptor.backgroundPaintCallback = &CExplorerBHO::PaintListViewBackgroundCallback;
-        descriptor.backgroundPaintContext = this;
-        descriptor.forcedHooks = true;  // Required for background painting via ThemeHooks
-    } else {
-        descriptor.backgroundPaintCallback = nullptr;
-        descriptor.backgroundPaintContext = nullptr;
-    }
+
+    // Background images are now set via LVM_SETBKIMAGE, no paint callback needed
+    descriptor.backgroundPaintCallback = nullptr;
+    descriptor.backgroundPaintContext = nullptr;
 
     // Configure gradient text - FORCED ALWAYS ENABLED
     const ShellTabsOptions& options = OptionsStore::Instance().Get();

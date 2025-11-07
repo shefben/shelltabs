@@ -3533,13 +3533,15 @@ void TabBandWindow::HandleNewTabButtonLButtonDown(HWND hwnd) {
     m_newTabButtonPressed = true;
     m_newTabButtonKeyboardPressed = false;
     InvalidateRect(hwnd, nullptr, FALSE);
+
+    // Trigger action immediately on button down (not up)
+    TriggerNewTabButtonAction();
 }
 
 void TabBandWindow::HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt) {
     if (GetCapture() == hwnd) {
         ReleaseCapture();
     }
-    const bool wasPressed = m_newTabButtonPressed;
     m_newTabButtonPressed = false;
     m_newTabButtonKeyboardPressed = false;
 
@@ -3550,9 +3552,8 @@ void TabBandWindow::HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt) {
         m_newTabButtonHot = false;
     }
     InvalidateRect(hwnd, nullptr, FALSE);
-    if (wasPressed && inside) {
-        TriggerNewTabButtonAction();
-    }
+
+    // Action is now triggered on button down, not up
 }
 
 void TabBandWindow::HandleNewTabButtonCaptureLost() {
