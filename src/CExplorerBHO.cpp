@@ -74,6 +74,35 @@
 #define LVS_EX_TRANSPARENTBKGND 0x00400000
 #endif
 
+// ListView background image structures and constants (not always in SDK)
+#ifndef LVM_SETBKIMAGE
+#define LVM_SETBKIMAGE (LVM_FIRST + 68)  // 0x1044
+#endif
+
+#ifndef LVM_GETBKIMAGE
+#define LVM_GETBKIMAGE (LVM_FIRST + 69)  // 0x1045
+#endif
+
+// LVBKIMAGE structure for setting ListView background images
+struct LVBKIMAGEW {
+    ULONG ulFlags;
+    HBITMAP hbm;
+    LPWSTR pszImage;
+    UINT cchImageMax;
+    int xOffsetPercent;
+    int yOffsetPercent;
+};
+
+// LVBKIMAGE flags
+#define LVBKIF_SOURCE_NONE      0x00000000
+#define LVBKIF_SOURCE_HBITMAP   0x00000001  // Use hbm field
+#define LVBKIF_SOURCE_URL       0x00000002  // Use pszImage field
+#define LVBKIF_STYLE_NORMAL     0x00000000
+#define LVBKIF_STYLE_TILE       0x00000010  // Tile the image
+#define LVBKIF_FLAG_TILEOFFSET  0x00000100
+#define LVBKIF_TYPE_WATERMARK   0x10000000  // Watermark mode (Vista+)
+#define LVBKIF_FLAG_ALPHABLEND  0x20000000  // Enable alpha blending
+
 
 namespace {
 
@@ -210,6 +239,128 @@ std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     }
 
     return std::nullopt;
+}
+
+// Helper function to find DirectUIHWND window (critical for Vista+)
+// On Windows Vista and later, Explorer uses DirectUIHWND for folder view rendering
+HWND FindDirectUIHWND(HWND listView) {
+    if (!listView || !IsWindow(listView)) {
+        return nullptr;
+    }
+
+    // Navigate up to parent and search for DirectUIHWND sibling
+    HWND parent = GetParent(listView);
+    if (!parent || !IsWindow(parent)) {
+        return nullptr;
+    }
+
+    // Enumerate children to find DirectUIHWND
+    HWND directUiHwnd = nullptr;
+    HWND child = GetWindow(parent, GW_CHILD);
+    while (child && !directUiHwnd) {
+        wchar_t className[256] = {};
+        if (GetClassNameW(child, className, ARRAYSIZE(className)) > 0) {
+            if (wcscmp(className, L"DirectUIHWND") == 0) {
+                directUiHwnd = child;
+                break;
+            }
+        }
+        child = GetWindow(child, GW_HWNDNEXT);
+    }
+
+    return directUiHwnd;
+}
+
+// Convert GDI+ Bitmap to HBITMAP for use with LVM_SETBKIMAGE
+HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
+    if (!bitmap) {
+        return nullptr;
+    }
+
+    HBITMAP hBitmap = nullptr;
+    Gdiplus::Color transparentColor(0, 0, 0, 0);  // Transparent black
+
+    if (bitmap->GetHBITMAP(transparentColor, &hBitmap) != Gdiplus::Ok) {
+        return nullptr;
+    }
+
+    return hBitmap;
+}
+
+// Clear ListView background image using LVM_SETBKIMAGE
+void ClearListViewBackgroundImage(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+
+    LVBKIMAGEW bkImage = {};
+
+    // Clear watermark type
+    bkImage.ulFlags = LVBKIF_TYPE_WATERMARK;
+    SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+
+    // Clear bitmap type
+    bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP;
+    SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+}
+
+// Set ListView background image using LVM_SETBKIMAGE (QTTabBar approach)
+bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool useWatermarkMode = false) {
+    if (!listView || !IsWindow(listView)) {
+        return false;
+    }
+
+    // Find the target window for the message
+    // On Vista+, DirectUIHWND is the actual rendering window
+    HWND targetWindow = listView;
+    HWND directUiHwnd = FindDirectUIHWND(listView);
+    if (directUiHwnd) {
+        targetWindow = directUiHwnd;
+        LogMessage(LogLevel::Info, L"Found DirectUIHWND for background image: %p", directUiHwnd);
+    }
+
+    // Clear any existing background image
+    ClearListViewBackgroundImage(targetWindow);
+
+    // If no bitmap provided, we're just clearing
+    if (!bitmap) {
+        return true;
+    }
+
+    // Convert GDI+ Bitmap to HBITMAP
+    HBITMAP hBitmap = BitmapToHBITMAP(bitmap);
+    if (!hBitmap) {
+        LogMessage(LogLevel::Warning, L"Failed to convert bitmap to HBITMAP for background image");
+        return false;
+    }
+
+    // Set up LVBKIMAGE structure
+    LVBKIMAGEW bkImage = {};
+    bkImage.hbm = hBitmap;
+    bkImage.xOffsetPercent = 0;
+    bkImage.yOffsetPercent = 0;
+
+    // Use watermark mode for Vista+ (better rendering) or normal mode for XP
+    // Watermark mode supports alpha blending and better positioning
+    if (useWatermarkMode) {
+        bkImage.ulFlags = LVBKIF_TYPE_WATERMARK;
+    } else {
+        // Normal tiled mode - stretches image to fill ListView
+        bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP | LVBKIF_STYLE_TILE;
+    }
+
+    // Send the message to set the background
+    LRESULT result = SendMessageW(targetWindow, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+
+    if (result) {
+        LogMessage(LogLevel::Info, L"Successfully set ListView background image (hwnd=%p, mode=%s)",
+                   targetWindow, useWatermarkMode ? L"watermark" : L"tiled");
+        return true;
+    } else {
+        LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
+        // Don't delete hBitmap here - ListView takes ownership
+        return false;
+    }
 }
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
@@ -2250,12 +2401,9 @@ bool CExplorerBHO::AttachListView(HWND listView) {
 
     UpdateListViewDescriptor();
 
-    // Enable forced hooks for folder backgrounds so ThemeHooks will call our paint callback
-    if (m_folderBackgroundsEnabled) {
-        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, true);
-    } else {
-        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
-    }
+    // Forced hooks no longer needed - background is set via LVM_SETBKIMAGE
+    // not through ThemeHooks paint callbacks
+    m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
 
     LogMessage(LogLevel::Info,
                L"Attached to native list view using MinHook (list=%p)", m_listView);
@@ -3980,8 +4128,7 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_universalBackgroundBitmap.reset();
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
-    ResetListViewBackgroundSurface();
-    ResetDirectUIBackgroundSurface();
+    // Clear the ListView background image
     RefreshListViewControlBackground();
 }
 
@@ -4128,344 +4275,72 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
 }
 
 void CExplorerBHO::RefreshListViewControlBackground() {
-    ResetListViewBackgroundSurface();
     if (!m_listView || !IsWindow(m_listView)) {
         return;
     }
 
-    // Set ListView background to transparent so our custom background shows through
-    // Using CLR_NONE ensures the ListView doesn't paint its own background
+    // If backgrounds are enabled, set the background image using LVM_SETBKIMAGE
     if (m_folderBackgroundsEnabled) {
+        Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
+
+        // Set ListView background to transparent for better image rendering
         ListView_SetBkColor(m_listView, CLR_NONE);
         ListView_SetTextBkColor(m_listView, CLR_NONE);
+
+        // Set the background image using native ListView API (QTTabBar approach)
+        // Use watermark mode for better alpha blending on Vista+
+        SetListViewBackgroundImage(m_listView, background, true);
     } else {
-        // Restore default background when backgrounds are disabled
+        // Clear background image and restore default colors
+        SetListViewBackgroundImage(m_listView, nullptr, false);
         ListView_SetBkColor(m_listView, CLR_DEFAULT);
         ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
     }
 
-    // Use FALSE to prevent background erase - we'll paint it ourselves
-    // This eliminates the flicker caused by erase/paint cycles
-    InvalidateRect(m_listView, nullptr, FALSE);
+    // Invalidate to redraw with new background
+    InvalidateRect(m_listView, nullptr, TRUE);
 }
 
+// Old painting callbacks - no longer needed with LVM_SETBKIMAGE approach
+// Kept as stubs for compatibility with existing glow coordinator registration
 bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    auto* self = reinterpret_cast<CExplorerBHO*>(context);
-    if (!self) {
-        return false;
-    }
-    return self->PaintListViewBackground(dc, window, rect);
+    // No custom painting needed - background is set via LVM_SETBKIMAGE
+    return false;
 }
 
 bool CExplorerBHO::PaintListViewBackground(HDC dc, HWND window, const RECT& rect) const {
-    if (!dc || !window || rect.right <= rect.left || rect.bottom <= rect.top) {
-        return false;
-    }
-    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        return false;
-    }
-
-    if (window != m_listView) {
-        return false;
-    }
-
-    if (!IsWindow(window)) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= client.left || client.bottom <= client.top) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Bitmap* source = ResolveCurrentFolderBackground();
-    if (!source) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    const std::wstring cacheKey = ResolveBackgroundCacheKey();
-    if (!EnsureListViewBackgroundSurface(client, cacheKey, source)) {
-        return false;
-    }
-
-    const int width = rect.right - rect.left;
-    const int height = rect.bottom - rect.top;
-    if (width <= 0 || height <= 0) {
-        return false;
-    }
-
-    if (!m_listViewBackgroundSurface.bitmap) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(dc);
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const int sourceX = rect.left - client.left;
-    const int sourceY = rect.top - client.top;
-    const LONG bitmapWidth = m_listViewBackgroundSurface.size.cx;
-    const LONG bitmapHeight = m_listViewBackgroundSurface.size.cy;
-    if (sourceX < 0 || sourceY < 0 || sourceX + width > bitmapWidth || sourceY + height > bitmapHeight) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    const Gdiplus::Status status = graphics.DrawImage(
-        m_listViewBackgroundSurface.bitmap.get(),
-        Gdiplus::Rect(rect.left, rect.top, width, height),
-        sourceX,
-        sourceY,
-        width,
-        height,
-        Gdiplus::UnitPixel);
-    if (status != Gdiplus::Ok) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    return true;
+    // No custom painting needed - background is set via LVM_SETBKIMAGE
+    return false;
 }
 
 bool CExplorerBHO::EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
                                                    Gdiplus::Bitmap* source) const {
-    if (!source) {
-        return false;
-    }
-
-    const LONG width = clientRect.right - clientRect.left;
-    const LONG height = clientRect.bottom - clientRect.top;
-    if (width <= 0 || height <= 0) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    if (m_listViewBackgroundSurface.bitmap && m_listViewBackgroundSurface.size.cx == width &&
-        m_listViewBackgroundSurface.size.cy == height &&
-        m_listViewBackgroundSurface.cacheKey == cacheKey) {
-        return true;
-    }
-
-    const UINT srcWidth = source->GetWidth();
-    const UINT srcHeight = source->GetHeight();
-    if (srcWidth == 0 || srcHeight == 0) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    if (srcWidth > static_cast<UINT>(std::numeric_limits<INT>::max()) ||
-        srcHeight > static_cast<UINT>(std::numeric_limits<INT>::max())) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    const int widthInt = static_cast<int>(width);
-    const int heightInt = static_cast<int>(height);
-
-    auto surface = std::make_unique<Gdiplus::Bitmap>(widthInt, heightInt, PixelFormat32bppARGB);
-    if (!surface || surface->GetLastStatus() != Gdiplus::Ok) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(surface.get());
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const Gdiplus::Status status = graphics.DrawImage(
-        source,
-        Gdiplus::Rect(0, 0, widthInt, heightInt),
-        0,
-        0,
-        static_cast<INT>(srcWidth),
-        static_cast<INT>(srcHeight),
-        Gdiplus::UnitPixel);
-    if (status != Gdiplus::Ok) {
-        ResetListViewBackgroundSurface();
-        return false;
-    }
-
-    m_listViewBackgroundSurface.bitmap = std::move(surface);
-    m_listViewBackgroundSurface.size = {width, height};
-    m_listViewBackgroundSurface.cacheKey = cacheKey;
-    return true;
+    // No surface caching needed with LVM_SETBKIMAGE approach
+    return false;
 }
 
 void CExplorerBHO::ResetListViewBackgroundSurface() const {
-    m_listViewBackgroundSurface.bitmap.reset();
-    m_listViewBackgroundSurface.size = {0, 0};
-    m_listViewBackgroundSurface.cacheKey.clear();
+    // No surface caching needed with LVM_SETBKIMAGE approach
 }
 
 bool CExplorerBHO::PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    auto* self = reinterpret_cast<CExplorerBHO*>(context);
-    if (!self) {
-        return false;
-    }
-    return self->PaintDirectUIBackground(dc, window, rect);
+    // No custom painting needed - background is set via LVM_SETBKIMAGE
+    return false;
 }
 
 bool CExplorerBHO::PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const {
-    if (!dc || !window || rect.right <= rect.left || rect.bottom <= rect.top) {
-        return false;
-    }
-    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        return false;
-    }
-
-    if (window != m_directUiView) {
-        return false;
-    }
-
-    if (!IsWindow(window)) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= client.left || client.bottom <= client.top) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Bitmap* source = ResolveCurrentFolderBackground();
-    if (!source) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    const std::wstring cacheKey = ResolveBackgroundCacheKey();
-    if (!EnsureDirectUIBackgroundSurface(client, cacheKey, source)) {
-        return false;
-    }
-
-    const int width = rect.right - rect.left;
-    const int height = rect.bottom - rect.top;
-    if (width <= 0 || height <= 0) {
-        return false;
-    }
-
-    if (!m_directUIBackgroundSurface.bitmap) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(dc);
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const int sourceX = rect.left - client.left;
-    const int sourceY = rect.top - client.top;
-    const LONG bitmapWidth = m_directUIBackgroundSurface.size.cx;
-    const LONG bitmapHeight = m_directUIBackgroundSurface.size.cy;
-    if (sourceX < 0 || sourceY < 0 || sourceX + width > bitmapWidth || sourceY + height > bitmapHeight) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    const Gdiplus::Status status = graphics.DrawImage(
-        m_directUIBackgroundSurface.bitmap.get(),
-        Gdiplus::Rect(rect.left, rect.top, width, height),
-        sourceX,
-        sourceY,
-        width,
-        height,
-        Gdiplus::UnitPixel);
-    if (status != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    return true;
+    // No custom painting needed - background is set via LVM_SETBKIMAGE
+    return false;
 }
 
 bool CExplorerBHO::EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
                                                     Gdiplus::Bitmap* source) const {
-    if (!source) {
-        return false;
-    }
-
-    const LONG width = clientRect.right - clientRect.left;
-    const LONG height = clientRect.bottom - clientRect.top;
-    if (width <= 0 || height <= 0) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    if (m_directUIBackgroundSurface.bitmap && m_directUIBackgroundSurface.cacheKey == cacheKey &&
-        m_directUIBackgroundSurface.size.cx == width && m_directUIBackgroundSurface.size.cy == height) {
-        return true;
-    }
-
-    auto bitmap = std::make_unique<Gdiplus::Bitmap>(width, height, PixelFormat32bppPARGB);
-    if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    Gdiplus::Graphics graphics(bitmap.get());
-    if (graphics.GetLastStatus() != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-    const UINT sourceWidth = source->GetWidth();
-    const UINT sourceHeight = source->GetHeight();
-    if (sourceWidth == 0 || sourceHeight == 0) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    const Gdiplus::Status status = graphics.DrawImage(
-        source,
-        Gdiplus::Rect(0, 0, width, height),
-        0,
-        0,
-        sourceWidth,
-        sourceHeight,
-        Gdiplus::UnitPixel);
-    if (status != Gdiplus::Ok) {
-        ResetDirectUIBackgroundSurface();
-        return false;
-    }
-
-    m_directUIBackgroundSurface.bitmap = std::move(bitmap);
-    m_directUIBackgroundSurface.size.cx = width;
-    m_directUIBackgroundSurface.size.cy = height;
-    m_directUIBackgroundSurface.cacheKey = cacheKey;
-    return true;
+    // No surface caching needed with LVM_SETBKIMAGE approach
+    return false;
 }
 
 void CExplorerBHO::ResetDirectUIBackgroundSurface() const {
-    m_directUIBackgroundSurface.bitmap.reset();
-    m_directUIBackgroundSurface.size = {0, 0};
-    m_directUIBackgroundSurface.cacheKey.clear();
+    // No surface caching needed with LVM_SETBKIMAGE approach
 }
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -4516,8 +4391,7 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
-    ResetListViewBackgroundSurface();
-    ResetDirectUIBackgroundSurface();
+    // No surface caching with LVM_SETBKIMAGE approach - just redraw
     auto requestRedraw = [](HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd)) {
             return;
@@ -4706,25 +4580,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (hwnd == m_statusBar) {
                 EvaluateStatusBarForcedHooks(msg);
             }
-            // For ListView with custom backgrounds, prevent default erase
-            // Background is painted in custom draw CDDS_PREPAINT instead
-            if (isListView && m_folderBackgroundsEnabled) {
-                *result = TRUE;  // Prevent default background erase
-                return true;
-            }
-            // Handle custom background painting for DirectUIHWND
-            if (isDirectUiHost && m_folderBackgroundsEnabled) {
-                HDC dc = reinterpret_cast<HDC>(wParam);
-                if (dc) {
-                    RECT rect{};
-                    if (GetClientRect(hwnd, &rect)) {
-                        if (PaintDirectUIBackground(dc, hwnd, rect)) {
-                            *result = TRUE;
-                            return true;
-                        }
-                    }
-                }
-            }
+            // With LVM_SETBKIMAGE, no special WM_ERASEBKGND handling needed for backgrounds
+            // The ListView control handles background painting internally
             break;
         }
         case WM_PARENTNOTIFY: {
@@ -8178,15 +8035,8 @@ bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, 
     if (drawStage == CDDS_PREPAINT) {
         OnListViewCustomDrawStage(drawStage);
 
-        // CRITICAL: Paint background HERE at PREPAINT stage
-        // This ensures background is painted FIRST, before items, in correct z-order
-        if (m_folderBackgroundsEnabled && m_listView) {
-            RECT client{};
-            if (GetClientRect(m_listView, &client)) {
-                // Paint background image behind all items
-                PaintListViewBackground(customDraw->nmcd.hdc, m_listView, client);
-            }
-        }
+        // Background image is now set via LVM_SETBKIMAGE, no manual painting needed
+        // See RefreshListViewControlBackground() which calls SetListViewBackgroundImage()
 
         *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
         return true;
