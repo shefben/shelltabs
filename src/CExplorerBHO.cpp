@@ -288,7 +288,7 @@ HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
 }
 
 // Clear ListView background image using LVM_SETBKIMAGE
-void ClearListViewBackgroundImage(HWND hwnd) {
+void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
     if (!hwnd || !IsWindow(hwnd)) {
         return;
     }
@@ -302,10 +302,16 @@ void ClearListViewBackgroundImage(HWND hwnd) {
     // Clear bitmap type
     bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP;
     SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+
+    // Delete the tracked bitmap if provided
+    if (trackedBitmap && *trackedBitmap) {
+        DeleteObject(*trackedBitmap);
+        *trackedBitmap = nullptr;
+    }
 }
 
 // Set ListView background image using LVM_SETBKIMAGE (QTTabBar approach)
-bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool useWatermarkMode = false) {
+bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr, bool useWatermarkMode = false) {
     if (!listView || !IsWindow(listView)) {
         return false;
     }
@@ -319,8 +325,8 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool use
         LogMessage(LogLevel::Info, L"Found DirectUIHWND for background image: %p", directUiHwnd);
     }
 
-    // Clear any existing background image
-    ClearListViewBackgroundImage(targetWindow);
+    // Clear any existing background image and delete the old bitmap
+    ClearListViewBackgroundImage(targetWindow, trackedBitmap);
 
     // If no bitmap provided, we're just clearing
     if (!bitmap) {
@@ -355,10 +361,17 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, bool use
     if (result) {
         LogMessage(LogLevel::Info, L"Successfully set ListView background image (hwnd=%p, mode=%s)",
                    targetWindow, useWatermarkMode ? L"watermark" : L"tiled");
+
+        // Track the new bitmap so we can clean it up later
+        if (trackedBitmap) {
+            *trackedBitmap = hBitmap;
+        }
+
         return true;
     } else {
         LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
-        // Don't delete hBitmap here - ListView takes ownership
+        // Failed to set, so delete the bitmap we created
+        DeleteObject(hBitmap);
         return false;
     }
 }
@@ -955,6 +968,13 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DestroyProgressGradientResources();
+
+    // Clean up the background bitmap
+    if (m_currentBackgroundBitmap) {
+        DeleteObject(m_currentBackgroundBitmap);
+        m_currentBackgroundBitmap = nullptr;
+    }
+
     m_glowSurfaces.clear();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
@@ -4128,6 +4148,13 @@ void CExplorerBHO::ClearFolderBackgrounds() {
     m_universalBackgroundBitmap.reset();
     m_failedBackgroundKeys.clear();
     m_folderBackgroundsEnabled = false;
+
+    // Delete the tracked background bitmap
+    if (m_currentBackgroundBitmap) {
+        DeleteObject(m_currentBackgroundBitmap);
+        m_currentBackgroundBitmap = nullptr;
+    }
+
     // Clear the ListView background image
     RefreshListViewControlBackground();
 }
@@ -4289,10 +4316,10 @@ void CExplorerBHO::RefreshListViewControlBackground() {
 
         // Set the background image using native ListView API (QTTabBar approach)
         // Use watermark mode for better alpha blending on Vista+
-        SetListViewBackgroundImage(m_listView, background, true);
+        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true);
     } else {
         // Clear background image and restore default colors
-        SetListViewBackgroundImage(m_listView, nullptr, false);
+        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false);
         ListView_SetBkColor(m_listView, CLR_DEFAULT);
         ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
     }
