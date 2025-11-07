@@ -4341,48 +4341,6 @@ void CExplorerBHO::RefreshListViewControlBackground() {
     InvalidateRect(m_listView, nullptr, TRUE);
 }
 
-// Old painting callbacks - no longer needed with LVM_SETBKIMAGE approach
-// Kept as stubs for compatibility with existing glow coordinator registration
-bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::PaintListViewBackground(HDC dc, HWND window, const RECT& rect) const {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
-                                                   Gdiplus::Bitmap* source) const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-    return false;
-}
-
-void CExplorerBHO::ResetListViewBackgroundSurface() const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-}
-
-bool CExplorerBHO::PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const {
-    // No custom painting needed - background is set via LVM_SETBKIMAGE
-    return false;
-}
-
-bool CExplorerBHO::EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
-                                                    Gdiplus::Bitmap* source) const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-    return false;
-}
-
-void CExplorerBHO::ResetDirectUIBackgroundSurface() const {
-    // No surface caching needed with LVM_SETBKIMAGE approach
-}
-
 void CExplorerBHO::UpdateCurrentFolderBackground() {
     if (!m_folderBackgroundsEnabled) {
         if (!m_currentFolderKey.empty()) {
@@ -8325,14 +8283,10 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     descriptor.backgroundOverride = descriptor.fillOverride;
     descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
     descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
-    if (m_folderBackgroundsEnabled) {
-        descriptor.backgroundPaintCallback = &CExplorerBHO::PaintListViewBackgroundCallback;
-        descriptor.backgroundPaintContext = this;
-        descriptor.forcedHooks = true;  // Required for background painting via ThemeHooks
-    } else {
-        descriptor.backgroundPaintCallback = nullptr;
-        descriptor.backgroundPaintContext = nullptr;
-    }
+
+    // Background images are now set via LVM_SETBKIMAGE, no paint callback needed
+    descriptor.backgroundPaintCallback = nullptr;
+    descriptor.backgroundPaintContext = nullptr;
 
     // Configure gradient text - FORCED ALWAYS ENABLED
     const ShellTabsOptions& options = OptionsStore::Instance().Get();
