@@ -4344,17 +4344,27 @@ void CExplorerBHO::RefreshListViewControlBackground() {
 // Old painting callbacks - no longer needed with LVM_SETBKIMAGE approach
 // Kept as stubs for compatibility with existing glow coordinator registration
 bool CExplorerBHO::PaintListViewBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
+    UNREFERENCED_PARAMETER(dc);
+    UNREFERENCED_PARAMETER(window);
+    UNREFERENCED_PARAMETER(rect);
+    UNREFERENCED_PARAMETER(context);
     // No custom painting needed - background is set via LVM_SETBKIMAGE
     return false;
 }
 
 bool CExplorerBHO::PaintListViewBackground(HDC dc, HWND window, const RECT& rect) const {
+    UNREFERENCED_PARAMETER(dc);
+    UNREFERENCED_PARAMETER(window);
+    UNREFERENCED_PARAMETER(rect);
     // No custom painting needed - background is set via LVM_SETBKIMAGE
     return false;
 }
 
 bool CExplorerBHO::EnsureListViewBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
                                                    Gdiplus::Bitmap* source) const {
+    UNREFERENCED_PARAMETER(clientRect);
+    UNREFERENCED_PARAMETER(cacheKey);
+    UNREFERENCED_PARAMETER(source);
     // No surface caching needed with LVM_SETBKIMAGE approach
     return false;
 }
@@ -4364,17 +4374,27 @@ void CExplorerBHO::ResetListViewBackgroundSurface() const {
 }
 
 bool CExplorerBHO::PaintDirectUIBackgroundCallback(HDC dc, HWND window, const RECT& rect, void* context) {
+    UNREFERENCED_PARAMETER(dc);
+    UNREFERENCED_PARAMETER(window);
+    UNREFERENCED_PARAMETER(rect);
+    UNREFERENCED_PARAMETER(context);
     // No custom painting needed - background is set via LVM_SETBKIMAGE
     return false;
 }
 
 bool CExplorerBHO::PaintDirectUIBackground(HDC dc, HWND window, const RECT& rect) const {
+    UNREFERENCED_PARAMETER(dc);
+    UNREFERENCED_PARAMETER(window);
+    UNREFERENCED_PARAMETER(rect);
     // No custom painting needed - background is set via LVM_SETBKIMAGE
     return false;
 }
 
 bool CExplorerBHO::EnsureDirectUIBackgroundSurface(const RECT& clientRect, const std::wstring& cacheKey,
                                                     Gdiplus::Bitmap* source) const {
+    UNREFERENCED_PARAMETER(clientRect);
+    UNREFERENCED_PARAMETER(cacheKey);
+    UNREFERENCED_PARAMETER(source);
     // No surface caching needed with LVM_SETBKIMAGE approach
     return false;
 }
