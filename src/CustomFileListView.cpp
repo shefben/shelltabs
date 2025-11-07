@@ -1370,7 +1370,6 @@ IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const
 
 bool DirectUIReplacementHook::s_enabled = false;
 void* DirectUIReplacementHook::s_originalCreateWindowExW = nullptr;
-void* DirectUIReplacementHook::s_originalCreateWindowW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowExW = nullptr;
 std::unordered_map<HWND, CustomFileListView*> DirectUIReplacementHook::s_instances;
@@ -1395,19 +1394,6 @@ bool DirectUIReplacementHook::Initialize() {
         LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook");
         MH_Uninitialize();
         return false;
-    }
-
-    // Hook CreateWindowW
-    if (MH_CreateHook(&CreateWindowW, &CreateWindowW_Hook,
-                      &s_originalCreateWindowW) != MH_OK) {
-        LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to create CreateWindowW hook");
-        // Continue anyway - this is not critical
-    } else {
-        if (MH_EnableHook(&CreateWindowW) != MH_OK) {
-            LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to enable CreateWindowW hook");
-        } else {
-            LogMessage(LogLevel::Info, L"DirectUIReplacementHook: CreateWindowW hooked successfully");
-        }
     }
 
     // Hook FindWindowW
@@ -1446,11 +1432,6 @@ void DirectUIReplacementHook::Shutdown() {
     if (s_originalCreateWindowExW) {
         MH_DisableHook(&CreateWindowExW);
         MH_RemoveHook(&CreateWindowExW);
-    }
-
-    if (s_originalCreateWindowW) {
-        MH_DisableHook(&CreateWindowW);
-        MH_RemoveHook(&CreateWindowW);
     }
 
     if (s_originalFindWindowW) {
@@ -1500,24 +1481,6 @@ HWND WINAPI DirectUIReplacementHook::CreateWindowExW_Hook(
     // Call original CreateWindowExW
     auto original = reinterpret_cast<decltype(&CreateWindowExW)>(s_originalCreateWindowExW);
     return original(dwExStyle, lpClassName, lpWindowName, dwStyle,
-                   X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
-}
-
-HWND WINAPI DirectUIReplacementHook::CreateWindowW_Hook(
-    LPCWSTR lpClassName, LPCWSTR lpWindowName,
-    DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
-    HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam) {
-
-    // Check if this is a DirectUIHWND window
-    if (IsDirectUIClassName(lpClassName)) {
-        LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowW for DirectUIHWND");
-        return CreateReplacementWindow(0, dwStyle, X, Y,
-                                      nWidth, nHeight, hWndParent, hInstance);
-    }
-
-    // Call original CreateWindowW
-    auto original = reinterpret_cast<decltype(&CreateWindowW)>(s_originalCreateWindowW);
-    return original(lpClassName, lpWindowName, dwStyle,
                    X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
 }
 

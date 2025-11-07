@@ -343,11 +343,6 @@ private:
         DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
         HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
 
-    static HWND WINAPI CreateWindowW_Hook(
-        LPCWSTR lpClassName, LPCWSTR lpWindowName,
-        DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
-        HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
-
     // Window search hooks
     static HWND WINAPI FindWindowW_Hook(
         LPCWSTR lpClassName, LPCWSTR lpWindowName);
@@ -362,7 +357,6 @@ private:
 
     static bool s_enabled;
     static void* s_originalCreateWindowExW;
-    static void* s_originalCreateWindowW;
     static void* s_originalFindWindowW;
     static void* s_originalFindWindowExW;
     static std::unordered_map<HWND, CustomFileListView*> s_instances;
