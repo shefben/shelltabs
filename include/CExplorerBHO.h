@@ -526,6 +526,7 @@ class ShellTabsListView;
                 mutable FolderBackgroundSurfaceCache m_directUIBackgroundSurface;
                 std::wstring m_currentFolderKey;
                 std::unique_ptr<ShellTabsListView> m_listViewControl;
+                HBITMAP m_currentBackgroundBitmap = nullptr;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;
                 std::vector<std::wstring> m_openInNewTabQueue;
