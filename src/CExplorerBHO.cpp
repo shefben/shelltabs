@@ -2393,7 +2393,7 @@ void CExplorerBHO::DetachListView() {
 
     m_listViewControl.reset();
 
-    ResetListViewBackgroundSurface();
+    // Surface caching removed with LVM_SETBKIMAGE approach
 
     m_nativeListView = nullptr;
 }
@@ -2720,17 +2720,8 @@ void CExplorerBHO::OnCustomFileListViewCreated(ShellTabs::CustomFileListView* vi
         view->AttachToShellView(m_shellView.Get());
     }
 
-    // Set up background paint callback
-    view->SetBackgroundPaintCallback(
-        [](HDC dc, HWND window, const RECT& rect, void* context) -> bool {
-            auto* self = static_cast<CExplorerBHO*>(context);
-            if (self) {
-                return self->PaintDirectUIBackground(dc, window, rect);
-            }
-            return false;
-        },
-        this
-    );
+    // Background images now set via LVM_SETBKIMAGE, no custom paint callback needed
+    view->SetBackgroundPaintCallback(nullptr, nullptr);
 
     // Register as a glow surface
     RegisterGlowSurface(hwnd, ExplorerSurfaceKind::DirectUi, false);
@@ -4652,12 +4643,10 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case WM_SIZE: {
             if (isListView) {
-                ResetListViewBackgroundSurface();
+                // Surface caching removed with LVM_SETBKIMAGE approach
                 RefreshListViewControlBackground();
             }
-            if (isDirectUiHost) {
-                ResetDirectUIBackgroundSurface();
-            }
+            // DirectUI background no longer needs manual surface management
             break;
         }
         case WM_NOTIFY: {
