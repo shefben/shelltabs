@@ -74,7 +74,7 @@
 #define LVS_EX_TRANSPARENTBKGND 0x00400000
 #endif
 
-// ListView background image structures and constants (not always in SDK)
+// ListView background image constants (use SDK definitions where available)
 #ifndef LVM_SETBKIMAGE
 #define LVM_SETBKIMAGE (LVM_FIRST + 68)  // 0x1044
 #endif
@@ -83,25 +83,38 @@
 #define LVM_GETBKIMAGE (LVM_FIRST + 69)  // 0x1045
 #endif
 
-// LVBKIMAGE structure for setting ListView background images
-struct LVBKIMAGEW {
-    ULONG ulFlags;
-    HBITMAP hbm;
-    LPWSTR pszImage;
-    UINT cchImageMax;
-    int xOffsetPercent;
-    int yOffsetPercent;
-};
-
-// LVBKIMAGE flags
+// LVBKIMAGE flags (use SDK definitions where available)
+#ifndef LVBKIF_SOURCE_NONE
 #define LVBKIF_SOURCE_NONE      0x00000000
-#define LVBKIF_SOURCE_HBITMAP   0x00000001  // Use hbm field
-#define LVBKIF_SOURCE_URL       0x00000002  // Use pszImage field
+#endif
+
+#ifndef LVBKIF_SOURCE_HBITMAP
+#define LVBKIF_SOURCE_HBITMAP   0x00000001
+#endif
+
+#ifndef LVBKIF_SOURCE_URL
+#define LVBKIF_SOURCE_URL       0x00000002
+#endif
+
+#ifndef LVBKIF_STYLE_NORMAL
 #define LVBKIF_STYLE_NORMAL     0x00000000
-#define LVBKIF_STYLE_TILE       0x00000010  // Tile the image
+#endif
+
+#ifndef LVBKIF_STYLE_TILE
+#define LVBKIF_STYLE_TILE       0x00000010
+#endif
+
+#ifndef LVBKIF_FLAG_TILEOFFSET
 #define LVBKIF_FLAG_TILEOFFSET  0x00000100
-#define LVBKIF_TYPE_WATERMARK   0x10000000  // Watermark mode (Vista+)
-#define LVBKIF_FLAG_ALPHABLEND  0x20000000  // Enable alpha blending
+#endif
+
+#ifndef LVBKIF_TYPE_WATERMARK
+#define LVBKIF_TYPE_WATERMARK   0x10000000
+#endif
+
+#ifndef LVBKIF_FLAG_ALPHABLEND
+#define LVBKIF_FLAG_ALPHABLEND  0x20000000
+#endif
 
 
 namespace {
