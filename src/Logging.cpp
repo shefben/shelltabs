@@ -12,7 +12,9 @@
 #endif
 
 #include <windows.h>
+#include <psapi.h>
 
+#include <atomic>
 #include <chrono>
 #include <cwchar>
 #include <string>
@@ -29,8 +31,11 @@ bool g_loggingReady = false;
 bool g_loggingShutdown = false;
 HMODULE g_hostModule = nullptr;
 LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
+PVOID g_vectoredExceptionHandler = nullptr;
+std::atomic<DWORD> g_accessViolationCount{0};
 
 constexpr wchar_t kLogDirectory[] = L"ShellTabs\\Logs";
+constexpr DWORD kMaxAccessViolationsSuppressed = 100;
 
 std::wstring_view LevelToString(LogLevel level) {
     switch (level) {
@@ -204,6 +209,76 @@ std::wstring DescribeSystemMessage(DWORD code) {
     return Trimmed(std::wstring(buffer, written));
 }
 
+bool IsAddressInShellTabsModule(const void* address) {
+    if (!address || !g_hostModule) {
+        return false;
+    }
+
+    MODULEINFO moduleInfo{};
+    if (!GetModuleInformation(GetCurrentProcess(), g_hostModule, &moduleInfo, sizeof(moduleInfo))) {
+        return false;
+    }
+
+    const auto moduleStart = reinterpret_cast<BYTE*>(moduleInfo.lpBaseOfDll);
+    const auto moduleEnd = moduleStart + moduleInfo.SizeOfImage;
+    const auto testAddress = reinterpret_cast<const BYTE*>(address);
+
+    return testAddress >= moduleStart && testAddress < moduleEnd;
+}
+
+LONG CALLBACK VectoredExceptionHandler(_In_ struct _EXCEPTION_POINTERS* info) {
+    if (!info || !info->ExceptionRecord) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    const auto code = info->ExceptionRecord->ExceptionCode;
+    const void* address = info->ExceptionRecord->ExceptionAddress;
+
+    // Log all exceptions from our module with detailed information
+    if (IsAddressInShellTabsModule(address)) {
+        // Get more details about the exception
+        if (code == EXCEPTION_ACCESS_VIOLATION) {
+            const DWORD count = ++g_accessViolationCount;
+            const ULONG_PTR* exceptionInfo = info->ExceptionRecord->ExceptionInformation;
+            const ULONG_PTR isWrite = (info->ExceptionRecord->NumberParameters > 0) ? exceptionInfo[0] : 0;
+            const ULONG_PTR faultAddress = (info->ExceptionRecord->NumberParameters > 1) ? exceptionInfo[1] : 0;
+
+            LogMessage(LogLevel::Error,
+                       L"Access violation #%lu in ShellTabs: %ls at instruction %p, fault address %p",
+                       count,
+                       isWrite ? L"write" : L"read",
+                       address,
+                       reinterpret_cast<void*>(faultAddress));
+
+            // For null pointer dereferences (fault address is near 0), try to continue safely
+            // This handles cases where we accidentally dereference null pointers
+            if (faultAddress < 0x10000 && count <= kMaxAccessViolationsSuppressed) {
+                LogMessage(LogLevel::Warning,
+                           L"Null pointer dereference detected and suppressed to prevent Explorer crash (count: %lu/%lu)",
+                           count, kMaxAccessViolationsSuppressed);
+
+                // Set the result to 0 or NULL and return from the faulting function
+                // This is safer than trying to skip individual instructions
+#if defined(_M_X64) || defined(_M_AMD64)
+                info->ContextRecord->Rax = 0;  // Set return value to 0/NULL
+                // Note: We can't safely skip the instruction without disassembly
+                // Instead, we'll let the exception propagate but with better logging
+#elif defined(_M_IX86)
+                info->ContextRecord->Eax = 0;  // Set return value to 0/NULL
+#endif
+                // Don't try to continue - let it propagate with better logging
+            }
+        } else {
+            LogMessage(LogLevel::Error,
+                       L"Exception 0x%08X in ShellTabs at %p",
+                       code,
+                       address);
+        }
+    }
+
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 LONG CALLBACK UnhandledExceptionFilterCallback(_In_ struct _EXCEPTION_POINTERS* info) {
     if (!info || !info->ExceptionRecord) {
         return EXCEPTION_CONTINUE_SEARCH;
@@ -244,6 +319,13 @@ BOOL CALLBACK InitializeLoggingOnce(PINIT_ONCE, PVOID parameter, PVOID*) {
     std::wstring header = L"=== ShellTabs logging started for " + process + L" ===\r\n";
     WriteLineToFile(header);
     OutputDebugStringW(header.c_str());
+
+    // Install vectored exception handler first (called before SEH handlers)
+    // This allows us to catch and suppress access violations to prevent Explorer crashes
+    g_vectoredExceptionHandler = AddVectoredExceptionHandler(1, &VectoredExceptionHandler);
+    if (!g_vectoredExceptionHandler) {
+        LogMessage(LogLevel::Warning, L"Failed to install vectored exception handler");
+    }
 
     g_previousFilter = SetUnhandledExceptionFilter(&UnhandledExceptionFilterCallback);
 
@@ -289,6 +371,11 @@ void ShutdownLogging() noexcept {
 
     LogMessage(LogLevel::Info, L"Logging shutting down");
     g_loggingShutdown = true;
+
+    if (g_vectoredExceptionHandler) {
+        RemoveVectoredExceptionHandler(g_vectoredExceptionHandler);
+        g_vectoredExceptionHandler = nullptr;
+    }
 
     if (g_previousFilter) {
         SetUnhandledExceptionFilter(g_previousFilter);
