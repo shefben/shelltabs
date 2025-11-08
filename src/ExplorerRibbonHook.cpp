@@ -5,6 +5,12 @@
 #include <propkey.h>
 #include <shlwapi.h>
 #include <mutex>
+#include <initguid.h>
+
+// Define Windows Ribbon Framework GUIDs
+// These are required because the linker can't find them in the Windows SDK libraries
+DEFINE_GUID(IID_IUICommandHandler, 0x75ae0a2d, 0xdc03, 0x4c9f, 0x88, 0x83, 0x06, 0x96, 0x60, 0xd0, 0xbe, 0xb6);
+DEFINE_GUID(IID_IUIApplication, 0xd428903c, 0x729a, 0x491d, 0x91, 0x0d, 0x68, 0x2a, 0x08, 0xff, 0x25, 0x22);
 
 #pragma comment(lib, "propsys.lib")
 #pragma comment(lib, "shlwapi.lib")

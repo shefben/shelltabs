@@ -2133,7 +2133,7 @@ INT_PTR CALLBACK GroupEditorDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPA
             SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
             y += 20;
 
-            HWND colorPreview = CreateWindowW(L"STATIC", L"",
+            (void)CreateWindowW(L"STATIC", L"",
                 WS_CHILD | WS_VISIBLE | SS_OWNERDRAW | WS_BORDER,
                 x, y, 50, 24,
                 dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_COLOR_PREVIEW), hInst, nullptr);
@@ -2414,8 +2414,8 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
                 int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
                 if (sel >= 0 && sel < static_cast<int>(data->workingGroups.size())) {
                     std::wstring name = data->workingGroups[sel].name;
-                    std::wstring msg = L"Remove group '" + name + L"'?";
-                    if (MessageBoxW(page, msg.c_str(), L"Confirm", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    std::wstring confirmMsg = L"Remove group '" + name + L"'?";
+                    if (MessageBoxW(page, confirmMsg.c_str(), L"Confirm", MB_YESNO | MB_ICONQUESTION) == IDYES) {
                         data->removedGroupIds.push_back(name);
                         data->workingGroups.erase(data->workingGroups.begin() + sel);
                         data->groupsChanged = true;
