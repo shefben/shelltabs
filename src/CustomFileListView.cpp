@@ -1369,6 +1369,7 @@ IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const
 // ============================================================================
 
 bool DirectUIReplacementHook::s_enabled = false;
+bool DirectUIReplacementHook::s_initializedMinHook = false;
 void* DirectUIReplacementHook::s_originalCreateWindowExW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowExW = nullptr;
@@ -1377,8 +1378,18 @@ std::unordered_map<HWND, CustomFileListView*> DirectUIReplacementHook::s_instanc
 bool DirectUIReplacementHook::Initialize() {
     if (s_enabled) return true;
 
-    if (MH_Initialize() != MH_OK) {
-        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to initialize MinHook");
+    const MH_STATUS initStatus = MH_Initialize();
+    if (initStatus == MH_OK) {
+        s_initializedMinHook = true;
+    } else if (initStatus == MH_ERROR_ALREADY_INITIALIZED) {
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementHook: MinHook already initialized (status=%d)",
+                   initStatus);
+        s_initializedMinHook = false;
+    } else {
+        LogMessage(LogLevel::Error,
+                   L"DirectUIReplacementHook: Failed to initialize MinHook (status=%d)",
+                   initStatus);
         return false;
     }
 
@@ -1386,13 +1397,20 @@ bool DirectUIReplacementHook::Initialize() {
     if (MH_CreateHook(&CreateWindowExW, &CreateWindowExW_Hook,
                       &s_originalCreateWindowExW) != MH_OK) {
         LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to create CreateWindowExW hook");
-        MH_Uninitialize();
+        if (s_initializedMinHook) {
+            MH_Uninitialize();
+            s_initializedMinHook = false;
+        }
         return false;
     }
 
     if (MH_EnableHook(&CreateWindowExW) != MH_OK) {
         LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook");
-        MH_Uninitialize();
+        MH_RemoveHook(&CreateWindowExW);
+        if (s_initializedMinHook) {
+            MH_Uninitialize();
+            s_initializedMinHook = false;
+        }
         return false;
     }
 
@@ -1444,7 +1462,10 @@ void DirectUIReplacementHook::Shutdown() {
         MH_RemoveHook(&FindWindowExW);
     }
 
-    MH_Uninitialize();
+    if (s_initializedMinHook) {
+        MH_Uninitialize();
+        s_initializedMinHook = false;
+    }
 
     s_enabled = false;
     LogMessage(LogLevel::Info, L"DirectUIReplacementHook: All hooks shut down");

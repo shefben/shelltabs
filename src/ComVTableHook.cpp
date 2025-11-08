@@ -196,8 +196,15 @@ bool ComVTableHook::HookCoCreateInstance() {
         return true;
     }
 
-    if (MH_Initialize() != MH_OK) {
-        LogMessage(LogLevel::Error, L"ComVTableHook: Failed to initialize MinHook");
+    const MH_STATUS initStatus = MH_Initialize();
+    if (initStatus == MH_ERROR_ALREADY_INITIALIZED) {
+        LogMessage(LogLevel::Info,
+                   L"ComVTableHook: MinHook already initialized (status=%d)",
+                   initStatus);
+    } else if (initStatus != MH_OK) {
+        LogMessage(LogLevel::Error,
+                   L"ComVTableHook: Failed to initialize MinHook (status=%d)",
+                   initStatus);
         return false;
     }
 
