@@ -52,6 +52,35 @@ struct TabProgressView {
     bool operator!=(const TabProgressView& other) const noexcept { return !(*this == other); }
 };
 
+struct NavigationHistoryEntry {
+    UniquePidl pidl;
+    std::wstring path;
+    std::wstring name;
+    ULONGLONG timestamp = 0;
+};
+
+struct NavigationHistory {
+    std::vector<NavigationHistoryEntry> entries;
+    int currentIndex = -1;
+
+    bool CanGoBack() const noexcept {
+        return currentIndex > 0;
+    }
+
+    bool CanGoForward() const noexcept {
+        return currentIndex >= 0 && currentIndex < static_cast<int>(entries.size()) - 1;
+    }
+
+    void Clear() {
+        entries.clear();
+        currentIndex = -1;
+    }
+
+    bool IsEmpty() const noexcept {
+        return entries.empty();
+    }
+};
+
 inline double ClampProgress(double value) noexcept {
     if (value < 0.0) {
         return 0.0;
@@ -74,6 +103,7 @@ struct TabInfo {
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
     uint64_t activationEpoch = 0;
+    NavigationHistory navigationHistory;
 
     void RefreshNormalizedLookupKey();
 };
@@ -230,6 +260,14 @@ public:
     bool ToggleTabPinned(TabLocation location);
 
     int NextGroupSequence() const noexcept { return m_groupSequence; }
+
+    // Navigation history methods
+    void RecordNavigation(TabLocation location, UniquePidl pidl, std::wstring path, std::wstring name);
+    std::optional<NavigationHistoryEntry> NavigateBack(TabLocation location);
+    std::optional<NavigationHistoryEntry> NavigateForward(TabLocation location);
+    bool CanNavigateBack(TabLocation location) const;
+    bool CanNavigateForward(TabLocation location) const;
+    void ClearNavigationHistory(TabLocation location);
 
 private:
     struct ActivationEntry {

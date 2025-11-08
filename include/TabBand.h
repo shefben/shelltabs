@@ -93,6 +93,8 @@ public:
     void OnDetachTabRequested(TabLocation location);
     void OnCloneTabRequested(TabLocation location);
     void OnToggleTabPinned(TabLocation location);
+    void OnNavigateBack();
+    void OnNavigateForward();
     void OnToggleGroupCollapsed(int groupIndex);
     void OnUnhideAllInGroup(int groupIndex);
     void OnCreateIslandAfter(int groupIndex);
@@ -125,6 +127,8 @@ public:
     bool CanCloseTabsToRight(TabLocation location) const;
     bool CanCloseTabsToLeft(TabLocation location) const;
     bool CanReopenClosedTabs() const;
+    bool CanNavigateBack() const;
+    bool CanNavigateForward() const;
 
     std::vector<std::pair<TabLocation, std::wstring>> GetHiddenTabs(int groupIndex) const;
     int GetGroupCount() const noexcept;

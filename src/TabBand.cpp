@@ -404,9 +404,35 @@ IFACEMETHODIMP TabBand::HasFocusIO() {
         []() -> HRESULT { return E_FAIL; });
 }
 
-IFACEMETHODIMP TabBand::TranslateAcceleratorIO(LPMSG) {
-    return GuardExplorerCall(L"TabBand::TranslateAcceleratorIO", []() -> HRESULT { return S_FALSE; },
-                             []() -> HRESULT { return E_FAIL; });
+IFACEMETHODIMP TabBand::TranslateAcceleratorIO(LPMSG msg) {
+    return GuardExplorerCall(L"TabBand::TranslateAcceleratorIO",
+        [&]() -> HRESULT {
+            if (!msg) {
+                return S_FALSE;
+            }
+
+            // Handle Alt+Left and Alt+Right for navigation
+            if (msg->message == WM_SYSKEYDOWN || msg->message == WM_KEYDOWN) {
+                const bool altPressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
+
+                if (altPressed && msg->wParam == VK_LEFT) {
+                    // Alt+Left: Navigate back
+                    if (CanNavigateBack()) {
+                        OnNavigateBack();
+                        return S_OK;
+                    }
+                } else if (altPressed && msg->wParam == VK_RIGHT) {
+                    // Alt+Right: Navigate forward
+                    if (CanNavigateForward()) {
+                        OnNavigateForward();
+                        return S_OK;
+                    }
+                }
+            }
+
+            return S_FALSE;
+        },
+        []() -> HRESULT { return E_FAIL; });
 }
 
 IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
@@ -1121,6 +1147,16 @@ bool TabBand::CanReopenClosedTabs() const {
     return !m_closedTabHistory.empty();
 }
 
+bool TabBand::CanNavigateBack() const {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    return m_tabs.CanNavigateBack(selected);
+}
+
+bool TabBand::CanNavigateForward() const {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    return m_tabs.CanNavigateForward(selected);
+}
+
 void TabBand::OnHideTabRequested(TabLocation location) {
     m_tabs.HideTab(location);
     UpdateTabsUI();
@@ -1211,6 +1247,58 @@ void TabBand::OnToggleTabPinned(TabLocation location) {
     }
     UpdateTabsUI();
     SyncAllSavedGroups();
+}
+
+void TabBand::OnNavigateBack() {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    if (!selected.IsValid()) {
+        return;
+    }
+
+    auto entry = m_tabs.NavigateBack(selected);
+    if (!entry) {
+        return;
+    }
+
+    if (!m_shellBrowser || !entry->pidl) {
+        return;
+    }
+
+    // Set flag to prevent recording this navigation in history
+    m_internalNavigation = true;
+
+    // Navigate to the history entry
+    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE);
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"TabBand::OnNavigateBack failed to navigate (hr=0x%08X)", hr);
+        m_internalNavigation = false;
+    }
+}
+
+void TabBand::OnNavigateForward() {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    if (!selected.IsValid()) {
+        return;
+    }
+
+    auto entry = m_tabs.NavigateForward(selected);
+    if (!entry) {
+        return;
+    }
+
+    if (!m_shellBrowser || !entry->pidl) {
+        return;
+    }
+
+    // Set flag to prevent recording this navigation in history
+    m_internalNavigation = true;
+
+    // Navigate to the history entry
+    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE);
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"TabBand::OnNavigateForward failed to navigate (hr=0x%08X)", hr);
+        m_internalNavigation = false;
+    }
 }
 
 void TabBand::OnToggleGroupCollapsed(int groupIndex) {
@@ -2415,6 +2503,8 @@ void TabBand::EnsureTabForCurrentFolder() {
     if (selected.IsValid()) {
         if (auto* tab = m_tabs.Get(selected)) {
             const std::wstring oldKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
+            const std::wstring oldPath = tab->path;
+
             tab->pidl = ClonePidl(current.get());
             tab->name = name;
             tab->tooltip = name;
@@ -2425,6 +2515,12 @@ void TabBand::EnsureTabForCurrentFolder() {
             if (!oldKey.empty() && oldKey != newKey) {
                 IconCache::Instance().InvalidateFamily(oldKey);
             }
+
+            // Record navigation in history if location changed
+            if (!m_internalNavigation && oldPath != tab->path) {
+                m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
+            }
+
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
             SyncSavedGroup(selected.groupIndex);
             return;

@@ -2112,4 +2112,122 @@ void TabManager::EnsureVisibleSelection() {
 
 }
 
+//=============================================================================
+// Navigation History
+//=============================================================================
+
+void TabManager::RecordNavigation(TabLocation location, UniquePidl pidl, std::wstring path, std::wstring name) {
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return;
+    }
+
+    NavigationHistory& history = tab->navigationHistory;
+
+    // If we're not at the end of the history, remove all forward entries
+    // because we're creating a new branch from the current position
+    if (history.currentIndex >= 0 && history.currentIndex < static_cast<int>(history.entries.size()) - 1) {
+        history.entries.erase(
+            history.entries.begin() + history.currentIndex + 1,
+            history.entries.end()
+        );
+    }
+
+    // Create new history entry
+    NavigationHistoryEntry entry;
+    entry.pidl = std::move(pidl);
+    entry.path = std::move(path);
+    entry.name = std::move(name);
+    entry.timestamp = GetTickCount64();
+
+    // Add to history
+    history.entries.push_back(std::move(entry));
+    history.currentIndex = static_cast<int>(history.entries.size()) - 1;
+
+    // Limit history size to prevent unbounded growth
+    constexpr size_t kMaxHistoryEntries = 100;
+    if (history.entries.size() > kMaxHistoryEntries) {
+        // Remove oldest entries
+        size_t removeCount = history.entries.size() - kMaxHistoryEntries;
+        history.entries.erase(
+            history.entries.begin(),
+            history.entries.begin() + removeCount
+        );
+        history.currentIndex -= static_cast<int>(removeCount);
+    }
+}
+
+std::optional<NavigationHistoryEntry> TabManager::NavigateBack(TabLocation location) {
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return std::nullopt;
+    }
+
+    NavigationHistory& history = tab->navigationHistory;
+    if (!history.CanGoBack()) {
+        return std::nullopt;
+    }
+
+    history.currentIndex--;
+
+    // Return a copy of the entry at the new position
+    NavigationHistoryEntry result;
+    const auto& entry = history.entries[history.currentIndex];
+    result.pidl = ClonePidl(entry.pidl.get());
+    result.path = entry.path;
+    result.name = entry.name;
+    result.timestamp = entry.timestamp;
+
+    return result;
+}
+
+std::optional<NavigationHistoryEntry> TabManager::NavigateForward(TabLocation location) {
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return std::nullopt;
+    }
+
+    NavigationHistory& history = tab->navigationHistory;
+    if (!history.CanGoForward()) {
+        return std::nullopt;
+    }
+
+    history.currentIndex++;
+
+    // Return a copy of the entry at the new position
+    NavigationHistoryEntry result;
+    const auto& entry = history.entries[history.currentIndex];
+    result.pidl = ClonePidl(entry.pidl.get());
+    result.path = entry.path;
+    result.name = entry.name;
+    result.timestamp = entry.timestamp;
+
+    return result;
+}
+
+bool TabManager::CanNavigateBack(TabLocation location) const {
+    const TabInfo* tab = Get(location);
+    if (!tab) {
+        return false;
+    }
+    return tab->navigationHistory.CanGoBack();
+}
+
+bool TabManager::CanNavigateForward(TabLocation location) const {
+    const TabInfo* tab = Get(location);
+    if (!tab) {
+        return false;
+    }
+    return tab->navigationHistory.CanGoForward();
+}
+
+void TabManager::ClearNavigationHistory(TabLocation location) {
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return;
+    }
+    tab->navigationHistory.Clear();
+}
+
+
 }  // namespace shelltabs
