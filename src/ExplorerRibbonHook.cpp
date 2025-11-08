@@ -329,12 +329,11 @@ bool ExplorerRibbonHook::Initialize() {
     }
 
     // Register callback for CLSID_UIRibbonFramework creation
-    // {926749FA-2615-4987-8845-C33E65F2B957}
-    CLSID CLSID_UIRibbonFramework;
-    CLSIDFromString(L"{926749FA-2615-4987-8845-C33E65F2B957}", &CLSID_UIRibbonFramework);
-
+    // Note: CLSID_UIRibbonFramework is defined globally in UIRibbon.h
     ComVTableHook::RegisterClassHook(CLSID_UIRibbonFramework,
         [](IUnknown* pUnknown, REFIID riid) {
+            (void)riid;  // Unused parameter
+
             LogMessage(LogLevel::Info, L"ExplorerRibbonHook: IUIFramework created, setting up hooks...");
 
             // Query for IUIFramework interface
@@ -448,9 +447,8 @@ void ExplorerRibbonHook::Shutdown() {
 
     std::lock_guard<std::mutex> lock(g_ribbonMutex);
 
-    // Unhook CoCreateInstance
-    CLSID CLSID_UIRibbonFramework;
-    CLSIDFromString(L"{926749FA-2615-4987-8845-C33E65F2B957}", &CLSID_UIRibbonFramework);
+    // Unhook CoCreateInstance and unregister framework class hook
+    // Note: CLSID_UIRibbonFramework is defined globally in UIRibbon.h
     ComVTableHook::UnregisterClassHook(CLSID_UIRibbonFramework);
     ComVTableHook::UnhookCoCreateInstance();
 
