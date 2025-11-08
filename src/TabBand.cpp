@@ -1724,6 +1724,43 @@ TabManager::ExplorerWindowId TabBand::BuildWindowId() const {
     return id;
 }
 
+std::wstring TabBand::TryAdoptWindowToken(HWND frame) {
+    if (!frame) {
+        return {};
+    }
+
+    const auto persistedToken = SessionStore::LoadPersistedWindowToken();
+    if (persistedToken && !persistedToken->empty()) {
+        const std::wstring storagePath = SessionStore::BuildPathForToken(*persistedToken);
+        if (!storagePath.empty() &&
+            GetFileAttributesW(storagePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            LogMessage(LogLevel::Info,
+                       L"TabBand::ResolveWindowToken adopting persisted token %ls for frame %p",
+                       persistedToken->c_str(), frame);
+            SessionStore::PersistWindowToken(*persistedToken);
+            return *persistedToken;
+        }
+
+        LogMessage(LogLevel::Info,
+                   L"TabBand::ResolveWindowToken clearing stale persisted token %ls (frame=%p)",
+                   persistedToken->c_str(), frame);
+        SessionStore::ClearPersistedWindowToken();
+    }
+
+    const auto candidates = SessionStore::EnumerateRecoverableSessions();
+    const auto selected = SessionStore::SelectRecoverableSession(candidates);
+    if (selected) {
+        LogMessage(LogLevel::Info,
+                   L"TabBand::ResolveWindowToken adopting recoverable token %ls (lock=%d temp=%d checkpoint=%d markers=%d) for frame %p",
+                   selected->token.c_str(), selected->hasLock ? 1 : 0, selected->hasTemp ? 1 : 0,
+                   selected->hasCheckpoint ? 1 : 0, selected->CompanionCount(), frame);
+        SessionStore::PersistWindowToken(selected->token);
+        return selected->token;
+    }
+
+    return {};
+}
+
 std::wstring TabBand::ResolveWindowToken() {
     if (!m_windowToken.empty()) {
         return m_windowToken;
@@ -1734,8 +1771,30 @@ std::wstring TabBand::ResolveWindowToken() {
         return {};
     }
 
+    auto& state = GetWindowTokenState();
     {
-        auto& state = GetWindowTokenState();
+        std::scoped_lock lock(state.mutex);
+        const auto existing = state.tokens.find(frame);
+        if (existing != state.tokens.end()) {
+            m_windowToken = existing->second;
+            return m_windowToken;
+        }
+    }
+
+    std::wstring adoptedToken = TryAdoptWindowToken(frame);
+    if (!adoptedToken.empty()) {
+        auto& adoptState = GetWindowTokenState();
+        std::scoped_lock lock(adoptState.mutex);
+        auto [it, inserted] = adoptState.tokens.emplace(frame, adoptedToken);
+        if (!inserted) {
+            m_windowToken = it->second;
+            return m_windowToken;
+        }
+        m_windowToken = it->second;
+        return m_windowToken;
+    }
+
+    {
         std::scoped_lock lock(state.mutex);
         const auto existing = state.tokens.find(frame);
         if (existing != state.tokens.end()) {
@@ -1870,6 +1929,7 @@ void TabBand::DisconnectSite() {
     if (m_sessionMarkerActive && m_sessionStore) {
         m_sessionStore->ClearSessionMarker();
     }
+    SessionStore::ClearPersistedWindowToken();
     m_sessionMarkerActive = false;
     if (m_sessionStore) {
         m_sessionStore->SetMarkerReady(false);
@@ -2002,6 +2062,7 @@ void TabBand::EnsureSessionStore() {
     }
 
     LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
+    SessionStore::PersistWindowToken(token);
     m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
     if (m_sessionStore) {
         m_sessionStore->SetMarkerReady(false);

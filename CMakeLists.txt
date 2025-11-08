@@ -313,4 +313,33 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         user32
         shell32
     )
+
+    add_executable(ShellTabsSessionRecoveryTests
+        tests/SessionStoreRecoveryTests.cpp
+        src/SessionStore.cpp
+        src/Utilities.cpp
+        src/StringUtils.cpp
+        src/Logging.cpp
+    )
+
+    target_include_directories(ShellTabsSessionRecoveryTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsSessionRecoveryTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
+
+    target_link_libraries(ShellTabsSessionRecoveryTests PRIVATE
+        shlwapi
+        shell32
+        ole32
+        oleaut32
+        user32
+        urlmon
+        comdlg32
+    )
 endif()

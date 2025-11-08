@@ -59,6 +59,19 @@ struct SessionData {
 
 class SessionStore {
 public:
+    struct RecoverableSessionCandidate {
+        std::wstring token;
+        std::wstring storagePath;
+        uint64_t lastActivityTicks = 0;
+        bool hasLock = false;
+        bool hasTemp = false;
+        bool hasCheckpoint = false;
+
+        [[nodiscard]] int CompanionCount() const noexcept {
+            return static_cast<int>(hasLock) + static_cast<int>(hasTemp) + static_cast<int>(hasCheckpoint);
+        }
+    };
+
     SessionStore();
     explicit SessionStore(std::wstring storagePath);
 
@@ -66,6 +79,12 @@ public:
     bool Save(const SessionData& data) const;
 
     static std::wstring BuildPathForToken(const std::wstring& token);
+    static std::vector<RecoverableSessionCandidate> EnumerateRecoverableSessions();
+    static std::optional<RecoverableSessionCandidate> SelectRecoverableSession(
+        const std::vector<RecoverableSessionCandidate>& candidates);
+    static std::optional<std::wstring> LoadPersistedWindowToken();
+    static bool PersistWindowToken(const std::wstring& token);
+    static void ClearPersistedWindowToken();
     bool WasPreviousSessionUnclean() const;
     void MarkSessionActive() const;
     void ClearSessionMarker() const;
