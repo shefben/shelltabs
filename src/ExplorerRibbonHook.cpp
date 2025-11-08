@@ -1,7 +1,6 @@
 #include "ExplorerRibbonHook.h"
 #include "ComVTableHook.h"
 #include "Logging.h"
-#include "MinHook.h"
 #include <propvarutil.h>
 #include <propkey.h>
 #include <shlwapi.h>

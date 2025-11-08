@@ -1,6 +1,6 @@
 #include "CompositionIntercept.h"
 
-#include <MinHook.h>
+#include "MinHookSupport.h"
 
 #include <dcomp.h>
 #include <d2d1_1.h>
@@ -78,6 +78,7 @@ void* g_bitBltAddress = nullptr;
 void* g_stretchBltAddress = nullptr;
 
 bool g_hooksInstalled = false;
+bool g_minHookAcquired = false;
 
 thread_local bool g_rasterInterceptActive = false;
 
@@ -1175,9 +1176,12 @@ void ClearRegistration(HWND hwnd) {
 }  // namespace
 
 bool InitializeCompositionIntercept() {
-    MH_STATUS status = MH_Initialize();
-    if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {
-        LogMessage(LogLevel::Error, L"CompositionIntercept: MH_Initialize failed (status=%d)", static_cast<int>(status));
+    if (g_hooksInstalled) {
+        return true;
+    }
+
+    MinHookScopedAcquire minHookGuard(L"CompositionIntercept::Initialize");
+    if (!minHookGuard.IsAcquired()) {
         return false;
     }
 
@@ -1283,6 +1287,8 @@ bool InitializeCompositionIntercept() {
     }
 
     g_hooksInstalled = true;
+    g_minHookAcquired = true;
+    minHookGuard.Dismiss();
     LogMessage(LogLevel::Info, L"CompositionIntercept: hooks initialized");
     return true;
 }
@@ -1312,10 +1318,9 @@ void ShutdownCompositionIntercept() {
         g_windowContexts.clear();
     }
 
-    MH_STATUS status = MH_Uninitialize();
-    if (status != MH_OK && status != MH_ERROR_NOT_INITIALIZED) {
-        LogMessage(LogLevel::Warning, L"CompositionIntercept: MH_Uninitialize failed (status=%d)",
-                   static_cast<int>(status));
+    if (g_minHookAcquired) {
+        ReleaseMinHook(L"CompositionIntercept::Shutdown");
+        g_minHookAcquired = false;
     }
 }
 

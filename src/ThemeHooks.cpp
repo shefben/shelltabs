@@ -1,6 +1,6 @@
 #include "ThemeHooks.h"
 
-#include <MinHook.h>
+#include "MinHookSupport.h"
 
 #include <CommCtrl.h>
 #include <gdiplus.h>
@@ -78,6 +78,7 @@ std::unordered_map<HWND, ScrollbarPaintMetrics, HwndHasher> g_scrollbarMetrics;
 
 std::mutex g_initializationMutex;
 bool g_hooksActive = false;
+bool g_minHookAcquired = false;
 
 using DrawThemeBackgroundFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, const RECT*, const RECT*);
 using DrawThemeEdgeFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, const RECT*, UINT, UINT, RECT*);
@@ -1942,12 +1943,10 @@ bool InitializeThemeHooks() {
         return true;
     }
 
-    MH_STATUS status = MH_Initialize();
-    if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {
-        LogMessage(LogLevel::Error, L"ThemeHooks: MH_Initialize failed (status=%d)", status);
+    MinHookScopedAcquire minHookGuard(L"ThemeHooks::Initialize");
+    if (!minHookGuard.IsAcquired()) {
         return false;
     }
-    const bool initializedHere = (status == MH_OK);
 
     HMODULE uxtheme = GetModuleHandleW(L"uxtheme.dll");
     if (!uxtheme) {
@@ -1983,18 +1982,12 @@ bool InitializeThemeHooks() {
 
     if (!InstallHook(g_drawThemeBackgroundTarget, reinterpret_cast<void*>(&DrawThemeBackgroundDetour),
                      reinterpret_cast<void**>(&g_originalDrawThemeBackground), L"DrawThemeBackground")) {
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
     if (!InstallHook(g_drawThemeEdgeTarget, reinterpret_cast<void*>(&DrawThemeEdgeDetour),
                      reinterpret_cast<void**>(&g_originalDrawThemeEdge), L"DrawThemeEdge")) {
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2002,9 +1995,6 @@ bool InitializeThemeHooks() {
                      reinterpret_cast<void**>(&g_originalFillRect), L"FillRect")) {
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2013,9 +2003,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_fillRectTarget, L"FillRect");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2025,9 +2012,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_fillRectTarget, L"FillRect");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2038,9 +2022,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_fillRectTarget, L"FillRect");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2052,9 +2033,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_fillRectTarget, L"FillRect");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2067,9 +2045,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_fillRectTarget, L"FillRect");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2083,9 +2058,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_fillRectTarget, L"FillRect");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2100,9 +2072,6 @@ bool InitializeThemeHooks() {
         DisableHook(g_fillRectTarget, L"FillRect");
         DisableHook(g_drawThemeEdgeTarget, L"DrawThemeEdge");
         DisableHook(g_drawThemeBackgroundTarget, L"DrawThemeBackground");
-        if (initializedHere) {
-            MH_Uninitialize();
-        }
         return false;
     }
 
@@ -2125,6 +2094,8 @@ bool InitializeThemeHooks() {
                 reinterpret_cast<void**>(&g_originalSelectObject), L"SelectObject");
 
     g_hooksActive = true;
+    g_minHookAcquired = true;
+    minHookGuard.Dismiss();
     LogMessage(LogLevel::Info, L"ThemeHooks: installed theme detours (including line drawing hooks)");
     return true;
 }
@@ -2164,9 +2135,9 @@ void ShutdownThemeHooks() {
         g_directUiElementInfo.clear();
     }
 
-    MH_STATUS status = MH_Uninitialize();
-    if (status != MH_OK && status != MH_ERROR_NOT_INITIALIZED) {
-        LogMessage(LogLevel::Warning, L"ThemeHooks: MH_Uninitialize failed (status=%d)", status);
+    if (g_minHookAcquired) {
+        ReleaseMinHook(L"ThemeHooks::Shutdown");
+        g_minHookAcquired = false;
     }
 
     {

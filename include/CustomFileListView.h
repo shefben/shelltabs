@@ -356,7 +356,7 @@ private:
                                        HWND hWndParent, HINSTANCE hInstance);
 
     static bool s_enabled;
-    static bool s_initializedMinHook;
+    static bool s_minHookAcquired;
     static void* s_originalCreateWindowExW;
     static void* s_originalFindWindowW;
     static void* s_originalFindWindowExW;

@@ -1,6 +1,6 @@
 #include "ComVTableHook.h"
 #include "Logging.h"
-#include "MinHook.h"
+#include "MinHookSupport.h"
 #include <mutex>
 #include <combaseapi.h>
 
@@ -19,6 +19,7 @@ std::vector<ComVTableHook::VTableEntry> ComVTableHook::s_hookedMethods;
 std::unordered_map<std::wstring, ComVTableHook::CreateCallback> ComVTableHook::s_classHooks;
 void* ComVTableHook::s_originalCoCreateInstance = nullptr;
 bool ComVTableHook::s_coCreateHooked = false;
+bool ComVTableHook::s_minHookAcquired = false;
 
 //=============================================================================
 // VTable Manipulation
@@ -196,15 +197,8 @@ bool ComVTableHook::HookCoCreateInstance() {
         return true;
     }
 
-    const MH_STATUS initStatus = MH_Initialize();
-    if (initStatus == MH_ERROR_ALREADY_INITIALIZED) {
-        LogMessage(LogLevel::Info,
-                   L"ComVTableHook: MinHook already initialized (status=%d)",
-                   initStatus);
-    } else if (initStatus != MH_OK) {
-        LogMessage(LogLevel::Error,
-                   L"ComVTableHook: Failed to initialize MinHook (status=%d)",
-                   initStatus);
+    MinHookScopedAcquire minHookGuard(L"ComVTableHook::HookCoCreateInstance");
+    if (!minHookGuard.IsAcquired()) {
         return false;
     }
 
@@ -222,6 +216,8 @@ bool ComVTableHook::HookCoCreateInstance() {
     }
 
     s_coCreateHooked = true;
+    s_minHookAcquired = true;
+    minHookGuard.Dismiss();
     LogMessage(LogLevel::Info, L"ComVTableHook: Successfully hooked CoCreateInstance");
 
     return true;
@@ -234,6 +230,10 @@ void ComVTableHook::UnhookCoCreateInstance() {
     MH_RemoveHook(&CoCreateInstance);
 
     s_coCreateHooked = false;
+    if (s_minHookAcquired) {
+        ReleaseMinHook(L"ComVTableHook::UnhookCoCreateInstance");
+        s_minHookAcquired = false;
+    }
     LogMessage(LogLevel::Info, L"ComVTableHook: Unhooked CoCreateInstance");
 }
 

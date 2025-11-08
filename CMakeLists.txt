@@ -65,6 +65,7 @@ add_library(ShellTabs SHARED
     src/DpiUtils.cpp
     src/EditGradientRenderer.cpp
     src/ExplorerGlowSurfaces.cpp
+    src/MinHookSupport.cpp
     src/CompositionIntercept.cpp
     src/ThemeHooks.cpp
     src/PaneHooks.cpp

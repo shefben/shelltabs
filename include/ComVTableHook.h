@@ -81,6 +81,7 @@ private:
     static std::unordered_map<std::wstring, CreateCallback> s_classHooks;
     static void* s_originalCoCreateInstance;
     static bool s_coCreateHooked;
+    static bool s_minHookAcquired;
 };
 
 //=============================================================================
