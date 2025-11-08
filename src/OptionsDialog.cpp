@@ -502,6 +502,11 @@ public:
         IncrementControlCount();
     }
 
+    void EnableVerticalScrollbar() {
+        auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data_.data());
+        dlg->style |= WS_VSCROLL;
+    }
+
     DialogTemplatePtr Build() {
         return AllocateTemplate(data_);
     }
@@ -1032,7 +1037,10 @@ INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM l
 //=============================================================================
 
 DialogTemplatePtr CreateGlowEffectsPageTemplate() {
-    DialogBuilder builder(kPageWidth, kPageHeight);
+    // Use actual content height instead of fixed page height to enable scrolling
+    constexpr int kActualContentHeight = 520;  // Increased height to fit all controls
+    DialogBuilder builder(kPageWidth, kActualContentHeight);
+    builder.EnableVerticalScrollbar();
 
     int y = kMargin;
 
@@ -1189,6 +1197,22 @@ INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitGlowEffectsPage(page, data);
+
+        // Initialize scrollbar for the page
+        RECT clientRect;
+        GetClientRect(page, &clientRect);
+        constexpr int kActualContentHeight = 520;  // Match CreateGlowEffectsPageTemplate
+        int pageHeight = clientRect.bottom - clientRect.top;
+
+        SCROLLINFO si = {};
+        si.cbSize = sizeof(SCROLLINFO);
+        si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+        si.nMin = 0;
+        si.nMax = kActualContentHeight;
+        si.nPage = static_cast<UINT>(pageHeight);
+        si.nPos = 0;
+        SetScrollInfo(page, SB_VERT, &si, TRUE);
+
         return TRUE;
     }
 
@@ -1323,6 +1347,94 @@ INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
                 DrawColorBox(dis->hDC, dis->rcItem, data->workingOptions.neonGlowSecondaryColor);
                 return TRUE;
             }
+            break;
+        }
+
+        case WM_VSCROLL: {
+            // Handle vertical scrolling
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(SCROLLINFO);
+            si.fMask = SIF_ALL;
+            GetScrollInfo(page, SB_VERT, &si);
+
+            int oldPos = si.nPos;
+
+            switch (LOWORD(wParam)) {
+                case SB_TOP:
+                    si.nPos = si.nMin;
+                    break;
+                case SB_BOTTOM:
+                    si.nPos = si.nMax;
+                    break;
+                case SB_LINEUP:
+                    si.nPos -= 20;
+                    break;
+                case SB_LINEDOWN:
+                    si.nPos += 20;
+                    break;
+                case SB_PAGEUP:
+                    si.nPos -= si.nPage;
+                    break;
+                case SB_PAGEDOWN:
+                    si.nPos += si.nPage;
+                    break;
+                case SB_THUMBTRACK:
+                case SB_THUMBPOSITION:
+                    si.nPos = si.nTrackPos;
+                    break;
+            }
+
+            si.fMask = SIF_POS;
+            SetScrollInfo(page, SB_VERT, &si, TRUE);
+            GetScrollInfo(page, SB_VERT, &si);
+
+            if (si.nPos != oldPos) {
+                ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
+                UpdateWindow(page);
+            }
+
+            return TRUE;
+        }
+
+        case WM_MOUSEWHEEL: {
+            // Handle mouse wheel scrolling
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            int scrollAmount = -delta / WHEEL_DELTA;
+
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(SCROLLINFO);
+            si.fMask = SIF_ALL;
+            GetScrollInfo(page, SB_VERT, &si);
+
+            int oldPos = si.nPos;
+            si.nPos += scrollAmount * 40;  // 40 pixels per wheel notch
+
+            si.fMask = SIF_POS;
+            SetScrollInfo(page, SB_VERT, &si, TRUE);
+            GetScrollInfo(page, SB_VERT, &si);
+
+            if (si.nPos != oldPos) {
+                ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
+                UpdateWindow(page);
+            }
+
+            return TRUE;
+        }
+
+        case WM_SIZE: {
+            // Update scrollbar when window is resized
+            RECT clientRect;
+            GetClientRect(page, &clientRect);
+            constexpr int kActualContentHeight = 520;  // Match CreateGlowEffectsPageTemplate
+            int pageHeight = clientRect.bottom - clientRect.top;
+
+            SCROLLINFO si = {};
+            si.cbSize = sizeof(SCROLLINFO);
+            si.fMask = SIF_RANGE | SIF_PAGE;
+            si.nMin = 0;
+            si.nMax = kActualContentHeight;
+            si.nPage = static_cast<UINT>(pageHeight);
+            SetScrollInfo(page, SB_VERT, &si, TRUE);
             break;
         }
 
