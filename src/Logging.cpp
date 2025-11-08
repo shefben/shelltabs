@@ -39,6 +39,8 @@ constexpr DWORD kMaxAccessViolationsSuppressed = 100;
 
 std::wstring_view LevelToString(LogLevel level) {
     switch (level) {
+        case LogLevel::Verbose:
+            return L"VERBOSE";
         case LogLevel::Info:
             return L"INFO";
         case LogLevel::Warning:
@@ -227,7 +229,7 @@ bool IsAddressInShellTabsModule(const void* address) {
 }
 
 LONG CALLBACK VectoredExceptionHandler(_In_ struct _EXCEPTION_POINTERS* info) {
-    if (!info || !info->ExceptionRecord) {
+    if (!info || !info->ExceptionRecord || !info->ContextRecord) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
@@ -250,23 +252,46 @@ LONG CALLBACK VectoredExceptionHandler(_In_ struct _EXCEPTION_POINTERS* info) {
                        address,
                        reinterpret_cast<void*>(faultAddress));
 
-            // For null pointer dereferences (fault address is near 0), try to continue safely
+            // For null pointer dereferences (fault address is near 0), suppress the crash
             // This handles cases where we accidentally dereference null pointers
             if (faultAddress < 0x10000 && count <= kMaxAccessViolationsSuppressed) {
                 LogMessage(LogLevel::Warning,
                            L"Null pointer dereference detected and suppressed to prevent Explorer crash (count: %lu/%lu)",
                            count, kMaxAccessViolationsSuppressed);
 
-                // Set the result to 0 or NULL and return from the faulting function
-                // This is safer than trying to skip individual instructions
+                // Return from the faulting function safely by unwinding the stack
+                // We simulate a function return by setting the instruction pointer to the return address
+                // and adjusting the stack pointer
 #if defined(_M_X64) || defined(_M_AMD64)
-                info->ContextRecord->Rax = 0;  // Set return value to 0/NULL
-                // Note: We can't safely skip the instruction without disassembly
-                // Instead, we'll let the exception propagate but with better logging
+                // On x64, read the return address from the stack and set up for return
+                // Use __try to safely read from the stack in case of corruption
+                __try {
+                    ULONG_PTR* stackPtr = reinterpret_cast<ULONG_PTR*>(info->ContextRecord->Rsp);
+                    ULONG_PTR returnAddress = *stackPtr;
+                    info->ContextRecord->Rip = returnAddress;  // Set instruction pointer to return address
+                    info->ContextRecord->Rsp += sizeof(ULONG_PTR);  // Pop return address from stack
+                    info->ContextRecord->Rax = 0;  // Set return value to 0/NULL
+                    return EXCEPTION_CONTINUE_EXECUTION;  // Continue execution from the return address
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    LogMessage(LogLevel::Error,
+                               L"Failed to read return address from stack (stack corruption?), allowing exception to propagate");
+                }
 #elif defined(_M_IX86)
-                info->ContextRecord->Eax = 0;  // Set return value to 0/NULL
+                // On x86, read the return address from the stack and set up for return
+                __try {
+                    ULONG_PTR* stackPtr = reinterpret_cast<ULONG_PTR*>(info->ContextRecord->Esp);
+                    ULONG_PTR returnAddress = *stackPtr;
+                    info->ContextRecord->Eip = returnAddress;  // Set instruction pointer to return address
+                    info->ContextRecord->Esp += sizeof(ULONG_PTR);  // Pop return address from stack
+                    info->ContextRecord->Eax = 0;  // Set return value to 0/NULL
+                    return EXCEPTION_CONTINUE_EXECUTION;  // Continue execution from the return address
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    LogMessage(LogLevel::Error,
+                               L"Failed to read return address from stack (stack corruption?), allowing exception to propagate");
+                }
 #endif
-                // Don't try to continue - let it propagate with better logging
             }
         } else {
             LogMessage(LogLevel::Error,
