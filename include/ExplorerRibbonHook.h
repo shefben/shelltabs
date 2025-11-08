@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <vector>
 #include <functional>
+#include <unordered_map>
 
 namespace shelltabs {
 
@@ -150,11 +151,11 @@ private:
         HWND frameworkView,
         IUIApplication* application);
 
+    // Helper to set up framework vtable hooks
+    static void SetupFrameworkHooks(IUIFramework* pFramework);
+
     // Helper to inject custom ribbon markup
     static HRESULT InjectCustomRibbonTab(IUIFramework* framework, HWND hwnd);
-
-    // Helper to create custom ribbon resource
-    static HINSTANCE CreateCustomRibbonResource();
 
     static bool s_enabled;
     static void* s_originalLoadUI;
