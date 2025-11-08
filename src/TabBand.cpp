@@ -3095,6 +3095,15 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
         result->sessionStoreAvailable = true;
         sessionStore->SetMarkerReady(true);
         result->lastSessionUnclean = sessionStore->WasPreviousSessionUnclean();
+
+        // Mark session active IMMEDIATELY to ensure crash marker exists
+        // This must happen before any restore logic in case Explorer crashes during initialization
+        if (!m_sessionMarkerActive) {
+            sessionStore->MarkSessionActive();
+            m_sessionMarkerActive = true;
+            LogMessage(LogLevel::Info, L"TabBand session crash marker created");
+        }
+
         bool reopenOnCrash = result->optionsLoaded ? optionsSnapshot.reopenOnCrash : m_options.reopenOnCrash;
         bool shouldRestore = !hasPendingSeed;
         if (result->lastSessionUnclean && !reopenOnCrash) {
@@ -3230,10 +3239,8 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
         m_sessionPersistenceReady = true;
         if (m_sessionStore) {
             m_sessionStore->SetMarkerReady(true);
-            if (!m_sessionMarkerActive) {
-                m_sessionStore->MarkSessionActive();
-                m_sessionMarkerActive = true;
-            }
+            // Note: MarkSessionActive is now called earlier in RunBackgroundInitialization
+            // to ensure the crash marker exists as soon as possible
         }
         StartSessionFlushTimer();
     } else {
