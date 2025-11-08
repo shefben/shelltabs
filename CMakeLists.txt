@@ -74,6 +74,8 @@ add_library(ShellTabs SHARED
     src/ExplorerThemeUtils.cpp
     src/CustomFileListView.cpp
     src/DirectUIReplacementIntegration.cpp
+    src/ComVTableHook.cpp
+    src/ExplorerRibbonHook.cpp
     src/resource.rc
 )
 

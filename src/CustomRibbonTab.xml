@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Custom Ribbon Tab for Windows Explorer
+
+  This XML defines a custom "Custom" tab with action buttons.
+
+  To compile this into a binary ribbon resource:
+  1. Use the Windows SDK UI Command Compiler (UICC.exe):
+     uicc.exe CustomRibbonTab.xml CustomRibbonTab.bml /header:CustomRibbonTab.h /res:CustomRibbonTab.rc
+
+  2. Include the generated .bml file in your resources:
+     Add to your .rc file: APPLICATION_RIBBON UIFILE "CustomRibbonTab.bml"
+
+  3. Load the ribbon in your application:
+     pFramework->LoadUI(hInstance, L"APPLICATION_RIBBON");
+
+  Note: This is a standalone ribbon definition. To inject it into Explorer's
+  existing ribbon, you'll need to either:
+  - Hook and modify Explorer's ribbon markup before it loads
+  - Use IUICollectionChangedEvent to dynamically add tabs
+  - Manually modify Explorer's ribbon binary resource (fragile)
+-->
+<Application xmlns="http://schemas.microsoft.com/windows/2009/Ribbon">
+
+  <Application.Commands>
+
+    <!-- Tab Command -->
+    <Command Name="cmdCustomTab"
+             Symbol="cmdCustomTab"
+             Id="50000"
+             LabelTitle="Custom"
+             LabelDescription="Custom tools and actions"/>
+
+    <!-- Group Command -->
+    <Command Name="cmdCustomGroup1"
+             Symbol="cmdCustomGroup1"
+             Id="50001"
+             LabelTitle="Actions"/>
+
+    <!-- Button Commands -->
+    <Command Name="cmdCustomButton1"
+             Symbol="cmdCustomButton1"
+             Id="50100"
+             LabelTitle="Button 1"
+             LabelDescription="Custom action button 1"
+             TooltipTitle="Custom Button 1"
+             TooltipDescription="Execute custom action 1"/>
+
+    <Command Name="cmdCustomButton2"
+             Symbol="cmdCustomButton2"
+             Id="50101"
+             LabelTitle="Button 2"
+             LabelDescription="Custom action button 2"
+             TooltipTitle="Custom Button 2"
+             TooltipDescription="Execute custom action 2"/>
+
+    <Command Name="cmdCustomButton3"
+             Symbol="cmdCustomButton3"
+             Id="50102"
+             LabelTitle="Button 3"
+             LabelDescription="Custom action button 3"
+             TooltipTitle="Custom Button 3"
+             TooltipDescription="Execute custom action 3"/>
+
+    <Command Name="cmdCustomButton4"
+             Symbol="cmdCustomButton4"
+             Id="50103"
+             LabelTitle="Button 4"
+             LabelDescription="Custom action button 4"
+             TooltipTitle="Custom Button 4"
+             TooltipDescription="Execute custom action 4"/>
+
+    <Command Name="cmdCustomButton5"
+             Symbol="cmdCustomButton5"
+             Id="50104"
+             LabelTitle="Button 5"
+             LabelDescription="Custom action button 5"
+             TooltipTitle="Custom Button 5"
+             TooltipDescription="Execute custom action 5"/>
+
+  </Application.Commands>
+
+  <Application.Views>
+    <Ribbon>
+
+      <Ribbon.Tabs>
+
+        <!-- Custom Tab -->
+        <Tab CommandName="cmdCustomTab">
+
+          <Tab.ScalingPolicy>
+            <ScalingPolicy>
+              <ScalingPolicy.IdealSizes>
+                <Scale Group="*" Size="Large"/>
+              </ScalingPolicy.IdealSizes>
+            </ScalingPolicy>
+          </Tab.ScalingPolicy>
+
+          <!-- Actions Group -->
+          <Group CommandName="cmdCustomGroup1" SizeDefinition="FiveButtons">
+
+            <Button CommandName="cmdCustomButton1">
+              <Button.LargeImages>
+                <Image Source="IMAGE_BUTTON1_LARGE"/>
+              </Button.LargeImages>
+              <Button.SmallImages>
+                <Image Source="IMAGE_BUTTON1_SMALL"/>
+              </Button.SmallImages>
+            </Button>
+
+            <Button CommandName="cmdCustomButton2">
+              <Button.LargeImages>
+                <Image Source="IMAGE_BUTTON2_LARGE"/>
+              </Button.LargeImages>
+              <Button.SmallImages>
+                <Image Source="IMAGE_BUTTON2_SMALL"/>
+              </Button.SmallImages>
+            </Button>
+
+            <Button CommandName="cmdCustomButton3">
+              <Button.LargeImages>
+                <Image Source="IMAGE_BUTTON3_LARGE"/>
+              </Button.LargeImages>
+              <Button.SmallImages>
+                <Image Source="IMAGE_BUTTON3_SMALL"/>
+              </Button.SmallImages>
+            </Button>
+
+            <Button CommandName="cmdCustomButton4">
+              <Button.LargeImages>
+                <Image Source="IMAGE_BUTTON4_LARGE"/>
+              </Button.LargeImages>
+              <Button.SmallImages>
+                <Image Source="IMAGE_BUTTON4_SMALL"/>
+              </Button.SmallImages>
+            </Button>
+
+            <Button CommandName="cmdCustomButton5">
+              <Button.LargeImages>
+                <Image Source="IMAGE_BUTTON5_LARGE"/>
+              </Button.LargeImages>
+              <Button.SmallImages>
+                <Image Source="IMAGE_BUTTON5_SMALL"/>
+              </Button.SmallImages>
+            </Button>
+
+          </Group>
+
+        </Tab>
+
+      </Ribbon.Tabs>
+
+    </Ribbon>
+  </Application.Views>
+
+</Application>
