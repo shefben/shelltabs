@@ -61,6 +61,10 @@ STDMETHODIMP RibbonCommandHandler::Execute(
     const PROPVARIANT* currentValue,
     IUISimplePropertySet* commandExecutionProperties) {
 
+    (void)key;
+    (void)currentValue;
+    (void)commandExecutionProperties;
+
     if (verb == UI_EXECUTIONVERB_EXECUTE) {
         LogMessage(LogLevel::Info, L"RibbonCommandHandler: Executing command %u", commandId);
 
@@ -84,6 +88,8 @@ STDMETHODIMP RibbonCommandHandler::UpdateProperty(
     REFPROPERTYKEY key,
     const PROPVARIANT* currentValue,
     PROPVARIANT* newValue) {
+
+    (void)currentValue;
 
     // Provide property values for our custom commands
     if (key == UI_PKEY_Label) {
@@ -213,6 +219,10 @@ STDMETHODIMP RibbonApplicationHandler::OnViewChanged(
     UI_VIEWVERB verb,
     INT32 reasonCode) {
 
+    (void)typeId;
+    (void)view;
+    (void)reasonCode;
+
     LogMessage(LogLevel::Verbose, L"RibbonApplicationHandler: OnViewChanged(viewId=%u, verb=%d)", viewId, verb);
     return S_OK;
 }
@@ -221,6 +231,8 @@ STDMETHODIMP RibbonApplicationHandler::OnCreateUICommand(
     UINT32 commandId,
     UI_COMMANDTYPE typeId,
     IUICommandHandler** commandHandler) {
+
+    (void)typeId;
 
     // Return our command handler for custom commands
     if (commandId >= cmdCustomTab && commandId < 60000) {
@@ -239,6 +251,9 @@ STDMETHODIMP RibbonApplicationHandler::OnDestroyUICommand(
     UINT32 commandId,
     UI_COMMANDTYPE typeId,
     IUICommandHandler* commandHandler) {
+
+    (void)typeId;
+    (void)commandHandler;
 
     LogMessage(LogLevel::Verbose, L"RibbonApplicationHandler: OnDestroyUICommand(%u)", commandId);
     return S_OK;
@@ -356,6 +371,8 @@ IUIFramework* ExplorerRibbonHook::GetRibbonFramework(HWND explorerWindow) {
 }
 
 HRESULT ExplorerRibbonHook::InjectCustomRibbonTab(IUIFramework* framework, HWND hwnd) {
+    (void)framework;
+
     // This function would programmatically add ribbon elements
     // In a real implementation, you would:
     // 1. Get the IUIRibbon interface from the framework
