@@ -36,6 +36,7 @@ constexpr wchar_t kMarkerSuffix[] = L".lock";
 constexpr wchar_t kTempSuffix[] = L".tmp";
 constexpr wchar_t kCheckpointSuffix[] = L".previous";
 constexpr wchar_t kChecksumToken[] = L"checksum";
+constexpr wchar_t kPersistedTokenFile[] = L"session-active.token";
 
 void NotifySessionChecksumMismatch(const std::wstring& corruptedPath) {
     static std::once_flag s_corruptionNoticeOnce;
@@ -107,6 +108,59 @@ std::wstring BuildCheckpointPath(const std::wstring& storagePath) {
     }
 
     return storagePath + kCheckpointSuffix;
+}
+
+std::wstring BuildPersistedTokenPath() {
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return {};
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    directory += kPersistedTokenFile;
+    return directory;
+}
+
+std::wstring_view StripPrefix(std::wstring_view value, std::wstring_view prefix) {
+    if (value.size() < prefix.size()) {
+        return value;
+    }
+    if (value.compare(0, prefix.size(), prefix) == 0) {
+        return value.substr(prefix.size());
+    }
+    return value;
+}
+
+std::wstring_view StripSuffix(std::wstring_view value, std::wstring_view suffix) {
+    if (value.size() < suffix.size()) {
+        return value;
+    }
+    if (value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        return value.substr(0, value.size() - suffix.size());
+    }
+    return value;
+}
+
+uint64_t ToTicks(const FILETIME& time) {
+    ULARGE_INTEGER large{};
+    large.LowPart = time.dwLowDateTime;
+    large.HighPart = time.dwHighDateTime;
+    return large.QuadPart;
+}
+
+uint64_t QueryLastWriteTicks(const std::wstring& path, bool* existsOut = nullptr) {
+    if (existsOut) {
+        *existsOut = false;
+    }
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        return 0;
+    }
+    if (existsOut) {
+        *existsOut = true;
+    }
+    return ToTicks(data.ftLastWriteTime);
 }
 
 }  // namespace
@@ -481,6 +535,153 @@ std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
     return directory;
 }
 
+std::vector<SessionStore::RecoverableSessionCandidate> SessionStore::EnumerateRecoverableSessions() {
+    std::vector<RecoverableSessionCandidate> candidates;
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return candidates;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+
+    const std::wstring pattern = directory + L"session-*.db";
+    WIN32_FIND_DATAW findData{};
+    HANDLE findHandle = FindFirstFileW(pattern.c_str(), &findData);
+    if (findHandle == INVALID_HANDLE_VALUE) {
+        return candidates;
+    }
+
+    do {
+        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            continue;
+        }
+
+        const std::wstring fileName = findData.cFileName;
+        std::wstring_view tokenView = StripPrefix(fileName, L"session-");
+        tokenView = StripSuffix(tokenView, L".db");
+        tokenView = TrimView(tokenView);
+        if (tokenView.empty()) {
+            continue;
+        }
+
+        RecoverableSessionCandidate candidate;
+        candidate.token.assign(tokenView.begin(), tokenView.end());
+        candidate.storagePath = directory + fileName;
+        candidate.lastActivityTicks = ToTicks(findData.ftLastWriteTime);
+
+        bool hasCompanion = false;
+
+        bool exists = false;
+        const uint64_t lockTicks = QueryLastWriteTicks(candidate.storagePath + kMarkerSuffix, &exists);
+        if (exists) {
+            candidate.hasLock = true;
+            candidate.lastActivityTicks = std::max(candidate.lastActivityTicks, lockTicks);
+            hasCompanion = true;
+        }
+
+        const uint64_t tempTicks = QueryLastWriteTicks(candidate.storagePath + kTempSuffix, &exists);
+        if (exists) {
+            candidate.hasTemp = true;
+            candidate.lastActivityTicks = std::max(candidate.lastActivityTicks, tempTicks);
+            hasCompanion = true;
+        }
+
+        const uint64_t checkpointTicks = QueryLastWriteTicks(candidate.storagePath + kCheckpointSuffix, &exists);
+        if (exists) {
+            candidate.hasCheckpoint = true;
+            candidate.lastActivityTicks = std::max(candidate.lastActivityTicks, checkpointTicks);
+            hasCompanion = true;
+        }
+
+        if (hasCompanion) {
+            candidates.push_back(std::move(candidate));
+        }
+    } while (FindNextFileW(findHandle, &findData));
+
+    FindClose(findHandle);
+    return candidates;
+}
+
+std::optional<SessionStore::RecoverableSessionCandidate> SessionStore::SelectRecoverableSession(
+    const std::vector<RecoverableSessionCandidate>& candidates) {
+    const RecoverableSessionCandidate* best = nullptr;
+    for (const auto& candidate : candidates) {
+        if (candidate.CompanionCount() <= 0) {
+            continue;
+        }
+        if (!best) {
+            best = &candidate;
+            continue;
+        }
+        if (candidate.CompanionCount() > best->CompanionCount()) {
+            best = &candidate;
+            continue;
+        }
+        if (candidate.CompanionCount() == best->CompanionCount() &&
+            candidate.lastActivityTicks > best->lastActivityTicks) {
+            best = &candidate;
+        }
+    }
+
+    if (!best) {
+        return std::nullopt;
+    }
+    return *best;
+}
+
+std::optional<std::wstring> SessionStore::LoadPersistedWindowToken() {
+    const std::wstring path = BuildPersistedTokenPath();
+    if (path.empty()) {
+        return std::nullopt;
+    }
+
+    std::wstring contents;
+    bool fileExists = false;
+    if (!ReadUtf8File(path, &contents, &fileExists) || !fileExists) {
+        return std::nullopt;
+    }
+
+    std::wstring token = Trim(contents);
+    if (token.empty()) {
+        return std::nullopt;
+    }
+    return token;
+}
+
+bool SessionStore::PersistWindowToken(const std::wstring& token) {
+    if (token.empty()) {
+        return false;
+    }
+
+    const std::wstring path = BuildPersistedTokenPath();
+    if (path.empty()) {
+        return false;
+    }
+
+    if (!WriteUtf8File(path, token)) {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to persist recovery token to %ls (error=%lu)", path.c_str(),
+                   GetLastError());
+        return false;
+    }
+    return true;
+}
+
+void SessionStore::ClearPersistedWindowToken() {
+    const std::wstring path = BuildPersistedTokenPath();
+    if (path.empty()) {
+        return;
+    }
+
+    if (!DeleteFileW(path.c_str())) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND) {
+            LogMessage(LogLevel::Info, L"SessionStore failed to delete persisted recovery token %ls (error=%lu)",
+                       path.c_str(), error);
+        }
+    }
+}
+
 bool SessionStore::WasPreviousSessionUnclean() const {
     if (!MarkerReady()) {
         return false;
@@ -570,6 +771,7 @@ void SessionStore::MarkSessionActive() const {
 void SessionStore::ClearSessionMarker() const {
     const std::wstring markerPath = BuildMarkerPath(m_storagePath);
     if (markerPath.empty()) {
+        ClearPersistedWindowToken();
         return;
     }
 
@@ -599,6 +801,8 @@ void SessionStore::ClearSessionMarker() const {
         LogMessage(LogLevel::Warning, L"SessionStore failed to delete crash marker %ls (error=%lu)",
                    markerPath.c_str(), GetLastError());
     }
+
+    ClearPersistedWindowToken();
 
     const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
     if (!checkpointPath.empty() &&

@@ -152,6 +152,7 @@ public:
     std::wstring GetSavedGroupId(int groupIndex) const;
 
 private:
+    std::wstring TryAdoptWindowToken(HWND frame);
     struct InitializationResult {
         uint64_t sequence = 0;
         bool groupStoreLoaded = false;
