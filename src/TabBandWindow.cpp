@@ -3736,8 +3736,16 @@ void TabBandWindow::TriggerNewTabButtonAction() {
     if (!m_hwnd || !m_newTabButton) {
         return;
     }
-    SendMessageW(m_hwnd, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, BN_CLICKED),
-                 reinterpret_cast<LPARAM>(m_newTabButton));
+    // Issue the request directly so Explorer cannot swallow or duplicate our
+    // WM_COMMAND dispatch when the custom "+" button is clicked.
+    RequestNewTab();
+}
+
+void TabBandWindow::RequestNewTab() {
+    if (!m_owner) {
+        return;
+    }
+    m_owner->OnNewTabRequested();
 }
 
 LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -5225,17 +5233,19 @@ void TabBandWindow::ClearCloseButtonHover() {
     }
 }
 
-void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
-	if (!m_owner) {
-		return;
-	}
+void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
+        if (!m_owner) {
+                return;
+        }
 
         const UINT id = LOWORD(wParam);
         const UINT code = HIWORD(wParam);
 
         if (id == IDC_NEW_TAB) {
-                if (code == BN_CLICKED) {
-                        m_owner->OnNewTabRequested();
+                const HWND source = reinterpret_cast<HWND>(lParam);
+                const bool fromNewTabButton = source == m_newTabButton;
+                if (fromNewTabButton || (!source && (code == BN_CLICKED || code == 0))) {
+                        RequestNewTab();
                 }
                 return;
         }
