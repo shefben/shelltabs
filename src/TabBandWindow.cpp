@@ -3737,7 +3737,9 @@ void TabBandWindow::TriggerNewTabButtonAction() {
         return;
     }
     // Issue the request directly so Explorer cannot swallow or duplicate our
-    // WM_COMMAND dispatch when the custom "+" button is clicked.
+    // WM_COMMAND dispatch when the custom "+" button is clicked. The
+    // WM_COMMAND handler ignores notifications from this control to avoid
+    // double-dispatching the new-tab request.
     RequestNewTab();
 }
 
@@ -5244,7 +5246,11 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
         if (id == IDC_NEW_TAB) {
                 const HWND source = reinterpret_cast<HWND>(lParam);
                 const bool fromNewTabButton = source == m_newTabButton;
-                if (fromNewTabButton || (!source && (code == BN_CLICKED || code == 0))) {
+                // The custom new-tab button invokes RequestNewTab directly from its
+                // window procedure to avoid Explorer swallowing the WM_COMMAND. If we
+                // handled its notification here we would create two tabs per click, so
+                // only honor external command sources (keyboard shortcut, menu, etc.).
+                if (!fromNewTabButton && (!source && (code == BN_CLICKED || code == 0))) {
                         RequestNewTab();
                 }
                 return;
