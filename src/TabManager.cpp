@@ -2117,6 +2117,10 @@ void TabManager::EnsureVisibleSelection() {
 //=============================================================================
 
 void TabManager::RecordNavigation(TabLocation location, UniquePidl pidl, std::wstring path, std::wstring name) {
+    if (!pidl) {
+        return;
+    }
+
     TabInfo* tab = Get(location);
     if (!tab) {
         return;
