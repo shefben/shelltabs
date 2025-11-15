@@ -1359,12 +1359,20 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
         }
     }
 
-    if (commandToIndex.empty()) {
-        DestroyMenu(menu);
-        return false;
-    }
+    bool hasHistoryEntries = !commandToIndex.empty();
+    if (!hasHistoryEntries) {
+        labels.emplace_back(L"(No history for this tab)");
 
-    SetMenuDefaultItem(menu, commandToIndex.front().first, FALSE);
+        MENUITEMINFOW placeholder{};
+        placeholder.cbSize = sizeof(placeholder);
+        placeholder.fMask = MIIM_STRING | MIIM_STATE;
+        placeholder.fState = MFS_DISABLED;
+        placeholder.dwTypeData = labels.back().data();
+        placeholder.cch = static_cast<UINT>(labels.back().size());
+        InsertMenuItemW(menu, 0, TRUE, &placeholder);
+    } else {
+        SetMenuDefaultItem(menu, commandToIndex.front().first, FALSE);
+    }
 
     POINT popupPoint{};
     popupPoint.y = request.buttonRect.bottom;
@@ -1387,7 +1395,7 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
     UINT selectedCommand = TrackPopupMenuEx(menu, flags, popupPoint.x, popupPoint.y, ownerHwnd, nullptr);
     DestroyMenu(menu);
 
-    if (selectedCommand == 0) {
+    if (!hasHistoryEntries || selectedCommand == 0) {
         return true;  // Menu displayed but no selection.
     }
 
@@ -2627,6 +2635,10 @@ void TabBand::EnsureTabForCurrentFolder() {
                 IconCache::Instance().InvalidateFamily(oldKey);
             }
 
+            if (tab->navigationHistory.entries.empty()) {
+                m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
+            }
+
             // Record navigation in history if location changed
             if (!m_internalNavigation && oldPath != tab->path) {
                 m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
@@ -2650,6 +2662,9 @@ void TabBand::EnsureTabForCurrentFolder() {
             const std::wstring newKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
             if (!oldKey.empty() && oldKey != newKey) {
                 IconCache::Instance().InvalidateFamily(oldKey);
+            }
+            if (tab->navigationHistory.entries.empty()) {
+                m_tabs.RecordNavigation(existing, ClonePidl(current.get()), tab->path, tab->name);
             }
         }
         m_tabs.SetGroupCollapsed(existing.groupIndex, false);
