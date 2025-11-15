@@ -3736,10 +3736,11 @@ void TabBandWindow::TriggerNewTabButtonAction() {
     if (!m_hwnd || !m_newTabButton) {
         return;
     }
-    // Issue the request directly so Explorer cannot swallow or duplicate our
-    // WM_COMMAND dispatch when the custom "+" button is clicked. The
-    // WM_COMMAND handler ignores notifications from this control to avoid
-    // double-dispatching the new-tab request.
+    // Issue the request directly so Explorer cannot swallow our WM_COMMAND
+    // dispatch. We track that we've sent the command ourselves so the handler
+    // can suppress the following WM_COMMAND from the button, preventing double
+    // tab creation while still honoring legitimate external command sources.
+    m_suppressNextNewTabCommand = true;
     RequestNewTab();
 }
 
@@ -5236,25 +5237,32 @@ void TabBandWindow::ClearCloseButtonHover() {
 }
 
 void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
-        if (!m_owner) {
-                return;
-        }
+    if (!m_owner) {
+        return;
+    }
 
-        const UINT id = LOWORD(wParam);
-        const UINT code = HIWORD(wParam);
+    const UINT id = LOWORD(wParam);
+    const UINT code = HIWORD(wParam);
 
-        if (id == IDC_NEW_TAB) {
-                const HWND source = reinterpret_cast<HWND>(lParam);
-                const bool fromNewTabButton = source == m_newTabButton;
-                // The custom new-tab button invokes RequestNewTab directly from its
-                // window procedure to avoid Explorer swallowing the WM_COMMAND. If we
-                // handled its notification here we would create two tabs per click, so
-                // only honor external command sources (keyboard shortcut, menu, etc.).
-                if (!fromNewTabButton && (!source && (code == BN_CLICKED || code == 0))) {
-                        RequestNewTab();
-                }
+    if (id == IDC_NEW_TAB) {
+        const HWND source = reinterpret_cast<HWND>(lParam);
+        const bool fromNewTabButton = source == m_newTabButton;
+        const bool isActivation = (code == BN_CLICKED || code == 0);
+
+        if (fromNewTabButton) {
+            if (m_suppressNextNewTabCommand) {
+                m_suppressNextNewTabCommand = false;
                 return;
+            }
+
+            if (isActivation) {
+                RequestNewTab();
+            }
+        } else if (!source && isActivation) {
+            RequestNewTab();
         }
+        return;
+    }
 
         if (id == IDM_CREATE_SAVED_GROUP) {
                 const int insertAfter = ResolveInsertGroupIndex();
