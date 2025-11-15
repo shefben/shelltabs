@@ -23,6 +23,7 @@
 #include "OptionsStore.h"
 #include "GroupStore.h"
 #include "OptionsDialog.h"
+#include "ShellTabsMessages.h"
 
 namespace shelltabs {
 
@@ -95,6 +96,7 @@ public:
     void OnToggleTabPinned(TabLocation location);
     void OnNavigateBack();
     void OnNavigateForward();
+    bool OnShowHistoryMenu(const HistoryMenuRequest& request);
     void OnToggleGroupCollapsed(int groupIndex);
     void OnUnhideAllInGroup(int groupIndex);
     void OnCreateIslandAfter(int groupIndex);

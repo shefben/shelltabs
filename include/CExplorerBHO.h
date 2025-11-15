@@ -229,6 +229,12 @@ class ShellTabsListView;
                 bool InstallProgressSubclass(HWND progressWindow);
                 bool InstallAddressEditSubclass(HWND editWindow);
                 void UpdateProgressSubclass();
+                void UpdateTravelBandSubclass();
+                bool InstallTravelBandSubclass(HWND travelBand, HWND toolbar);
+                void RemoveTravelBandSubclass();
+                void ResolveTravelToolbarCommands();
+                bool HandleTravelBandNotify(NMHDR* header, LRESULT* result);
+                bool HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* result);
                 void RemoveProgressSubclass();
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
@@ -392,6 +398,8 @@ class ShellTabsListView;
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK TravelBandSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -421,13 +429,18 @@ class ShellTabsListView;
 		bool m_useCustomBreadcrumbFontColors = false;
 		COLORREF m_breadcrumbFontGradientStartColor = RGB(255, 255, 255);
 		COLORREF m_breadcrumbFontGradientEndColor = RGB(255, 255, 255);
-                bool m_useCustomProgressGradientColors = false;
-                COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
-                COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
-                HWND m_progressWindow = nullptr;
-                bool m_progressSubclassInstalled = false;
-                HBITMAP m_progressGradientBitmap = nullptr;
-                void* m_progressGradientBits = nullptr;
+		HWND m_travelBand = nullptr;
+		HWND m_travelToolbar = nullptr;
+		bool m_travelBandSubclassInstalled = false;
+		UINT m_travelBackCommandId = 0;
+		UINT m_travelForwardCommandId = 0;
+		bool m_useCustomProgressGradientColors = false;
+		COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
+		COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
+		HWND m_progressWindow = nullptr;
+		bool m_progressSubclassInstalled = false;
+		HBITMAP m_progressGradientBitmap = nullptr;
+		void* m_progressGradientBits = nullptr;
                 BITMAPINFO m_progressGradientInfo{};
                 COLORREF m_progressGradientBitmapStartColor = 0;
                 COLORREF m_progressGradientBitmapEndColor = 0;

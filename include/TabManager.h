@@ -265,6 +265,7 @@ public:
     void RecordNavigation(TabLocation location, UniquePidl pidl, std::wstring path, std::wstring name);
     std::optional<NavigationHistoryEntry> NavigateBack(TabLocation location);
     std::optional<NavigationHistoryEntry> NavigateForward(TabLocation location);
+    std::optional<NavigationHistoryEntry> NavigateToHistory(TabLocation location, int targetIndex);
     bool CanNavigateBack(TabLocation location) const;
     bool CanNavigateForward(TabLocation location) const;
     void ClearNavigationHistory(TabLocation location);

@@ -7094,6 +7094,16 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_SHOW_HISTORY_MENU: {
+                if (!self->m_owner) {
+                    return 0;
+                }
+                const auto* request = reinterpret_cast<const HistoryMenuRequest*>(wParam);
+                if (!request) {
+                    return 0;
+                }
+                return self->m_owner->OnShowHistoryMenu(*request) ? 1 : 0;
+            }
             case WM_SHELLTABS_EXTERNAL_DRAG: {
                 self->HandleExternalDragUpdate();
                 return 0;
