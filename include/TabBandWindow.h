@@ -586,6 +586,7 @@ private:
     void HandleNewTabButtonKeyDown(HWND hwnd, UINT key, bool repeat);
     void HandleNewTabButtonKeyUp(HWND hwnd, UINT key);
     void TriggerNewTabButtonAction();
+    void RequestNewTab();
     [[nodiscard]] bool IsPointInsideNewTabButton(HWND hwnd, POINT pt) const;
     bool IsSystemDarkMode() const;
     void UpdateAccentColor();
