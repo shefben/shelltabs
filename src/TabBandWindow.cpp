@@ -875,6 +875,8 @@ void TabBandWindow::Destroy() {
     m_newTabButtonPressed = false;
     m_newTabButtonKeyboardPressed = false;
     m_newTabButtonTrackingMouse = false;
+    m_newTabButtonPointerPressed = false;
+    m_newTabButtonCommandPending = false;
     ResetThemePalette();
     ReleaseBackBuffer();
 
@@ -3363,9 +3365,13 @@ void TabBandWindow::UpdateNewTabButtonTheme() {
         m_newTabButtonPressed = false;
         m_newTabButtonKeyboardPressed = false;
         m_newTabButtonTrackingMouse = false;
+        m_newTabButtonPointerPressed = false;
+        m_newTabButtonCommandPending = false;
         return;
     }
     m_newTabButtonTrackingMouse = false;
+    m_newTabButtonPointerPressed = false;
+    m_newTabButtonCommandPending = false;
     InvalidateRect(m_newTabButton, nullptr, TRUE);
 }
 
@@ -3504,11 +3510,28 @@ void TabBandWindow::PaintNewTabButton(HWND hwnd, HDC dc) const {
     }
 }
 
-void TabBandWindow::HandleNewTabButtonMouseMove(HWND hwnd) {
-    if (!m_newTabButtonHot) {
-        m_newTabButtonHot = true;
-        InvalidateRect(hwnd, nullptr, FALSE);
+void TabBandWindow::HandleNewTabButtonMouseMove(HWND hwnd, POINT pt) {
+    if (!hwnd) {
+        return;
     }
+
+    RECT bounds{};
+    GetClientRect(hwnd, &bounds);
+    const bool inside = PtInRect(&bounds, pt) != 0;
+
+    bool stateChanged = false;
+    if (inside != m_newTabButtonHot) {
+        m_newTabButtonHot = inside;
+        stateChanged = true;
+    }
+
+    const bool shouldAppearPressed =
+        (m_newTabButtonPointerPressed && inside) || m_newTabButtonKeyboardPressed;
+    if (m_newTabButtonPressed != shouldAppearPressed) {
+        m_newTabButtonPressed = shouldAppearPressed;
+        stateChanged = true;
+    }
+
     if (!m_newTabButtonTrackingMouse) {
         TRACKMOUSEEVENT track{sizeof(track)};
         track.dwFlags = TME_LEAVE;
@@ -3517,52 +3540,119 @@ void TabBandWindow::HandleNewTabButtonMouseMove(HWND hwnd) {
             m_newTabButtonTrackingMouse = true;
         }
     }
-}
 
-void TabBandWindow::HandleNewTabButtonMouseLeave(HWND hwnd) {
-    m_newTabButtonTrackingMouse = false;
-    if (m_newTabButtonHot && !m_newTabButtonPressed) {
-        m_newTabButtonHot = false;
+    if (stateChanged) {
         InvalidateRect(hwnd, nullptr, FALSE);
     }
 }
 
-void TabBandWindow::HandleNewTabButtonLButtonDown(HWND hwnd) {
+void TabBandWindow::HandleNewTabButtonMouseLeave(HWND hwnd) {
+    m_newTabButtonTrackingMouse = false;
+
+    bool stateChanged = false;
+    if (m_newTabButtonHot) {
+        m_newTabButtonHot = false;
+        stateChanged = true;
+    }
+
+    const bool shouldAppearPressed = m_newTabButtonKeyboardPressed;
+    if (m_newTabButtonPressed != shouldAppearPressed) {
+        m_newTabButtonPressed = shouldAppearPressed;
+        stateChanged = true;
+    }
+
+    if (stateChanged) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void TabBandWindow::HandleNewTabButtonLButtonDown(HWND hwnd, POINT pt) {
+    if (!hwnd) {
+        return;
+    }
+
     SetFocus(hwnd);
     SetCapture(hwnd);
-    m_newTabButtonPressed = true;
+    m_newTabButtonPointerPressed = true;
     m_newTabButtonKeyboardPressed = false;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    m_newTabButtonCommandPending = true;
 
-    // Trigger action immediately on button down (not up)
-    TriggerNewTabButtonAction();
+    const bool inside = IsPointInsideNewTabButton(hwnd, pt);
+    bool stateChanged = false;
+    if (inside != m_newTabButtonHot) {
+        m_newTabButtonHot = inside;
+        stateChanged = true;
+    }
+
+    if (m_newTabButtonPressed != inside) {
+        m_newTabButtonPressed = inside;
+        stateChanged = true;
+    }
+
+    if (!m_newTabButtonTrackingMouse) {
+        TRACKMOUSEEVENT track{sizeof(track)};
+        track.dwFlags = TME_LEAVE;
+        track.hwndTrack = hwnd;
+        if (TrackMouseEvent(&track)) {
+            m_newTabButtonTrackingMouse = true;
+        }
+    }
+
+    if (stateChanged) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
 }
 
 void TabBandWindow::HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt) {
     if (GetCapture() == hwnd) {
         ReleaseCapture();
     }
-    m_newTabButtonPressed = false;
-    m_newTabButtonKeyboardPressed = false;
 
-    RECT bounds{};
-    GetClientRect(hwnd, &bounds);
-    const bool inside = PtInRect(&bounds, pt) != 0;
+    const bool inside = IsPointInsideNewTabButton(hwnd, pt);
+    const bool shouldInvoke = m_newTabButtonPointerPressed && m_newTabButtonCommandPending && inside;
+
+    m_newTabButtonPointerPressed = false;
+    m_newTabButtonCommandPending = false;
+
+    bool stateChanged = false;
     if (!inside && m_newTabButtonHot) {
         m_newTabButtonHot = false;
+        stateChanged = true;
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
 
-    // Action is now triggered on button down, not up
+    const bool shouldAppearPressed = m_newTabButtonKeyboardPressed;
+    if (m_newTabButtonPressed != shouldAppearPressed) {
+        m_newTabButtonPressed = shouldAppearPressed;
+        stateChanged = true;
+    }
+
+    if (stateChanged) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+
+    if (shouldInvoke) {
+        TriggerNewTabButtonAction();
+    }
 }
 
 void TabBandWindow::HandleNewTabButtonCaptureLost() {
-    if (m_newTabButtonPressed || m_newTabButtonKeyboardPressed) {
-        m_newTabButtonPressed = false;
-        m_newTabButtonKeyboardPressed = false;
-        if (m_newTabButton) {
-            InvalidateRect(m_newTabButton, nullptr, FALSE);
-        }
+    bool stateChanged = false;
+
+    if (m_newTabButtonPointerPressed) {
+        m_newTabButtonPointerPressed = false;
+        stateChanged = true;
+    }
+
+    const bool shouldAppearPressed = m_newTabButtonKeyboardPressed;
+    if (m_newTabButtonPressed != shouldAppearPressed) {
+        m_newTabButtonPressed = shouldAppearPressed;
+        stateChanged = true;
+    }
+
+    m_newTabButtonCommandPending = m_newTabButtonKeyboardPressed;
+
+    if (stateChanged && m_newTabButton) {
+        InvalidateRect(m_newTabButton, nullptr, FALSE);
     }
 }
 
@@ -3572,11 +3662,29 @@ void TabBandWindow::HandleNewTabButtonFocusChanged(HWND hwnd, bool focused) {
         const int code = focused ? BN_SETFOCUS : BN_KILLFOCUS;
         SendMessageW(parent, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, code), reinterpret_cast<LPARAM>(hwnd));
     }
-    if (!focused && m_newTabButtonKeyboardPressed) {
-        m_newTabButtonPressed = false;
-        m_newTabButtonKeyboardPressed = false;
+
+    if (focused) {
+        return;
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+
+    bool stateChanged = false;
+    if (m_newTabButtonPointerPressed) {
+        m_newTabButtonPointerPressed = false;
+        stateChanged = true;
+    }
+    if (m_newTabButtonKeyboardPressed) {
+        m_newTabButtonKeyboardPressed = false;
+        stateChanged = true;
+    }
+    if (m_newTabButtonPressed) {
+        m_newTabButtonPressed = false;
+        stateChanged = true;
+    }
+    m_newTabButtonCommandPending = false;
+
+    if (stateChanged) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
 }
 
 void TabBandWindow::HandleNewTabButtonKeyDown(HWND hwnd, UINT key, bool repeat) {
@@ -3584,29 +3692,52 @@ void TabBandWindow::HandleNewTabButtonKeyDown(HWND hwnd, UINT key, bool repeat) 
     if (repeat) {
         return;
     }
-    m_newTabButtonPressed = true;
+
+    m_newTabButtonPointerPressed = false;
     m_newTabButtonKeyboardPressed = true;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    m_newTabButtonCommandPending = true;
+
+    if (!m_newTabButtonPressed) {
+        m_newTabButtonPressed = true;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
 }
 
 void TabBandWindow::HandleNewTabButtonKeyUp(HWND hwnd, UINT key) {
+    UNREFERENCED_PARAMETER(key);
     if (!m_newTabButtonKeyboardPressed) {
-        if (key == VK_RETURN) {
-            TriggerNewTabButtonAction();
-        }
         return;
     }
-    m_newTabButtonPressed = false;
+
     m_newTabButtonKeyboardPressed = false;
-    InvalidateRect(hwnd, nullptr, FALSE);
-    TriggerNewTabButtonAction();
+    const bool shouldInvoke = m_newTabButtonCommandPending;
+    m_newTabButtonCommandPending = false;
+
+    if (m_newTabButtonPressed) {
+        m_newTabButtonPressed = false;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+
+    if (shouldInvoke) {
+        TriggerNewTabButtonAction();
+    }
+}
+
+bool TabBandWindow::IsPointInsideNewTabButton(HWND hwnd, POINT pt) const {
+    if (!hwnd) {
+        return false;
+    }
+    RECT bounds{};
+    GetClientRect(hwnd, &bounds);
+    return PtInRect(&bounds, pt) != 0;
 }
 
 void TabBandWindow::TriggerNewTabButtonAction() {
     if (!m_hwnd || !m_newTabButton) {
         return;
     }
-    SendMessageW(m_hwnd, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, BN_CLICKED), reinterpret_cast<LPARAM>(m_newTabButton));
+    SendMessageW(m_hwnd, WM_COMMAND, MAKEWPARAM(IDC_NEW_TAB, BN_CLICKED),
+                 reinterpret_cast<LPARAM>(m_newTabButton));
 }
 
 LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -3635,15 +3766,19 @@ LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPA
         }
         case WM_ERASEBKGND:
             return 1;
-        case WM_MOUSEMOVE:
-            owner->HandleNewTabButtonMouseMove(hwnd);
+        case WM_MOUSEMOVE: {
+            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            owner->HandleNewTabButtonMouseMove(hwnd, pt);
             return 0;
+        }
         case WM_MOUSELEAVE:
             owner->HandleNewTabButtonMouseLeave(hwnd);
             return 0;
-        case WM_LBUTTONDOWN:
-            owner->HandleNewTabButtonLButtonDown(hwnd);
+        case WM_LBUTTONDOWN: {
+            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            owner->HandleNewTabButtonLButtonDown(hwnd, pt);
             return 0;
+        }
         case WM_LBUTTONUP: {
             POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             owner->HandleNewTabButtonLButtonUp(hwnd, pt);
