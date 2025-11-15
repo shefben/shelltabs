@@ -367,6 +367,7 @@ private:
     bool m_newTabButtonPressed = false;
     bool m_newTabButtonKeyboardPressed = false;
     bool m_newTabButtonTrackingMouse = false;
+    bool m_newTabButtonPointerPressed = false;
     bool m_newTabButtonCommandPending = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
     ExternalDropState m_externalDrop;
@@ -576,15 +577,16 @@ private:
     void ResetCloseButtonMetrics();
     void UpdateNewTabButtonTheme();
     void PaintNewTabButton(HWND hwnd, HDC dc) const;
-    void HandleNewTabButtonMouseMove(HWND hwnd);
+    void HandleNewTabButtonMouseMove(HWND hwnd, POINT pt);
     void HandleNewTabButtonMouseLeave(HWND hwnd);
-    void HandleNewTabButtonLButtonDown(HWND hwnd);
+    void HandleNewTabButtonLButtonDown(HWND hwnd, POINT pt);
     void HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt);
     void HandleNewTabButtonCaptureLost();
     void HandleNewTabButtonFocusChanged(HWND hwnd, bool focused);
     void HandleNewTabButtonKeyDown(HWND hwnd, UINT key, bool repeat);
     void HandleNewTabButtonKeyUp(HWND hwnd, UINT key);
     void TriggerNewTabButtonAction();
+    [[nodiscard]] bool IsPointInsideNewTabButton(HWND hwnd, POINT pt) const;
     bool IsSystemDarkMode() const;
     void UpdateAccentColor();
     void ResetThemePalette();
