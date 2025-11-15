@@ -2205,6 +2205,33 @@ std::optional<NavigationHistoryEntry> TabManager::NavigateForward(TabLocation lo
     return result;
 }
 
+std::optional<NavigationHistoryEntry> TabManager::NavigateToHistory(TabLocation location, int targetIndex) {
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return std::nullopt;
+    }
+
+    NavigationHistory& history = tab->navigationHistory;
+    if (history.entries.empty()) {
+        return std::nullopt;
+    }
+
+    if (targetIndex < 0 || targetIndex >= static_cast<int>(history.entries.size())) {
+        return std::nullopt;
+    }
+
+    history.currentIndex = targetIndex;
+
+    NavigationHistoryEntry result;
+    const auto& entry = history.entries[targetIndex];
+    result.pidl = ClonePidl(entry.pidl.get());
+    result.path = entry.path;
+    result.name = entry.name;
+    result.timestamp = entry.timestamp;
+
+    return result;
+}
+
 bool TabManager::CanNavigateBack(TabLocation location) const {
     const TabInfo* tab = Get(location);
     if (!tab) {

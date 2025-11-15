@@ -38,6 +38,7 @@
 #include <optional>
 
 #include "BackgroundCache.h"
+#include "ShellTabsMessages.h"
 #include "BreadcrumbGradient.h"
 #include "ColorUtils.h"
 #include "ComUtils.h"
@@ -1290,6 +1291,7 @@ void CExplorerBHO::Disconnect() {
     RemoveBreadcrumbHook();
     RemoveBreadcrumbSubclass();
     RemoveProgressSubclass();
+    RemoveTravelBandSubclass();
     RemoveAddressEditSubclass();
     RemoveExplorerViewSubclass();
     RemoveStatusBarSubclass();
@@ -6246,6 +6248,167 @@ bool CExplorerBHO::InstallProgressSubclass(HWND progressWindow) {
     return false;
 }
 
+void CExplorerBHO::UpdateTravelBandSubclass() {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        RemoveTravelBandSubclass();
+        return;
+    }
+
+    HWND travelBand = FindDescendantWindow(frame, L"TravelBand");
+    if (!travelBand || !IsWindow(travelBand) || !IsWindowOwnedByThisExplorer(travelBand)) {
+        RemoveTravelBandSubclass();
+        return;
+    }
+
+    HWND toolbar = FindWindowExW(travelBand, nullptr, TOOLBARCLASSNAMEW, nullptr);
+    if (!toolbar) {
+        toolbar = FindDescendantWindow(travelBand, TOOLBARCLASSNAMEW);
+    }
+    if (!toolbar || !IsWindow(toolbar)) {
+        RemoveTravelBandSubclass();
+        return;
+    }
+
+    if (m_travelBandSubclassInstalled && travelBand == m_travelBand && toolbar == m_travelToolbar) {
+        ResolveTravelToolbarCommands();
+        return;
+    }
+
+    RemoveTravelBandSubclass();
+    if (InstallTravelBandSubclass(travelBand, toolbar)) {
+        ResolveTravelToolbarCommands();
+    }
+}
+
+bool CExplorerBHO::InstallTravelBandSubclass(HWND travelBand, HWND toolbar) {
+    if (!travelBand || !toolbar || !IsWindow(travelBand) || !IsWindow(toolbar)) {
+        return false;
+    }
+
+    if (SetWindowSubclass(travelBand, &CExplorerBHO::TravelBandSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_travelBand = travelBand;
+        m_travelToolbar = toolbar;
+        m_travelBandSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed travel band subclass (band=%p toolbar=%p)", travelBand, toolbar);
+        return true;
+    }
+
+    LogLastError(L"SetWindowSubclass(travel band)", GetLastError());
+    return false;
+}
+
+void CExplorerBHO::RemoveTravelBandSubclass() {
+    if (m_travelBand && m_travelBandSubclassInstalled) {
+        if (IsWindow(m_travelBand)) {
+            RemoveWindowSubclass(m_travelBand, &CExplorerBHO::TravelBandSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+        }
+    }
+    m_travelBand = nullptr;
+    m_travelToolbar = nullptr;
+    m_travelBandSubclassInstalled = false;
+    m_travelBackCommandId = 0;
+    m_travelForwardCommandId = 0;
+}
+
+void CExplorerBHO::ResolveTravelToolbarCommands() {
+    m_travelBackCommandId = 0;
+    m_travelForwardCommandId = 0;
+
+    if (!m_travelToolbar || !IsWindow(m_travelToolbar)) {
+        return;
+    }
+
+    const LRESULT count = SendMessageW(m_travelToolbar, TB_BUTTONCOUNT, 0, 0);
+    if (count <= 0) {
+        return;
+    }
+
+    TBBUTTON button{};
+    int dropdownIndex = 0;
+    for (int i = 0; i < static_cast<int>(count); ++i) {
+        if (!SendMessageW(m_travelToolbar, TB_GETBUTTON, i, reinterpret_cast<LPARAM>(&button))) {
+            continue;
+        }
+        if ((button.fsStyle & BTNS_DROPDOWN) == 0) {
+            continue;
+        }
+
+        const UINT commandId = static_cast<UINT>(button.idCommand);
+        if (dropdownIndex == 0) {
+            m_travelBackCommandId = commandId;
+        } else if (dropdownIndex == 1) {
+            m_travelForwardCommandId = commandId;
+            break;
+        }
+        ++dropdownIndex;
+    }
+}
+
+bool CExplorerBHO::HandleTravelBandNotify(NMHDR* header, LRESULT* result) {
+    if (!header || header->hwndFrom != m_travelToolbar) {
+        return false;
+    }
+
+    if (header->code == TBN_DROPDOWN) {
+        const auto* info = reinterpret_cast<const NMTOOLBARW*>(header);
+        if (!info) {
+            return false;
+        }
+        return HandleTravelBandDropdown(*info, result);
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* result) {
+    if (!m_travelToolbar || !IsWindow(m_travelToolbar)) {
+        return false;
+    }
+
+    if (m_travelBackCommandId == 0 && m_travelForwardCommandId == 0) {
+        ResolveTravelToolbarCommands();
+    }
+
+    HistoryMenuKind kind = HistoryMenuKind::kBack;
+    if (m_travelBackCommandId != 0 && info.iItem == static_cast<int>(m_travelBackCommandId)) {
+        kind = HistoryMenuKind::kBack;
+    } else if (m_travelForwardCommandId != 0 && info.iItem == static_cast<int>(m_travelForwardCommandId)) {
+        kind = HistoryMenuKind::kForward;
+    } else {
+        return false;
+    }
+
+    RECT buttonRect = info.rcButton;
+    MapWindowPoints(m_travelToolbar, nullptr, reinterpret_cast<POINT*>(&buttonRect), 2);
+
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return false;
+    }
+
+    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+    if (!bandWindow || !IsWindow(bandWindow)) {
+        return false;
+    }
+
+    HistoryMenuRequest request{};
+    request.kind = kind;
+    request.buttonRect = buttonRect;
+
+    const LRESULT handled = SendMessageW(bandWindow, WM_SHELLTABS_SHOW_HISTORY_MENU,
+                                         reinterpret_cast<WPARAM>(&request), 0);
+    if (handled != 0) {
+        if (result) {
+            *result = TBDDRET_NODEFAULT;
+        }
+        return true;
+    }
+
+    return false;
+}
+
 void CExplorerBHO::RemoveBreadcrumbSubclass() {
     if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         if (IsWindow(m_breadcrumbToolbar)) {
@@ -6690,6 +6853,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     UpdateCurrentFolderBackground();
 
     UpdateProgressSubclass();
+    UpdateTravelBandSubclass();
 
     const bool gradientsEnabled = (m_breadcrumbGradientEnabled || m_breadcrumbFontGradientEnabled);
     if (!gradientsEnabled || !m_gdiplusInitialized) {
@@ -7567,7 +7731,8 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
         const bool isToolbar = (_wcsicmp(className, TOOLBARCLASSNAMEW) == 0);
         const bool isCombo = (_wcsicmp(className, L"ComboBoxEx32") == 0);
         const bool isEdit = (_wcsicmp(className, L"Edit") == 0);
-        if (!isToolbar && !isCombo && !isEdit) {
+        const bool isTravelBand = (_wcsicmp(className, L"TravelBand") == 0);
+        if (!isToolbar && !isCombo && !isEdit && !isTravelBand) {
             return CallNextHookEx(nullptr, code, wParam, lParam);
         }
 
@@ -7584,6 +7749,11 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
         if (!observers.empty()) {
             for (CExplorerBHO* observer : observers) {
                 if (!observer || !observer->m_gdiplusInitialized) {
+                    continue;
+                }
+
+                if (isTravelBand) {
+                    observer->UpdateTravelBandSubclass();
                     continue;
                 }
 
@@ -7877,6 +8047,32 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
         }
         case WM_NCDESTROY:
             self->RemoveAddressEditSubclass();
+            break;
+        default:
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CExplorerBHO::TravelBandSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                     UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_NOTIFY: {
+            auto* header = reinterpret_cast<NMHDR*>(lParam);
+            LRESULT handled = 0;
+            if (self->HandleTravelBandNotify(header, &handled)) {
+                return handled;
+            }
+            break;
+        }
+        case WM_NCDESTROY:
+            self->RemoveTravelBandSubclass();
             break;
         default:
             break;

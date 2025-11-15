@@ -1301,6 +1301,117 @@ void TabBand::OnNavigateForward() {
     }
 }
 
+bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    if (!selected.IsValid()) {
+        return false;
+    }
+
+    TabInfo* tab = m_tabs.Get(selected);
+    if (!tab) {
+        return false;
+    }
+
+    const NavigationHistory& history = tab->navigationHistory;
+    if (history.entries.empty() || history.currentIndex < 0 ||
+        history.currentIndex >= static_cast<int>(history.entries.size())) {
+        return false;
+    }
+
+    HMENU menu = CreatePopupMenu();
+    if (!menu) {
+        return false;
+    }
+
+    std::vector<std::pair<UINT, int>> commandToIndex;
+    commandToIndex.reserve(history.entries.size());
+    std::vector<std::wstring> labels;
+    labels.reserve(history.entries.size());
+
+    const auto appendEntry = [&](int historyIndex) {
+        if (historyIndex < 0 || historyIndex >= static_cast<int>(history.entries.size())) {
+            return;
+        }
+        const auto& entry = history.entries[historyIndex];
+        std::wstring label = entry.name.empty() ? entry.path : entry.name;
+        if (label.empty()) {
+            label = L"(Unknown)";
+        }
+        labels.push_back(label);
+
+        MENUITEMINFOW item{};
+        item.cbSize = sizeof(item);
+        item.fMask = MIIM_ID | MIIM_STRING;
+        item.wID = static_cast<UINT>(commandToIndex.size() + 1);
+        item.dwTypeData = labels.back().data();
+        item.cch = static_cast<UINT>(labels.back().size());
+        InsertMenuItemW(menu, static_cast<UINT>(-1), TRUE, &item);
+        commandToIndex.emplace_back(item.wID, historyIndex);
+    };
+
+    if (request.kind == HistoryMenuKind::kBack) {
+        for (int index = history.currentIndex - 1; index >= 0; --index) {
+            appendEntry(index);
+        }
+    } else {
+        for (int index = history.currentIndex + 1; index < static_cast<int>(history.entries.size()); ++index) {
+            appendEntry(index);
+        }
+    }
+
+    if (commandToIndex.empty()) {
+        DestroyMenu(menu);
+        return false;
+    }
+
+    SetMenuDefaultItem(menu, commandToIndex.front().first, FALSE);
+
+    POINT popupPoint{};
+    popupPoint.y = request.buttonRect.bottom;
+
+    UINT flags = TPM_TOPALIGN | TPM_LEFTBUTTON | TPM_RETURNCMD;
+    if (request.kind == HistoryMenuKind::kBack) {
+        popupPoint.x = request.buttonRect.left;
+        flags |= TPM_LEFTALIGN;
+    } else {
+        popupPoint.x = request.buttonRect.right;
+        flags |= TPM_RIGHTALIGN;
+    }
+
+    HWND ownerHwnd = m_window ? m_window->GetHwnd() : nullptr;
+    if (!ownerHwnd) {
+        DestroyMenu(menu);
+        return false;
+    }
+
+    UINT selectedCommand = TrackPopupMenuEx(menu, flags, popupPoint.x, popupPoint.y, ownerHwnd, nullptr);
+    DestroyMenu(menu);
+
+    if (selectedCommand == 0) {
+        return true;  // Menu displayed but no selection.
+    }
+
+    const auto it = std::find_if(commandToIndex.begin(), commandToIndex.end(),
+                                 [&](const auto& entry) { return entry.first == selectedCommand; });
+    if (it == commandToIndex.end()) {
+        return true;
+    }
+
+    auto entry = m_tabs.NavigateToHistory(selected, it->second);
+    if (!entry || !entry->pidl || !m_shellBrowser) {
+        return true;
+    }
+
+    m_internalNavigation = true;
+    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE);
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"TabBand::OnShowHistoryMenu failed to navigate (hr=0x%08X)", hr);
+        m_internalNavigation = false;
+    }
+
+    return true;
+}
+
 void TabBand::OnToggleGroupCollapsed(int groupIndex) {
     m_tabs.ToggleGroupCollapsed(groupIndex);
     UpdateTabsUI();
