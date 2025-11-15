@@ -5230,12 +5230,15 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM) {
 		return;
 	}
 
-	const UINT id = LOWORD(wParam);
+        const UINT id = LOWORD(wParam);
+        const UINT code = HIWORD(wParam);
 
-	if (id == IDC_NEW_TAB) {
-		m_owner->OnNewTabRequested();
-		return;
-	}
+        if (id == IDC_NEW_TAB) {
+                if (code == BN_CLICKED) {
+                        m_owner->OnNewTabRequested();
+                }
+                return;
+        }
 
         if (id == IDM_CREATE_SAVED_GROUP) {
                 const int insertAfter = ResolveInsertGroupIndex();
