@@ -1,0 +1,312 @@
+=== ShellTabs logging started for C:\Windows\explorer.exe ===
+[2025-11-16T23:12:30.137Z][pid 14788][tid 36416] INFO DllMain PROCESS_ATTACH for C:\Windows\explorer.exe
+[2025-11-16T23:12:30.355Z][pid 14788][tid 36416] INFO CompositionIntercept: hooks initialized
+[2025-11-16T23:12:31.007Z][pid 14788][tid 36416] INFO ThemeHooks: installed theme detours (including line drawing hooks)
+[2025-11-16T23:12:31.007Z][pid 14788][tid 36416] INFO ExplorerRibbonHook: Initializing ribbon hooks...
+[2025-11-16T23:12:31.008Z][pid 14788][tid 36416] INFO RibbonCommandHandler: Registered callback for command 50100
+[2025-11-16T23:12:31.008Z][pid 14788][tid 36416] INFO RibbonCommandHandler: Registered callback for command 50101
+[2025-11-16T23:12:31.008Z][pid 14788][tid 36416] INFO RibbonCommandHandler: Registered callback for command 50102
+[2025-11-16T23:12:31.008Z][pid 14788][tid 36416] INFO RibbonCommandHandler: Registered callback for command 50103
+[2025-11-16T23:12:31.008Z][pid 14788][tid 36416] INFO RibbonCommandHandler: Registered callback for command 50104
+[2025-11-16T23:12:31.008Z][pid 14788][tid 36416] INFO ComVTableHook: MinHook already initialized by another subsystem; reusing state
+[2025-11-16T23:12:31.049Z][pid 14788][tid 36416] INFO ComVTableHook: Successfully hooked CoCreateInstance
+[2025-11-16T23:12:31.049Z][pid 14788][tid 36416] INFO ComVTableHook: Registered class hook for {926749FA-2615-4987-8845-C33E65F2B957}
+[2025-11-16T23:12:31.049Z][pid 14788][tid 36416] INFO ExplorerRibbonHook: Ribbon hooks initialized successfully
+[2025-11-16T23:12:31.049Z][pid 14788][tid 36416] INFO InitCommonControlsEx succeeded
+[2025-11-16T23:12:31.187Z][pid 14788][tid 30328] INFO TabBand constructed (this=000000001C42B940)
+[2025-11-16T23:12:31.187Z][pid 14788][tid 30328] INFO TabBand::SetSite begin (this=000000001C42B940, site=000000001C3DA618)
+[2025-11-16T23:12:31.187Z][pid 14788][tid 30328] INFO TabBand::DisconnectSite (this=000000001C42B940)
+[2025-11-16T23:12:31.187Z][pid 14788][tid 30328] INFO TabBand::SetSite resolved browser interfaces
+[2025-11-16T23:12:31.187Z][pid 14788][tid 30328] INFO TabBand::SetSite EnsureWindow
+[2025-11-16T23:12:31.187Z][pid 14788][tid 30328] INFO TabBand::EnsureWindow creating band window (this=000000001C42B940)
+[2025-11-16T23:12:31.194Z][pid 14788][tid 30328] INFO TabBand::EnsureWindow created window hwnd=0000000000EF3312
+[2025-11-16T23:12:31.194Z][pid 14788][tid 30328] INFO TabBand::SetSite EnsureSessionStore
+[2025-11-16T23:12:31.194Z][pid 14788][tid 30328] INFO TabBand::EnsureSessionStore resolving storage (this=000000001C42B940)
+[2025-11-16T23:12:31.196Z][pid 14788][tid 30328] INFO TabBand::ResolveWindowToken adopted crashed session token 970E322A-A9A5-404C-8C03-51E666B4621A
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::EnsureSessionStore window token 970E322A-A9A5-404C-8C03-51E666B4621A
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::EnsureSessionStore using storage path C:\Users\ben\AppData\Roaming\ShellTabs\session-970E322A-A9A5-404C-8C03-51E666B4621A.db
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::SetSite BrowserEvents connected
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::SetSite InitializeTabs
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::InitializeTabs - begin
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::InitializeTabs - end
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::SetSite UpdateTabsUI (initial)
+[2025-11-16T23:12:31.197Z][pid 14788][tid 30328] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T23:12:31.198Z][pid 14788][tid 21936] INFO TabBand::RunBackgroundInitialization begin (this=000000001C42B940, seq=1)
+[2025-11-16T23:12:31.198Z][pid 14788][tid 30328] INFO TabBand::SetSite completed successfully
+[2025-11-16T23:12:31.198Z][pid 14788][tid 21936] INFO TabBand session crash marker created
+[2025-11-16T23:12:31.321Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: MH_Initialize already satisfied (status=1)
+[2025-11-16T23:12:31.321Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: CreateWindowEx interceptor registered successfully
+[2025-11-16T23:12:31.375Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: FindWindowW hooked successfully
+[2025-11-16T23:12:31.426Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: FindWindowExW hooked successfully
+[2025-11-16T23:12:31.426Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: All hooks initialized successfully
+[2025-11-16T23:12:31.426Z][pid 14788][tid 30328] INFO DirectUI replacement system initialized successfully
+[2025-11-16T23:12:31.426Z][pid 14788][tid 30328] INFO CExplorerBHO::SetSite attaching to site=000000000C236528
+[2025-11-16T23:12:31.426Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.427Z][pid 14788][tid 30328] INFO EnsureBandVisible: invoking ShowBrowserBar for host=00000000059E27D6 (attempt 1)
+[2025-11-16T23:12:31.429Z][pid 14788][tid 30328] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=00000000059E27D6 on attempt 1
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Installed progress gradient subclass on hwnd=00000000013C3302
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Installed travel band subclass (band=00000000006E2D6C toolbar=0000000002262E56)
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Breadcrumb CBT hook installed for thread 30328
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.430Z][pid 14788][tid 30328] INFO Breadcrumb toolbar located via deep enumeration (hwnd=0000000001F40734)
+[2025-11-16T23:12:31.431Z][pid 14788][tid 30328] INFO Installed breadcrumb gradient subclass on hwnd=0000000001F40734
+[2025-11-16T23:12:31.431Z][pid 14788][tid 30328] INFO Installed progress gradient subclass on hwnd=00000000013C3302
+[2025-11-16T23:12:31.431Z][pid 14788][tid 30328] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-16T23:12:31.431Z][pid 14788][tid 30328] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T23:12:31.431Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.432Z][pid 14788][tid 30328] INFO Breadcrumb toolbar located via deep enumeration (hwnd=0000000001F40734)
+[2025-11-16T23:12:31.432Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ComVTableHook: Intercepted creation of {926749FA-2615-4987-8845-C33E65F2B957}
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: IUIFramework created, setting up hooks...
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: Setting up IUIFramework vtable hooks...
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ComVTableHook::HookMethod: Successfully hooked vtable[3] for vtable 00007FF956A8A048
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ComVTableHook::HookMethod: Successfully hooked vtable[5] for vtable 00007FF956A8A048
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: IUIFramework vtable hooks installed
+[2025-11-16T23:12:31.434Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: IUIFramework::Initialize called for hwnd=00000000059E27D6
+[2025-11-16T23:12:31.436Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: Ribbon framework initialized for window 00000000059E27D6
+[2025-11-16T23:12:31.436Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: IUIFramework::LoadUI called (instance=00007FF9C5AB0000, resourceName=EXPLORER_RIBBON)
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: Original LoadUI succeeded, injecting custom tab...
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: InjectCustomRibbonTab called for hwnd=0000000000000000
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50000
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50001
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50002
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50003
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50004
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50005
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50006
+[2025-11-16T23:12:31.601Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50007
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50008
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50009
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50010
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50011
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50012
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50013
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50014
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50015
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50016
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50017
+[2025-11-16T23:12:31.602Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50018
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50019
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50020
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50021
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50022
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50023
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50024
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50025
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50026
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50027
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50028
+[2025-11-16T23:12:31.603Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50029
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50030
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50031
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50032
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50033
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50034
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50035
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50036
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50037
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50038
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50039
+[2025-11-16T23:12:31.604Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50040
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50041
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50042
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50043
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50044
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50045
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50046
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50047
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50048
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50049
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50050
+[2025-11-16T23:12:31.605Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50051
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50052
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50053
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50054
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50055
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50056
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50057
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50058
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50059
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50060
+[2025-11-16T23:12:31.606Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50061
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50062
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50063
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50064
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50065
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50066
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50067
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50068
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50069
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50070
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50071
+[2025-11-16T23:12:31.607Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50072
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50073
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50074
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50075
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50076
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50077
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50078
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50079
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50080
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50081
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50082
+[2025-11-16T23:12:31.608Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50083
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50084
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50085
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50086
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50087
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50088
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50089
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50090
+[2025-11-16T23:12:31.609Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50091
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50092
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50093
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50094
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50095
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50096
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50097
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50098
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50099
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50100
+[2025-11-16T23:12:31.610Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50101
+[2025-11-16T23:12:31.611Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50102
+[2025-11-16T23:12:31.611Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50103
+[2025-11-16T23:12:31.611Z][pid 14788][tid 30328] VERBOSE ExplorerRibbonHook: Invalidated command 50104
+[2025-11-16T23:12:31.615Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: Custom ribbon tab injection completed
+[2025-11-16T23:12:31.615Z][pid 14788][tid 30328] INFO ExplorerRibbonHook: Note - To display the custom tab in Explorer's ribbon, you need to compile CustomRibbonTab.xml to a .bml resource and inject it through Explorer's ribbon binary modification or use a separate ribbon-enabled window.
+[2025-11-16T23:12:31.620Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: Intercepted DirectUIHWND creation (parent=00000000026509C4)
+[2025-11-16T23:12:31.650Z][pid 14788][tid 30328] INFO Custom file list view created (hwnd=000000000034251C)
+[2025-11-16T23:12:31.650Z][pid 14788][tid 30328] INFO Custom file list view configured successfully
+[2025-11-16T23:12:31.670Z][pid 14788][tid 30328] INFO TabBand::HandleInitializationResult applying sequence 1
+[2025-11-16T23:12:31.670Z][pid 14788][tid 30328] INFO TabBand::RestoreSession loaded 1 groups
+[2025-11-16T23:12:31.674Z][pid 14788][tid 30328] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000E80988)
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Installed breadcrumb gradient subclass on hwnd=0000000000E80988
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Installed progress gradient subclass on hwnd=00000000013C3302
+[2025-11-16T23:12:31.675Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.682Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: Intercepted DirectUIHWND creation (parent=00000000027F282A)
+[2025-11-16T23:12:31.715Z][pid 14788][tid 30328] INFO Custom file list view created (hwnd=000000000084333E)
+[2025-11-16T23:12:31.715Z][pid 14788][tid 30328] INFO Custom file list view configured successfully
+[2025-11-16T23:12:31.743Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: Intercepted DirectUIHWND creation (parent=0000000000630A54)
+[2025-11-16T23:12:31.803Z][pid 14788][tid 30328] INFO Custom file list view created (hwnd=00000000014228B8)
+[2025-11-16T23:12:31.803Z][pid 14788][tid 30328] INFO Custom file list view configured successfully
+[2025-11-16T23:12:31.851Z][pid 14788][tid 30328] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T23:12:31.853Z][pid 14788][tid 30328] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-16T23:12:31.853Z][pid 14788][tid 30328] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T23:12:31.853Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.853Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.853Z][pid 14788][tid 30328] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000E80988)
+[2025-11-16T23:12:31.854Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.854Z][pid 14788][tid 30328] INFO Installed shell view window subclass (view=00000000027F282A)
+[2025-11-16T23:12:31.854Z][pid 14788][tid 30328] INFO Installed explorer frame subclass (frame=00000000059E27D6)
+[2025-11-16T23:12:31.854Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.854Z][pid 14788][tid 30328] INFO Explorer view base subclass ready (view=00000000027F282A frame=00000000059E27D6)
+[2025-11-16T23:12:31.855Z][pid 14788][tid 30328] INFO Installed explorer tree view subclass (tree=0000000000EA2DDE)
+[2025-11-16T23:12:31.856Z][pid 14788][tid 30328] INFO Explorer pane creation watch armed (view=00000000027F282A list=1 tree=0)
+[2025-11-16T23:12:31.856Z][pid 14788][tid 30328] INFO Explorer pane fallback timer armed (view=00000000027F282A delay=500)
+[2025-11-16T23:12:31.856Z][pid 14788][tid 30328] INFO Explorer panes not ready: list view missing (view=00000000027F282A)
+[2025-11-16T23:12:31.856Z][pid 14788][tid 30328] INFO Explorer pane retry timer armed (view=00000000027F282A delay=500 attempts=1)
+[2025-11-16T23:12:31.856Z][pid 14788][tid 30328] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T23:12:31.858Z][pid 14788][tid 30328] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T23:12:31.858Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.859Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.860Z][pid 14788][tid 30328] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000E80988)
+[2025-11-16T23:12:31.861Z][pid 14788][tid 30328] INFO Explorer pane creation watch cleared (view=00000000027F282A)
+[2025-11-16T23:12:31.861Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.862Z][pid 14788][tid 30328] INFO Installed shell view window subclass (view=00000000027F282A)
+[2025-11-16T23:12:31.862Z][pid 14788][tid 30328] INFO Installed explorer frame subclass (frame=00000000059E27D6)
+[2025-11-16T23:12:31.862Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.862Z][pid 14788][tid 30328] INFO Explorer view base subclass ready (view=00000000027F282A frame=00000000059E27D6)
+[2025-11-16T23:12:31.863Z][pid 14788][tid 30328] INFO Installed explorer tree view subclass (tree=0000000000EA2DDE)
+[2025-11-16T23:12:31.865Z][pid 14788][tid 30328] INFO Explorer pane creation watch armed (view=00000000027F282A list=1 tree=0)
+[2025-11-16T23:12:31.865Z][pid 14788][tid 30328] INFO Explorer pane fallback timer armed (view=00000000027F282A delay=500)
+[2025-11-16T23:12:31.865Z][pid 14788][tid 30328] INFO Explorer panes not ready: list view missing (view=00000000027F282A)
+[2025-11-16T23:12:31.865Z][pid 14788][tid 30328] INFO Explorer pane retry timer armed (view=00000000027F282A delay=500 attempts=1)
+[2025-11-16T23:12:31.884Z][pid 14788][tid 30328] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T23:12:31.893Z][pid 14788][tid 30328] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T23:12:31.894Z][pid 14788][tid 30328] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T23:12:31.895Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.895Z][pid 14788][tid 30328] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=0000000000A12700)
+[2025-11-16T23:12:31.895Z][pid 14788][tid 30328] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000E80988)
+[2025-11-16T23:12:31.895Z][pid 14788][tid 30328] INFO Explorer pane creation watch cleared (view=00000000027F282A)
+[2025-11-16T23:12:31.895Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.896Z][pid 14788][tid 30328] INFO Installed shell view window subclass (view=00000000027F282A)
+[2025-11-16T23:12:31.896Z][pid 14788][tid 30328] INFO Installed explorer frame subclass (frame=00000000059E27D6)
+[2025-11-16T23:12:31.896Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.896Z][pid 14788][tid 30328] INFO Explorer view base subclass ready (view=00000000027F282A frame=00000000059E27D6)
+[2025-11-16T23:12:31.896Z][pid 14788][tid 30328] INFO Installed explorer tree view subclass (tree=0000000000EA2DDE)
+[2025-11-16T23:12:31.897Z][pid 14788][tid 30328] INFO Explorer pane creation watch armed (view=00000000027F282A list=1 tree=0)
+[2025-11-16T23:12:31.897Z][pid 14788][tid 30328] INFO Explorer pane fallback timer armed (view=00000000027F282A delay=500)
+[2025-11-16T23:12:31.897Z][pid 14788][tid 30328] INFO Explorer panes not ready: list view missing (view=00000000027F282A)
+[2025-11-16T23:12:31.897Z][pid 14788][tid 30328] INFO Explorer pane retry timer armed (view=00000000027F282A delay=500 attempts=1)
+[2025-11-16T23:12:31.907Z][pid 14788][tid 30328] INFO Installed explorer list host subclass (host=00000000059E27D6)
+[2025-11-16T23:12:31.908Z][pid 14788][tid 30328] INFO Installed explorer list host subclass (host=0000000000630A54)
+[2025-11-16T23:12:31.908Z][pid 14788][tid 30328] INFO Installed explorer list host subclass (host=0000000000A12700)
+[2025-11-16T23:12:31.908Z][pid 14788][tid 30328] INFO Installed explorer list host subclass (host=000000000076272A)
+[2025-11-16T23:12:31.936Z][pid 14788][tid 30328] INFO Explorer pane creation watch armed (view=00000000027F282A list=1 tree=1)
+[2025-11-16T23:12:31.936Z][pid 14788][tid 30328] INFO Explorer panes not ready: tree view missing (view=00000000027F282A)
+[2025-11-16T23:12:31.940Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.941Z][pid 14788][tid 30328] INFO CExplorerBHO::SetSite detaching from site
+[2025-11-16T23:12:31.942Z][pid 14788][tid 30328] INFO Breadcrumb CBT hook removed for thread 30328
+[2025-11-16T23:12:31.942Z][pid 14788][tid 30328] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-16T23:12:31.942Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.942Z][pid 14788][tid 30328] INFO Cleared Open In New Tab pending state
+[2025-11-16T23:12:31.945Z][pid 14788][tid 30328] INFO TabBand::DisconnectSite (this=000000001C42B940)
+[2025-11-16T23:12:31.949Z][pid 14788][tid 30328] INFO TabBand::SetSite begin (this=000000001C42B940, site=0000000000000000)
+[2025-11-16T23:12:31.949Z][pid 14788][tid 30328] INFO TabBand::SetSite site unchanged
+[2025-11-16T23:12:31.949Z][pid 14788][tid 30328] INFO TabBand destroyed (this=000000001C42B940)
+[2025-11-16T23:12:31.949Z][pid 14788][tid 30328] INFO TabBand::DisconnectSite (this=000000001C42B940)
+[2025-11-16T23:12:33.757Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: Intercepted DirectUIHWND creation (parent=000000000067054C)
+[2025-11-16T23:12:33.789Z][pid 14788][tid 30328] INFO Custom file list view created (hwnd=00000000013D3302)
+[2025-11-16T23:12:33.790Z][pid 14788][tid 30328] ERROR ShellTabs access violation [fault 1]: read at 00007FF988C74D14 (F:\development\steam\emulator_bot\shelltabs\build\bin\Release\ShellTabs.dll+0xD4D14) targeting 0000000000000028 on thread 30328
+[2025-11-16T23:12:33.790Z][pid 14788][tid 30328] ERROR [fault 1] Stack trace (37 frames)
+[2025-11-16T23:12:33.800Z][pid 14788][tid 30328] ERROR [fault 1]   #00 00007FF9F29A9B5C C:\Windows\SYSTEM32\ntdll.dll+0x79B5C | RtlDeleteAce+0x3CC
+[2025-11-16T23:12:33.800Z][pid 14788][tid 30328] ERROR [fault 1]   #01 00007FF9F2982376 C:\Windows\SYSTEM32\ntdll.dll+0x52376 | RtlRaiseException+0x2A6
+[2025-11-16T23:12:33.800Z][pid 14788][tid 30328] ERROR [fault 1]   #02 00007FF9F29D143E C:\Windows\SYSTEM32\ntdll.dll+0xA143E | KiUserExceptionDispatcher+0x2E
+[2025-11-16T23:12:33.801Z][pid 14788][tid 30328] ERROR [fault 1]   #03 00007FF988C74D14 F:\development\steam\emulator_bot\shelltabs\build\bin\Release\ShellTabs.dll+0xD4D14 | DllUnregisterServer+0xCB774
+[2025-11-16T23:12:33.801Z][pid 14788][tid 30328] ERROR [fault 1]   #04 00007FF988BAB068 F:\development\steam\emulator_bot\shelltabs\build\bin\Release\ShellTabs.dll+0xB068 | DllUnregisterServer+0x1AC8
+[2025-11-16T23:12:33.801Z][pid 14788][tid 30328] ERROR [fault 1]   #05 00007FF988C9223C F:\development\steam\emulator_bot\shelltabs\build\bin\Release\ShellTabs.dll+0xF223C | DllUnregisterServer+0xE8C9C
+[2025-11-16T23:12:33.801Z][pid 14788][tid 30328] ERROR [fault 1]   #06 00007FF988C81F3D F:\development\steam\emulator_bot\shelltabs\build\bin\Release\ShellTabs.dll+0xE1F3D | DllUnregisterServer+0xD899D
+[2025-11-16T23:12:33.814Z][pid 14788][tid 30328] ERROR [fault 1]   #07 00007FF9BC88D537 C:\Windows\system32\DUI70.dll+0x2D537 | DirectUI::HWNDHost::_DeleteCtrlWnd+0x1B7
+[2025-11-16T23:12:33.814Z][pid 14788][tid 30328] ERROR [fault 1]   #08 00007FF9BC88FA85 C:\Windows\system32\DUI70.dll+0x2FA85 | DirectUI::HWNDElement::Initialize+0x145
+[2025-11-16T23:12:33.814Z][pid 14788][tid 30328] ERROR [fault 1]   #09 00007FF9BC892FE8 C:\Windows\system32\DUI70.dll+0x32FE8 | DirectUI::TouchHWNDElement::Initialize+0x38
+[2025-11-16T23:12:33.814Z][pid 14788][tid 30328] ERROR [fault 1]   #10 00007FF9C5B3CE32 C:\Windows\SYSTEM32\explorerframe.dll+0x8CE32 | DllGetClassObject+0x2CDF2
+[2025-11-16T23:12:33.814Z][pid 14788][tid 30328] ERROR [fault 1]   #11 00007FF9C5B3C981 C:\Windows\SYSTEM32\explorerframe.dll+0x8C981 | DllGetClassObject+0x2C941
+[2025-11-16T23:12:33.814Z][pid 14788][tid 30328] ERROR [fault 1]   #12 00007FF9C5B59A93 C:\Windows\SYSTEM32\explorerframe.dll+0xA9A93 | DllGetClassObject+0x49A53
+[2025-11-16T23:12:33.815Z][pid 14788][tid 30328] ERROR [fault 1]   #13 00007FF9C5B10C86 C:\Windows\SYSTEM32\explorerframe.dll+0x60C86 | DllGetClassObject+0xC46
+[2025-11-16T23:12:33.815Z][pid 14788][tid 30328] ERROR [fault 1]   #14 00007FF9C5B2B587 C:\Windows\SYSTEM32\explorerframe.dll+0x7B587 | DllGetClassObject+0x1B547
+[2025-11-16T23:12:33.815Z][pid 14788][tid 30328] ERROR [fault 1]   #15 00007FF9F1F78159 C:\Windows\System32\shcore.dll+0x28159 | IUnknown_SetSite+0x49
+[2025-11-16T23:12:33.815Z][pid 14788][tid 30328] ERROR [fault 1]   #16 00007FF9C5B073C8 C:\Windows\SYSTEM32\explorerframe.dll+0x573C8 | DllCanUnloadNow+0x269A8
+[2025-11-16T23:12:33.815Z][pid 14788][tid 30328] ERROR [fault 1]   #17 00007FF9C5B0FBF4 C:\Windows\SYSTEM32\explorerframe.dll+0x5FBF4 | DllCanUnloadNow+0x2F1D4
+[2025-11-16T23:12:33.815Z][pid 14788][tid 30328] ERROR [fault 1]   #18 00007FF9C5ADEFEC C:\Windows\SYSTEM32\explorerframe.dll+0x2EFEC | Ordinal129+0x2EFEC
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #19 00007FF9C5BC8031 C:\Windows\SYSTEM32\explorerframe.dll+0x118031 | DllGetClassObject+0xB7FF1
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #20 00007FF9C5B80520 C:\Windows\SYSTEM32\explorerframe.dll+0xD0520 | DllGetClassObject+0x704E0
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #21 00007FF9C5B1D1B9 C:\Windows\SYSTEM32\explorerframe.dll+0x6D1B9 | DllGetClassObject+0xD179
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #22 00007FF9C5B20E7E C:\Windows\SYSTEM32\explorerframe.dll+0x70E7E | DllGetClassObject+0x10E3E
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #23 00007FF9C5B22FF2 C:\Windows\SYSTEM32\explorerframe.dll+0x72FF2 | DllGetClassObject+0x12FB2
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #24 00007FF9C5B23F05 C:\Windows\SYSTEM32\explorerframe.dll+0x73F05 | DllGetClassObject+0x13EC5
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #25 00007FF9C5ACA07C C:\Windows\SYSTEM32\explorerframe.dll+0x1A07C | Ordinal129+0x1A07C
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #26 00007FF9C5AC9FB4 C:\Windows\SYSTEM32\explorerframe.dll+0x19FB4 | Ordinal129+0x19FB4
+[2025-11-16T23:12:33.816Z][pid 14788][tid 30328] ERROR [fault 1]   #27 00007FF9C5AC9F52 C:\Windows\SYSTEM32\explorerframe.dll+0x19F52 | Ordinal129+0x19F52
+[2025-11-16T23:12:33.817Z][pid 14788][tid 30328] ERROR [fault 1]   #28 00007FF9C5AD5BA2 C:\Windows\SYSTEM32\explorerframe.dll+0x25BA2 | Ordinal129+0x25BA2
+[2025-11-16T23:12:33.817Z][pid 14788][tid 30328] ERROR [fault 1]   #29 00007FF9EE155A7C C:\Windows\SYSTEM32\windows.storage.dll+0x135A7C | Ordinal830+0x21AC
+[2025-11-16T23:12:33.818Z][pid 14788][tid 30328] ERROR [fault 1]   #30 00007FF9EE1556C1 C:\Windows\SYSTEM32\windows.storage.dll+0x1356C1 | Ordinal830+0x1DF1
+[2025-11-16T23:12:33.818Z][pid 14788][tid 30328] ERROR [fault 1]   #31 00007FF9EE1B69D4 C:\Windows\SYSTEM32\windows.storage.dll+0x1969D4 | SHGetFolderPathAndSubDirW+0xC14
+[2025-11-16T23:12:33.818Z][pid 14788][tid 30328] ERROR [fault 1]   #32 00007FF9F1F7BD19 C:\Windows\System32\shcore.dll+0x2BD19 | Ordinal172+0x1E9
+[2025-11-16T23:12:33.819Z][pid 14788][tid 30328] ERROR [fault 1]   #33 00007FF9F10C7374 C:\Windows\System32\KERNEL32.DLL+0x17374 | BaseThreadInitThunk+0x14
+[2025-11-16T23:12:33.819Z][pid 14788][tid 30328] ERROR [fault 1]   #34 00007FF9F297CC91 C:\Windows\SYSTEM32\ntdll.dll+0x4CC91 | RtlUserThreadStart+0x21
+[2025-11-16T23:12:33.819Z][pid 14788][tid 30328] WARN [fault 1] Triggering ShellTabs fault mitigation (code=0xC0000005)
+[2025-11-16T23:12:33.819Z][pid 14788][tid 30328] WARN DirectUIReplacementIntegration: disabling hooks due to ShellTabs fault 1 (code=0xC0000005)
+[2025-11-16T23:12:33.819Z][pid 14788][tid 30328] VERBOSE DirectUIReplacementHook: CreateWindowEx interceptor unregistered during shutdown
+[2025-11-16T23:12:33.871Z][pid 14788][tid 30328] VERBOSE DirectUIReplacementHook: MH_DisableHook(FindWindowW) status=0
+[2025-11-16T23:12:33.871Z][pid 14788][tid 30328] VERBOSE DirectUIReplacementHook: MH_RemoveHook(FindWindowW) status=0
+[2025-11-16T23:12:33.922Z][pid 14788][tid 30328] VERBOSE DirectUIReplacementHook: MH_DisableHook(FindWindowExW) status=0
+[2025-11-16T23:12:33.922Z][pid 14788][tid 30328] VERBOSE DirectUIReplacementHook: MH_RemoveHook(FindWindowExW) status=0
+[2025-11-16T23:12:33.922Z][pid 14788][tid 30328] VERBOSE DirectUIReplacementHook: Skipping MH_Uninitialize (not lifecycle owner)
+[2025-11-16T23:12:33.923Z][pid 14788][tid 30328] INFO DirectUIReplacementHook: All hooks shut down
+[2025-11-16T23:12:33.923Z][pid 14788][tid 30328] ERROR Unhandled exception 0xC0000005 at 00007FF988C74D14
