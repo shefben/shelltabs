@@ -17,8 +17,11 @@ button5_small.png    button5_large.png
 
 The repository intentionally keeps these assets out of source control. Drop
 your project-specific images into this folder locally before running the ribbon
-compiler or invoking MSBuild so that the corresponding `IMAGE_BUTTON*_SMALL`
-and `IMAGE_BUTTON*_LARGE` resources resolve correctly.
+compiler or invoking MSBuild. The UICC step resolves the `<Image
+Source="ribbon_images/...">` entries in `CustomRibbonTab.xml`, and `rc.exe`
+consumes the exact same files when emitting the `IMAGE_BUTTON*_SMALL` and
+`IMAGE_BUTTON*_LARGE` resources, so maintaining these filenames ensures both
+toolchains stay in sync.
 
 > **Build integration note:** The CMake project watches these exact file names
 > as explicit dependencies of `src/resource.rc`. When you copy your PNGs into

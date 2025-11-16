@@ -48,7 +48,9 @@
              Id="50001"
              LabelTitle="Actions"/>
 
-    <!-- Button Commands use IMAGE_BUTTON*_SMALL/LARGE resources defined in src/resource.rc -->
+    <!-- Button Commands load their glyphs from src/ribbon_images so UICC can inline
+         the PNGs when compiling this markup. Keep the filenames in sync with
+         src/resource.rc so the runtime resources pick up the same images. -->
     <Command Name="cmdCustomButton1"
              Symbol="cmdCustomButton1"
              Id="50100"
@@ -57,10 +59,10 @@
              TooltipTitle="Custom Button 1"
              TooltipDescription="Execute custom action 1">
       <Command.LargeImages>
-        <Image Source="IMAGE_BUTTON1_LARGE"/>
+        <Image Source="ribbon_images/button1_large.png"/>
       </Command.LargeImages>
       <Command.SmallImages>
-        <Image Source="IMAGE_BUTTON1_SMALL"/>
+        <Image Source="ribbon_images/button1_small.png"/>
       </Command.SmallImages>
     </Command>
 
@@ -72,10 +74,10 @@
              TooltipTitle="Custom Button 2"
              TooltipDescription="Execute custom action 2">
       <Command.LargeImages>
-        <Image Source="IMAGE_BUTTON2_LARGE"/>
+        <Image Source="ribbon_images/button2_large.png"/>
       </Command.LargeImages>
       <Command.SmallImages>
-        <Image Source="IMAGE_BUTTON2_SMALL"/>
+        <Image Source="ribbon_images/button2_small.png"/>
       </Command.SmallImages>
     </Command>
 
@@ -87,10 +89,10 @@
              TooltipTitle="Custom Button 3"
              TooltipDescription="Execute custom action 3">
       <Command.LargeImages>
-        <Image Source="IMAGE_BUTTON3_LARGE"/>
+        <Image Source="ribbon_images/button3_large.png"/>
       </Command.LargeImages>
       <Command.SmallImages>
-        <Image Source="IMAGE_BUTTON3_SMALL"/>
+        <Image Source="ribbon_images/button3_small.png"/>
       </Command.SmallImages>
     </Command>
 
@@ -102,10 +104,10 @@
              TooltipTitle="Custom Button 4"
              TooltipDescription="Execute custom action 4">
       <Command.LargeImages>
-        <Image Source="IMAGE_BUTTON4_LARGE"/>
+        <Image Source="ribbon_images/button4_large.png"/>
       </Command.LargeImages>
       <Command.SmallImages>
-        <Image Source="IMAGE_BUTTON4_SMALL"/>
+        <Image Source="ribbon_images/button4_small.png"/>
       </Command.SmallImages>
     </Command>
 
@@ -117,10 +119,10 @@
              TooltipTitle="Custom Button 5"
              TooltipDescription="Execute custom action 5">
       <Command.LargeImages>
-        <Image Source="IMAGE_BUTTON5_LARGE"/>
+        <Image Source="ribbon_images/button5_large.png"/>
       </Command.LargeImages>
       <Command.SmallImages>
-        <Image Source="IMAGE_BUTTON5_SMALL"/>
+        <Image Source="ribbon_images/button5_small.png"/>
       </Command.SmallImages>
     </Command>
 

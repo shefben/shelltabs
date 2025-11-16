@@ -287,6 +287,11 @@ uicc.exe CustomRibbonTab.xml CustomRibbonTab.bml ^
   /res:CustomRibbonTab.rc
 ```
 
+> **Reminder:** `CustomRibbonTab.xml` expects the small/large PNG glyphs to be
+> present in `src/ribbon_images`. Copy your assets into that directory before
+> invoking `uicc.exe` so the compiler can resolve each `<Image
+> Source="ribbon_images/...">` reference.
+
 3. Add to your resource script:
 ```rc
 #include "CustomRibbonTab.h"
