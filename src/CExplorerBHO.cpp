@@ -117,6 +117,7 @@
 #define LVBKIF_FLAG_ALPHABLEND  0x20000000
 #endif
 
+bool MatchesClass(HWND hwnd, const wchar_t* className);
 
 namespace {
 
@@ -255,6 +256,42 @@ std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     return std::nullopt;
 }
 
+struct EnumClassSearchContext {
+    const wchar_t* className = nullptr;
+    HWND result = nullptr;
+};
+
+BOOL CALLBACK EnumDescendantsByClassProc(HWND hwnd, LPARAM lParam) {
+    auto* context = reinterpret_cast<EnumClassSearchContext*>(lParam);
+    if (!context) {
+        return FALSE;
+    }
+    if (context->result) {
+        return FALSE;
+    }
+    if (MatchesClass(hwnd, context->className)) {
+        context->result = hwnd;
+        return FALSE;
+    }
+
+    EnumChildWindows(hwnd, EnumDescendantsByClassProc, lParam);
+    return context->result == nullptr;
+}
+
+HWND FindDescendantByClassEnum(HWND root, const wchar_t* className) {
+    if (!root || !className || !IsWindow(root)) {
+        return nullptr;
+    }
+    if (MatchesClass(root, className)) {
+        return root;
+    }
+
+    EnumClassSearchContext context{};
+    context.className = className;
+    EnumChildWindows(root, EnumDescendantsByClassProc, reinterpret_cast<LPARAM>(&context));
+    return context.result;
+}
+
 // Helper function to find DirectUIHWND window (critical for Vista+)
 // On Windows Vista and later, Explorer uses DirectUIHWND for folder view rendering
 HWND FindDirectUIHWND(HWND listView) {
@@ -262,27 +299,89 @@ HWND FindDirectUIHWND(HWND listView) {
         return nullptr;
     }
 
-    // Navigate up to parent and search for DirectUIHWND sibling
-    HWND parent = GetParent(listView);
-    if (!parent || !IsWindow(parent)) {
+    auto findDefViewAncestor = [](HWND start) -> HWND {
+        for (HWND current = start; current && IsWindow(current); current = GetParent(current)) {
+            if (MatchesClass(current, L"SHELLDLL_DefView")) {
+                return current;
+            }
+        }
         return nullptr;
+    };
+
+    HWND defView = findDefViewAncestor(listView);
+    if (defView) {
+        if (HWND direct = FindDescendantByClassEnum(defView, L"DirectUIHWND")) {
+            return direct;
+        }
     }
 
-    // Enumerate children to find DirectUIHWND
-    HWND directUiHwnd = nullptr;
-    HWND child = GetWindow(parent, GW_CHILD);
-    while (child && !directUiHwnd) {
-        wchar_t className[256] = {};
-        if (GetClassNameW(child, className, ARRAYSIZE(className)) > 0) {
-            if (wcscmp(className, L"DirectUIHWND") == 0) {
-                directUiHwnd = child;
+    bool fallbackLogged = false;
+    auto logFallbackStart = [&](const wchar_t* reason) {
+        if (fallbackLogged) {
+            return;
+        }
+        fallbackLogged = true;
+        LogMessage(LogLevel::Info,
+                   L"FindDirectUIHWND fallback triggered (%s, listView=%p, defView=%p)",
+                   reason ? reason : L"unknown",
+                   listView,
+                   defView);
+    };
+
+    constexpr const wchar_t* kAncestorClasses[] = {L"ShellTabWindowClass", L"CabinetWClass"};
+    if (!defView) {
+        logFallbackStart(L"SHELLDLL_DefView ancestor missing");
+    } else {
+        logFallbackStart(L"DirectUIHWND missing under primary SHELLDLL_DefView");
+    }
+
+    for (HWND ancestor = defView ? GetParent(defView) : GetParent(listView); ancestor && IsWindow(ancestor);
+         ancestor = GetParent(ancestor)) {
+        const wchar_t* ancestorClass = nullptr;
+        for (const wchar_t* candidate : kAncestorClasses) {
+            if (MatchesClass(ancestor, candidate)) {
+                ancestorClass = candidate;
                 break;
             }
         }
-        child = GetWindow(child, GW_HWNDNEXT);
+
+        if (!ancestorClass) {
+            continue;
+        }
+
+        HWND fallbackDefView = FindDescendantByClassEnum(ancestor, L"SHELLDLL_DefView");
+        if (!fallbackDefView) {
+            LogMessage(LogLevel::Verbose,
+                       L"FindDirectUIHWND fallback ancestor %s (%p) lacks SHELLDLL_DefView",
+                       ancestorClass,
+                       ancestor);
+            continue;
+        }
+
+        if (HWND direct = FindDescendantByClassEnum(fallbackDefView, L"DirectUIHWND")) {
+            LogMessage(LogLevel::Info,
+                       L"FindDirectUIHWND fallback located DirectUIHWND=%p via %s ancestor=%p defView=%p",
+                       direct,
+                       ancestorClass,
+                       ancestor,
+                       fallbackDefView);
+            return direct;
+        }
+
+        LogMessage(LogLevel::Verbose,
+                   L"FindDirectUIHWND fallback ancestor %s (%p) defView=%p missing DirectUIHWND",
+                   ancestorClass,
+                   ancestor,
+                   fallbackDefView);
     }
 
-    return directUiHwnd;
+    if (fallbackLogged) {
+        LogMessage(LogLevel::Warning,
+                   L"FindDirectUIHWND fallback exhausted without finding DirectUIHWND (listView=%p)",
+                   listView);
+    }
+
+    return nullptr;
 }
 
 // Convert GDI+ Bitmap to HBITMAP for use with LVM_SETBKIMAGE
