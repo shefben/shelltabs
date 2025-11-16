@@ -1,5 +1,6 @@
 #include "DirectUIReplacementIntegration.h"
 #include "CustomFileListView.h"
+#include "Logging.h"
 #include "Utilities.h"
 #include <mutex>
 
@@ -14,6 +15,21 @@ void* DirectUIReplacementIntegration::s_viewCreatedContext = nullptr;
 namespace {
     std::mutex g_initMutex;
     HINSTANCE g_hInstance = nullptr;
+    std::once_flag g_faultMitigationRegistration;
+
+    void DisableDirectUIReplacementAfterFault(const FaultMitigationDetails& details, void*) {
+        LogMessage(LogLevel::Warning,
+                   L"DirectUIReplacementIntegration: disabling hooks due to ShellTabs fault %llu (code=0x%08X)",
+                   details.faultId,
+                   details.exceptionCode);
+        DirectUIReplacementIntegration::SetEnabled(false);
+    }
+
+    void EnsureFaultMitigationRegistration() {
+        std::call_once(g_faultMitigationRegistration, [] {
+            RegisterFaultMitigationHandler(&DisableDirectUIReplacementAfterFault, nullptr);
+        });
+    }
 }
 
 bool DirectUIReplacementIntegration::Initialize() {
@@ -22,6 +38,8 @@ bool DirectUIReplacementIntegration::Initialize() {
     if (s_initialized) {
         return true;
     }
+
+    EnsureFaultMitigationRegistration();
 
     // Get module instance
     g_hInstance = GetModuleHandleW(nullptr);
@@ -67,6 +85,12 @@ void DirectUIReplacementIntegration::SetEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(g_initMutex);
 
     if (s_enabled == enabled) {
+        return;
+    }
+
+    if (enabled && HasFaultMitigationTriggered()) {
+        LogMessage(LogLevel::Warning,
+                   L"DirectUIReplacementIntegration: refusing to re-enable after crash mitigation was triggered");
         return;
     }
 
