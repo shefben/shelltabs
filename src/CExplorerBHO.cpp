@@ -302,7 +302,8 @@ HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
 }
 
 // Clear ListView background image using LVM_SETBKIMAGE
-void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
+void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr,
+                                  IVisualProperties* visualProperties = nullptr) {
     if (!hwnd || !IsWindow(hwnd)) {
         return;
     }
@@ -317,6 +318,14 @@ void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
     bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP;
     SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
 
+    if (visualProperties) {
+        HRESULT hr = visualProperties->SetWatermark(nullptr, VPWATERMARKFLAGS::VPWF_DEFAULT);
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning,
+                       L"Failed to clear folder view watermark via IVisualProperties hr=0x%08X", hr);
+        }
+    }
+
     // Delete the tracked bitmap if provided
     if (trackedBitmap && *trackedBitmap) {
         DeleteObject(*trackedBitmap);
@@ -325,7 +334,8 @@ void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
 }
 
 // Set ListView background image using LVM_SETBKIMAGE (QTTabBar approach)
-bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr, bool useWatermarkMode = false) {
+bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr,
+                                bool useWatermarkMode = false, IVisualProperties* visualProperties = nullptr) {
     if (!listView || !IsWindow(listView)) {
         return false;
     }
@@ -340,7 +350,7 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
     }
 
     // Clear any existing background image and delete the old bitmap
-    ClearListViewBackgroundImage(targetWindow, trackedBitmap);
+    ClearListViewBackgroundImage(targetWindow, trackedBitmap, visualProperties);
 
     // If no bitmap provided, we're just clearing
     if (!bitmap) {
@@ -371,10 +381,30 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
 
     // Send the message to set the background
     LRESULT result = SendMessageW(targetWindow, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+    bool lvmApplied = result != 0;
+    bool usedWatermarkFallback = false;
 
-    if (result) {
-        LogMessage(LogLevel::Info, L"Successfully set ListView background image (hwnd=%p, mode=%s)",
-                   targetWindow, useWatermarkMode ? L"watermark" : L"tiled");
+    if (!lvmApplied) {
+        LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
+    }
+
+    bool needsWatermarkFallback = visualProperties && (!directUiHwnd || !lvmApplied);
+    if (needsWatermarkFallback) {
+        HRESULT hr = visualProperties->SetWatermark(hBitmap, VPWATERMARKFLAGS::VPWF_ALPHABLEND);
+        if (SUCCEEDED(hr)) {
+            usedWatermarkFallback = true;
+            LogMessage(LogLevel::Info,
+                       L"Applied folder view watermark fallback via IVisualProperties (DirectUI=%s, hr=0x%08X)",
+                       directUiHwnd ? L"true" : L"false", hr);
+        } else {
+            LogMessage(LogLevel::Warning,
+                       L"Failed to apply folder view watermark fallback via IVisualProperties hr=0x%08X", hr);
+        }
+    }
+
+    if (lvmApplied || usedWatermarkFallback) {
+        LogMessage(LogLevel::Info, L"Successfully set folder background via %s",
+                   lvmApplied ? L"LVM_SETBKIMAGE" : L"IVisualProperties");
 
         // Track the new bitmap so we can clean it up later
         if (trackedBitmap) {
@@ -382,12 +412,11 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
         }
 
         return true;
-    } else {
-        LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
-        // Failed to set, so delete the bitmap we created
-        DeleteObject(hBitmap);
-        return false;
     }
+
+    // Failed entirely, so delete the bitmap we created
+    DeleteObject(hBitmap);
+    return false;
 }
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
@@ -4330,10 +4359,25 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
     return {};
 }
 
+Microsoft::WRL::ComPtr<IVisualProperties> CExplorerBHO::GetCurrentVisualProperties() const {
+    Microsoft::WRL::ComPtr<IVisualProperties> visualProperties;
+    if (m_folderView2) {
+        m_folderView2.As(&visualProperties);
+    }
+
+    if (!visualProperties && m_shellView) {
+        m_shellView.As(&visualProperties);
+    }
+
+    return visualProperties;
+}
+
 void CExplorerBHO::RefreshListViewControlBackground() {
     if (!m_listView || !IsWindow(m_listView)) {
         return;
     }
+
+    auto visualProperties = GetCurrentVisualProperties();
 
     // If backgrounds are enabled, set the background image using LVM_SETBKIMAGE
     if (m_folderBackgroundsEnabled) {
@@ -4345,10 +4389,12 @@ void CExplorerBHO::RefreshListViewControlBackground() {
 
         // Set the background image using native ListView API (QTTabBar approach)
         // Use watermark mode for better alpha blending on Vista+
-        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true);
+        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true,
+                                   visualProperties.Get());
     } else {
         // Clear background image and restore default colors
-        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false);
+        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false,
+                                   visualProperties.Get());
         ListView_SetBkColor(m_listView, CLR_DEFAULT);
         ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
     }
