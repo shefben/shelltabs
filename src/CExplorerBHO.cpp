@@ -3732,6 +3732,9 @@ HWND CExplorerBHO::ResolveListViewFromFolderView() {
 }
 
 void CExplorerBHO::EnsureListViewSubclass() {
+    if (m_customFileListView && m_directUiView && IsWindow(m_directUiView)) {
+        return;
+    }
     if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
         return;
     }
@@ -3931,8 +3934,22 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         m_treeViewSubclassInstalled = false;
     }
 
+    const bool customListViewActive = (m_customFileListView && m_directUiView && IsWindow(m_directUiView));
+
     bool listViewResolved = (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView));
     bool treeViewResolved = (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView));
+
+    if (!listViewResolved && customListViewActive) {
+        listViewResolved = true;
+        if (!m_loggedCustomListViewReady) {
+            LogMessage(LogLevel::Info,
+                       L"Explorer list pane resolved via custom view (view=%p direct=%p)",
+                       m_shellViewWindow, m_directUiView);
+            m_loggedCustomListViewReady = true;
+        }
+    } else if (!customListViewActive && m_loggedCustomListViewReady) {
+        m_loggedCustomListViewReady = false;
+    }
 
     if (!m_directUiSubclassInstalled) {
         HWND directUiHost = FindDescendantWindow(m_shellViewWindow, L"UIItemsView");
@@ -3964,21 +3981,23 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         }
     }
 
-    if (!listViewResolved && TryAttachListViewFromFolderView()) {
-        listViewResolved = true;
-    }
+    if (!listViewResolved && !customListViewActive) {
+        if (TryAttachListViewFromFolderView()) {
+            listViewResolved = true;
+        }
 
-    if (!listViewResolved) {
-        const HWND candidates[] = {m_directUiView, m_shellViewWindow};
-        for (HWND candidate : candidates) {
-            if (!candidate || !IsWindow(candidate)) {
-                continue;
-            }
-            HWND listView = FindDescendantWindow(candidate, L"SysListView32");
-            if (listView && AttachListView(listView)) {
-                listViewResolved = true;
-                RefreshListViewAccentState();
-                break;
+        if (!listViewResolved) {
+            const HWND candidates[] = {m_directUiView, m_shellViewWindow};
+            for (HWND candidate : candidates) {
+                if (!candidate || !IsWindow(candidate)) {
+                    continue;
+                }
+                HWND listView = FindDescendantWindow(candidate, L"SysListView32");
+                if (listView && AttachListView(listView)) {
+                    listViewResolved = true;
+                    RefreshListViewAccentState();
+                    break;
+                }
             }
         }
     }

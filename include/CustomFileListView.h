@@ -23,6 +23,7 @@
 namespace shelltabs {
     class ExplorerGlowCoordinator;
     struct SurfaceColorDescriptor;
+    struct CreateWindowExInterceptorArgs;
 }
 
 namespace ShellTabs {
@@ -337,11 +338,9 @@ public:
     static CustomFileListView* GetInstance(HWND hwnd);
 
 private:
-    // Window creation hooks
-    static HWND WINAPI CreateWindowExW_Hook(
-        DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
-        DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
-        HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
+    static bool HandleCreateWindowRequest(const shelltabs::CreateWindowExInterceptorArgs& args,
+                                          HWND* result,
+                                          void* context);
 
     // Window search hooks
     static HWND WINAPI FindWindowW_Hook(
@@ -357,9 +356,9 @@ private:
 
     static bool s_enabled;
     static bool s_ownsMinHookLifecycle;
-    static void* s_originalCreateWindowExW;
     static void* s_originalFindWindowW;
     static void* s_originalFindWindowExW;
+    static bool s_createWindowInterceptorRegistered;
     static std::unordered_map<HWND, CustomFileListView*> s_instances;
 };
 
