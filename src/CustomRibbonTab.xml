@@ -91,7 +91,8 @@
           <Tab.ScalingPolicy>
             <ScalingPolicy>
               <ScalingPolicy.IdealSizes>
-                <Scale Group="*" Size="Large"/>
+                <!-- Apply the ideal size policy to the defined actions group -->
+                <Scale Group="cmdCustomGroup1" Size="Large"/>
               </ScalingPolicy.IdealSizes>
             </ScalingPolicy>
           </Tab.ScalingPolicy>
