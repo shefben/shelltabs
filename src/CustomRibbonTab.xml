@@ -24,6 +24,17 @@
 
   <Application.Commands>
 
+    <!-- Application-level Commands used to silence ApplicationMenu/QAT warnings -->
+    <Command Name="cmdApplicationMenu"
+             Symbol="cmdApplicationMenu"
+             Id="49990"
+             LabelTitle="ShellTabs"/>
+
+    <Command Name="cmdQuickAccessToolbar"
+             Symbol="cmdQuickAccessToolbar"
+             Id="49991"
+             LabelTitle="Quick Access"/>
+
     <!-- Tab Command -->
     <Command Name="cmdCustomTab"
              Symbol="cmdCustomTab"
@@ -37,7 +48,7 @@
              Id="50001"
              LabelTitle="Actions"/>
 
-    <!-- Button Commands -->
+    <!-- Button Commands use IMAGE_BUTTON*_SMALL/LARGE resources defined in src/resource.rc -->
     <Command Name="cmdCustomButton1"
              Symbol="cmdCustomButton1"
              Id="50100"
@@ -117,6 +128,19 @@
 
   <Application.Views>
     <Ribbon>
+
+      <Ribbon.ApplicationMenu>
+        <ApplicationMenu CommandName="cmdApplicationMenu"/>
+      </Ribbon.ApplicationMenu>
+
+      <Ribbon.QuickAccessToolbar>
+        <QuickAccessToolbar CommandName="cmdQuickAccessToolbar">
+          <QuickAccessToolbar.ApplicationDefaults>
+            <!-- Default to the first custom button to avoid schema warnings -->
+            <Button CommandName="cmdCustomButton1"/>
+          </QuickAccessToolbar.ApplicationDefaults>
+        </QuickAccessToolbar>
+      </Ribbon.QuickAccessToolbar>
 
       <Ribbon.Tabs>
 
