@@ -3604,12 +3604,12 @@ void TabBandWindow::HandleNewTabButtonLButtonDown(HWND hwnd, POINT pt) {
 }
 
 void TabBandWindow::HandleNewTabButtonLButtonUp(HWND hwnd, POINT pt) {
+    const bool inside = IsPointInsideNewTabButton(hwnd, pt);
+    const bool shouldInvoke = m_newTabButtonPointerPressed && m_newTabButtonCommandPending && inside;
+
     if (GetCapture() == hwnd) {
         ReleaseCapture();
     }
-
-    const bool inside = IsPointInsideNewTabButton(hwnd, pt);
-    const bool shouldInvoke = m_newTabButtonPointerPressed && m_newTabButtonCommandPending && inside;
 
     m_newTabButtonPointerPressed = false;
     m_newTabButtonCommandPending = false;
