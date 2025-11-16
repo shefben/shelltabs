@@ -43,3 +43,16 @@ END
 
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "ShellTabs.manifest"
 
+// Ribbon image resources compiled into the module so the ribbon XML
+// can reference them via IMAGE_BUTTON*_SMALL/LARGE identifiers.
+IMAGE_BUTTON1_SMALL IMAGE "ribbon_images/button1_small.png"
+IMAGE_BUTTON1_LARGE IMAGE "ribbon_images/button1_large.png"
+IMAGE_BUTTON2_SMALL IMAGE "ribbon_images/button2_small.png"
+IMAGE_BUTTON2_LARGE IMAGE "ribbon_images/button2_large.png"
+IMAGE_BUTTON3_SMALL IMAGE "ribbon_images/button3_small.png"
+IMAGE_BUTTON3_LARGE IMAGE "ribbon_images/button3_large.png"
+IMAGE_BUTTON4_SMALL IMAGE "ribbon_images/button4_small.png"
+IMAGE_BUTTON4_LARGE IMAGE "ribbon_images/button4_large.png"
+IMAGE_BUTTON5_SMALL IMAGE "ribbon_images/button5_small.png"
+IMAGE_BUTTON5_LARGE IMAGE "ribbon_images/button5_large.png"
+
