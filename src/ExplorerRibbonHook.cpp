@@ -330,11 +330,12 @@ bool ExplorerRibbonHook::Initialize() {
 
     // Register callback for CLSID_UIRibbonFramework creation
     // {926749FA-2615-4987-8845-C33E65F2B957}
-    CLSID CLSID_UIRibbonFramework;
-    CLSIDFromString(L"{926749FA-2615-4987-8845-C33E65F2B957}", &CLSID_UIRibbonFramework);
+    CLSID ribbonFrameworkClsid{};
+    CLSIDFromString(L"{926749FA-2615-4987-8845-C33E65F2B957}", &ribbonFrameworkClsid);
 
-    ComVTableHook::RegisterClassHook(CLSID_UIRibbonFramework,
+    ComVTableHook::RegisterClassHook(ribbonFrameworkClsid,
         [](IUnknown* pUnknown, REFIID riid) {
+            (void)riid;
             LogMessage(LogLevel::Info, L"ExplorerRibbonHook: IUIFramework created, setting up hooks...");
 
             // Query for IUIFramework interface
@@ -449,9 +450,9 @@ void ExplorerRibbonHook::Shutdown() {
     std::lock_guard<std::mutex> lock(g_ribbonMutex);
 
     // Unhook CoCreateInstance
-    CLSID CLSID_UIRibbonFramework;
-    CLSIDFromString(L"{926749FA-2615-4987-8845-C33E65F2B957}", &CLSID_UIRibbonFramework);
-    ComVTableHook::UnregisterClassHook(CLSID_UIRibbonFramework);
+    CLSID ribbonFrameworkClsid{};
+    CLSIDFromString(L"{926749FA-2615-4987-8845-C33E65F2B957}", &ribbonFrameworkClsid);
+    ComVTableHook::UnregisterClassHook(ribbonFrameworkClsid);
     ComVTableHook::UnhookCoCreateInstance();
 
     // Release all ribbon instances

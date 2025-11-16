@@ -376,9 +376,9 @@ bool WriteMinidumpToPath(const std::wstring& path, const EXCEPTION_POINTERS* inf
     exceptionInfo.ExceptionPointers = const_cast<EXCEPTION_POINTERS*>(info);
     exceptionInfo.ClientPointers = FALSE;
 
-    const BOOL result = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file,
-                                          MiniDumpWithDataSegs | MiniDumpWithFullMemoryInfo |
-                                              MiniDumpWithHandleData | MiniDumpScanMemory,
+    const MINIDUMP_TYPE dumpType = static_cast<MINIDUMP_TYPE>(MiniDumpWithDataSegs | MiniDumpWithFullMemoryInfo |
+                                                             MiniDumpWithHandleData | MiniDumpScanMemory);
+    const BOOL result = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file, dumpType,
                                           info ? &exceptionInfo : nullptr, nullptr, nullptr);
     CloseHandle(file);
     return result != FALSE;
