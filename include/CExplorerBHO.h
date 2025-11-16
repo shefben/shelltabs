@@ -39,6 +39,8 @@
 #include "PaneHooks.h"
 #include "Utilities.h"
 #include "DirectUIReplacementIntegration.h"
+#include "VisualPropertiesInterop.h"
+#include "ShellTabsMessages.h"
 
 namespace Gdiplus {
 class Bitmap;
@@ -225,6 +227,8 @@ class ShellTabsListView;
                 HWND FindAddressEditControl() const;
                 std::vector<HWND> FindExplorerEditControls() const;
                 HWND GetTopLevelExplorerWindow() const;
+                HWND GetShellTabsBandWindow() const;
+                bool PostTravelToolbarNavigationMessage(bool navigateBack) const;
 		bool InstallBreadcrumbSubclass(HWND toolbar);
                 bool InstallProgressSubclass(HWND progressWindow);
                 bool InstallAddressEditSubclass(HWND editWindow);
@@ -233,8 +237,17 @@ class ShellTabsListView;
                 bool InstallTravelBandSubclass(HWND travelBand, HWND toolbar);
                 void RemoveTravelBandSubclass();
                 void ResolveTravelToolbarCommands();
+                bool HandleTravelToolbarMouseButton(HWND toolbar, bool buttonUp, WPARAM wParam,
+                                                    LPARAM lParam, LRESULT* result);
+                bool HandleTravelToolbarMouseActivate(LRESULT* result);
                 bool HandleTravelBandNotify(NMHDR* header, LRESULT* result);
                 bool HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* result);
+                bool ShowTravelHistoryMenu(HistoryMenuKind kind, const RECT& buttonRect, LRESULT* result);
+                void ResetTravelToolbarButtonState();
+                void SetTravelToolbarButtonPressed(UINT commandId, bool pressed);
+                bool IsTravelToolbarButtonEnabled(UINT commandId) const;
+                void BeginTravelToolbarCapture(HWND toolbar);
+                void ReleaseTravelToolbarCapture();
                 void RemoveProgressSubclass();
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
@@ -282,6 +295,7 @@ class ShellTabsListView;
                 void InvalidateFolderBackgroundTargets() const;
                 std::wstring ResolveBackgroundCacheKey() const;
                 void RefreshListViewControlBackground();
+                Microsoft::WRL::ComPtr<IVisualProperties> GetCurrentVisualProperties() const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
@@ -341,6 +355,9 @@ class ShellTabsListView;
                 bool ShouldUseListViewAccentColors() const;
                 bool ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const;
                 void RefreshListViewAccentState();
+                void ResetListViewAccentBrush();
+                HBRUSH GetListViewAccentBrush(COLORREF accentColor);
+                bool ApplyListViewSelectionAccent(NMLVCUSTOMDRAW* customDraw, bool fillBackground);
                 void EnsureListViewSubclass();
                 void EnsureListViewHostSubclass(HWND hostWindow);
                 bool TryAttachListViewFromFolderView();
@@ -400,6 +417,8 @@ class ShellTabsListView;
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK TravelBandSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -429,11 +448,16 @@ class ShellTabsListView;
 		bool m_useCustomBreadcrumbFontColors = false;
 		COLORREF m_breadcrumbFontGradientStartColor = RGB(255, 255, 255);
 		COLORREF m_breadcrumbFontGradientEndColor = RGB(255, 255, 255);
-		HWND m_travelBand = nullptr;
-		HWND m_travelToolbar = nullptr;
-		bool m_travelBandSubclassInstalled = false;
-		UINT m_travelBackCommandId = 0;
-		UINT m_travelForwardCommandId = 0;
+                HWND m_travelBand = nullptr;
+                HWND m_travelToolbar = nullptr;
+                bool m_travelBandSubclassInstalled = false;
+                bool m_travelToolbarSubclassInstalled = false;
+                bool m_travelToolbarMouseCaptured = false;
+                bool m_travelHistoryMenuVisible = false;
+                int m_travelToolbarPressedButton = -1;
+                UINT m_travelBackCommandId = 0;
+                UINT m_travelForwardCommandId = 0;
+                UINT m_travelHistoryDropdownCommandId = 0;
 		bool m_useCustomProgressGradientColors = false;
 		COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
 		COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
@@ -522,6 +546,11 @@ class ShellTabsListView;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
                 std::unique_ptr<ShellTabsListView> m_listViewControl;
+                bool m_hasActiveListViewAccent = false;
+                COLORREF m_activeListViewAccentColor = 0;
+                COLORREF m_activeListViewTextColor = 0;
+                HBRUSH m_listViewAccentBrush = nullptr;
+                COLORREF m_listViewAccentBrushColor = 0;
                 HBITMAP m_currentBackgroundBitmap = nullptr;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;

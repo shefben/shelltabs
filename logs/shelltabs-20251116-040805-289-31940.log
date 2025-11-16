@@ -1,0 +1,796 @@
+=== ShellTabs logging started for C:\Windows\explorer.exe ===
+[2025-11-16T04:08:05.290Z][pid 31940][tid 28340] INFO DllMain PROCESS_ATTACH for C:\Windows\explorer.exe
+[2025-11-16T04:08:05.608Z][pid 31940][tid 28340] INFO CompositionIntercept: hooks initialized
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO ThemeHooks: installed theme detours (including line drawing hooks)
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO ExplorerRibbonHook: Initializing ribbon hooks...
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO RibbonCommandHandler: Registered callback for command 50100
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO RibbonCommandHandler: Registered callback for command 50101
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO RibbonCommandHandler: Registered callback for command 50102
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO RibbonCommandHandler: Registered callback for command 50103
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] INFO RibbonCommandHandler: Registered callback for command 50104
+[2025-11-16T04:08:06.557Z][pid 31940][tid 28340] ERROR ComVTableHook: Failed to initialize MinHook
+[2025-11-16T04:08:06.558Z][pid 31940][tid 28340] ERROR ExplorerRibbonHook: Failed to hook CoCreateInstance
+[2025-11-16T04:08:06.558Z][pid 31940][tid 28340] WARN Failed to initialize Explorer ribbon hooks; custom ribbon tab will not be available
+[2025-11-16T04:08:06.558Z][pid 31940][tid 28340] INFO InitCommonControlsEx succeeded
+[2025-11-16T04:08:06.685Z][pid 31940][tid 11104] INFO TabBand constructed (this=000000001BBE9F30)
+[2025-11-16T04:08:06.685Z][pid 31940][tid 11104] INFO TabBand::SetSite begin (this=000000001BBE9F30, site=00000000032748E8)
+[2025-11-16T04:08:06.686Z][pid 31940][tid 11104] INFO TabBand::DisconnectSite (this=000000001BBE9F30)
+[2025-11-16T04:08:06.686Z][pid 31940][tid 11104] INFO TabBand::SetSite resolved browser interfaces
+[2025-11-16T04:08:06.686Z][pid 31940][tid 11104] INFO TabBand::SetSite EnsureWindow
+[2025-11-16T04:08:06.686Z][pid 31940][tid 11104] INFO TabBand::EnsureWindow creating band window (this=000000001BBE9F30)
+[2025-11-16T04:08:06.693Z][pid 31940][tid 11104] WARN ThemeNotifier: RoInitialize failed (hr=0x80010106)
+[2025-11-16T04:08:06.694Z][pid 31940][tid 11104] INFO TabBand::EnsureWindow created window hwnd=0000000000DB277E
+[2025-11-16T04:08:06.694Z][pid 31940][tid 11104] INFO TabBand::SetSite EnsureSessionStore
+[2025-11-16T04:08:06.694Z][pid 31940][tid 11104] INFO TabBand::EnsureSessionStore resolving storage (this=000000001BBE9F30)
+[2025-11-16T04:08:06.694Z][pid 31940][tid 11104] INFO TabBand::EnsureSessionStore window token 263ACB67-A578-4731-AD27-0BF31940C418
+[2025-11-16T04:08:06.694Z][pid 31940][tid 11104] INFO TabBand::EnsureSessionStore using storage path C:\Users\ben\AppData\Roaming\ShellTabs\session-263ACB67-A578-4731-AD27-0BF31940C418.db
+[2025-11-16T04:08:06.694Z][pid 31940][tid 11104] INFO TabBand::SetSite BrowserEvents connected
+[2025-11-16T04:08:06.695Z][pid 31940][tid 11104] INFO TabBand::SetSite InitializeTabs
+[2025-11-16T04:08:06.695Z][pid 31940][tid 11104] INFO TabBand::InitializeTabs - begin
+[2025-11-16T04:08:06.695Z][pid 31940][tid 11104] INFO TabBand::InitializeTabs - end
+[2025-11-16T04:08:06.695Z][pid 31940][tid 11104] INFO TabBand::SetSite UpdateTabsUI (initial)
+[2025-11-16T04:08:06.695Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:06.695Z][pid 31940][tid 11104] INFO TabBand::SetSite completed successfully
+[2025-11-16T04:08:06.695Z][pid 31940][tid 6844] INFO TabBand::RunBackgroundInitialization begin (this=000000001BBE9F30, seq=1)
+[2025-11-16T04:08:06.697Z][pid 31940][tid 6844] INFO TabBand session crash marker created
+[2025-11-16T04:08:06.697Z][pid 31940][tid 6844] WARN SessionStore checkpoint C:\Users\ben\AppData\Roaming\ShellTabs\session-263ACB67-A578-4731-AD27-0BF31940C418.db.previous missing while handling missing session file
+[2025-11-16T04:08:06.847Z][pid 31940][tid 11104] ERROR DirectUIReplacementHook: Failed to initialize MinHook
+[2025-11-16T04:08:06.847Z][pid 31940][tid 11104] WARN Failed to initialize DirectUI replacement system
+[2025-11-16T04:08:06.847Z][pid 31940][tid 11104] INFO CExplorerBHO::SetSite attaching to site=0000000010B6E058
+[2025-11-16T04:08:06.847Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:06.847Z][pid 31940][tid 11104] INFO EnsureBandVisible: invoking ShowBrowserBar for host=00000000021C090E (attempt 1)
+[2025-11-16T04:08:06.852Z][pid 31940][tid 11104] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=00000000021C090E on attempt 1
+[2025-11-16T04:08:06.852Z][pid 31940][tid 11104] INFO Installed progress gradient subclass on hwnd=0000000000250154
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Installed travel band subclass (band=00000000003609E2 toolbar=0000000000AB2752)
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Breadcrumb CBT hook installed for thread 11104
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000028009EA)
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Installed breadcrumb gradient subclass on hwnd=00000000028009EA
+[2025-11-16T04:08:06.853Z][pid 31940][tid 11104] INFO Installed progress gradient subclass on hwnd=0000000000250154
+[2025-11-16T04:08:06.854Z][pid 31940][tid 11104] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-16T04:08:06.854Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:06.854Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:06.854Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000028009EA)
+[2025-11-16T04:08:06.854Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.007Z][pid 31940][tid 11104] INFO TabBand::HandleInitializationResult applying sequence 1
+[2025-11-16T04:08:07.007Z][pid 31940][tid 11104] INFO TabBand::RestoreSession loaded 0 groups
+[2025-11-16T04:08:07.007Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:07.090Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:07.094Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Installed breadcrumb gradient subclass on hwnd=0000000000C009DC
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Installed progress gradient subclass on hwnd=0000000000250154
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.095Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=1)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:07.096Z][pid 31940][tid 11104] INFO Explorer panes not ready: tree view missing (view=0000000002882C86)
+[2025-11-16T04:08:07.097Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:07.097Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:07.097Z][pid 31940][tid 11104] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-16T04:08:07.097Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:07.097Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.098Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=1)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] INFO Explorer panes not ready: tree view missing (view=0000000002882C86)
+[2025-11-16T04:08:07.099Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:07.215Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:07.215Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:07.215Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:07.215Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:07.215Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:08:07.215Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:07.216Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:07.216Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:07.413Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:07.414Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.415Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:07.416Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:07.417Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:07.418Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:07.418Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:07.418Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:07.418Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:07.418Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:07.493Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:07.493Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:07.493Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:07.493Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:07.494Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:08:10.118Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:10.119Z][pid 31940][tid 11104] INFO Tab diff: +1 -0 move=0 update=1 rows=1 incremental=false
+[2025-11-16T04:08:10.176Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:10.176Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:08:10.178Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:10.178Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:10.178Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:10.178Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:10.179Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:10.180Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:10.180Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:10.180Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:10.180Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:10.181Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:10.181Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:10.181Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:10.181Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:10.181Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:10.181Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:10.182Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:10.183Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:10.183Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:10.183Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:10.183Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:10.184Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:10.185Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:10.185Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:10.186Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:10.186Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:10.186Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:10.186Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:10.186Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:10.186Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:10.255Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:10.256Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:10.257Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:10.258Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:10.258Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:10.258Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:10.258Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:10.258Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:10.258Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:10.259Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:10.259Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:10.259Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:10.259Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:10.259Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:10.260Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:10.275Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:10.276Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:10.276Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:10.276Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:10.276Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:08:11.687Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 3 items
+[2025-11-16T04:08:11.688Z][pid 31940][tid 11104] INFO Tab diff: +1 -0 move=0 update=1 rows=1 incremental=false
+[2025-11-16T04:08:11.743Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 3 items
+[2025-11-16T04:08:11.744Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:11.744Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:11.745Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:11.746Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:11.746Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:11.746Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:11.746Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:11.746Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:11.747Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:11.747Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:11.747Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:11.747Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:11.747Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:11.747Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:11.748Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 3 items
+[2025-11-16T04:08:11.749Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:11.749Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:11.749Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:11.749Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:11.750Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:11.751Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:11.751Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:11.752Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:11.752Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:11.752Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:11.752Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:11.752Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:11.753Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:11.822Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 3 items
+[2025-11-16T04:08:11.823Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:11.824Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:11.825Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:11.825Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:11.825Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:11.825Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:11.825Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:11.825Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:11.827Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:11.827Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:11.827Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:11.827Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:11.827Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:11.827Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:11.866Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:11.866Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:11.866Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:11.867Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:11.867Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:08:13.864Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:13.865Z][pid 31940][tid 11104] INFO Tab diff: +1 -2 move=0 update=0 rows=1 incremental=false
+[2025-11-16T04:08:13.923Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:13.923Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:08:13.924Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:13.924Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:13.924Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:13.925Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:13.926Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:13.926Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:13.926Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:13.927Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:13.927Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:13.927Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:13.927Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:13.928Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:13.928Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:13.928Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:13.929Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:13.929Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:13.929Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:13.929Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:13.930Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:13.931Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:13.931Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:13.931Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:13.932Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:13.932Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:13.932Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:13.932Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:13.932Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:13.932Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:14.004Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:08:14.006Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:14.007Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:14.008Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:14.008Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:14.008Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:14.008Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:14.008Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:14.008Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:14.009Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:14.009Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:14.009Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:14.009Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:14.009Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:14.010Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:14.022Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:14.022Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:14.022Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:14.022Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:14.022Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:08:16.935Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:16.936Z][pid 31940][tid 11104] INFO Tab diff: +1 -2 move=0 update=0 rows=1 incremental=false
+[2025-11-16T04:08:16.996Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:16.997Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:08:17.000Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:17.000Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:17.000Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:17.000Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:17.000Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:17.001Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:17.002Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:17.002Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:17.003Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:17.003Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:17.003Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:17.003Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:17.003Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:17.004Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:17.004Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:17.005Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:17.006Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:17.008Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:17.008Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:17.008Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:17.008Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:17.008Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:17.008Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:17.079Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:17.081Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:17.081Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:17.081Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:17.081Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:17.081Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002882C86)
+[2025-11-16T04:08:17.081Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002882C86)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002882C86 frame=00000000021C090E)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000C12CDA)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:17.082Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:17.084Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:17.084Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:17.084Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002882C86 list=1 tree=0)
+[2025-11-16T04:08:17.084Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002882C86 delay=500)
+[2025-11-16T04:08:17.084Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002882C86)
+[2025-11-16T04:08:17.084Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002882C86 delay=500 attempts=1)
+[2025-11-16T04:08:17.100Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:17.100Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:17.100Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:17.101Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:17.101Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:08:27.238Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:27.240Z][pid 31940][tid 11104] INFO Tab diff: +1 -1 move=0 update=0 rows=1 incremental=false
+[2025-11-16T04:08:27.243Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:27.245Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002450456)
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002450456 frame=00000000021C090E)
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000001400A46)
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:27.246Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:27.247Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:27.247Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:27.247Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002450456 list=1 tree=0)
+[2025-11-16T04:08:27.247Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002450456 delay=500)
+[2025-11-16T04:08:27.247Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002450456)
+[2025-11-16T04:08:27.248Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002450456 delay=500 attempts=1)
+[2025-11-16T04:08:27.248Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:27.248Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:27.248Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:27.249Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:27.249Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:27.249Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002450456)
+[2025-11-16T04:08:27.250Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:27.250Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:27.250Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002450456)
+[2025-11-16T04:08:27.250Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:27.250Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:27.250Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002450456 frame=00000000021C090E)
+[2025-11-16T04:08:27.251Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:27.251Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000001400A46)
+[2025-11-16T04:08:27.251Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:27.251Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:27.252Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:27.252Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:27.253Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002450456 list=1 tree=0)
+[2025-11-16T04:08:27.253Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002450456 delay=500)
+[2025-11-16T04:08:27.253Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002450456)
+[2025-11-16T04:08:27.253Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002450456 delay=500 attempts=1)
+[2025-11-16T04:08:27.317Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-16T04:08:27.318Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:08:27.318Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:08:27.319Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:08:27.319Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:08:27.319Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002450456)
+[2025-11-16T04:08:27.319Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:08:27.319Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:27.319Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002450456)
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002450456 frame=00000000021C090E)
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000001400A46)
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:08:27.320Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:08:27.322Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:08:27.322Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:08:27.322Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002450456 list=1 tree=0)
+[2025-11-16T04:08:27.322Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002450456 delay=500)
+[2025-11-16T04:08:27.322Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002450456)
+[2025-11-16T04:08:27.322Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002450456 delay=500 attempts=1)
+[2025-11-16T04:08:27.347Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:08:27.347Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:08:27.347Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:08:27.347Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:08:27.347Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:10:12.218Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:12.219Z][pid 31940][tid 11104] INFO Tab diff: +1 -0 move=0 update=1 rows=1 incremental=false
+[2025-11-16T04:10:12.271Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:12.272Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:10:12.273Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002450456)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002450456)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:12.274Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:12.275Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002450456 frame=00000000021C090E)
+[2025-11-16T04:10:12.275Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:12.275Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000001400A46)
+[2025-11-16T04:10:12.275Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:12.275Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:12.276Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:12.277Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:12.277Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002450456 list=1 tree=0)
+[2025-11-16T04:10:12.277Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002450456 delay=500)
+[2025-11-16T04:10:12.277Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002450456)
+[2025-11-16T04:10:12.277Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002450456 delay=500 attempts=1)
+[2025-11-16T04:10:12.277Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:12.278Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:12.278Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:12.278Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002450456)
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002450456)
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:12.279Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002450456 frame=00000000021C090E)
+[2025-11-16T04:10:12.280Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:12.280Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000001400A46)
+[2025-11-16T04:10:12.280Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:12.280Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:12.281Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:12.281Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:12.281Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002450456 list=1 tree=0)
+[2025-11-16T04:10:12.282Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002450456 delay=500)
+[2025-11-16T04:10:12.282Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002450456)
+[2025-11-16T04:10:12.282Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002450456 delay=500 attempts=1)
+[2025-11-16T04:10:12.378Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:12.380Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:12.380Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:12.380Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:12.380Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:12.380Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000002450456)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000002450456)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000002450456 frame=00000000021C090E)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000001400A46)
+[2025-11-16T04:10:12.381Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:12.382Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:12.382Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:12.382Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:12.382Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000002450456 list=1 tree=0)
+[2025-11-16T04:10:12.383Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000002450456 delay=500)
+[2025-11-16T04:10:12.383Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000002450456)
+[2025-11-16T04:10:12.383Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000002450456 delay=500 attempts=1)
+[2025-11-16T04:10:12.402Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:10:12.402Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:10:12.403Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:10:12.403Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:10:12.403Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:10:17.646Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:17.647Z][pid 31940][tid 11104] INFO Tab diff: +1 -1 move=0 update=0 rows=1 incremental=false
+[2025-11-16T04:10:17.650Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:10:17.651Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=00000000009D3244)
+[2025-11-16T04:10:17.652Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:17.653Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:17.653Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=00000000009D3244 frame=00000000021C090E)
+[2025-11-16T04:10:17.653Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:17.653Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000B01612)
+[2025-11-16T04:10:17.653Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:17.653Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=00000000009D3244 list=1 tree=0)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=00000000009D3244 delay=500)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=00000000009D3244)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=00000000009D3244 delay=500 attempts=1)
+[2025-11-16T04:10:17.655Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:17.656Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:17.657Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:17.657Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:17.657Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:17.657Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=00000000009D3244)
+[2025-11-16T04:10:17.657Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:17.657Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=00000000009D3244)
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=00000000009D3244 frame=00000000021C090E)
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000B01612)
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:17.658Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:17.660Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:17.660Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:17.660Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=00000000009D3244 list=1 tree=0)
+[2025-11-16T04:10:17.660Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=00000000009D3244 delay=500)
+[2025-11-16T04:10:17.660Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=00000000009D3244)
+[2025-11-16T04:10:17.660Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=00000000009D3244 delay=500 attempts=1)
+[2025-11-16T04:10:17.721Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:17.723Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:17.723Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:17.723Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=00000000009D3244)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=00000000009D3244)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=00000000009D3244 frame=00000000021C090E)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:17.724Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=0000000000B01612)
+[2025-11-16T04:10:17.725Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:17.725Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:17.726Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:17.726Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:17.726Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=00000000009D3244 list=1 tree=0)
+[2025-11-16T04:10:17.726Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=00000000009D3244 delay=500)
+[2025-11-16T04:10:17.727Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=00000000009D3244)
+[2025-11-16T04:10:17.727Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=00000000009D3244 delay=500 attempts=1)
+[2025-11-16T04:10:17.751Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:10:17.751Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:10:17.751Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:10:17.751Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:10:17.752Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:10:21.382Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:21.383Z][pid 31940][tid 11104] INFO Tab diff: +1 -1 move=0 update=1 rows=1 incremental=false
+[2025-11-16T04:10:21.383Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:10:21.384Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:21.385Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:21.385Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:21.385Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:21.385Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-16T04:10:21.385Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000000943284)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000000943284 frame=00000000021C090E)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=00000000025727FE)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:21.386Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:21.387Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:21.387Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:21.387Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000000943284 list=1 tree=0)
+[2025-11-16T04:10:21.387Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000000943284 delay=500)
+[2025-11-16T04:10:21.387Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000000943284)
+[2025-11-16T04:10:21.388Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000000943284 delay=500 attempts=1)
+[2025-11-16T04:10:21.388Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000943284)
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:21.389Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000000943284)
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000000943284 frame=00000000021C090E)
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=00000000025727FE)
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:21.390Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:21.391Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:21.391Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:21.392Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000000943284 list=1 tree=0)
+[2025-11-16T04:10:21.392Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000000943284 delay=500)
+[2025-11-16T04:10:21.392Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000000943284)
+[2025-11-16T04:10:21.392Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000000943284 delay=500 attempts=1)
+[2025-11-16T04:10:21.464Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:21.465Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000943284)
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000000943284)
+[2025-11-16T04:10:21.466Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:21.467Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:21.467Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000000943284 frame=00000000021C090E)
+[2025-11-16T04:10:21.467Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:21.467Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=00000000025727FE)
+[2025-11-16T04:10:21.467Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:21.467Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:21.468Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:21.468Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:21.468Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000000943284 list=1 tree=0)
+[2025-11-16T04:10:21.468Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000000943284 delay=500)
+[2025-11-16T04:10:21.468Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000000943284)
+[2025-11-16T04:10:21.469Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000000943284 delay=500 attempts=1)
+[2025-11-16T04:10:21.493Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:10:21.494Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:10:21.494Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:10:21.494Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:10:21.494Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:10:24.956Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:24.956Z][pid 31940][tid 11104] INFO Tab diff: +1 -1 move=0 update=1 rows=1 incremental=false
+[2025-11-16T04:10:24.957Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:10:24.958Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:24.958Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:24.958Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:24.958Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000000A13244)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000000A13244 frame=00000000021C090E)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:24.959Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=000000000098280A)
+[2025-11-16T04:10:24.960Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:24.960Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000000A13244 list=1 tree=0)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000000A13244 delay=500)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000000A13244)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000000A13244 delay=500 attempts=1)
+[2025-11-16T04:10:24.961Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:24.962Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:24.962Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:24.962Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:24.962Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000A13244)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000000A13244)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000000A13244 frame=00000000021C090E)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=000000000098280A)
+[2025-11-16T04:10:24.963Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:24.964Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:24.965Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:24.965Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:24.965Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000000A13244 list=1 tree=0)
+[2025-11-16T04:10:24.965Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000000A13244 delay=500)
+[2025-11-16T04:10:24.965Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000000A13244)
+[2025-11-16T04:10:24.965Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000000A13244 delay=500 attempts=1)
+[2025-11-16T04:10:25.014Z][pid 31940][tid 11104] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-16T04:10:25.015Z][pid 31940][tid 11104] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-16T04:10:25.015Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008904C4)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008904C4)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000000C009DC)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Explorer pane creation watch cleared (view=0000000000A13244)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Status bar background reset (hwnd=00000000012705AA previous=0xFF000000)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Installed shell view window subclass (view=0000000000A13244)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Installed explorer frame subclass (frame=00000000021C090E)
+[2025-11-16T04:10:25.016Z][pid 31940][tid 11104] INFO Cleared Open In New Tab pending state
+[2025-11-16T04:10:25.017Z][pid 31940][tid 11104] INFO Explorer view base subclass ready (view=0000000000A13244 frame=00000000021C090E)
+[2025-11-16T04:10:25.017Z][pid 31940][tid 11104] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-16T04:10:25.017Z][pid 31940][tid 11104] INFO Installed explorer DirectUI host subclass (direct=000000000098280A)
+[2025-11-16T04:10:25.017Z][pid 31940][tid 11104] INFO Installed explorer tree view subclass (tree=0000000000D309A4)
+[2025-11-16T04:10:25.017Z][pid 31940][tid 11104] INFO Explorer status bar discovered (hwnd=00000000012705AA)
+[2025-11-16T04:10:25.018Z][pid 31940][tid 11104] INFO Status bar theme background updated (hwnd=00000000012705AA new=0x00191919)
+[2025-11-16T04:10:25.018Z][pid 31940][tid 11104] INFO Status bar theme text color updated (hwnd=00000000012705AA new=0x00FFFFFF)
+[2025-11-16T04:10:25.018Z][pid 31940][tid 11104] INFO Explorer pane creation watch armed (view=0000000000A13244 list=1 tree=0)
+[2025-11-16T04:10:25.018Z][pid 31940][tid 11104] INFO Explorer pane fallback timer armed (view=0000000000A13244 delay=500)
+[2025-11-16T04:10:25.018Z][pid 31940][tid 11104] INFO Explorer panes not ready: list view missing (view=0000000000A13244)
+[2025-11-16T04:10:25.018Z][pid 31940][tid 11104] INFO Explorer pane retry timer armed (view=0000000000A13244 delay=500 attempts=1)
+[2025-11-16T04:10:25.043Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000021C090E)
+[2025-11-16T04:10:25.043Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000A62E80)
+[2025-11-16T04:10:25.044Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=000000000144059C)
+[2025-11-16T04:10:25.044Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=00000000008904C4)
+[2025-11-16T04:10:25.044Z][pid 31940][tid 11104] INFO Installed explorer list host subclass (host=0000000000B02806)
+[2025-11-16T04:10:27.772Z][pid 31940][tid 11104] WARN Status bar custom draw timeout; forcing theme detours (hwnd=00000000012705AA)
+[2025-11-16T04:10:28.365Z][pid 31940][tid 11104] ERROR Access violation #1 in ShellTabs: read at instruction 00007FF97C7CC728, fault address 0000000000000003
+[2025-11-16T04:10:28.365Z][pid 31940][tid 11104] WARN Null pointer dereference detected and suppressed to prevent Explorer crash (count: 1/100)

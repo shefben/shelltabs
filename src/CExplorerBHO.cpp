@@ -117,6 +117,7 @@
 #define LVBKIF_FLAG_ALPHABLEND  0x20000000
 #endif
 
+bool MatchesClass(HWND hwnd, const wchar_t* className);
 
 namespace {
 
@@ -255,6 +256,42 @@ std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
     return std::nullopt;
 }
 
+struct EnumClassSearchContext {
+    const wchar_t* className = nullptr;
+    HWND result = nullptr;
+};
+
+BOOL CALLBACK EnumDescendantsByClassProc(HWND hwnd, LPARAM lParam) {
+    auto* context = reinterpret_cast<EnumClassSearchContext*>(lParam);
+    if (!context) {
+        return FALSE;
+    }
+    if (context->result) {
+        return FALSE;
+    }
+    if (MatchesClass(hwnd, context->className)) {
+        context->result = hwnd;
+        return FALSE;
+    }
+
+    EnumChildWindows(hwnd, EnumDescendantsByClassProc, lParam);
+    return context->result == nullptr;
+}
+
+HWND FindDescendantByClassEnum(HWND root, const wchar_t* className) {
+    if (!root || !className || !IsWindow(root)) {
+        return nullptr;
+    }
+    if (MatchesClass(root, className)) {
+        return root;
+    }
+
+    EnumClassSearchContext context{};
+    context.className = className;
+    EnumChildWindows(root, EnumDescendantsByClassProc, reinterpret_cast<LPARAM>(&context));
+    return context.result;
+}
+
 // Helper function to find DirectUIHWND window (critical for Vista+)
 // On Windows Vista and later, Explorer uses DirectUIHWND for folder view rendering
 HWND FindDirectUIHWND(HWND listView) {
@@ -262,27 +299,89 @@ HWND FindDirectUIHWND(HWND listView) {
         return nullptr;
     }
 
-    // Navigate up to parent and search for DirectUIHWND sibling
-    HWND parent = GetParent(listView);
-    if (!parent || !IsWindow(parent)) {
+    auto findDefViewAncestor = [](HWND start) -> HWND {
+        for (HWND current = start; current && IsWindow(current); current = GetParent(current)) {
+            if (MatchesClass(current, L"SHELLDLL_DefView")) {
+                return current;
+            }
+        }
         return nullptr;
+    };
+
+    HWND defView = findDefViewAncestor(listView);
+    if (defView) {
+        if (HWND direct = FindDescendantByClassEnum(defView, L"DirectUIHWND")) {
+            return direct;
+        }
     }
 
-    // Enumerate children to find DirectUIHWND
-    HWND directUiHwnd = nullptr;
-    HWND child = GetWindow(parent, GW_CHILD);
-    while (child && !directUiHwnd) {
-        wchar_t className[256] = {};
-        if (GetClassNameW(child, className, ARRAYSIZE(className)) > 0) {
-            if (wcscmp(className, L"DirectUIHWND") == 0) {
-                directUiHwnd = child;
+    bool fallbackLogged = false;
+    auto logFallbackStart = [&](const wchar_t* reason) {
+        if (fallbackLogged) {
+            return;
+        }
+        fallbackLogged = true;
+        LogMessage(LogLevel::Info,
+                   L"FindDirectUIHWND fallback triggered (%s, listView=%p, defView=%p)",
+                   reason ? reason : L"unknown",
+                   listView,
+                   defView);
+    };
+
+    constexpr const wchar_t* kAncestorClasses[] = {L"ShellTabWindowClass", L"CabinetWClass"};
+    if (!defView) {
+        logFallbackStart(L"SHELLDLL_DefView ancestor missing");
+    } else {
+        logFallbackStart(L"DirectUIHWND missing under primary SHELLDLL_DefView");
+    }
+
+    for (HWND ancestor = defView ? GetParent(defView) : GetParent(listView); ancestor && IsWindow(ancestor);
+         ancestor = GetParent(ancestor)) {
+        const wchar_t* ancestorClass = nullptr;
+        for (const wchar_t* candidate : kAncestorClasses) {
+            if (MatchesClass(ancestor, candidate)) {
+                ancestorClass = candidate;
                 break;
             }
         }
-        child = GetWindow(child, GW_HWNDNEXT);
+
+        if (!ancestorClass) {
+            continue;
+        }
+
+        HWND fallbackDefView = FindDescendantByClassEnum(ancestor, L"SHELLDLL_DefView");
+        if (!fallbackDefView) {
+            LogMessage(LogLevel::Verbose,
+                       L"FindDirectUIHWND fallback ancestor %s (%p) lacks SHELLDLL_DefView",
+                       ancestorClass,
+                       ancestor);
+            continue;
+        }
+
+        if (HWND direct = FindDescendantByClassEnum(fallbackDefView, L"DirectUIHWND")) {
+            LogMessage(LogLevel::Info,
+                       L"FindDirectUIHWND fallback located DirectUIHWND=%p via %s ancestor=%p defView=%p",
+                       direct,
+                       ancestorClass,
+                       ancestor,
+                       fallbackDefView);
+            return direct;
+        }
+
+        LogMessage(LogLevel::Verbose,
+                   L"FindDirectUIHWND fallback ancestor %s (%p) defView=%p missing DirectUIHWND",
+                   ancestorClass,
+                   ancestor,
+                   fallbackDefView);
     }
 
-    return directUiHwnd;
+    if (fallbackLogged) {
+        LogMessage(LogLevel::Warning,
+                   L"FindDirectUIHWND fallback exhausted without finding DirectUIHWND (listView=%p)",
+                   listView);
+    }
+
+    return nullptr;
 }
 
 // Convert GDI+ Bitmap to HBITMAP for use with LVM_SETBKIMAGE
@@ -302,7 +401,8 @@ HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
 }
 
 // Clear ListView background image using LVM_SETBKIMAGE
-void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
+void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr,
+                                  IVisualProperties* visualProperties = nullptr) {
     if (!hwnd || !IsWindow(hwnd)) {
         return;
     }
@@ -317,6 +417,14 @@ void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
     bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP;
     SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
 
+    if (visualProperties) {
+        HRESULT hr = visualProperties->SetWatermark(nullptr, VPWF_DEFAULT);
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning,
+                       L"Failed to clear folder view watermark via IVisualProperties hr=0x%08X", hr);
+        }
+    }
+
     // Delete the tracked bitmap if provided
     if (trackedBitmap && *trackedBitmap) {
         DeleteObject(*trackedBitmap);
@@ -325,7 +433,8 @@ void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr) {
 }
 
 // Set ListView background image using LVM_SETBKIMAGE (QTTabBar approach)
-bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr, bool useWatermarkMode = false) {
+bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr,
+                                bool useWatermarkMode = false, IVisualProperties* visualProperties = nullptr) {
     if (!listView || !IsWindow(listView)) {
         return false;
     }
@@ -340,7 +449,7 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
     }
 
     // Clear any existing background image and delete the old bitmap
-    ClearListViewBackgroundImage(targetWindow, trackedBitmap);
+    ClearListViewBackgroundImage(targetWindow, trackedBitmap, visualProperties);
 
     // If no bitmap provided, we're just clearing
     if (!bitmap) {
@@ -371,10 +480,30 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
 
     // Send the message to set the background
     LRESULT result = SendMessageW(targetWindow, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
+    bool lvmApplied = result != 0;
+    bool usedWatermarkFallback = false;
 
-    if (result) {
-        LogMessage(LogLevel::Info, L"Successfully set ListView background image (hwnd=%p, mode=%s)",
-                   targetWindow, useWatermarkMode ? L"watermark" : L"tiled");
+    if (!lvmApplied) {
+        LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
+    }
+
+    bool needsWatermarkFallback = visualProperties && (!directUiHwnd || !lvmApplied);
+    if (needsWatermarkFallback) {
+        HRESULT hr = visualProperties->SetWatermark(hBitmap, VPWF_ALPHABLEND);
+        if (SUCCEEDED(hr)) {
+            usedWatermarkFallback = true;
+            LogMessage(LogLevel::Info,
+                       L"Applied folder view watermark fallback via IVisualProperties (DirectUI=%s, hr=0x%08X)",
+                       directUiHwnd ? L"true" : L"false", hr);
+        } else {
+            LogMessage(LogLevel::Warning,
+                       L"Failed to apply folder view watermark fallback via IVisualProperties hr=0x%08X", hr);
+        }
+    }
+
+    if (lvmApplied || usedWatermarkFallback) {
+        LogMessage(LogLevel::Info, L"Successfully set folder background via %s",
+                   lvmApplied ? L"LVM_SETBKIMAGE" : L"IVisualProperties");
 
         // Track the new bitmap so we can clean it up later
         if (trackedBitmap) {
@@ -382,12 +511,11 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
         }
 
         return true;
-    } else {
-        LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
-        // Failed to set, so delete the bitmap we created
-        DeleteObject(hBitmap);
-        return false;
     }
+
+    // Failed entirely, so delete the bitmap we created
+    DeleteObject(hBitmap);
+    return false;
 }
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
@@ -923,19 +1051,40 @@ bool MatchesClass(HWND hwnd, const wchar_t* className) {
     return _wcsicmp(buffer, className) == 0;
 }
 
-HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
-    if (!parent || !className) {
+bool MatchesWindowText(HWND hwnd, const wchar_t* text) {
+    if (!text || !text[0]) {
+        return true;
+    }
+    if (!hwnd) {
+        return false;
+    }
+    wchar_t buffer[256];
+    const int length = GetWindowTextW(hwnd, buffer, ARRAYSIZE(buffer));
+    if (length <= 0) {
+        return false;
+    }
+    return _wcsicmp(buffer, text) == 0;
+}
+
+HWND FindDescendantWindow(HWND parent, const wchar_t* className, const wchar_t* windowText) {
+    if (!parent) {
         return nullptr;
     }
     for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-        if (MatchesClass(child, className)) {
+        const bool classMatches = !className || MatchesClass(child, className);
+        const bool textMatches = MatchesWindowText(child, windowText);
+        if (classMatches && textMatches) {
             return child;
         }
-        if (HWND found = FindDescendantWindow(child, className)) {
+        if (HWND found = FindDescendantWindow(child, className, windowText)) {
             return found;
         }
     }
     return nullptr;
+}
+
+HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
+    return FindDescendantWindow(parent, className, nullptr);
 }
 
 // --- CExplorerBHO private state (treat these as class members) ---
@@ -982,6 +1131,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DestroyProgressGradientResources();
+    ResetListViewAccentBrush();
 
     // Clean up the background bitmap
     if (m_currentBackgroundBitmap) {
@@ -1787,6 +1937,30 @@ HWND CExplorerBHO::GetTopLevelExplorerWindow() const {
     return current ? current : hwnd;
 }
 
+HWND CExplorerBHO::GetShellTabsBandWindow() const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return nullptr;
+    }
+
+    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+    if (!bandWindow || !IsWindow(bandWindow)) {
+        return nullptr;
+    }
+
+    return bandWindow;
+}
+
+bool CExplorerBHO::PostTravelToolbarNavigationMessage(bool navigateBack) const {
+    HWND bandWindow = GetShellTabsBandWindow();
+    if (!bandWindow) {
+        return false;
+    }
+
+    const UINT message = navigateBack ? WM_SHELLTABS_NAVIGATE_BACK : WM_SHELLTABS_NAVIGATE_FORWARD;
+    return PostMessageW(bandWindow, message, 0, 0) != 0;
+}
+
 void CExplorerBHO::LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const {
     if (!format) {
         return;
@@ -2394,6 +2568,7 @@ void CExplorerBHO::DetachListView() {
     m_listViewControlWindow = nullptr;
 
     m_listViewControl.reset();
+    ResetListViewAccentBrush();
 
     // Surface caching removed with LVM_SETBKIMAGE approach
 
@@ -4307,10 +4482,25 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
     return {};
 }
 
+Microsoft::WRL::ComPtr<IVisualProperties> CExplorerBHO::GetCurrentVisualProperties() const {
+    Microsoft::WRL::ComPtr<IVisualProperties> visualProperties;
+    if (m_folderView2) {
+        m_folderView2.As(&visualProperties);
+    }
+
+    if (!visualProperties && m_shellView) {
+        m_shellView.As(&visualProperties);
+    }
+
+    return visualProperties;
+}
+
 void CExplorerBHO::RefreshListViewControlBackground() {
     if (!m_listView || !IsWindow(m_listView)) {
         return;
     }
+
+    auto visualProperties = GetCurrentVisualProperties();
 
     // If backgrounds are enabled, set the background image using LVM_SETBKIMAGE
     if (m_folderBackgroundsEnabled) {
@@ -4322,10 +4512,12 @@ void CExplorerBHO::RefreshListViewControlBackground() {
 
         // Set the background image using native ListView API (QTTabBar approach)
         // Use watermark mode for better alpha blending on Vista+
-        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true);
+        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true,
+                                   visualProperties.Get());
     } else {
         // Clear background image and restore default colors
-        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false);
+        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false,
+                                   visualProperties.Get());
         ListView_SetBkColor(m_listView, CLR_DEFAULT);
         ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
     }
@@ -4413,6 +4605,46 @@ bool CExplorerBHO::ShouldUseListViewAccentColors() const {
     return true;
 }
 
+void CExplorerBHO::ResetListViewAccentBrush() {
+    if (m_listViewAccentBrush) {
+        DeleteObject(m_listViewAccentBrush);
+        m_listViewAccentBrush = nullptr;
+    }
+    m_listViewAccentBrushColor = 0;
+}
+
+HBRUSH CExplorerBHO::GetListViewAccentBrush(COLORREF accentColor) {
+    if (!m_listViewAccentBrush || m_listViewAccentBrushColor != accentColor) {
+        ResetListViewAccentBrush();
+        m_listViewAccentBrush = CreateSolidBrush(accentColor);
+        if (m_listViewAccentBrush) {
+            m_listViewAccentBrushColor = accentColor;
+        }
+    }
+    return m_listViewAccentBrush;
+}
+
+bool CExplorerBHO::ApplyListViewSelectionAccent(NMLVCUSTOMDRAW* customDraw, bool fillBackground) {
+    if (!customDraw || !m_hasActiveListViewAccent) {
+        return false;
+    }
+
+    if ((customDraw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+        return false;
+    }
+
+    customDraw->clrText = m_activeListViewTextColor;
+    customDraw->clrTextBk = m_activeListViewAccentColor;
+
+    if (fillBackground && customDraw->nmcd.hdc) {
+        if (HBRUSH brush = GetListViewAccentBrush(m_activeListViewAccentColor)) {
+            FillRect(customDraw->nmcd.hdc, &customDraw->nmcd.rc, brush);
+        }
+    }
+
+    return true;
+}
+
 bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const {
     if (!accent || !text) {
         return false;
@@ -4460,12 +4692,33 @@ bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) co
 }
 
 void CExplorerBHO::RefreshListViewAccentState() {
+    const bool shouldUseAccentColors = ShouldUseListViewAccentColors();
+    bool accentResolved = false;
+    COLORREF accentColor = 0;
+    COLORREF textColor = 0;
+    if (shouldUseAccentColors) {
+        accentResolved = ResolveActiveGroupAccent(&accentColor, &textColor);
+    }
+
+    if (accentResolved) {
+        if (!m_hasActiveListViewAccent || m_activeListViewAccentColor != accentColor ||
+            m_activeListViewTextColor != textColor) {
+            m_activeListViewAccentColor = accentColor;
+            m_activeListViewTextColor = textColor;
+            m_hasActiveListViewAccent = true;
+            ResetListViewAccentBrush();
+        }
+    } else if (m_hasActiveListViewAccent) {
+        m_hasActiveListViewAccent = false;
+        ResetListViewAccentBrush();
+    }
+
     if (m_listViewControl) {
         auto resolver = [this](COLORREF* accent, COLORREF* text) {
             return ResolveActiveGroupAccent(accent, text);
         };
         m_listViewControl->SetAccentColorResolver(resolver);
-        m_listViewControl->SetUseAccentColors(ShouldUseListViewAccentColors());
+        m_listViewControl->SetUseAccentColors(shouldUseAccentColors);
     } else if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, FALSE);
     }
@@ -6255,17 +6508,40 @@ void CExplorerBHO::UpdateTravelBandSubclass() {
         return;
     }
 
+    const auto findToolbarForBand = [&](HWND candidateBand) -> HWND {
+        if (!candidateBand || !IsWindow(candidateBand) || !IsWindowOwnedByThisExplorer(candidateBand)) {
+            return nullptr;
+        }
+        HWND toolbar = FindWindowExW(candidateBand, nullptr, TOOLBARCLASSNAMEW, nullptr);
+        if (!toolbar) {
+            toolbar = FindDescendantWindow(candidateBand, TOOLBARCLASSNAMEW);
+        }
+        if (!toolbar || !IsWindow(toolbar) || !IsWindowOwnedByThisExplorer(toolbar)) {
+            return nullptr;
+        }
+        return toolbar;
+    };
+
     HWND travelBand = FindDescendantWindow(frame, L"TravelBand");
-    if (!travelBand || !IsWindow(travelBand) || !IsWindowOwnedByThisExplorer(travelBand)) {
-        RemoveTravelBandSubclass();
-        return;
+    HWND toolbar = findToolbarForBand(travelBand);
+
+    if (!toolbar) {
+        constexpr wchar_t kNavigationToolbarCaption[] = L"Navigation buttons";
+        toolbar = FindDescendantWindow(frame, TOOLBARCLASSNAMEW, kNavigationToolbarCaption);
+        if (toolbar && IsWindow(toolbar) && IsWindowOwnedByThisExplorer(toolbar)) {
+            HWND parent = GetParent(toolbar);
+            if (parent && IsWindow(parent) && IsWindowOwnedByThisExplorer(parent)) {
+                travelBand = parent;
+            } else {
+                travelBand = nullptr;
+            }
+        } else {
+            toolbar = nullptr;
+            travelBand = nullptr;
+        }
     }
 
-    HWND toolbar = FindWindowExW(travelBand, nullptr, TOOLBARCLASSNAMEW, nullptr);
-    if (!toolbar) {
-        toolbar = FindDescendantWindow(travelBand, TOOLBARCLASSNAMEW);
-    }
-    if (!toolbar || !IsWindow(toolbar)) {
+    if (!travelBand || !toolbar) {
         RemoveTravelBandSubclass();
         return;
     }
@@ -6286,16 +6562,23 @@ bool CExplorerBHO::InstallTravelBandSubclass(HWND travelBand, HWND toolbar) {
         return false;
     }
 
-    if (SetWindowSubclass(travelBand, &CExplorerBHO::TravelBandSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-        m_travelBand = travelBand;
-        m_travelToolbar = toolbar;
-        m_travelBandSubclassInstalled = true;
-        LogMessage(LogLevel::Info, L"Installed travel band subclass (band=%p toolbar=%p)", travelBand, toolbar);
-        return true;
+    if (!SetWindowSubclass(travelBand, &CExplorerBHO::TravelBandSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        LogLastError(L"SetWindowSubclass(travel band)", GetLastError());
+        return false;
     }
 
-    LogLastError(L"SetWindowSubclass(travel band)", GetLastError());
-    return false;
+    if (!SetWindowSubclass(toolbar, &CExplorerBHO::TravelToolbarSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        LogLastError(L"SetWindowSubclass(travel toolbar)", GetLastError());
+        RemoveWindowSubclass(travelBand, &CExplorerBHO::TravelBandSubclassProc, reinterpret_cast<UINT_PTR>(this));
+        return false;
+    }
+
+    m_travelBand = travelBand;
+    m_travelToolbar = toolbar;
+    m_travelBandSubclassInstalled = true;
+    m_travelToolbarSubclassInstalled = true;
+    LogMessage(LogLevel::Info, L"Installed travel band subclass (band=%p toolbar=%p)", travelBand, toolbar);
+    return true;
 }
 
 void CExplorerBHO::RemoveTravelBandSubclass() {
@@ -6305,16 +6588,29 @@ void CExplorerBHO::RemoveTravelBandSubclass() {
                                  reinterpret_cast<UINT_PTR>(this));
         }
     }
+    if (m_travelToolbar && m_travelToolbarSubclassInstalled) {
+        if (IsWindow(m_travelToolbar)) {
+            RemoveWindowSubclass(m_travelToolbar, &CExplorerBHO::TravelToolbarSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+        }
+    }
+    ReleaseTravelToolbarCapture();
+    ResetTravelToolbarButtonState();
     m_travelBand = nullptr;
     m_travelToolbar = nullptr;
     m_travelBandSubclassInstalled = false;
+    m_travelToolbarSubclassInstalled = false;
     m_travelBackCommandId = 0;
     m_travelForwardCommandId = 0;
+    m_travelHistoryDropdownCommandId = 0;
+    m_travelHistoryMenuVisible = false;
+    m_travelToolbarPressedButton = -1;
 }
 
 void CExplorerBHO::ResolveTravelToolbarCommands() {
     m_travelBackCommandId = 0;
     m_travelForwardCommandId = 0;
+    m_travelHistoryDropdownCommandId = 0;
 
     if (!m_travelToolbar || !IsWindow(m_travelToolbar)) {
         return;
@@ -6331,19 +6627,145 @@ void CExplorerBHO::ResolveTravelToolbarCommands() {
         if (!SendMessageW(m_travelToolbar, TB_GETBUTTON, i, reinterpret_cast<LPARAM>(&button))) {
             continue;
         }
-        if ((button.fsStyle & BTNS_DROPDOWN) == 0) {
-            continue;
-        }
 
         const UINT commandId = static_cast<UINT>(button.idCommand);
-        if (dropdownIndex == 0) {
-            m_travelBackCommandId = commandId;
-        } else if (dropdownIndex == 1) {
-            m_travelForwardCommandId = commandId;
+        if ((button.fsStyle & BTNS_DROPDOWN) != 0) {
+            if (dropdownIndex == 0) {
+                m_travelBackCommandId = commandId;
+            } else if (dropdownIndex == 1) {
+                m_travelForwardCommandId = commandId;
+            } else if (dropdownIndex == 2) {
+                m_travelHistoryDropdownCommandId = commandId;
+            }
+            ++dropdownIndex;
+        }
+
+        if (i == 2 && m_travelHistoryDropdownCommandId == 0) {
+            m_travelHistoryDropdownCommandId = commandId;
+        }
+
+        if (m_travelBackCommandId != 0 && m_travelForwardCommandId != 0 &&
+            m_travelHistoryDropdownCommandId != 0) {
             break;
         }
-        ++dropdownIndex;
     }
+}
+
+namespace {
+enum class TravelToolbarTarget {
+    kNone = -1,
+    kBack = 0,
+    kForward = 1,
+    kDropdown = 2,
+};
+}
+
+bool CExplorerBHO::HandleTravelToolbarMouseButton(
+    HWND toolbar, bool buttonUp, WPARAM, LPARAM lParam, LRESULT* result) {
+    if (!toolbar || toolbar != m_travelToolbar || !IsWindow(toolbar)) {
+        return false;
+    }
+
+    POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const LRESULT hit = SendMessageW(toolbar, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&point));
+    const TravelToolbarTarget target =
+        (hit >= 0 && hit <= static_cast<LRESULT>(TravelToolbarTarget::kDropdown))
+            ? static_cast<TravelToolbarTarget>(hit)
+            : TravelToolbarTarget::kNone;
+
+    const bool isNavigationTarget =
+        (target == TravelToolbarTarget::kBack || target == TravelToolbarTarget::kForward);
+
+    const bool canGoBack = IsTravelToolbarButtonEnabled(m_travelBackCommandId);
+    const bool canGoForward = IsTravelToolbarButtonEnabled(m_travelForwardCommandId);
+
+    if (!buttonUp) {
+        if (isNavigationTarget) {
+            BeginTravelToolbarCapture(toolbar);
+            m_travelToolbarPressedButton = static_cast<int>(target);
+            if ((target == TravelToolbarTarget::kBack && canGoBack) ||
+                (target == TravelToolbarTarget::kForward && canGoForward)) {
+                const UINT commandId =
+                    (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
+                SetTravelToolbarButtonPressed(commandId, true);
+            }
+            if (result) {
+                *result = 0;
+            }
+            return true;
+        }
+
+        m_travelToolbarPressedButton = -1;
+        if (target == TravelToolbarTarget::kDropdown && (canGoBack || canGoForward)) {
+            BeginTravelToolbarCapture(toolbar);
+            if (m_travelHistoryDropdownCommandId != 0) {
+                SetTravelToolbarButtonPressed(m_travelHistoryDropdownCommandId, true);
+            }
+
+            RECT buttonRect{};
+            if (m_travelHistoryDropdownCommandId != 0 &&
+                SendMessageW(toolbar, TB_GETRECT, m_travelHistoryDropdownCommandId,
+                             reinterpret_cast<LPARAM>(&buttonRect))) {
+                MapWindowPoints(toolbar, nullptr, reinterpret_cast<POINT*>(&buttonRect), 2);
+                const HistoryMenuKind kind = canGoBack ? HistoryMenuKind::kBack : HistoryMenuKind::kForward;
+                const bool shown = ShowTravelHistoryMenu(kind, buttonRect, result);
+                ResetTravelToolbarButtonState();
+                ReleaseTravelToolbarCapture();
+                if (shown) {
+                    if (result) {
+                        *result = 0;
+                    }
+                    return true;
+                }
+            } else {
+                ResetTravelToolbarButtonState();
+                ReleaseTravelToolbarCapture();
+            }
+        }
+        return false;
+    }
+
+    const bool pressedNavigationButton =
+        (m_travelToolbarPressedButton == static_cast<int>(TravelToolbarTarget::kBack) ||
+         m_travelToolbarPressedButton == static_cast<int>(TravelToolbarTarget::kForward));
+    const TravelToolbarTarget pressedTarget = pressedNavigationButton
+                                                  ? static_cast<TravelToolbarTarget>(m_travelToolbarPressedButton)
+                                                  : TravelToolbarTarget::kNone;
+
+    ReleaseTravelToolbarCapture();
+    ResetTravelToolbarButtonState();
+    m_travelToolbarPressedButton = -1;
+
+    if (pressedNavigationButton) {
+        if (target == pressedTarget) {
+            const bool canNavigate =
+                (pressedTarget == TravelToolbarTarget::kBack) ? canGoBack : canGoForward;
+            if (canNavigate) {
+                PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
+            }
+        }
+
+        if (result) {
+            *result = 0;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool CExplorerBHO::HandleTravelToolbarMouseActivate(LRESULT* result) {
+    if (m_travelHistoryMenuVisible) {
+        if (result) {
+            *result = MA_NOACTIVATEANDEAT;
+        }
+        return true;
+    }
+
+    if (result) {
+        *result = MA_NOACTIVATE;
+    }
+    return true;
 }
 
 bool CExplorerBHO::HandleTravelBandNotify(NMHDR* header, LRESULT* result) {
@@ -6382,14 +6804,12 @@ bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* res
 
     RECT buttonRect = info.rcButton;
     MapWindowPoints(m_travelToolbar, nullptr, reinterpret_cast<POINT*>(&buttonRect), 2);
+    return ShowTravelHistoryMenu(kind, buttonRect, result);
+}
 
-    HWND frame = GetTopLevelExplorerWindow();
-    if (!frame || !IsWindow(frame)) {
-        return false;
-    }
-
-    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
-    if (!bandWindow || !IsWindow(bandWindow)) {
+bool CExplorerBHO::ShowTravelHistoryMenu(HistoryMenuKind kind, const RECT& buttonRect, LRESULT* result) {
+    HWND bandWindow = GetShellTabsBandWindow();
+    if (!bandWindow) {
         return false;
     }
 
@@ -6397,8 +6817,10 @@ bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* res
     request.kind = kind;
     request.buttonRect = buttonRect;
 
+    m_travelHistoryMenuVisible = true;
     const LRESULT handled = SendMessageW(bandWindow, WM_SHELLTABS_SHOW_HISTORY_MENU,
                                          reinterpret_cast<WPARAM>(&request), 0);
+    m_travelHistoryMenuVisible = false;
     if (handled != 0) {
         if (result) {
             *result = TBDDRET_NODEFAULT;
@@ -6407,6 +6829,62 @@ bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* res
     }
 
     return false;
+}
+
+void CExplorerBHO::ResetTravelToolbarButtonState() {
+    if (!m_travelToolbar || !IsWindow(m_travelToolbar)) {
+        return;
+    }
+
+    SetTravelToolbarButtonPressed(m_travelBackCommandId, false);
+    SetTravelToolbarButtonPressed(m_travelForwardCommandId, false);
+    SetTravelToolbarButtonPressed(m_travelHistoryDropdownCommandId, false);
+}
+
+void CExplorerBHO::SetTravelToolbarButtonPressed(UINT commandId, bool pressed) {
+    if (!m_travelToolbar || !IsWindow(m_travelToolbar) || commandId == 0) {
+        return;
+    }
+
+    const LRESULT stateResult = SendMessageW(m_travelToolbar, TB_GETSTATE, commandId, 0);
+    if (stateResult < 0) {
+        return;
+    }
+
+    BYTE state = static_cast<BYTE>(stateResult);
+    if (pressed) {
+        state |= TBSTATE_PRESSED;
+    } else {
+        state &= static_cast<BYTE>(~TBSTATE_PRESSED);
+    }
+    SendMessageW(m_travelToolbar, TB_SETSTATE, commandId, static_cast<LPARAM>(state));
+}
+
+bool CExplorerBHO::IsTravelToolbarButtonEnabled(UINT commandId) const {
+    if (!m_travelToolbar || !IsWindow(m_travelToolbar) || commandId == 0) {
+        return false;
+    }
+
+    const LRESULT stateResult = SendMessageW(m_travelToolbar, TB_GETSTATE, commandId, 0);
+    if (stateResult < 0) {
+        return false;
+    }
+    const BYTE state = static_cast<BYTE>(stateResult);
+    return (state & TBSTATE_ENABLED) != 0;
+}
+
+void CExplorerBHO::BeginTravelToolbarCapture(HWND toolbar) {
+    if (!m_travelToolbarMouseCaptured && toolbar && IsWindow(toolbar)) {
+        SetCapture(toolbar);
+        m_travelToolbarMouseCaptured = true;
+    }
+}
+
+void CExplorerBHO::ReleaseTravelToolbarCapture() {
+    if (m_travelToolbarMouseCaptured) {
+        ReleaseCapture();
+        m_travelToolbarMouseCaptured = false;
+    }
 }
 
 void CExplorerBHO::RemoveBreadcrumbSubclass() {
@@ -8088,6 +8566,52 @@ LRESULT CALLBACK CExplorerBHO::TravelBandSubclassProc(HWND hwnd, UINT msg, WPARA
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                         UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_LBUTTONDOWN: {
+            LRESULT handled = 0;
+            if (self->HandleTravelToolbarMouseButton(hwnd, false, wParam, lParam, &handled)) {
+                return handled;
+            }
+            break;
+        }
+        case WM_LBUTTONUP: {
+            LRESULT handled = 0;
+            if (self->HandleTravelToolbarMouseButton(hwnd, true, wParam, lParam, &handled)) {
+                return handled;
+            }
+            break;
+        }
+        case WM_MOUSEACTIVATE: {
+            LRESULT handled = 0;
+            if (self->HandleTravelToolbarMouseActivate(&handled)) {
+                return handled;
+            }
+            break;
+        }
+        case WM_CAPTURECHANGED: {
+            if (self->m_travelToolbarMouseCaptured && reinterpret_cast<HWND>(lParam) != hwnd) {
+                self->m_travelToolbarMouseCaptured = false;
+                self->ResetTravelToolbarButtonState();
+            }
+            break;
+        }
+        case WM_NCDESTROY:
+            self->RemoveTravelBandSubclass();
+            break;
+        default:
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
 LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
@@ -8234,11 +8758,17 @@ bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, 
 
     if (drawStage == CDDS_ITEMPREPAINT) {
         OnListViewCustomDrawStage(drawStage);
+        ApplyListViewSelectionAccent(customDraw, true);
         *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NEWFONT;
         return true;
     }
 
     if ((drawStage & CDDS_SUBITEM) == CDDS_SUBITEM) {
+        if (ApplyListViewSelectionAccent(customDraw, false)) {
+            *result = CDRF_NEWFONT;
+            return true;
+        }
+
         // Get the item text
         wchar_t textBuffer[MAX_PATH * 2] = {};
         LVITEMW item{};
@@ -8472,9 +9002,17 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     descriptor.fillOverride = descriptor.fillColors.valid;
     descriptor.userAccessibilityOptOut = false;
     descriptor.textOverride = false;
-    descriptor.backgroundOverride = descriptor.fillOverride;
-    descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
-    descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+    const bool imageBackgroundMode = m_folderBackgroundsEnabled || (m_currentBackgroundBitmap != nullptr);
+    descriptor.imageBackgroundMode = imageBackgroundMode;
+    if (imageBackgroundMode) {
+        descriptor.backgroundOverride = false;
+        descriptor.backgroundColor = CLR_DEFAULT;
+        descriptor.forceOpaqueBackground = false;
+    } else {
+        descriptor.backgroundOverride = descriptor.fillOverride;
+        descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
+        descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+    }
 
     // Background images are now set via LVM_SETBKIMAGE, no paint callback needed
     descriptor.backgroundPaintCallback = nullptr;

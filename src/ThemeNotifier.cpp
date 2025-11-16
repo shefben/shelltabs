@@ -78,10 +78,16 @@ bool ShouldHandleSessionEvent(DWORD sessionEvent) {
 }  // namespace
 
 struct ThemeNotifier::UiSettingsState {
+    enum class ApartmentModel {
+        None,
+        Multithreaded,
+        SingleThreaded,
+    };
+
     ComPtr<IUISettings3> uiSettings3;
     ComPtr<UiSettingsEventHandler> handler;
     EventRegistrationToken colorToken{};
-    bool winrtInitialized = false;
+    ApartmentModel apartmentModel = ApartmentModel::None;
 };
 
 ThemeNotifier::ThemeNotifier() = default;
@@ -91,12 +97,71 @@ ThemeNotifier::~ThemeNotifier() { Shutdown(); }
 bool ThemeNotifier::Initialize(HWND window, std::function<void()> callback) {
     Shutdown();
 
-    m_window = window;
-    m_callback = std::move(callback);
-
-    if (m_window && !m_callback) {
+    if (window && !callback) {
         return false;
     }
+
+    auto state = std::make_unique<UiSettingsState>();
+
+    const auto cleanupState = [&]() {
+        if (state && state->apartmentModel != UiSettingsState::ApartmentModel::None) {
+            RoUninitialize();
+            state->apartmentModel = UiSettingsState::ApartmentModel::None;
+        }
+    };
+
+    const auto tryInitialize = [&](RO_INIT_TYPE type, UiSettingsState::ApartmentModel model) -> HRESULT {
+        const HRESULT hr = RoInitialize(type);
+        if (SUCCEEDED(hr) || hr == S_FALSE || hr == HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED)) {
+            state->apartmentModel = model;
+        }
+        return hr;
+    };
+
+    HRESULT initResult = tryInitialize(RO_INIT_MULTITHREADED, UiSettingsState::ApartmentModel::Multithreaded);
+    if (state->apartmentModel == UiSettingsState::ApartmentModel::None && initResult == RPC_E_CHANGED_MODE) {
+        initResult = tryInitialize(RO_INIT_SINGLETHREADED, UiSettingsState::ApartmentModel::SingleThreaded);
+    }
+
+    if (state->apartmentModel == UiSettingsState::ApartmentModel::None) {
+        LogMessage(LogLevel::Warning,
+                   L"ThemeNotifier: RoInitialize failed (hr=0x%08X)",
+                   initResult);
+        cleanupState();
+        return false;
+    }
+
+    HStringReference classId(RuntimeClass_Windows_UI_ViewManagement_UISettings);
+    ComPtr<::IInspectable> inspectable;
+    HRESULT hr = RoActivateInstance(classId.Get(), &inspectable);
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"ThemeNotifier: failed to activate UISettings (hr=0x%08X)", hr);
+        cleanupState();
+        return false;
+    }
+
+    hr = inspectable.As(&state->uiSettings3);
+    if (FAILED(hr) || !state->uiSettings3) {
+        LogMessage(LogLevel::Warning, L"ThemeNotifier: UISettings3 not available (hr=0x%08X)", hr);
+        cleanupState();
+        return false;
+    }
+
+    state->handler = Microsoft::WRL::Make<UiSettingsEventHandler>([this]() {
+        UpdateColorSnapshot();
+        NotifyThemeChanged();
+    });
+    if (state->handler) {
+        hr = state->uiSettings3->add_ColorValuesChanged(state->handler.Get(), &state->colorToken);
+        if (FAILED(hr)) {
+            LogMessage(LogLevel::Warning,
+                       L"ThemeNotifier: failed to subscribe to UISettings3 (hr=0x%08X)", hr);
+            state->handler.Reset();
+        }
+    }
+
+    m_window = window;
+    m_callback = std::move(callback);
 
     if (m_window) {
         if (WTSRegisterSessionNotification(m_window, NOTIFY_FOR_THIS_SESSION)) {
@@ -106,48 +171,9 @@ bool ThemeNotifier::Initialize(HWND window, std::function<void()> callback) {
         }
     }
 
-    auto state = std::make_unique<UiSettingsState>();
-    const HRESULT initResult = RoInitialize(RO_INIT_MULTITHREADED);
-    if (SUCCEEDED(initResult) || initResult == S_FALSE || initResult == HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED)) {
-        state->winrtInitialized = SUCCEEDED(initResult) || initResult == S_FALSE;
-
-        HStringReference classId(RuntimeClass_Windows_UI_ViewManagement_UISettings);
-        ComPtr<::IInspectable> inspectable;
-        HRESULT hr = RoActivateInstance(classId.Get(), &inspectable);
-        if (SUCCEEDED(hr)) {
-            hr = inspectable.As(&state->uiSettings3);
-            if (FAILED(hr)) {
-                LogMessage(LogLevel::Warning,
-                           L"ThemeNotifier: UISettings3 not available (hr=0x%08X)", hr);
-            }
-        } else {
-            LogMessage(LogLevel::Warning, L"ThemeNotifier: failed to activate UISettings (hr=0x%08X)", hr);
-        }
-
-        if (state->uiSettings3) {
-            state->handler = Microsoft::WRL::Make<UiSettingsEventHandler>([this]() {
-                UpdateColorSnapshot();
-                NotifyThemeChanged();
-            });
-            if (state->handler) {
-                hr = state->uiSettings3->add_ColorValuesChanged(state->handler.Get(), &state->colorToken);
-                if (FAILED(hr)) {
-                    LogMessage(LogLevel::Warning,
-                               L"ThemeNotifier: failed to subscribe to UISettings3 (hr=0x%08X)", hr);
-                    state->handler.Reset();
-                }
-            }
-            UpdateColorSnapshot();
-        }
-    } else {
-        LogMessage(LogLevel::Warning, L"ThemeNotifier: RoInitialize failed (hr=0x%08X)", initResult);
-    }
-
     m_uiSettings = std::move(state);
 
-    if (!m_cachedColors.valid) {
-        UpdateColorSnapshot();
-    }
+    UpdateColorSnapshot();
 
     if (m_callback) {
         NotifyThemeChanged();
@@ -168,7 +194,7 @@ void ThemeNotifier::Shutdown() {
         }
         m_uiSettings->handler.Reset();
         m_uiSettings->uiSettings3.Reset();
-        if (m_uiSettings->winrtInitialized) {
+        if (m_uiSettings->apartmentModel != UiSettingsState::ApartmentModel::None) {
             RoUninitialize();
         }
     }
