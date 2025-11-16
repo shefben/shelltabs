@@ -1937,6 +1937,30 @@ HWND CExplorerBHO::GetTopLevelExplorerWindow() const {
     return current ? current : hwnd;
 }
 
+HWND CExplorerBHO::GetShellTabsBandWindow() const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return nullptr;
+    }
+
+    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+    if (!bandWindow || !IsWindow(bandWindow)) {
+        return nullptr;
+    }
+
+    return bandWindow;
+}
+
+bool CExplorerBHO::PostTravelToolbarNavigationMessage(bool navigateBack) const {
+    HWND bandWindow = GetShellTabsBandWindow();
+    if (!bandWindow) {
+        return false;
+    }
+
+    const UINT message = navigateBack ? WM_SHELLTABS_NAVIGATE_BACK : WM_SHELLTABS_NAVIGATE_FORWARD;
+    return PostMessageW(bandWindow, message, 0, 0) != 0;
+}
+
 void CExplorerBHO::LogBreadcrumbStage(BreadcrumbDiscoveryStage stage, const wchar_t* format, ...) const {
     if (!format) {
         return;
@@ -6580,6 +6604,7 @@ void CExplorerBHO::RemoveTravelBandSubclass() {
     m_travelForwardCommandId = 0;
     m_travelHistoryDropdownCommandId = 0;
     m_travelHistoryMenuVisible = false;
+    m_travelToolbarPressedButton = -1;
 }
 
 void CExplorerBHO::ResolveTravelToolbarCommands() {
@@ -6643,38 +6668,36 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
 
     POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     const LRESULT hit = SendMessageW(toolbar, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&point));
-    if (hit < 0) {
-        if (buttonUp) {
-            ReleaseTravelToolbarCapture();
-            ResetTravelToolbarButtonState();
-        }
-        return false;
-    }
-
     const TravelToolbarTarget target =
-        (hit <= static_cast<LRESULT>(TravelToolbarTarget::kDropdown))
+        (hit >= 0 && hit <= static_cast<LRESULT>(TravelToolbarTarget::kDropdown))
             ? static_cast<TravelToolbarTarget>(hit)
             : TravelToolbarTarget::kNone;
 
-    if (target == TravelToolbarTarget::kNone) {
-        if (buttonUp) {
-            ReleaseTravelToolbarCapture();
-            ResetTravelToolbarButtonState();
-        }
-        return false;
-    }
+    const bool isNavigationTarget =
+        (target == TravelToolbarTarget::kBack || target == TravelToolbarTarget::kForward);
 
     const bool canGoBack = IsTravelToolbarButtonEnabled(m_travelBackCommandId);
     const bool canGoForward = IsTravelToolbarButtonEnabled(m_travelForwardCommandId);
 
     if (!buttonUp) {
-        BeginTravelToolbarCapture(toolbar);
-        if ((target == TravelToolbarTarget::kBack && canGoBack) ||
-            (target == TravelToolbarTarget::kForward && canGoForward)) {
-            const UINT commandId =
-                (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
-            SetTravelToolbarButtonPressed(commandId, true);
-        } else if (target == TravelToolbarTarget::kDropdown && (canGoBack || canGoForward)) {
+        if (isNavigationTarget) {
+            BeginTravelToolbarCapture(toolbar);
+            m_travelToolbarPressedButton = static_cast<int>(target);
+            if ((target == TravelToolbarTarget::kBack && canGoBack) ||
+                (target == TravelToolbarTarget::kForward && canGoForward)) {
+                const UINT commandId =
+                    (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
+                SetTravelToolbarButtonPressed(commandId, true);
+            }
+            if (result) {
+                *result = 0;
+            }
+            return true;
+        }
+
+        m_travelToolbarPressedButton = -1;
+        if (target == TravelToolbarTarget::kDropdown && (canGoBack || canGoForward)) {
+            BeginTravelToolbarCapture(toolbar);
             if (m_travelHistoryDropdownCommandId != 0) {
                 SetTravelToolbarButtonPressed(m_travelHistoryDropdownCommandId, true);
             }
@@ -6702,18 +6725,45 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
         return false;
     }
 
+    const bool pressedNavigationButton =
+        (m_travelToolbarPressedButton == static_cast<int>(TravelToolbarTarget::kBack) ||
+         m_travelToolbarPressedButton == static_cast<int>(TravelToolbarTarget::kForward));
+    const TravelToolbarTarget pressedTarget = pressedNavigationButton
+                                                  ? static_cast<TravelToolbarTarget>(m_travelToolbarPressedButton)
+                                                  : TravelToolbarTarget::kNone;
+
     ReleaseTravelToolbarCapture();
     ResetTravelToolbarButtonState();
+    m_travelToolbarPressedButton = -1;
+
+    if (pressedNavigationButton) {
+        if (target == pressedTarget) {
+            const bool canNavigate =
+                (pressedTarget == TravelToolbarTarget::kBack) ? canGoBack : canGoForward;
+            if (canNavigate) {
+                PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
+            }
+        }
+
+        if (result) {
+            *result = 0;
+        }
+        return true;
+    }
+
     return false;
 }
 
 bool CExplorerBHO::HandleTravelToolbarMouseActivate(LRESULT* result) {
-    if (!m_travelHistoryMenuVisible) {
-        return false;
+    if (m_travelHistoryMenuVisible) {
+        if (result) {
+            *result = MA_NOACTIVATEANDEAT;
+        }
+        return true;
     }
 
     if (result) {
-        *result = MA_NOACTIVATEANDEAT;
+        *result = MA_NOACTIVATE;
     }
     return true;
 }
@@ -6758,13 +6808,8 @@ bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* res
 }
 
 bool CExplorerBHO::ShowTravelHistoryMenu(HistoryMenuKind kind, const RECT& buttonRect, LRESULT* result) {
-    HWND frame = GetTopLevelExplorerWindow();
-    if (!frame || !IsWindow(frame)) {
-        return false;
-    }
-
-    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
-    if (!bandWindow || !IsWindow(bandWindow)) {
+    HWND bandWindow = GetShellTabsBandWindow();
+    if (!bandWindow) {
         return false;
     }
 
