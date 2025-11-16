@@ -530,6 +530,7 @@ class ShellTabsListView;
                 bool m_loggedExplorerPanesReady = false;
                 bool m_loggedListViewMissing = false;
                 bool m_loggedTreeViewMissing = false;
+                bool m_loggedCustomListViewReady = false;
                 PaneHookRouter m_paneHooks;
                 ExplorerGlowCoordinator m_glowCoordinator;
                 Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;

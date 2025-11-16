@@ -50,6 +50,14 @@ std::mutex g_registryMutex;
 std::unordered_map<HWND, ThemeSurfaceRegistration, HwndHasher> g_surfaceRegistry;
 std::unordered_set<HWND, HwndHasher> g_directUiHosts;
 
+struct CreateWindowInterceptorEntry {
+    CreateWindowExInterceptor callback = nullptr;
+    void* context = nullptr;
+};
+
+std::mutex g_createWindowInterceptorMutex;
+std::vector<CreateWindowInterceptorEntry> g_createWindowInterceptors;
+
 bool TryPaintBackgroundOverride(HDC dc, HWND window, const RECT& rect,
                                 const ThemeSurfaceRegistration& registration) {
     if (!registration.descriptor || !registration.descriptor->backgroundPaintCallback) {
@@ -205,6 +213,7 @@ void DeactivateThemePaintOverride() noexcept {
 
 // Forward declarations
 bool InstallHook(void* target, void* detour, void** original, const wchar_t* name);
+bool DispatchCreateWindowInterceptors(const CreateWindowExInterceptorArgs& args, HWND* result);
 
 struct PaintContextSnapshot {
     bool active = false;
@@ -949,6 +958,25 @@ BOOL WINAPI TrackPopupMenuExDetour(HMENU menu, UINT flags, int x, int y, HWND hw
 HWND WINAPI CreateWindowExWDetour(DWORD exStyle, LPCWSTR className, LPCWSTR windowName, DWORD style, int x, int y,
                                   int width, int height, HWND hwndParent, HMENU menu, HINSTANCE instance,
                                   LPVOID param) {
+    CreateWindowExInterceptorArgs args{};
+    args.exStyle = exStyle;
+    args.className = className;
+    args.windowName = windowName;
+    args.style = style;
+    args.x = x;
+    args.y = y;
+    args.width = width;
+    args.height = height;
+    args.parent = hwndParent;
+    args.menu = menu;
+    args.instance = instance;
+    args.param = param;
+
+    HWND interceptedWindow = nullptr;
+    if (DispatchCreateWindowInterceptors(args, &interceptedWindow)) {
+        return interceptedWindow;
+    }
+
     const bool isMenuClass = IsMenuClassName(className);
     const bool isTooltipClass = !isMenuClass && IsTooltipClassName(className);
 
@@ -1897,6 +1925,25 @@ void RegisterDirectUiRenderInterfaceInternal(void* element, size_t drawIndex, HW
     g_directUiElementInfo[element] = elementInfo;
 }
 
+bool DispatchCreateWindowInterceptors(const CreateWindowExInterceptorArgs& args, HWND* result) {
+    if (!result) {
+        return false;
+    }
+
+    std::vector<CreateWindowInterceptorEntry> interceptors;
+    {
+        std::lock_guard<std::mutex> lock(g_createWindowInterceptorMutex);
+        interceptors = g_createWindowInterceptors;
+    }
+
+    for (auto it = interceptors.rbegin(); it != interceptors.rend(); ++it) {
+        if (it->callback && it->callback(args, result, it->context)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool InstallHook(void* target, void* detour, void** original, const wchar_t* name) {
     if (!target) {
         LogMessage(LogLevel::Warning, L"ThemeHooks: missing target for %ls", name);
@@ -1923,6 +1970,35 @@ void DisableHook(void* target, const wchar_t* name) {
     MH_STATUS status = MH_DisableHook(target);
     if (status != MH_OK) {
         LogMessage(LogLevel::Warning, L"ThemeHooks: MH_DisableHook failed for %ls (status=%d)", name, status);
+    }
+}
+
+bool RegisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+    if (!callback) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(g_createWindowInterceptorMutex);
+    auto it = std::find_if(g_createWindowInterceptors.begin(), g_createWindowInterceptors.end(),
+                           [&](const CreateWindowInterceptorEntry& entry) {
+                               return entry.callback == callback && entry.context == context;
+                           });
+    if (it != g_createWindowInterceptors.end()) {
+        return true;
+    }
+
+    g_createWindowInterceptors.push_back({callback, context});
+    return true;
+}
+
+void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+    std::lock_guard<std::mutex> lock(g_createWindowInterceptorMutex);
+    auto it = std::find_if(g_createWindowInterceptors.begin(), g_createWindowInterceptors.end(),
+                           [&](const CreateWindowInterceptorEntry& entry) {
+                               return entry.callback == callback && entry.context == context;
+                           });
+    if (it != g_createWindowInterceptors.end()) {
+        g_createWindowInterceptors.erase(it);
     }
 }
 
@@ -2169,6 +2245,11 @@ void ShutdownThemeHooks() {
         g_directUiDetourTargets.clear();
         g_directUiTargetInfo.clear();
         g_directUiElementInfo.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> interceptorGuard(g_createWindowInterceptorMutex);
+        g_createWindowInterceptors.clear();
     }
 
     MH_STATUS status = MH_Uninitialize();

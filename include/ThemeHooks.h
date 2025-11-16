@@ -7,6 +7,28 @@
 
 namespace shelltabs {
 
+struct CreateWindowExInterceptorArgs {
+    DWORD exStyle = 0;
+    LPCWSTR className = nullptr;
+    LPCWSTR windowName = nullptr;
+    DWORD style = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    HWND parent = nullptr;
+    HMENU menu = nullptr;
+    HINSTANCE instance = nullptr;
+    LPVOID param = nullptr;
+};
+
+using CreateWindowExInterceptor = bool (*)(const CreateWindowExInterceptorArgs& args,
+                                           HWND* result,
+                                           void* context);
+
+bool RegisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept;
+void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept;
+
 bool InitializeThemeHooks();
 void ShutdownThemeHooks();
 

@@ -3,6 +3,7 @@
 #include "MinHook.h"
 #include "Logging.h"
 #include "DirectUIReplacementIntegration.h"
+#include "ThemeHooks.h"
 #include <algorithm>
 #include <mutex>
 #include <Shlwapi.h>
@@ -1365,10 +1366,9 @@ IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const
 // This hook system ensures that our custom DirectUIHWND implementation is used
 // everywhere in explorer.exe by hooking multiple Windows API functions:
 //
-// 1. CreateWindowExW - Extended window creation (primary hook)
-// 2. CreateWindowW - Standard window creation (fallback)
-// 3. FindWindowW - Window search by class name
-// 4. FindWindowExW - Extended window search
+// 1. CreateWindowExW - Intercepted via ThemeHooks dispatcher
+// 2. FindWindowW - Window search by class name
+// 3. FindWindowExW - Extended window search
 //
 // When explorer.exe tries to create or find a DirectUIHWND window, we intercept
 // the call and substitute our ShellTabsFileListView custom implementation instead.
@@ -1376,9 +1376,9 @@ IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const
 
 bool DirectUIReplacementHook::s_enabled = false;
 bool DirectUIReplacementHook::s_ownsMinHookLifecycle = false;
-void* DirectUIReplacementHook::s_originalCreateWindowExW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowExW = nullptr;
+bool DirectUIReplacementHook::s_createWindowInterceptorRegistered = false;
 std::unordered_map<HWND, CustomFileListView*> DirectUIReplacementHook::s_instances;
 
 bool DirectUIReplacementHook::Initialize() {
@@ -1410,42 +1410,22 @@ bool DirectUIReplacementHook::Initialize() {
         }
     };
 
-    auto cleanupOnFailure = [&](const wchar_t* context) {
-        LogMessage(LogLevel::Warning,
-                   L"DirectUIReplacementHook: Cleaning up after hook failure (%s)",
-                   context);
-        disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW);
-        disableAndRemoveHook(&FindWindowW, s_originalFindWindowW);
-        disableAndRemoveHook(&FindWindowExW, s_originalFindWindowExW);
-
-        if (initializedHere) {
-            const MH_STATUS uninitStatus = MH_Uninitialize();
-            LogMessage(LogLevel::Info,
-                       L"DirectUIReplacementHook: MH_Uninitialize after failure (status=%d)",
-                       uninitStatus);
-            s_ownsMinHookLifecycle = false;
+    if (!s_createWindowInterceptorRegistered) {
+        if (!shelltabs::RegisterCreateWindowExInterceptor(&HandleCreateWindowRequest, nullptr)) {
+            LogMessage(LogLevel::Error,
+                       L"DirectUIReplacementHook: Failed to register CreateWindowEx interceptor");
+            if (initializedHere) {
+                const MH_STATUS uninitStatus = MH_Uninitialize();
+                LogMessage(LogLevel::Info,
+                           L"DirectUIReplacementHook: MH_Uninitialize after interceptor failure (status=%d)",
+                           uninitStatus);
+                s_ownsMinHookLifecycle = false;
+            }
+            return false;
         }
-    };
-
-    // Hook CreateWindowExW
-    const MH_STATUS createHookStatus = MH_CreateHook(&CreateWindowExW, &CreateWindowExW_Hook,
-                                                     &s_originalCreateWindowExW);
-    if (createHookStatus != MH_OK) {
-        LogMessage(LogLevel::Error,
-                   L"DirectUIReplacementHook: Failed to create CreateWindowExW hook (status=%d)",
-                   createHookStatus);
-        cleanupOnFailure(L"CreateWindowExW create");
-        return false;
-    }
-
-    const MH_STATUS enableCreateStatus = MH_EnableHook(&CreateWindowExW);
-    if (enableCreateStatus != MH_OK) {
-        LogMessage(LogLevel::Error,
-                   L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook (status=%d)",
-                   enableCreateStatus);
-        disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW);
-        cleanupOnFailure(L"CreateWindowExW enable");
-        return false;
+        s_createWindowInterceptorRegistered = true;
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementHook: CreateWindowEx interceptor registered successfully");
     }
 
     // Hook FindWindowW
@@ -1492,6 +1472,13 @@ bool DirectUIReplacementHook::Initialize() {
 }
 
 void DirectUIReplacementHook::Shutdown() {
+    if (s_createWindowInterceptorRegistered) {
+        shelltabs::UnregisterCreateWindowExInterceptor(&HandleCreateWindowRequest, nullptr);
+        s_createWindowInterceptorRegistered = false;
+        LogMessage(LogLevel::Verbose,
+                   L"DirectUIReplacementHook: CreateWindowEx interceptor unregistered during shutdown");
+    }
+
     if (!s_enabled) return;
 
     auto disableAndRemoveHook = [](auto target, void*& original, const wchar_t* name) {
@@ -1511,7 +1498,6 @@ void DirectUIReplacementHook::Shutdown() {
     };
 
     // Disable and remove all hooks
-    disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW, L"CreateWindowExW");
     disableAndRemoveHook(&FindWindowW, s_originalFindWindowW, L"FindWindowW");
     disableAndRemoveHook(&FindWindowExW, s_originalFindWindowExW, L"FindWindowExW");
 
@@ -1546,22 +1532,30 @@ CustomFileListView* DirectUIReplacementHook::GetInstance(HWND hwnd) {
     return (it != s_instances.end()) ? it->second : nullptr;
 }
 
-HWND WINAPI DirectUIReplacementHook::CreateWindowExW_Hook(
-    DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
-    DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
-    HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam) {
-
-    // Check if this is a DirectUIHWND window
-    if (IsDirectUIClassName(lpClassName)) {
-        LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND");
-        return CreateReplacementWindow(dwExStyle, dwStyle, X, Y,
-                                      nWidth, nHeight, hWndParent, hInstance);
+bool DirectUIReplacementHook::HandleCreateWindowRequest(
+    const shelltabs::CreateWindowExInterceptorArgs& args, HWND* result, void*) {
+    if (!result || !args.className) {
+        return false;
     }
 
-    // Call original CreateWindowExW
-    auto original = reinterpret_cast<decltype(&CreateWindowExW)>(s_originalCreateWindowExW);
-    return original(dwExStyle, lpClassName, lpWindowName, dwStyle,
-                   X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
+    if (!IsDirectUIClassName(args.className)) {
+        return false;
+    }
+
+    LogMessage(LogLevel::Info,
+               L"DirectUIReplacementHook: Intercepted DirectUIHWND creation (parent=%p)",
+               args.parent);
+
+    HWND replacement = CreateReplacementWindow(args.exStyle, args.style, args.x, args.y, args.width,
+                                               args.height, args.parent, args.instance);
+    if (!replacement) {
+        LogMessage(LogLevel::Warning,
+                   L"DirectUIReplacementHook: Replacement window creation failed, deferring to system");
+        return false;
+    }
+
+    *result = replacement;
+    return true;
 }
 
 HWND WINAPI DirectUIReplacementHook::FindWindowW_Hook(
