@@ -156,6 +156,12 @@ LRESULT CALLBACK CustomFileListView::WindowProc(HWND hwnd, UINT msg,
                 break;
             case WM_DESTROY:
                 return pThis->HandleDestroy();
+            case WM_NCDESTROY:
+                {
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                    delete pThis;
+                    return 0;
+                }
         }
     }
 
