@@ -1130,6 +1130,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
+    DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(this);
     DestroyProgressGradientResources();
     ResetListViewAccentBrush();
 
@@ -1669,6 +1670,7 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             if (!site) {
                 LogMessage(LogLevel::Info, L"CExplorerBHO::SetSite detaching from site");
                 Disconnect();
+                DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(this);
                 return S_OK;
             }
 

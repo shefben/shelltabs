@@ -122,6 +122,14 @@ void DirectUIReplacementIntegration::SetCustomViewCreatedCallback(
     s_viewCreatedContext = context;
 }
 
+void DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(void* context) {
+    std::lock_guard<std::mutex> lock(g_initMutex);
+    if (s_viewCreatedContext == context) {
+        s_viewCreatedCallback = nullptr;
+        s_viewCreatedContext = nullptr;
+    }
+}
+
 void DirectUIReplacementIntegration::NotifyViewCreated(
     ShellTabs::CustomFileListView* view, HWND hwnd) {
     if (s_viewCreatedCallback) {
