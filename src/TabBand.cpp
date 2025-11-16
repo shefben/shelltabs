@@ -47,11 +47,106 @@ namespace {
 struct WindowTokenState {
     std::mutex mutex;
     std::unordered_map<HWND, std::wstring> tokens;
+    std::deque<std::wstring> orphanTokens;
+    bool orphanScanPerformed = false;
 };
 
 WindowTokenState& GetWindowTokenState() {
     static auto* state = new WindowTokenState();
     return *state;
+}
+
+constexpr wchar_t kSessionFilePrefix[] = L"session-";
+constexpr wchar_t kSessionDbSuffix[] = L".db";
+constexpr wchar_t kSessionLockSuffix[] = L".db.lock";
+constexpr wchar_t kSessionLockPattern[] = L"session-*.db.lock";
+
+bool IsTokenClaimed(const WindowTokenState& state, const std::wstring& token) {
+    return std::any_of(state.tokens.begin(), state.tokens.end(), [&](const auto& entry) {
+        return entry.second == token;
+    });
+}
+
+void DiscoverOrphanedSessionTokens(WindowTokenState& state) {
+    if (state.orphanScanPerformed) {
+        return;
+    }
+    state.orphanScanPerformed = true;
+
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+
+    const std::wstring pattern = directory + kSessionLockPattern;
+    WIN32_FIND_DATAW findData{};
+    HANDLE findHandle = FindFirstFileW(pattern.c_str(), &findData);
+    if (findHandle == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    struct CandidateToken {
+        std::wstring token;
+        ULONGLONG timestamp = 0;
+    };
+
+    std::vector<CandidateToken> candidates;
+
+    constexpr size_t kPrefixLength = ARRAYSIZE(kSessionFilePrefix) - 1;
+    constexpr size_t kLockSuffixLength = ARRAYSIZE(kSessionLockSuffix) - 1;
+
+    auto extractToken = [&](const std::wstring& fileName) -> std::wstring {
+        if (fileName.size() <= kPrefixLength + kLockSuffixLength) {
+            return {};
+        }
+        if (fileName.rfind(kSessionFilePrefix, 0) != 0) {
+            return {};
+        }
+        if (fileName.compare(fileName.size() - kLockSuffixLength, kLockSuffixLength, kSessionLockSuffix) != 0) {
+            return {};
+        }
+        return fileName.substr(kPrefixLength, fileName.size() - kPrefixLength - kLockSuffixLength);
+    };
+
+    do {
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        const std::wstring fileName = findData.cFileName;
+        std::wstring token = extractToken(fileName);
+        if (token.empty()) {
+            continue;
+        }
+
+        std::wstring sessionPath = directory;
+        sessionPath += kSessionFilePrefix;
+        sessionPath += token;
+        sessionPath += kSessionDbSuffix;
+        if (GetFileAttributesW(sessionPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            continue;
+        }
+
+        CandidateToken candidate;
+        candidate.token = std::move(token);
+        candidate.timestamp = (static_cast<ULONGLONG>(findData.ftLastWriteTime.dwHighDateTime) << 32) |
+                              findData.ftLastWriteTime.dwLowDateTime;
+        candidates.emplace_back(std::move(candidate));
+    } while (FindNextFileW(findHandle, &findData));
+
+    FindClose(findHandle);
+
+    std::sort(candidates.begin(), candidates.end(), [](const CandidateToken& left, const CandidateToken& right) {
+        return left.timestamp > right.timestamp;
+    });
+
+    for (auto& candidate : candidates) {
+        if (!candidate.token.empty()) {
+            state.orphanTokens.emplace_back(std::move(candidate.token));
+        }
+    }
 }
 
 enum class WindowSeedType {
@@ -1313,10 +1408,9 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
     }
 
     const NavigationHistory& history = tab->navigationHistory;
-    if (history.entries.empty() || history.currentIndex < 0 ||
-        history.currentIndex >= static_cast<int>(history.entries.size())) {
-        return false;
-    }
+    const bool hasHistoryEntries = !history.entries.empty();
+    const bool hasValidIndex = hasHistoryEntries && history.currentIndex >= 0 &&
+                               history.currentIndex < static_cast<int>(history.entries.size());
 
     HMENU menu = CreatePopupMenu();
     if (!menu) {
@@ -1328,39 +1422,41 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
     std::vector<std::wstring> labels;
     labels.reserve(history.entries.size());
 
-    const auto appendEntry = [&](int historyIndex) {
-        if (historyIndex < 0 || historyIndex >= static_cast<int>(history.entries.size())) {
-            return;
-        }
-        const auto& entry = history.entries[historyIndex];
-        std::wstring label = entry.name.empty() ? entry.path : entry.name;
-        if (label.empty()) {
-            label = L"(Unknown)";
-        }
-        labels.push_back(label);
+    if (hasValidIndex) {
+        const auto appendEntry = [&](int historyIndex) {
+            if (historyIndex < 0 || historyIndex >= static_cast<int>(history.entries.size())) {
+                return;
+            }
+            const auto& entry = history.entries[historyIndex];
+            std::wstring label = entry.name.empty() ? entry.path : entry.name;
+            if (label.empty()) {
+                label = L"(Unknown)";
+            }
+            labels.push_back(label);
 
-        MENUITEMINFOW item{};
-        item.cbSize = sizeof(item);
-        item.fMask = MIIM_ID | MIIM_STRING;
-        item.wID = static_cast<UINT>(commandToIndex.size() + 1);
-        item.dwTypeData = labels.back().data();
-        item.cch = static_cast<UINT>(labels.back().size());
-        InsertMenuItemW(menu, static_cast<UINT>(-1), TRUE, &item);
-        commandToIndex.emplace_back(item.wID, historyIndex);
-    };
+            MENUITEMINFOW item{};
+            item.cbSize = sizeof(item);
+            item.fMask = MIIM_ID | MIIM_STRING;
+            item.wID = static_cast<UINT>(commandToIndex.size() + 1);
+            item.dwTypeData = labels.back().data();
+            item.cch = static_cast<UINT>(labels.back().size());
+            InsertMenuItemW(menu, static_cast<UINT>(-1), TRUE, &item);
+            commandToIndex.emplace_back(item.wID, historyIndex);
+        };
 
-    if (request.kind == HistoryMenuKind::kBack) {
-        for (int index = history.currentIndex - 1; index >= 0; --index) {
-            appendEntry(index);
-        }
-    } else {
-        for (int index = history.currentIndex + 1; index < static_cast<int>(history.entries.size()); ++index) {
-            appendEntry(index);
+        if (request.kind == HistoryMenuKind::kBack) {
+            for (int index = history.currentIndex - 1; index >= 0; --index) {
+                appendEntry(index);
+            }
+        } else {
+            for (int index = history.currentIndex + 1; index < static_cast<int>(history.entries.size()); ++index) {
+                appendEntry(index);
+            }
         }
     }
 
-    bool hasHistoryEntries = !commandToIndex.empty();
-    if (!hasHistoryEntries) {
+    const bool menuHasHistory = !commandToIndex.empty();
+    if (!menuHasHistory) {
         labels.emplace_back(L"(No history for this tab)");
 
         MENUITEMINFOW placeholder{};
@@ -1395,7 +1491,7 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
     UINT selectedCommand = TrackPopupMenuEx(menu, flags, popupPoint.x, popupPoint.y, ownerHwnd, nullptr);
     DestroyMenu(menu);
 
-    if (!hasHistoryEntries || selectedCommand == 0) {
+    if (!menuHasHistory || selectedCommand == 0) {
         return true;  // Menu displayed but no selection.
     }
 
@@ -1859,6 +1955,20 @@ std::wstring TabBand::ResolveWindowToken() {
         const auto existing = state.tokens.find(frame);
         if (existing != state.tokens.end()) {
             m_windowToken = existing->second;
+            return m_windowToken;
+        }
+
+        DiscoverOrphanedSessionTokens(state);
+        while (!state.orphanTokens.empty()) {
+            std::wstring candidate = std::move(state.orphanTokens.front());
+            state.orphanTokens.pop_front();
+            if (candidate.empty() || IsTokenClaimed(state, candidate)) {
+                continue;
+            }
+            state.tokens.emplace(frame, candidate);
+            m_windowToken = candidate;
+            LogMessage(LogLevel::Info, L"TabBand::ResolveWindowToken adopted crashed session token %ls",
+                       m_windowToken.c_str());
             return m_windowToken;
         }
 
