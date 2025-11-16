@@ -1369,6 +1369,7 @@ IWICBitmapSource* CustomFileListView::GetShellThumbnail(LPITEMIDLIST pidl) const
 // ============================================================================
 
 bool DirectUIReplacementHook::s_enabled = false;
+bool DirectUIReplacementHook::s_ownsMinHookLifecycle = false;
 void* DirectUIReplacementHook::s_originalCreateWindowExW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowExW = nullptr;
@@ -1377,44 +1378,103 @@ std::unordered_map<HWND, CustomFileListView*> DirectUIReplacementHook::s_instanc
 bool DirectUIReplacementHook::Initialize() {
     if (s_enabled) return true;
 
-    if (MH_Initialize() != MH_OK) {
-        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to initialize MinHook");
+    const MH_STATUS initStatus = MH_Initialize();
+    const bool initializedHere = initStatus == MH_OK;
+    if (initializedHere) {
+        s_ownsMinHookLifecycle = true;
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementHook: MH_Initialize succeeded (status=%d)",
+                   initStatus);
+    } else if (initStatus == MH_ERROR_ALREADY_INITIALIZED) {
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementHook: MH_Initialize already satisfied (status=%d)",
+                   initStatus);
+    } else {
+        LogMessage(LogLevel::Error,
+                   L"DirectUIReplacementHook: Failed to initialize MinHook (status=%d)",
+                   initStatus);
         return false;
     }
+
+    auto disableAndRemoveHook = [](auto target, void*& original) {
+        if (original) {
+            MH_DisableHook(target);
+            MH_RemoveHook(target);
+            original = nullptr;
+        }
+    };
+
+    auto cleanupOnFailure = [&](const wchar_t* context) {
+        LogMessage(LogLevel::Warning,
+                   L"DirectUIReplacementHook: Cleaning up after hook failure (%s)",
+                   context);
+        disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW);
+        disableAndRemoveHook(&FindWindowW, s_originalFindWindowW);
+        disableAndRemoveHook(&FindWindowExW, s_originalFindWindowExW);
+
+        if (initializedHere) {
+            const MH_STATUS uninitStatus = MH_Uninitialize();
+            LogMessage(LogLevel::Info,
+                       L"DirectUIReplacementHook: MH_Uninitialize after failure (status=%d)",
+                       uninitStatus);
+            s_ownsMinHookLifecycle = false;
+        }
+    };
 
     // Hook CreateWindowExW
-    if (MH_CreateHook(&CreateWindowExW, &CreateWindowExW_Hook,
-                      &s_originalCreateWindowExW) != MH_OK) {
-        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to create CreateWindowExW hook");
-        MH_Uninitialize();
+    const MH_STATUS createHookStatus = MH_CreateHook(&CreateWindowExW, &CreateWindowExW_Hook,
+                                                     &s_originalCreateWindowExW);
+    if (createHookStatus != MH_OK) {
+        LogMessage(LogLevel::Error,
+                   L"DirectUIReplacementHook: Failed to create CreateWindowExW hook (status=%d)",
+                   createHookStatus);
+        cleanupOnFailure(L"CreateWindowExW create");
         return false;
     }
 
-    if (MH_EnableHook(&CreateWindowExW) != MH_OK) {
-        LogMessage(LogLevel::Error, L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook");
-        MH_Uninitialize();
+    const MH_STATUS enableCreateStatus = MH_EnableHook(&CreateWindowExW);
+    if (enableCreateStatus != MH_OK) {
+        LogMessage(LogLevel::Error,
+                   L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook (status=%d)",
+                   enableCreateStatus);
+        disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW);
+        cleanupOnFailure(L"CreateWindowExW enable");
         return false;
     }
 
     // Hook FindWindowW
-    if (MH_CreateHook(&FindWindowW, &FindWindowW_Hook,
-                      &s_originalFindWindowW) != MH_OK) {
-        LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to create FindWindowW hook");
+    const MH_STATUS findCreateStatus = MH_CreateHook(&FindWindowW, &FindWindowW_Hook,
+                                                     &s_originalFindWindowW);
+    if (findCreateStatus != MH_OK) {
+        LogMessage(LogLevel::Warning,
+                   L"DirectUIReplacementHook: Failed to create FindWindowW hook (status=%d)",
+                   findCreateStatus);
     } else {
-        if (MH_EnableHook(&FindWindowW) != MH_OK) {
-            LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to enable FindWindowW hook");
+        const MH_STATUS findEnableStatus = MH_EnableHook(&FindWindowW);
+        if (findEnableStatus != MH_OK) {
+            LogMessage(LogLevel::Warning,
+                       L"DirectUIReplacementHook: Failed to enable FindWindowW hook (status=%d)",
+                       findEnableStatus);
+            disableAndRemoveHook(&FindWindowW, s_originalFindWindowW);
         } else {
             LogMessage(LogLevel::Info, L"DirectUIReplacementHook: FindWindowW hooked successfully");
         }
     }
 
     // Hook FindWindowExW
-    if (MH_CreateHook(&FindWindowExW, &FindWindowExW_Hook,
-                      &s_originalFindWindowExW) != MH_OK) {
-        LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to create FindWindowExW hook");
+    const MH_STATUS findExCreateStatus = MH_CreateHook(&FindWindowExW, &FindWindowExW_Hook,
+                                                       &s_originalFindWindowExW);
+    if (findExCreateStatus != MH_OK) {
+        LogMessage(LogLevel::Warning,
+                   L"DirectUIReplacementHook: Failed to create FindWindowExW hook (status=%d)",
+                   findExCreateStatus);
     } else {
-        if (MH_EnableHook(&FindWindowExW) != MH_OK) {
-            LogMessage(LogLevel::Warning, L"DirectUIReplacementHook: Failed to enable FindWindowExW hook");
+        const MH_STATUS findExEnableStatus = MH_EnableHook(&FindWindowExW);
+        if (findExEnableStatus != MH_OK) {
+            LogMessage(LogLevel::Warning,
+                       L"DirectUIReplacementHook: Failed to enable FindWindowExW hook (status=%d)",
+                       findExEnableStatus);
+            disableAndRemoveHook(&FindWindowExW, s_originalFindWindowExW);
         } else {
             LogMessage(LogLevel::Info, L"DirectUIReplacementHook: FindWindowExW hooked successfully");
         }
@@ -1428,23 +1488,37 @@ bool DirectUIReplacementHook::Initialize() {
 void DirectUIReplacementHook::Shutdown() {
     if (!s_enabled) return;
 
+    auto disableAndRemoveHook = [](auto target, void*& original, const wchar_t* name) {
+        if (!original) return;
+
+        const MH_STATUS disableStatus = MH_DisableHook(target);
+        LogMessage(LogLevel::Verbose,
+                   L"DirectUIReplacementHook: MH_DisableHook(%s) status=%d",
+                   name, disableStatus);
+
+        const MH_STATUS removeStatus = MH_RemoveHook(target);
+        LogMessage(LogLevel::Verbose,
+                   L"DirectUIReplacementHook: MH_RemoveHook(%s) status=%d",
+                   name, removeStatus);
+
+        original = nullptr;
+    };
+
     // Disable and remove all hooks
-    if (s_originalCreateWindowExW) {
-        MH_DisableHook(&CreateWindowExW);
-        MH_RemoveHook(&CreateWindowExW);
-    }
+    disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW, L"CreateWindowExW");
+    disableAndRemoveHook(&FindWindowW, s_originalFindWindowW, L"FindWindowW");
+    disableAndRemoveHook(&FindWindowExW, s_originalFindWindowExW, L"FindWindowExW");
 
-    if (s_originalFindWindowW) {
-        MH_DisableHook(&FindWindowW);
-        MH_RemoveHook(&FindWindowW);
+    if (s_ownsMinHookLifecycle) {
+        const MH_STATUS uninitStatus = MH_Uninitialize();
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementHook: MH_Uninitialize during shutdown (status=%d)",
+                   uninitStatus);
+        s_ownsMinHookLifecycle = false;
+    } else {
+        LogMessage(LogLevel::Verbose,
+                   L"DirectUIReplacementHook: Skipping MH_Uninitialize (not lifecycle owner)");
     }
-
-    if (s_originalFindWindowExW) {
-        MH_DisableHook(&FindWindowExW);
-        MH_RemoveHook(&FindWindowExW);
-    }
-
-    MH_Uninitialize();
 
     s_enabled = false;
     LogMessage(LogLevel::Info, L"DirectUIReplacementHook: All hooks shut down");
