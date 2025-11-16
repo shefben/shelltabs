@@ -1973,7 +1973,7 @@ void DisableHook(void* target, const wchar_t* name) {
     }
 }
 
-bool RegisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+bool RegisterCreateWindowExInterceptorInternal(CreateWindowExInterceptor callback, void* context) noexcept {
     if (!callback) {
         return false;
     }
@@ -1991,7 +1991,7 @@ bool RegisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void*
     return true;
 }
 
-void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+void UnregisterCreateWindowExInterceptorInternal(CreateWindowExInterceptor callback, void* context) noexcept {
     std::lock_guard<std::mutex> lock(g_createWindowInterceptorMutex);
     auto it = std::find_if(g_createWindowInterceptors.begin(), g_createWindowInterceptors.end(),
                            [&](const CreateWindowInterceptorEntry& entry) {
@@ -2000,6 +2000,14 @@ void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, voi
     if (it != g_createWindowInterceptors.end()) {
         g_createWindowInterceptors.erase(it);
     }
+}
+
+bool RegisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+    return RegisterCreateWindowExInterceptorInternal(callback, context);
+}
+
+void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+    UnregisterCreateWindowExInterceptorInternal(callback, context);
 }
 
 }  // namespace
