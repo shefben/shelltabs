@@ -39,6 +39,7 @@
 #include "PaneHooks.h"
 #include "Utilities.h"
 #include "DirectUIReplacementIntegration.h"
+#include "VisualPropertiesInterop.h"
 
 namespace Gdiplus {
 class Bitmap;
@@ -282,6 +283,7 @@ class ShellTabsListView;
                 void InvalidateFolderBackgroundTargets() const;
                 std::wstring ResolveBackgroundCacheKey() const;
                 void RefreshListViewControlBackground();
+                Microsoft::WRL::ComPtr<IVisualProperties> GetCurrentVisualProperties() const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
                 void HandleExplorerCommand(UINT commandId);
