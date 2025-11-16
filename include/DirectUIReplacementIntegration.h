@@ -36,6 +36,9 @@ public:
         void (*callback)(ShellTabs::CustomFileListView* view, HWND hwnd, void* context),
         void* context);
 
+    // Clear the callback if it's currently registered for the specified context
+    static void ClearCustomViewCreatedCallback(void* context);
+
 private:
     static bool s_initialized;
     static bool s_enabled;
