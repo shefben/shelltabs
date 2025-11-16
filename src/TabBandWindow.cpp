@@ -7256,6 +7256,18 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_NAVIGATE_BACK: {
+                if (self->m_owner) {
+                    self->m_owner->OnNavigateBack();
+                }
+                return 0;
+            }
+            case WM_SHELLTABS_NAVIGATE_FORWARD: {
+                if (self->m_owner) {
+                    self->m_owner->OnNavigateForward();
+                }
+                return 0;
+            }
             case WM_SHELLTABS_SHOW_HISTORY_MENU: {
                 if (!self->m_owner) {
                     return 0;
