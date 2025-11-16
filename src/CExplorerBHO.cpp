@@ -923,19 +923,40 @@ bool MatchesClass(HWND hwnd, const wchar_t* className) {
     return _wcsicmp(buffer, className) == 0;
 }
 
-HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
-    if (!parent || !className) {
+bool MatchesWindowText(HWND hwnd, const wchar_t* text) {
+    if (!text || !text[0]) {
+        return true;
+    }
+    if (!hwnd) {
+        return false;
+    }
+    wchar_t buffer[256];
+    const int length = GetWindowTextW(hwnd, buffer, ARRAYSIZE(buffer));
+    if (length <= 0) {
+        return false;
+    }
+    return _wcsicmp(buffer, text) == 0;
+}
+
+HWND FindDescendantWindow(HWND parent, const wchar_t* className, const wchar_t* windowText) {
+    if (!parent) {
         return nullptr;
     }
     for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-        if (MatchesClass(child, className)) {
+        const bool classMatches = !className || MatchesClass(child, className);
+        const bool textMatches = MatchesWindowText(child, windowText);
+        if (classMatches && textMatches) {
             return child;
         }
-        if (HWND found = FindDescendantWindow(child, className)) {
+        if (HWND found = FindDescendantWindow(child, className, windowText)) {
             return found;
         }
     }
     return nullptr;
+}
+
+HWND FindDescendantWindow(HWND parent, const wchar_t* className) {
+    return FindDescendantWindow(parent, className, nullptr);
 }
 
 // --- CExplorerBHO private state (treat these as class members) ---
@@ -6255,17 +6276,40 @@ void CExplorerBHO::UpdateTravelBandSubclass() {
         return;
     }
 
+    const auto findToolbarForBand = [&](HWND candidateBand) -> HWND {
+        if (!candidateBand || !IsWindow(candidateBand) || !IsWindowOwnedByThisExplorer(candidateBand)) {
+            return nullptr;
+        }
+        HWND toolbar = FindWindowExW(candidateBand, nullptr, TOOLBARCLASSNAMEW, nullptr);
+        if (!toolbar) {
+            toolbar = FindDescendantWindow(candidateBand, TOOLBARCLASSNAMEW);
+        }
+        if (!toolbar || !IsWindow(toolbar) || !IsWindowOwnedByThisExplorer(toolbar)) {
+            return nullptr;
+        }
+        return toolbar;
+    };
+
     HWND travelBand = FindDescendantWindow(frame, L"TravelBand");
-    if (!travelBand || !IsWindow(travelBand) || !IsWindowOwnedByThisExplorer(travelBand)) {
-        RemoveTravelBandSubclass();
-        return;
+    HWND toolbar = findToolbarForBand(travelBand);
+
+    if (!toolbar) {
+        constexpr wchar_t kNavigationToolbarCaption[] = L"Navigation buttons";
+        toolbar = FindDescendantWindow(frame, TOOLBARCLASSNAMEW, kNavigationToolbarCaption);
+        if (toolbar && IsWindow(toolbar) && IsWindowOwnedByThisExplorer(toolbar)) {
+            HWND parent = GetParent(toolbar);
+            if (parent && IsWindow(parent) && IsWindowOwnedByThisExplorer(parent)) {
+                travelBand = parent;
+            } else {
+                travelBand = nullptr;
+            }
+        } else {
+            toolbar = nullptr;
+            travelBand = nullptr;
+        }
     }
 
-    HWND toolbar = FindWindowExW(travelBand, nullptr, TOOLBARCLASSNAMEW, nullptr);
-    if (!toolbar) {
-        toolbar = FindDescendantWindow(travelBand, TOOLBARCLASSNAMEW);
-    }
-    if (!toolbar || !IsWindow(toolbar)) {
+    if (!travelBand || !toolbar) {
         RemoveTravelBandSubclass();
         return;
     }

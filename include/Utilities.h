@@ -105,4 +105,7 @@ auto GuardExplorerCall(const wchar_t* context, Func&& func, Fallback&& fallback)
 // Global utility functions
 // Recursively searches for a child window with the specified class name
 HWND FindDescendantWindow(HWND parent, const wchar_t* className);
+// Recursively searches for a child window matching both class name and caption.
+// Passing nullptr for either parameter treats it as a wildcard.
+HWND FindDescendantWindow(HWND parent, const wchar_t* className, const wchar_t* windowText);
 
