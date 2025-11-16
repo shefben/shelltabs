@@ -7178,7 +7178,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         ImageList_GetIconSize(imageList, &imageWidth, &imageHeight);
     }
 
-    auto fetchBreadcrumbText = [&](const TBBUTTON& button) -> std::wstring {
+    auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::wstring {
         const UINT commandId = static_cast<UINT>(button.idCommand);
 
         LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, 0);
@@ -7198,10 +7198,10 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         std::wstring fallback(kMaxBreadcrumbText, L'\0');
         TBBUTTONINFOW info{};
         info.cbSize = sizeof(info);
-        info.dwMask = TBIF_TEXT;
+        info.dwMask = TBIF_BYINDEX | TBIF_TEXT;
         info.pszText = fallback.data();
         info.cchText = static_cast<int>(fallback.size());
-        if (SendMessage(hwnd, TB_GETBUTTONINFOW, commandId, reinterpret_cast<LPARAM>(&info))) {
+        if (SendMessage(hwnd, TB_GETBUTTONINFOW, static_cast<WPARAM>(buttonIndex), reinterpret_cast<LPARAM>(&info))) {
             fallback.resize(std::wcslen(fallback.c_str()));
             if (!fallback.empty()) {
                 return fallback;
@@ -7460,7 +7460,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         const int iconReserve = hasIcon ? (imageWidth + 6) : 0;
         const int dropdownReserve = buttonHasDropdown ? 12 : 0;
 
-        std::wstring text = fetchBreadcrumbText(button);
+        std::wstring text = fetchBreadcrumbText(i, button);
         if (!text.empty()) {
             const int iconAreaLeft = buttonRect.left + iconReserve;
             const int textBaseLeft = iconAreaLeft + kTextPadding;
