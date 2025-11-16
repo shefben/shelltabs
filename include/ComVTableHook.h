@@ -54,10 +54,10 @@ public:
 
 private:
     struct VTableEntry {
-        void* pInterface;
-        UINT index;
-        void* pOriginal;
-        void* pDetour;
+        void** vtable;   // Address of the COM vtable that owns the slot we patched
+        UINT index;      // Slot index within the vtable
+        void* pOriginal; // Original function pointer we replaced
+        void* pDetour;   // Our detour that currently lives in the slot
     };
 
     // CoCreateInstance hook
