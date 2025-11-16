@@ -7818,7 +7818,7 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
             }
             break;
         case WM_ERASEBKGND:
-            if (self->m_breadcrumbGradientEnabled) {
+            if (self->m_breadcrumbGradientEnabled || self->m_breadcrumbFontGradientEnabled) {
                 return 1;
             }
             break;
