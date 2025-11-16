@@ -30,6 +30,36 @@ target_compile_definitions(minhook PRIVATE
     _CRT_SECURE_NO_WARNINGS
 )
 
+set(RIBBON_IMAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/ribbon_images)
+set(RIBBON_IMAGE_SOURCES
+    ${RIBBON_IMAGE_DIR}/button1_small.png
+    ${RIBBON_IMAGE_DIR}/button1_large.png
+    ${RIBBON_IMAGE_DIR}/button2_small.png
+    ${RIBBON_IMAGE_DIR}/button2_large.png
+    ${RIBBON_IMAGE_DIR}/button3_small.png
+    ${RIBBON_IMAGE_DIR}/button3_large.png
+    ${RIBBON_IMAGE_DIR}/button4_small.png
+    ${RIBBON_IMAGE_DIR}/button4_large.png
+    ${RIBBON_IMAGE_DIR}/button5_small.png
+    ${RIBBON_IMAGE_DIR}/button5_large.png
+)
+
+set_source_files_properties(src/resource.rc PROPERTIES
+    OBJECT_DEPENDS "${RIBBON_IMAGE_SOURCES}"
+)
+
+set(MISSING_RIBBON_IMAGES)
+foreach(ribbon_image IN LISTS RIBBON_IMAGE_SOURCES)
+    if(NOT EXISTS "${ribbon_image}")
+        list(APPEND MISSING_RIBBON_IMAGES "${ribbon_image}")
+    endif()
+endforeach()
+
+if(MISSING_RIBBON_IMAGES)
+    list(JOIN MISSING_RIBBON_IMAGES "\n    " _missing_ribbon_images)
+    message(STATUS "Ribbon button PNGs are not present and must be placed in src/ribbon_images before compiling the resources:\n    ${_missing_ribbon_images}")
+endif()
+
 add_library(ShellTabs SHARED
     src/dllmain.cpp
     src/ClassFactory.cpp
