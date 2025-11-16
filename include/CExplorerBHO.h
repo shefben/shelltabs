@@ -40,6 +40,7 @@
 #include "Utilities.h"
 #include "DirectUIReplacementIntegration.h"
 #include "VisualPropertiesInterop.h"
+#include "ShellTabsMessages.h"
 
 namespace Gdiplus {
 class Bitmap;
