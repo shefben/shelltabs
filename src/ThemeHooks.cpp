@@ -1317,6 +1317,8 @@ BOOL WINAPI ExtTextOutWDetour(HDC dc, int x, int y, UINT options, const RECT* re
         return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
     }
 
+    const bool imageBackgroundMode = descriptor->imageBackgroundMode;
+
     // Handle gradient text rendering
     if (descriptor->gradientTextEnabled && string && count > 0) {
         const int previousBkMode = SetBkMode(dc, TRANSPARENT);
@@ -1375,6 +1377,10 @@ BOOL WINAPI ExtTextOutWDetour(HDC dc, int x, int y, UINT options, const RECT* re
 
         SetBkMode(dc, previousBkMode);
         return TRUE;
+    }
+
+    if (imageBackgroundMode) {
+        return g_originalExtTextOutW(dc, x, y, options, rect, string, count, dx);
     }
 
     // Standard text color override (non-gradient)
@@ -1449,7 +1455,8 @@ COLORREF WINAPI SetBkColorDetour(HDC dc, COLORREF color) {
     }
 
     SurfaceColorDescriptor* descriptor = surface->registration.descriptor;
-    if (!ShouldForceHooks(descriptor) || !descriptor->backgroundOverride) {
+    if (!ShouldForceHooks(descriptor) || !descriptor->backgroundOverride ||
+        descriptor->imageBackgroundMode) {
         return g_originalSetBkColor(dc, color);
     }
 

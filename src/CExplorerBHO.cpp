@@ -8578,9 +8578,17 @@ void CExplorerBHO::UpdateListViewDescriptor() {
     descriptor.fillOverride = descriptor.fillColors.valid;
     descriptor.userAccessibilityOptOut = false;
     descriptor.textOverride = false;
-    descriptor.backgroundOverride = descriptor.fillOverride;
-    descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
-    descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+    const bool imageBackgroundMode = m_folderBackgroundsEnabled || (m_currentBackgroundBitmap != nullptr);
+    descriptor.imageBackgroundMode = imageBackgroundMode;
+    if (imageBackgroundMode) {
+        descriptor.backgroundOverride = false;
+        descriptor.backgroundColor = CLR_DEFAULT;
+        descriptor.forceOpaqueBackground = false;
+    } else {
+        descriptor.backgroundOverride = descriptor.fillOverride;
+        descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
+        descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
+    }
 
     // Background images are now set via LVM_SETBKIMAGE, no paint callback needed
     descriptor.backgroundPaintCallback = nullptr;

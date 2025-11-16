@@ -53,6 +53,7 @@ struct SurfaceColorDescriptor {
     using BackgroundPaintCallback = bool (*)(HDC dc, HWND window, const RECT& rect, void* context);
     BackgroundPaintCallback backgroundPaintCallback = nullptr;
     void* backgroundPaintContext = nullptr;
+    bool imageBackgroundMode = false;
     bool forcedHooks = false;
     bool userAccessibilityOptOut = false;
     bool accessibilityOptOut = false;
