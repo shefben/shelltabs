@@ -1003,6 +1003,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DestroyProgressGradientResources();
+    ResetListViewAccentBrush();
 
     // Clean up the background bitmap
     if (m_currentBackgroundBitmap) {
@@ -2415,6 +2416,7 @@ void CExplorerBHO::DetachListView() {
     m_listViewControlWindow = nullptr;
 
     m_listViewControl.reset();
+    ResetListViewAccentBrush();
 
     // Surface caching removed with LVM_SETBKIMAGE approach
 
@@ -4434,6 +4436,46 @@ bool CExplorerBHO::ShouldUseListViewAccentColors() const {
     return true;
 }
 
+void CExplorerBHO::ResetListViewAccentBrush() {
+    if (m_listViewAccentBrush) {
+        DeleteObject(m_listViewAccentBrush);
+        m_listViewAccentBrush = nullptr;
+    }
+    m_listViewAccentBrushColor = 0;
+}
+
+HBRUSH CExplorerBHO::GetListViewAccentBrush(COLORREF accentColor) {
+    if (!m_listViewAccentBrush || m_listViewAccentBrushColor != accentColor) {
+        ResetListViewAccentBrush();
+        m_listViewAccentBrush = CreateSolidBrush(accentColor);
+        if (m_listViewAccentBrush) {
+            m_listViewAccentBrushColor = accentColor;
+        }
+    }
+    return m_listViewAccentBrush;
+}
+
+bool CExplorerBHO::ApplyListViewSelectionAccent(NMLVCUSTOMDRAW* customDraw, bool fillBackground) {
+    if (!customDraw || !m_hasActiveListViewAccent) {
+        return false;
+    }
+
+    if ((customDraw->nmcd.uItemState & CDIS_SELECTED) == 0) {
+        return false;
+    }
+
+    customDraw->clrText = m_activeListViewTextColor;
+    customDraw->clrTextBk = m_activeListViewAccentColor;
+
+    if (fillBackground && customDraw->nmcd.hdc) {
+        if (HBRUSH brush = GetListViewAccentBrush(m_activeListViewAccentColor)) {
+            FillRect(customDraw->nmcd.hdc, &customDraw->nmcd.rc, brush);
+        }
+    }
+
+    return true;
+}
+
 bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const {
     if (!accent || !text) {
         return false;
@@ -4481,12 +4523,33 @@ bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) co
 }
 
 void CExplorerBHO::RefreshListViewAccentState() {
+    const bool shouldUseAccentColors = ShouldUseListViewAccentColors();
+    bool accentResolved = false;
+    COLORREF accentColor = 0;
+    COLORREF textColor = 0;
+    if (shouldUseAccentColors) {
+        accentResolved = ResolveActiveGroupAccent(&accentColor, &textColor);
+    }
+
+    if (accentResolved) {
+        if (!m_hasActiveListViewAccent || m_activeListViewAccentColor != accentColor ||
+            m_activeListViewTextColor != textColor) {
+            m_activeListViewAccentColor = accentColor;
+            m_activeListViewTextColor = textColor;
+            m_hasActiveListViewAccent = true;
+            ResetListViewAccentBrush();
+        }
+    } else if (m_hasActiveListViewAccent) {
+        m_hasActiveListViewAccent = false;
+        ResetListViewAccentBrush();
+    }
+
     if (m_listViewControl) {
         auto resolver = [this](COLORREF* accent, COLORREF* text) {
             return ResolveActiveGroupAccent(accent, text);
         };
         m_listViewControl->SetAccentColorResolver(resolver);
-        m_listViewControl->SetUseAccentColors(ShouldUseListViewAccentColors());
+        m_listViewControl->SetUseAccentColors(shouldUseAccentColors);
     } else if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, FALSE);
     }
@@ -8271,11 +8334,17 @@ bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, 
 
     if (drawStage == CDDS_ITEMPREPAINT) {
         OnListViewCustomDrawStage(drawStage);
+        ApplyListViewSelectionAccent(customDraw, true);
         *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NEWFONT;
         return true;
     }
 
     if ((drawStage & CDDS_SUBITEM) == CDDS_SUBITEM) {
+        if (ApplyListViewSelectionAccent(customDraw, false)) {
+            *result = CDRF_NEWFONT;
+            return true;
+        }
+
         // Get the item text
         wchar_t textBuffer[MAX_PATH * 2] = {};
         LVITEMW item{};
