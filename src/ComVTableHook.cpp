@@ -19,6 +19,7 @@ std::vector<ComVTableHook::VTableEntry> ComVTableHook::s_hookedMethods;
 std::unordered_map<std::wstring, ComVTableHook::CreateCallback> ComVTableHook::s_classHooks;
 void* ComVTableHook::s_originalCoCreateInstance = nullptr;
 bool ComVTableHook::s_coCreateHooked = false;
+bool ComVTableHook::s_initializedMinHook = false;
 
 //=============================================================================
 // VTable Manipulation
@@ -196,21 +197,51 @@ bool ComVTableHook::HookCoCreateInstance() {
         return true;
     }
 
-    if (MH_Initialize() != MH_OK) {
-        LogMessage(LogLevel::Error, L"ComVTableHook: Failed to initialize MinHook");
-        return false;
+    bool initializedHere = false;
+    if (!s_initializedMinHook) {
+        MH_STATUS initStatus = MH_Initialize();
+        if (initStatus == MH_OK) {
+            initializedHere = true;
+            s_initializedMinHook = true;
+            LogMessage(LogLevel::Info, L"ComVTableHook: MinHook initialized for CoCreateInstance hook");
+        }
+        else if (initStatus == MH_ERROR_ALREADY_INITIALIZED) {
+            LogMessage(LogLevel::Info, L"ComVTableHook: MinHook already initialized by another subsystem; reusing state");
+        }
+        else {
+            LogMessage(LogLevel::Error, L"ComVTableHook: Failed to initialize MinHook (status %d)", initStatus);
+            return false;
+        }
     }
+
+    const auto cleanupOnFailure = [initializedHere]() {
+        MH_DisableHook(&CoCreateInstance);
+        MH_RemoveHook(&CoCreateInstance);
+        if (initializedHere) {
+            MH_STATUS uninitStatus = MH_Uninitialize();
+            if (uninitStatus == MH_OK) {
+                ComVTableHook::s_initializedMinHook = false;
+                LogMessage(LogLevel::Info, L"ComVTableHook: MinHook uninitialized after failed hook setup");
+            }
+            else {
+                LogMessage(LogLevel::Warning, L"ComVTableHook: Failed to uninitialize MinHook after hook setup failure (status %d)", uninitStatus);
+            }
+        }
+    };
 
     // Hook CoCreateInstance
-    if (MH_CreateHook(&CoCreateInstance, &CoCreateInstance_Hook,
-                      &s_originalCoCreateInstance) != MH_OK) {
-        LogMessage(LogLevel::Error, L"ComVTableHook: Failed to create CoCreateInstance hook");
+    MH_STATUS createStatus = MH_CreateHook(&CoCreateInstance, &CoCreateInstance_Hook,
+                                           &s_originalCoCreateInstance);
+    if (createStatus != MH_OK) {
+        LogMessage(LogLevel::Error, L"ComVTableHook: Failed to create CoCreateInstance hook (status %d)", createStatus);
+        cleanupOnFailure();
         return false;
     }
 
-    if (MH_EnableHook(&CoCreateInstance) != MH_OK) {
-        LogMessage(LogLevel::Error, L"ComVTableHook: Failed to enable CoCreateInstance hook");
-        MH_RemoveHook(&CoCreateInstance);
+    MH_STATUS enableStatus = MH_EnableHook(&CoCreateInstance);
+    if (enableStatus != MH_OK) {
+        LogMessage(LogLevel::Error, L"ComVTableHook: Failed to enable CoCreateInstance hook (status %d)", enableStatus);
+        cleanupOnFailure();
         return false;
     }
 
@@ -223,11 +254,29 @@ bool ComVTableHook::HookCoCreateInstance() {
 void ComVTableHook::UnhookCoCreateInstance() {
     if (!s_coCreateHooked) return;
 
-    MH_DisableHook(&CoCreateInstance);
-    MH_RemoveHook(&CoCreateInstance);
+    MH_STATUS disableStatus = MH_DisableHook(&CoCreateInstance);
+    if (disableStatus != MH_OK) {
+        LogMessage(LogLevel::Warning, L"ComVTableHook: Failed to disable CoCreateInstance hook (status %d)", disableStatus);
+    }
+
+    MH_STATUS removeStatus = MH_RemoveHook(&CoCreateInstance);
+    if (removeStatus != MH_OK) {
+        LogMessage(LogLevel::Warning, L"ComVTableHook: Failed to remove CoCreateInstance hook (status %d)", removeStatus);
+    }
 
     s_coCreateHooked = false;
     LogMessage(LogLevel::Info, L"ComVTableHook: Unhooked CoCreateInstance");
+
+    if (s_initializedMinHook) {
+        MH_STATUS uninitStatus = MH_Uninitialize();
+        if (uninitStatus == MH_OK) {
+            s_initializedMinHook = false;
+            LogMessage(LogLevel::Info, L"ComVTableHook: MinHook uninitialized after CoCreateInstance unhook");
+        }
+        else {
+            LogMessage(LogLevel::Warning, L"ComVTableHook: Failed to uninitialize MinHook during teardown (status %d)", uninitStatus);
+        }
+    }
 }
 
 void ComVTableHook::RegisterClassHook(REFCLSID clsid, CreateCallback callback) {
