@@ -234,8 +234,17 @@ class ShellTabsListView;
                 bool InstallTravelBandSubclass(HWND travelBand, HWND toolbar);
                 void RemoveTravelBandSubclass();
                 void ResolveTravelToolbarCommands();
+                bool HandleTravelToolbarMouseButton(HWND toolbar, bool buttonUp, WPARAM wParam,
+                                                    LPARAM lParam, LRESULT* result);
+                bool HandleTravelToolbarMouseActivate(LRESULT* result);
                 bool HandleTravelBandNotify(NMHDR* header, LRESULT* result);
                 bool HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* result);
+                bool ShowTravelHistoryMenu(HistoryMenuKind kind, const RECT& buttonRect, LRESULT* result);
+                void ResetTravelToolbarButtonState();
+                void SetTravelToolbarButtonPressed(UINT commandId, bool pressed);
+                bool IsTravelToolbarButtonEnabled(UINT commandId) const;
+                void BeginTravelToolbarCapture(HWND toolbar);
+                void ReleaseTravelToolbarCapture();
                 void RemoveProgressSubclass();
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
@@ -405,6 +414,8 @@ class ShellTabsListView;
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK TravelBandSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -434,11 +445,15 @@ class ShellTabsListView;
 		bool m_useCustomBreadcrumbFontColors = false;
 		COLORREF m_breadcrumbFontGradientStartColor = RGB(255, 255, 255);
 		COLORREF m_breadcrumbFontGradientEndColor = RGB(255, 255, 255);
-		HWND m_travelBand = nullptr;
-		HWND m_travelToolbar = nullptr;
-		bool m_travelBandSubclassInstalled = false;
-		UINT m_travelBackCommandId = 0;
-		UINT m_travelForwardCommandId = 0;
+                HWND m_travelBand = nullptr;
+                HWND m_travelToolbar = nullptr;
+                bool m_travelBandSubclassInstalled = false;
+                bool m_travelToolbarSubclassInstalled = false;
+                bool m_travelToolbarMouseCaptured = false;
+                bool m_travelHistoryMenuVisible = false;
+                UINT m_travelBackCommandId = 0;
+                UINT m_travelForwardCommandId = 0;
+                UINT m_travelHistoryDropdownCommandId = 0;
 		bool m_useCustomProgressGradientColors = false;
 		COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
 		COLORREF m_progressGradientEndColor = RGB(0, 153, 255);
