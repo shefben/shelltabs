@@ -6696,7 +6696,7 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
         }
 
         m_travelToolbarPressedButton = -1;
-        if (target == TravelToolbarTarget::kDropdown && (canGoBack || canGoForward)) {
+        if (target == TravelToolbarTarget::kDropdown) {
             BeginTravelToolbarCapture(toolbar);
             if (m_travelHistoryDropdownCommandId != 0) {
                 SetTravelToolbarButtonPressed(m_travelHistoryDropdownCommandId, true);
@@ -6707,7 +6707,10 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
                 SendMessageW(toolbar, TB_GETRECT, m_travelHistoryDropdownCommandId,
                              reinterpret_cast<LPARAM>(&buttonRect))) {
                 MapWindowPoints(toolbar, nullptr, reinterpret_cast<POINT*>(&buttonRect), 2);
-                const HistoryMenuKind kind = canGoBack ? HistoryMenuKind::kBack : HistoryMenuKind::kForward;
+                HistoryMenuKind kind = HistoryMenuKind::kBack;
+                if (!canGoBack && canGoForward) {
+                    kind = HistoryMenuKind::kForward;
+                }
                 const bool shown = ShowTravelHistoryMenu(kind, buttonRect, result);
                 ResetTravelToolbarButtonState();
                 ReleaseTravelToolbarCapture();
@@ -6789,7 +6792,8 @@ bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* res
         return false;
     }
 
-    if (m_travelBackCommandId == 0 && m_travelForwardCommandId == 0) {
+    if (m_travelBackCommandId == 0 && m_travelForwardCommandId == 0 &&
+        m_travelHistoryDropdownCommandId == 0) {
         ResolveTravelToolbarCommands();
     }
 
@@ -6798,6 +6802,13 @@ bool CExplorerBHO::HandleTravelBandDropdown(const NMTOOLBARW& info, LRESULT* res
         kind = HistoryMenuKind::kBack;
     } else if (m_travelForwardCommandId != 0 && info.iItem == static_cast<int>(m_travelForwardCommandId)) {
         kind = HistoryMenuKind::kForward;
+    } else if (m_travelHistoryDropdownCommandId != 0 &&
+               info.iItem == static_cast<int>(m_travelHistoryDropdownCommandId)) {
+        const bool canGoBack = IsTravelToolbarButtonEnabled(m_travelBackCommandId);
+        const bool canGoForward = IsTravelToolbarButtonEnabled(m_travelForwardCommandId);
+        if (!canGoBack && canGoForward) {
+            kind = HistoryMenuKind::kForward;
+        }
     } else {
         return false;
     }
