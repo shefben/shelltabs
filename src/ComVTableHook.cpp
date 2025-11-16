@@ -167,23 +167,30 @@ HRESULT WINAPI ComVTableHook::CoCreateInstance_Hook(
     HRESULT hr = originalFunc(rclsid, pUnkOuter, dwClsContext, riid, ppv);
 
     if (SUCCEEDED(hr) && ppv && *ppv) {
-        std::lock_guard<std::mutex> lock(g_hookMutex);
-
         // Convert CLSID to string for lookup
         wchar_t clsidStr[40];
         StringFromGUID2(rclsid, clsidStr, ARRAYSIZE(clsidStr));
+        std::wstring clsidKey(clsidStr);
 
-        // Check if we have a hook registered for this CLSID
-        auto it = s_classHooks.find(clsidStr);
-        if (it != s_classHooks.end()) {
-            LogMessage(LogLevel::Info, L"ComVTableHook: Intercepted creation of %s", clsidStr);
+        CreateCallback callback;
+        {
+            std::lock_guard<std::mutex> lock(g_hookMutex);
+            auto it = s_classHooks.find(clsidKey);
+            if (it != s_classHooks.end()) {
+                callback = it->second;
+            }
+        }
 
-            // Call the registered callback
+        if (callback) {
+            LogMessage(LogLevel::Info, L"ComVTableHook: Intercepted creation of %s", clsidKey.c_str());
+
+            // Call the registered callback outside the global hook lock so callbacks
+            // can safely invoke HookMethod/UnhookMethod which also lock g_hookMutex.
             try {
-                it->second(static_cast<IUnknown*>(*ppv), riid);
+                callback(static_cast<IUnknown*>(*ppv), riid);
             }
             catch (...) {
-                LogMessage(LogLevel::Error, L"ComVTableHook: Exception in create callback for %s", clsidStr);
+                LogMessage(LogLevel::Error, L"ComVTableHook: Exception in create callback for %s", clsidKey.c_str());
             }
         }
     }
