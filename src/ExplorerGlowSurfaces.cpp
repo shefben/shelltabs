@@ -1965,6 +1965,7 @@ void ExplorerGlowCoordinator::UpdateSurfaceDescriptor(HWND hwnd, const SurfaceCo
     slot->forceOpaqueBackground = descriptor.forceOpaqueBackground;
     slot->backgroundPaintCallback = descriptor.backgroundPaintCallback;
     slot->backgroundPaintContext = descriptor.backgroundPaintContext;
+    slot->imageBackgroundMode = descriptor.imageBackgroundMode;
     slot->userAccessibilityOptOut = descriptor.userAccessibilityOptOut;
     slot->accessibilityOptOut = descriptor.userAccessibilityOptOut || m_highContrastActive;
     slot->forcedHooks = wasForced && !slot->accessibilityOptOut;
