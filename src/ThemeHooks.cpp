@@ -2012,6 +2012,14 @@ void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, voi
 
 }  // namespace
 
+bool RegisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+    return RegisterCreateWindowExInterceptorInternal(callback, context);
+}
+
+void UnregisterCreateWindowExInterceptor(CreateWindowExInterceptor callback, void* context) noexcept {
+    UnregisterCreateWindowExInterceptorInternal(callback, context);
+}
+
 void RegisterDirectUiHost(HWND hwnd) noexcept {
     RegisterDirectUiHostInternal(hwnd);
 }
