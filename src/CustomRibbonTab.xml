@@ -44,7 +44,14 @@
              LabelTitle="Button 1"
              LabelDescription="Custom action button 1"
              TooltipTitle="Custom Button 1"
-             TooltipDescription="Execute custom action 1"/>
+             TooltipDescription="Execute custom action 1">
+      <Command.LargeImages>
+        <Image Source="IMAGE_BUTTON1_LARGE"/>
+      </Command.LargeImages>
+      <Command.SmallImages>
+        <Image Source="IMAGE_BUTTON1_SMALL"/>
+      </Command.SmallImages>
+    </Command>
 
     <Command Name="cmdCustomButton2"
              Symbol="cmdCustomButton2"
@@ -52,7 +59,14 @@
              LabelTitle="Button 2"
              LabelDescription="Custom action button 2"
              TooltipTitle="Custom Button 2"
-             TooltipDescription="Execute custom action 2"/>
+             TooltipDescription="Execute custom action 2">
+      <Command.LargeImages>
+        <Image Source="IMAGE_BUTTON2_LARGE"/>
+      </Command.LargeImages>
+      <Command.SmallImages>
+        <Image Source="IMAGE_BUTTON2_SMALL"/>
+      </Command.SmallImages>
+    </Command>
 
     <Command Name="cmdCustomButton3"
              Symbol="cmdCustomButton3"
@@ -60,7 +74,14 @@
              LabelTitle="Button 3"
              LabelDescription="Custom action button 3"
              TooltipTitle="Custom Button 3"
-             TooltipDescription="Execute custom action 3"/>
+             TooltipDescription="Execute custom action 3">
+      <Command.LargeImages>
+        <Image Source="IMAGE_BUTTON3_LARGE"/>
+      </Command.LargeImages>
+      <Command.SmallImages>
+        <Image Source="IMAGE_BUTTON3_SMALL"/>
+      </Command.SmallImages>
+    </Command>
 
     <Command Name="cmdCustomButton4"
              Symbol="cmdCustomButton4"
@@ -68,7 +89,14 @@
              LabelTitle="Button 4"
              LabelDescription="Custom action button 4"
              TooltipTitle="Custom Button 4"
-             TooltipDescription="Execute custom action 4"/>
+             TooltipDescription="Execute custom action 4">
+      <Command.LargeImages>
+        <Image Source="IMAGE_BUTTON4_LARGE"/>
+      </Command.LargeImages>
+      <Command.SmallImages>
+        <Image Source="IMAGE_BUTTON4_SMALL"/>
+      </Command.SmallImages>
+    </Command>
 
     <Command Name="cmdCustomButton5"
              Symbol="cmdCustomButton5"
@@ -76,7 +104,14 @@
              LabelTitle="Button 5"
              LabelDescription="Custom action button 5"
              TooltipTitle="Custom Button 5"
-             TooltipDescription="Execute custom action 5"/>
+             TooltipDescription="Execute custom action 5">
+      <Command.LargeImages>
+        <Image Source="IMAGE_BUTTON5_LARGE"/>
+      </Command.LargeImages>
+      <Command.SmallImages>
+        <Image Source="IMAGE_BUTTON5_SMALL"/>
+      </Command.SmallImages>
+    </Command>
 
   </Application.Commands>
 
@@ -91,7 +126,8 @@
           <Tab.ScalingPolicy>
             <ScalingPolicy>
               <ScalingPolicy.IdealSizes>
-                <Scale Group="*" Size="Large"/>
+                <!-- Apply the ideal size policy to the defined actions group -->
+                <Scale Group="cmdCustomGroup1" Size="Large"/>
               </ScalingPolicy.IdealSizes>
             </ScalingPolicy>
           </Tab.ScalingPolicy>
@@ -99,50 +135,15 @@
           <!-- Actions Group -->
           <Group CommandName="cmdCustomGroup1" SizeDefinition="FiveButtons">
 
-            <Button CommandName="cmdCustomButton1">
-              <Button.LargeImages>
-                <Image Source="IMAGE_BUTTON1_LARGE"/>
-              </Button.LargeImages>
-              <Button.SmallImages>
-                <Image Source="IMAGE_BUTTON1_SMALL"/>
-              </Button.SmallImages>
-            </Button>
+            <Button CommandName="cmdCustomButton1"/>
 
-            <Button CommandName="cmdCustomButton2">
-              <Button.LargeImages>
-                <Image Source="IMAGE_BUTTON2_LARGE"/>
-              </Button.LargeImages>
-              <Button.SmallImages>
-                <Image Source="IMAGE_BUTTON2_SMALL"/>
-              </Button.SmallImages>
-            </Button>
+            <Button CommandName="cmdCustomButton2"/>
 
-            <Button CommandName="cmdCustomButton3">
-              <Button.LargeImages>
-                <Image Source="IMAGE_BUTTON3_LARGE"/>
-              </Button.LargeImages>
-              <Button.SmallImages>
-                <Image Source="IMAGE_BUTTON3_SMALL"/>
-              </Button.SmallImages>
-            </Button>
+            <Button CommandName="cmdCustomButton3"/>
 
-            <Button CommandName="cmdCustomButton4">
-              <Button.LargeImages>
-                <Image Source="IMAGE_BUTTON4_LARGE"/>
-              </Button.LargeImages>
-              <Button.SmallImages>
-                <Image Source="IMAGE_BUTTON4_SMALL"/>
-              </Button.SmallImages>
-            </Button>
+            <Button CommandName="cmdCustomButton4"/>
 
-            <Button CommandName="cmdCustomButton5">
-              <Button.LargeImages>
-                <Image Source="IMAGE_BUTTON5_LARGE"/>
-              </Button.LargeImages>
-              <Button.SmallImages>
-                <Image Source="IMAGE_BUTTON5_SMALL"/>
-              </Button.SmallImages>
-            </Button>
+            <Button CommandName="cmdCustomButton5"/>
 
           </Group>
 

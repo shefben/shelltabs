@@ -418,7 +418,7 @@ void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr,
     SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
 
     if (visualProperties) {
-        HRESULT hr = visualProperties->SetWatermark(nullptr, VPWATERMARKFLAGS::VPWF_DEFAULT);
+        HRESULT hr = visualProperties->SetWatermark(nullptr, VPWF_DEFAULT);
         if (FAILED(hr)) {
             LogMessage(LogLevel::Warning,
                        L"Failed to clear folder view watermark via IVisualProperties hr=0x%08X", hr);
@@ -489,7 +489,7 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
 
     bool needsWatermarkFallback = visualProperties && (!directUiHwnd || !lvmApplied);
     if (needsWatermarkFallback) {
-        HRESULT hr = visualProperties->SetWatermark(hBitmap, VPWATERMARKFLAGS::VPWF_ALPHABLEND);
+        HRESULT hr = visualProperties->SetWatermark(hBitmap, VPWF_ALPHABLEND);
         if (SUCCEEDED(hr)) {
             usedWatermarkFallback = true;
             LogMessage(LogLevel::Info,
@@ -7668,6 +7668,13 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     }
 
     auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::wstring {
+        if ((button.fsStyle & BTNS_SHOWTEXT) == 0) {
+            // Non-text buttons still keep command strings (e.g. the search scope "All Locations"
+            // button). Explorer never renders those labels, so skip them to avoid overlaying the
+            // actual breadcrumb segments with stale command text when gradients are enabled.
+            return std::wstring();
+        }
+
         const UINT commandId = static_cast<UINT>(button.idCommand);
 
         LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, 0);
