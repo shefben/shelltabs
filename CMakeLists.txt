@@ -129,6 +129,7 @@ target_link_libraries(ShellTabs PRIVATE
     uiautomationcore
     runtimeobject
     wtsapi32
+    dbghelp
 )
 
 set_target_properties(ShellTabs PROPERTIES
@@ -168,6 +169,7 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         winhttp
         ws2_32
         credui
+        dbghelp
     )
 
     add_executable(ShellTabsColorSerializationTests

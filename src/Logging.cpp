@@ -12,18 +12,23 @@
 #endif
 
 #include <windows.h>
+#include <DbgHelp.h>
 #include <psapi.h>
 
 #include <atomic>
 #include <chrono>
 #include <cwchar>
+#include <cwctype>
 #include <string>
 #include <string_view>
+#include <algorithm>
+#include <vector>
 
 namespace shelltabs {
 
 namespace {
 INIT_ONCE g_loggingInitOnce = INIT_ONCE_STATIC_INIT;
+INIT_ONCE g_symbolInitOnce = INIT_ONCE_STATIC_INIT;
 CRITICAL_SECTION g_logLock;
 HANDLE g_logFile = INVALID_HANDLE_VALUE;
 bool g_logLockInitialized = false;
@@ -32,10 +37,22 @@ bool g_loggingShutdown = false;
 HMODULE g_hostModule = nullptr;
 LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
 PVOID g_vectoredExceptionHandler = nullptr;
-std::atomic<DWORD> g_accessViolationCount{0};
+std::atomic<uint64_t> g_faultSequence{0};
+std::atomic<bool> g_faultMitigationTriggered{false};
+
+struct FaultMitigationHandlerEntry {
+    FaultMitigationCallback callback = nullptr;
+    void* context = nullptr;
+};
+
+SRWLOCK g_faultHandlersLock = SRWLOCK_INIT;
+std::vector<FaultMitigationHandlerEntry> g_faultHandlers;
+bool g_symbolHandlerReady = false;
+
+constexpr wchar_t kMinidumpOptInEnvironmentVariable[] = L"SHELLTABS_WRITE_MINIDUMPS";
 
 constexpr wchar_t kLogDirectory[] = L"ShellTabs\\Logs";
-constexpr DWORD kMaxAccessViolationsSuppressed = 100;
+constexpr USHORT kMaxStackFrames = 64;
 
 std::wstring_view LevelToString(LogLevel level) {
     switch (level) {
@@ -89,6 +106,11 @@ std::wstring GetEnvironmentValue(const wchar_t* name) {
     }
     value.resize(written);
     return value;
+}
+
+bool ParseBooleanEnvironmentValue(std::wstring value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) { return std::towlower(ch); });
+    return value == L"1" || value == L"true" || value == L"yes" || value == L"on";
 }
 
 bool EnsureDirectoryExists(const std::wstring& path) {
@@ -145,6 +167,19 @@ std::wstring BuildLogDirectory() {
     return base;
 }
 
+bool ShouldWriteMinidumps() {
+    const std::wstring value = GetEnvironmentValue(kMinidumpOptInEnvironmentVariable);
+    if (value.empty()) {
+        return false;
+    }
+    return ParseBooleanEnvironmentValue(value);
+}
+
+bool IsMinidumpOptInEnabled() {
+    static const bool enabled = ShouldWriteMinidumps();
+    return enabled;
+}
+
 std::wstring BuildProcessDescription() {
     wchar_t path[MAX_PATH] = {};
     DWORD written = GetModuleFileNameW(nullptr, path, ARRAYSIZE(path));
@@ -178,6 +213,21 @@ std::wstring BuildLogFilePath() {
     return directory;
 }
 
+BOOL CALLBACK InitializeSymbolsOnce(PINIT_ONCE, PVOID, PVOID*) {
+    HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS);
+    g_symbolHandlerReady = SymInitializeW(process, nullptr, TRUE) != FALSE;
+    if (!g_symbolHandlerReady) {
+        const DWORD error = GetLastError();
+        LogMessage(LogLevel::Warning, L"Failed to initialize symbol handler (error=%lu)", error);
+    }
+    return TRUE;
+}
+
+void EnsureSymbolHandlerInitialized() {
+    InitOnceExecuteOnce(&g_symbolInitOnce, InitializeSymbolsOnce, nullptr, nullptr);
+}
+
 void WriteLineToFile(const std::wstring& line) {
     if (!g_loggingReady || g_logFile == INVALID_HANDLE_VALUE || !g_logLockInitialized) {
         return;
@@ -192,6 +242,185 @@ void WriteLineToFile(const std::wstring& line) {
     DWORD written = 0;
     WriteFile(g_logFile, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
     LeaveCriticalSection(&g_logLock);
+}
+
+std::wstring DescribeModuleForAddress(const void* address) {
+    if (!address) {
+        return L"(unknown module)";
+    }
+
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(address), &module) || !module) {
+        return L"(unknown module)";
+    }
+
+    wchar_t path[MAX_PATH] = {};
+    DWORD written = GetModuleFileNameW(module, path, ARRAYSIZE(path));
+    if (written == 0 || written >= ARRAYSIZE(path)) {
+        return L"(unknown module)";
+    }
+
+    MODULEINFO info{};
+    if (!GetModuleInformation(GetCurrentProcess(), module, &info, sizeof(info))) {
+        return std::wstring(path, written);
+    }
+
+    const auto moduleBase = reinterpret_cast<const BYTE*>(info.lpBaseOfDll);
+    const auto target = reinterpret_cast<const BYTE*>(address);
+    const size_t offset = static_cast<size_t>(target - moduleBase);
+
+    wchar_t description[MAX_PATH + 32] = {};
+    swprintf(description, ARRAYSIZE(description), L"%ls+0x%zX", path, offset);
+    return description;
+}
+
+std::wstring DescribeSymbolForAddress(const void* address, std::wstring* lineInfo) {
+    if (!address) {
+        return L"(unknown symbol)";
+    }
+
+    EnsureSymbolHandlerInitialized();
+    if (!g_symbolHandlerReady) {
+        return L"(symbols unavailable)";
+    }
+
+    HANDLE process = GetCurrentProcess();
+    BYTE buffer[sizeof(SYMBOL_INFOW) + (MAX_SYM_NAME * sizeof(wchar_t))];
+    auto* symbol = reinterpret_cast<SYMBOL_INFOW*>(buffer);
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFOW);
+    symbol->MaxNameLen = MAX_SYM_NAME;
+
+    DWORD64 displacement = 0;
+    if (!SymFromAddrW(process, reinterpret_cast<DWORD64>(address), &displacement, symbol)) {
+        return L"(symbol lookup failed)";
+    }
+
+    if (lineInfo) {
+        IMAGEHLP_LINEW64 line = {};
+        line.SizeOfStruct = sizeof(line);
+        DWORD lineDisplacement = 0;
+        if (SymGetLineFromAddrW64(process, reinterpret_cast<DWORD64>(address), &lineDisplacement, &line)) {
+            wchar_t lineBuffer[MAX_PATH + 32] = {};
+            swprintf(lineBuffer, ARRAYSIZE(lineBuffer), L"%ls:%lu", line.FileName ? line.FileName : L"?", line.LineNumber);
+            lineInfo->assign(lineBuffer);
+        }
+    }
+
+    wchar_t symbolBuffer[MAX_SYM_NAME + 32] = {};
+    swprintf(symbolBuffer, ARRAYSIZE(symbolBuffer), L"%ls+0x%llX", symbol->Name, displacement);
+    return symbolBuffer;
+}
+
+void LogStackTrace(uint64_t faultId) {
+    void* frames[kMaxStackFrames] = {};
+    const USHORT captured = RtlCaptureStackBackTrace(0, kMaxStackFrames, frames, nullptr);
+    if (captured == 0) {
+        LogMessage(LogLevel::Warning, L"[fault %llu] Unable to capture stack trace", faultId);
+        return;
+    }
+
+    LogMessage(LogLevel::Error, L"[fault %llu] Stack trace (%hu frames)", faultId, captured);
+    const USHORT skip = captured > 2 ? 2 : 0;
+    for (USHORT i = skip; i < captured; ++i) {
+        std::wstring lineInfo;
+        const std::wstring module = DescribeModuleForAddress(frames[i]);
+        const std::wstring symbol = DescribeSymbolForAddress(frames[i], &lineInfo);
+        if (lineInfo.empty()) {
+            LogMessage(LogLevel::Error, L"[fault %llu]   #%02hu %p %ls | %ls", faultId, static_cast<USHORT>(i - skip),
+                       frames[i], module.c_str(), symbol.c_str());
+        } else {
+            LogMessage(LogLevel::Error, L"[fault %llu]   #%02hu %p %ls | %ls (%ls)", faultId,
+                       static_cast<USHORT>(i - skip), frames[i], module.c_str(), symbol.c_str(), lineInfo.c_str());
+        }
+    }
+}
+
+std::wstring BuildMinidumpFilePath(uint64_t faultId) {
+    std::wstring directory = BuildLogDirectory();
+    if (directory.empty()) {
+        return {};
+    }
+
+    if (!EnsureDirectoryExists(directory)) {
+        return {};
+    }
+
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+
+    wchar_t fileName[128];
+    swprintf(fileName, ARRAYSIZE(fileName), L"shelltabs-fault-%04u%02u%02u-%02u%02u%02u-%03u-%llu.dmp", st.wYear, st.wMonth,
+             st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, faultId);
+
+    if (directory.back() != L'\\' && directory.back() != L'/') {
+        directory.push_back(L'\\');
+    }
+    directory.append(fileName);
+    return directory;
+}
+
+bool WriteMinidumpToPath(const std::wstring& path, const EXCEPTION_POINTERS* info) {
+    if (path.empty() || !info) {
+        return false;
+    }
+
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    MINIDUMP_EXCEPTION_INFORMATION exceptionInfo{};
+    exceptionInfo.ThreadId = GetCurrentThreadId();
+    exceptionInfo.ExceptionPointers = const_cast<EXCEPTION_POINTERS*>(info);
+    exceptionInfo.ClientPointers = FALSE;
+
+    const BOOL result = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file,
+                                          MiniDumpWithDataSegs | MiniDumpWithFullMemoryInfo |
+                                              MiniDumpWithHandleData | MiniDumpScanMemory,
+                                          info ? &exceptionInfo : nullptr, nullptr, nullptr);
+    CloseHandle(file);
+    return result != FALSE;
+}
+
+void MaybeWriteMinidump(uint64_t faultId, const EXCEPTION_POINTERS* info) {
+    if (!IsMinidumpOptInEnabled() || !info) {
+        return;
+    }
+
+    const std::wstring path = BuildMinidumpFilePath(faultId);
+    if (path.empty()) {
+        LogMessage(LogLevel::Warning, L"[fault %llu] Failed to build minidump path", faultId);
+        return;
+    }
+
+    if (WriteMinidumpToPath(path, info)) {
+        LogMessage(LogLevel::Info, L"[fault %llu] Minidump written to %ls", faultId, path.c_str());
+    } else {
+        LogMessage(LogLevel::Warning, L"[fault %llu] Failed to write minidump to %ls (error=%lu)", faultId, path.c_str(),
+                   GetLastError());
+    }
+}
+
+void InvokeFaultMitigationHandlers(const FaultMitigationDetails& details) {
+    if (g_faultMitigationTriggered.exchange(true)) {
+        return;
+    }
+
+    LogMessage(LogLevel::Warning, L"[fault %llu] Triggering ShellTabs fault mitigation (code=0x%08X)", details.faultId,
+               details.exceptionCode);
+
+    std::vector<FaultMitigationHandlerEntry> handlers;
+    AcquireSRWLockShared(&g_faultHandlersLock);
+    handlers = g_faultHandlers;
+    ReleaseSRWLockShared(&g_faultHandlersLock);
+
+    for (const FaultMitigationHandlerEntry& entry : handlers) {
+        if (entry.callback) {
+            entry.callback(details, entry.context);
+        }
+    }
 }
 
 std::wstring Trimmed(std::wstring value) {
@@ -229,77 +458,50 @@ bool IsAddressInShellTabsModule(const void* address) {
 }
 
 LONG CALLBACK VectoredExceptionHandler(_In_ struct _EXCEPTION_POINTERS* info) {
-    if (!info || !info->ExceptionRecord || !info->ContextRecord) {
+    if (!info || !info->ExceptionRecord) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
     const auto code = info->ExceptionRecord->ExceptionCode;
     const void* address = info->ExceptionRecord->ExceptionAddress;
 
-    // Log all exceptions from our module with detailed information
-    if (IsAddressInShellTabsModule(address)) {
-        // Get more details about the exception
-        if (code == EXCEPTION_ACCESS_VIOLATION) {
-            const DWORD count = ++g_accessViolationCount;
-            const ULONG_PTR* exceptionInfo = info->ExceptionRecord->ExceptionInformation;
-            const ULONG_PTR isWrite = (info->ExceptionRecord->NumberParameters > 0) ? exceptionInfo[0] : 0;
-            const ULONG_PTR faultAddress = (info->ExceptionRecord->NumberParameters > 1) ? exceptionInfo[1] : 0;
-
-            LogMessage(LogLevel::Error,
-                       L"Access violation #%lu in ShellTabs: %ls at instruction %p, fault address %p",
-                       count,
-                       isWrite ? L"write" : L"read",
-                       address,
-                       reinterpret_cast<void*>(faultAddress));
-
-            // For null pointer dereferences (fault address is near 0), suppress the crash
-            // This handles cases where we accidentally dereference null pointers
-            if (faultAddress < 0x10000 && count <= kMaxAccessViolationsSuppressed) {
-                LogMessage(LogLevel::Warning,
-                           L"Null pointer dereference detected and suppressed to prevent Explorer crash (count: %lu/%lu)",
-                           count, kMaxAccessViolationsSuppressed);
-
-                // Return from the faulting function safely by unwinding the stack
-                // We simulate a function return by setting the instruction pointer to the return address
-                // and adjusting the stack pointer
-#if defined(_M_X64) || defined(_M_AMD64)
-                // On x64, read the return address from the stack and set up for return
-                // Use __try to safely read from the stack in case of corruption
-                __try {
-                    ULONG_PTR* stackPtr = reinterpret_cast<ULONG_PTR*>(info->ContextRecord->Rsp);
-                    ULONG_PTR returnAddress = *stackPtr;
-                    info->ContextRecord->Rip = returnAddress;  // Set instruction pointer to return address
-                    info->ContextRecord->Rsp += sizeof(ULONG_PTR);  // Pop return address from stack
-                    info->ContextRecord->Rax = 0;  // Set return value to 0/NULL
-                    return EXCEPTION_CONTINUE_EXECUTION;  // Continue execution from the return address
-                }
-                __except (EXCEPTION_EXECUTE_HANDLER) {
-                    LogMessage(LogLevel::Error,
-                               L"Failed to read return address from stack (stack corruption?), allowing exception to propagate");
-                }
-#elif defined(_M_IX86)
-                // On x86, read the return address from the stack and set up for return
-                __try {
-                    ULONG_PTR* stackPtr = reinterpret_cast<ULONG_PTR*>(info->ContextRecord->Esp);
-                    ULONG_PTR returnAddress = *stackPtr;
-                    info->ContextRecord->Eip = returnAddress;  // Set instruction pointer to return address
-                    info->ContextRecord->Esp += sizeof(ULONG_PTR);  // Pop return address from stack
-                    info->ContextRecord->Eax = 0;  // Set return value to 0/NULL
-                    return EXCEPTION_CONTINUE_EXECUTION;  // Continue execution from the return address
-                }
-                __except (EXCEPTION_EXECUTE_HANDLER) {
-                    LogMessage(LogLevel::Error,
-                               L"Failed to read return address from stack (stack corruption?), allowing exception to propagate");
-                }
-#endif
-            }
-        } else {
-            LogMessage(LogLevel::Error,
-                       L"Exception 0x%08X in ShellTabs at %p",
-                       code,
-                       address);
-        }
+    if (!IsAddressInShellTabsModule(address)) {
+        return EXCEPTION_CONTINUE_SEARCH;
     }
+
+    const uint64_t faultId = ++g_faultSequence;
+    const std::wstring moduleDescription = DescribeModuleForAddress(address);
+
+    if (code == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord->NumberParameters >= 2) {
+        const ULONG_PTR* exceptionInfo = info->ExceptionRecord->ExceptionInformation;
+        const ULONG_PTR isWrite = exceptionInfo ? exceptionInfo[0] : 0;
+        const ULONG_PTR faultAddress = exceptionInfo ? exceptionInfo[1] : 0;
+        LogMessage(LogLevel::Error,
+                   L"ShellTabs access violation [fault %llu]: %ls at %p (%ls) targeting %p on thread %lu",
+                   faultId,
+                   isWrite ? L"write" : L"read",
+                   address,
+                   moduleDescription.c_str(),
+                   reinterpret_cast<void*>(faultAddress),
+                   GetCurrentThreadId());
+    } else {
+        LogMessage(LogLevel::Error,
+                   L"ShellTabs exception [fault %llu]: code=0x%08X at %p (%ls) on thread %lu",
+                   faultId,
+                   code,
+                   address,
+                   moduleDescription.c_str(),
+                   GetCurrentThreadId());
+    }
+
+    LogStackTrace(faultId);
+    MaybeWriteMinidump(faultId, info);
+
+    FaultMitigationDetails details{};
+    details.faultId = faultId;
+    details.exceptionCode = code;
+    details.exceptionPointers = info;
+    InvokeFaultMitigationHandlers(details);
 
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -426,6 +628,25 @@ void ShutdownLogging() noexcept {
         DeleteCriticalSection(&g_logLock);
         g_logLockInitialized = false;
     }
+
+    if (g_symbolHandlerReady) {
+        SymCleanup(GetCurrentProcess());
+        g_symbolHandlerReady = false;
+    }
+}
+
+void RegisterFaultMitigationHandler(FaultMitigationCallback callback, void* context) noexcept {
+    if (!callback) {
+        return;
+    }
+
+    AcquireSRWLockExclusive(&g_faultHandlersLock);
+    g_faultHandlers.push_back({callback, context});
+    ReleaseSRWLockExclusive(&g_faultHandlersLock);
+}
+
+bool HasFaultMitigationTriggered() noexcept {
+    return g_faultMitigationTriggered.load();
 }
 
 void LogMessage(LogLevel level, const wchar_t* format, ...) noexcept {
