@@ -7,6 +7,19 @@ This document summarizes the complete implementation of the Explorer ribbon tab 
 
 All core components have been fully implemented and integrated into the codebase.
 
+### Opt-in Requirement
+
+The ribbon hook ships **disabled by default** so that Explorer can continue to
+launch even on systems where the experimental tab injection might be unstable.
+To enable it, explicitly opt in by setting one of the following before starting
+Explorer:
+
+- Environment variable: `SHELLTABS_ENABLE_RIBBON_HOOK=1`
+- Registry value: `HKCU\Software\ShellTabs\EnableRibbonHook` (DWORD `1`)
+
+Any non-zero/`true` value enables the hook; `0`, `false`, `no`, or removing the
+value leaves it disabled.
+
 ## Components Implemented
 
 ### 1. COM VTable Hooking Infrastructure (✅ Complete)

@@ -187,6 +187,7 @@ struct ShellTabsOptions {
     COLORREF neonGlowSecondaryColor = RGB(0, 153, 255);
     bool enableBitmapIntercept = true;
     bool enableFileGradientFont = false;
+    bool enableDirectUiReplacement = false;
     bool useCustomTabSelectedColor = false;
     COLORREF customTabSelectedColor = RGB(0, 120, 215);
     bool useCustomTabUnselectedColor = false;

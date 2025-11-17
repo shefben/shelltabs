@@ -5,7 +5,13 @@
 #include <propvarutil.h>
 #include <propkey.h>
 #include <shlwapi.h>
+#include <cwctype>
 #include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <winreg.h>
 #include <initguid.h>
 
 // Define Windows Ribbon Framework GUIDs
@@ -23,6 +29,125 @@ using shelltabs::LogMessage;
 
 namespace {
     std::mutex g_ribbonMutex;
+
+    struct RibbonFrameworkVtableEntry {
+        void* originalInitialize = nullptr;
+        void* originalLoadUI = nullptr;
+    };
+
+    std::unordered_map<void**, RibbonFrameworkVtableEntry> g_frameworkVtableEntries;
+
+    constexpr wchar_t kRibbonOptInEnvironmentVariable[] = L"SHELLTABS_ENABLE_RIBBON_HOOK";
+    constexpr wchar_t kRibbonOptInRegistryPath[] = L"Software\\ShellTabs";
+    constexpr wchar_t kRibbonOptInRegistryValue[] = L"EnableRibbonHook";
+
+    std::once_flag g_ribbonOptInOnce;
+    bool g_ribbonOptedIn = false;
+
+    std::optional<bool> ParseBooleanOverride(std::wstring_view value) {
+        std::wstring normalized;
+        normalized.reserve(value.size());
+        for (wchar_t ch : value) {
+            if (!iswspace(ch)) {
+                normalized.push_back(static_cast<wchar_t>(towlower(ch)));
+            }
+        }
+        if (normalized.empty()) {
+            return std::nullopt;
+        }
+        if (normalized == L"1" || normalized == L"true" || normalized == L"yes" || normalized == L"on") {
+            return true;
+        }
+        if (normalized == L"0" || normalized == L"false" || normalized == L"no" || normalized == L"off") {
+            return false;
+        }
+        return std::nullopt;
+    }
+
+    std::optional<bool> ReadRibbonOptInEnvironmentOverride() {
+        DWORD required = GetEnvironmentVariableW(kRibbonOptInEnvironmentVariable, nullptr, 0);
+        if (required == 0) {
+            return std::nullopt;
+        }
+
+        std::wstring buffer(required, L'\0');
+        DWORD copied = GetEnvironmentVariableW(kRibbonOptInEnvironmentVariable, buffer.data(), required);
+        if (copied == 0 || copied >= required) {
+            return std::nullopt;
+        }
+        buffer.resize(copied);
+        return ParseBooleanOverride(buffer);
+    }
+
+    std::optional<bool> ReadRibbonOptInRegistryOverride() {
+        DWORD value = 0;
+        DWORD size = sizeof(value);
+        const LONG status = RegGetValueW(HKEY_CURRENT_USER,
+                                         kRibbonOptInRegistryPath,
+                                         kRibbonOptInRegistryValue,
+                                         RRF_RT_REG_DWORD,
+                                         nullptr,
+                                         &value,
+                                         &size);
+        if (status != ERROR_SUCCESS) {
+            return std::nullopt;
+        }
+        return value != 0;
+    }
+
+    bool IsRibbonHookOptedIn() {
+        std::call_once(g_ribbonOptInOnce, [] {
+            bool enabled = false;
+
+            if (auto envOverride = ReadRibbonOptInEnvironmentOverride()) {
+                LogMessage(LogLevel::Info,
+                           L"ExplorerRibbonHook: environment override %ls=%d",
+                           kRibbonOptInEnvironmentVariable,
+                           *envOverride ? 1 : 0);
+                enabled = *envOverride;
+            } else if (auto registryOverride = ReadRibbonOptInRegistryOverride()) {
+                LogMessage(LogLevel::Info,
+                           L"ExplorerRibbonHook: registry override %ls\\%ls=%d",
+                           kRibbonOptInRegistryPath,
+                           kRibbonOptInRegistryValue,
+                           *registryOverride ? 1 : 0);
+                enabled = *registryOverride;
+            } else {
+                enabled = false;
+            }
+
+            g_ribbonOptedIn = enabled;
+        });
+
+        return g_ribbonOptedIn;
+    }
+
+    void** GetFrameworkVtable(IUIFramework* framework) {
+        if (!framework) {
+            return nullptr;
+        }
+        return *reinterpret_cast<void***>(framework);
+    }
+
+    RibbonFrameworkVtableEntry* EnsureVtableEntryLocked(IUIFramework* framework) {
+        void** vtable = GetFrameworkVtable(framework);
+        if (!vtable) {
+            return nullptr;
+        }
+        return &g_frameworkVtableEntries[vtable];
+    }
+
+    RibbonFrameworkVtableEntry* FindVtableEntryLocked(IUIFramework* framework) {
+        void** vtable = GetFrameworkVtable(framework);
+        if (!vtable) {
+            return nullptr;
+        }
+        auto it = g_frameworkVtableEntries.find(vtable);
+        if (it == g_frameworkVtableEntries.end()) {
+            return nullptr;
+        }
+        return &it->second;
+    }
 }
 
 //=============================================================================
@@ -275,14 +400,18 @@ void RibbonApplicationHandler::SetCommandHandler(RibbonCommandHandler* handler) 
 //=============================================================================
 
 bool ExplorerRibbonHook::s_enabled = false;
-void* ExplorerRibbonHook::s_originalLoadUI = nullptr;
-void* ExplorerRibbonHook::s_originalInitialize = nullptr;
 Microsoft::WRL::ComPtr<RibbonCommandHandler> ExplorerRibbonHook::s_commandHandler;
 Microsoft::WRL::ComPtr<RibbonApplicationHandler> ExplorerRibbonHook::s_appHandler;
 std::unordered_map<HWND, Microsoft::WRL::ComPtr<IUIFramework>> ExplorerRibbonHook::s_ribbonInstances;
 
 bool ExplorerRibbonHook::Initialize() {
     if (s_enabled) return true;
+
+    if (!IsRibbonHookOptedIn()) {
+        LogMessage(LogLevel::Info,
+                   L"ExplorerRibbonHook: skipping ribbon hook initialization (opt-in not enabled)");
+        return true;
+    }
 
     LogMessage(LogLevel::Info, L"ExplorerRibbonHook: Initializing ribbon hooks...");
 
@@ -378,14 +507,28 @@ void ExplorerRibbonHook::SetupFrameworkHooks(IUIFramework* pFramework) {
     const UINT VTABLE_INDEX_LOADUI = 5;
 
     // Hook Initialize
-    ComVTableHook::HookMethod(pFramework, VTABLE_INDEX_INITIALIZE,
-                              reinterpret_cast<void*>(&IUIFramework_Initialize_Hook),
-                              &s_originalInitialize);
+    void* originalInitialize = nullptr;
+    if (ComVTableHook::HookMethod(pFramework,
+                                  VTABLE_INDEX_INITIALIZE,
+                                  reinterpret_cast<void*>(&IUIFramework_Initialize_Hook),
+                                  &originalInitialize)) {
+        std::lock_guard<std::mutex> lock(g_ribbonMutex);
+        if (auto entry = EnsureVtableEntryLocked(pFramework)) {
+            entry->originalInitialize = originalInitialize;
+        }
+    }
 
     // Hook LoadUI
-    ComVTableHook::HookMethod(pFramework, VTABLE_INDEX_LOADUI,
-                              reinterpret_cast<void*>(&IUIFramework_LoadUI_Hook),
-                              &s_originalLoadUI);
+    void* originalLoadUI = nullptr;
+    if (ComVTableHook::HookMethod(pFramework,
+                                  VTABLE_INDEX_LOADUI,
+                                  reinterpret_cast<void*>(&IUIFramework_LoadUI_Hook),
+                                  &originalLoadUI)) {
+        std::lock_guard<std::mutex> lock(g_ribbonMutex);
+        if (auto entry = EnsureVtableEntryLocked(pFramework)) {
+            entry->originalLoadUI = originalLoadUI;
+        }
+    }
 
     LogMessage(LogLevel::Info, L"ExplorerRibbonHook: IUIFramework vtable hooks installed");
 }
@@ -397,8 +540,21 @@ HRESULT STDMETHODCALLTYPE ExplorerRibbonHook::IUIFramework_Initialize_Hook(
 
     LogMessage(LogLevel::Info, L"ExplorerRibbonHook: IUIFramework::Initialize called for hwnd=%p", frameworkView);
 
-    // Call original Initialize
-    auto originalFunc = reinterpret_cast<decltype(&IUIFramework_Initialize_Hook)>(s_originalInitialize);
+    using InitializeFn = HRESULT(STDMETHODCALLTYPE*)(IUIFramework*, HWND, IUIApplication*);
+    InitializeFn originalFunc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_ribbonMutex);
+        if (auto entry = FindVtableEntryLocked(pThis)) {
+            originalFunc = reinterpret_cast<InitializeFn>(entry->originalInitialize);
+        }
+    }
+
+    if (!originalFunc) {
+        LogMessage(LogLevel::Error,
+                   L"ExplorerRibbonHook: Missing original IUIFramework::Initialize pointer; aborting call");
+        return E_FAIL;
+    }
+
     HRESULT hr = originalFunc(pThis, frameworkView, application);
 
     if (SUCCEEDED(hr)) {
@@ -426,7 +582,21 @@ HRESULT STDMETHODCALLTYPE ExplorerRibbonHook::IUIFramework_LoadUI_Hook(
                instance, resourceName ? resourceName : L"(null)");
 
     // Call original LoadUI first
-    auto originalFunc = reinterpret_cast<decltype(&IUIFramework_LoadUI_Hook)>(s_originalLoadUI);
+    using LoadUiFn = HRESULT(STDMETHODCALLTYPE*)(IUIFramework*, HINSTANCE, LPCWSTR);
+    LoadUiFn originalFunc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_ribbonMutex);
+        if (auto entry = FindVtableEntryLocked(pThis)) {
+            originalFunc = reinterpret_cast<LoadUiFn>(entry->originalLoadUI);
+        }
+    }
+
+    if (!originalFunc) {
+        LogMessage(LogLevel::Error,
+                   L"ExplorerRibbonHook: Missing original IUIFramework::LoadUI pointer; aborting call");
+        return E_FAIL;
+    }
+
     HRESULT hr = originalFunc(pThis, instance, resourceName);
 
     if (SUCCEEDED(hr)) {
@@ -457,6 +627,7 @@ void ExplorerRibbonHook::Shutdown() {
 
     // Release all ribbon instances
     s_ribbonInstances.clear();
+    g_frameworkVtableEntries.clear();
 
     // Release handlers
     s_commandHandler.Reset();

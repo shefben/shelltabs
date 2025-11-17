@@ -1,14 +1,21 @@
 #include "DirectUIReplacementIntegration.h"
 #include "CustomFileListView.h"
 #include "Logging.h"
+#include "OptionsStore.h"
+#include "StringUtils.h"
 #include "Utilities.h"
 #include <mutex>
+#include <optional>
+#include <string>
+#include <winreg.h>
 
 namespace shelltabs {
 
 // Static member initialization
 bool DirectUIReplacementIntegration::s_initialized = false;
-bool DirectUIReplacementIntegration::s_enabled = true;  // Enabled by default
+bool DirectUIReplacementIntegration::s_enabled = false;
+bool DirectUIReplacementIntegration::s_featureOptedIn = false;
+unsigned int DirectUIReplacementIntegration::s_activeHostCount = 0;
 void (*DirectUIReplacementIntegration::s_viewCreatedCallback)(ShellTabs::CustomFileListView*, HWND, void*) = nullptr;
 void* DirectUIReplacementIntegration::s_viewCreatedContext = nullptr;
 
@@ -16,6 +23,10 @@ namespace {
     std::mutex g_initMutex;
     HINSTANCE g_hInstance = nullptr;
     std::once_flag g_faultMitigationRegistration;
+    std::mutex g_hostMutex;
+    constexpr wchar_t kOptInEnvironmentVariable[] = L"SHELLTABS_ENABLE_DIRECTUI_REPLACEMENT";
+    constexpr wchar_t kOptInRegistryPath[] = L"Software\\ShellTabs";
+    constexpr wchar_t kOptInRegistryValue[] = L"EnableDirectUIReplacement";
 
     void DisableDirectUIReplacementAfterFault(const FaultMitigationDetails& details, void*) {
         LogMessage(LogLevel::Warning,
@@ -30,6 +41,62 @@ namespace {
             RegisterFaultMitigationHandler(&DisableDirectUIReplacementAfterFault, nullptr);
         });
     }
+
+    std::optional<bool> ReadEnvironmentOptInOverride() {
+        DWORD required = GetEnvironmentVariableW(kOptInEnvironmentVariable, nullptr, 0);
+        if (required == 0) {
+            return std::nullopt;
+        }
+
+        std::wstring buffer(required, L'\0');
+        DWORD copied = GetEnvironmentVariableW(kOptInEnvironmentVariable, buffer.data(), required);
+        if (copied == 0 || copied >= required) {
+            return std::nullopt;
+        }
+
+        buffer.resize(copied);
+        std::wstring_view trimmed = TrimView(buffer);
+        return ParseBool(trimmed);
+    }
+
+    std::optional<bool> ReadRegistryOptInOverride() {
+        DWORD value = 0;
+        DWORD size = sizeof(value);
+        const LONG status = RegGetValueW(HKEY_CURRENT_USER,
+                                         kOptInRegistryPath,
+                                         kOptInRegistryValue,
+                                         RRF_RT_REG_DWORD,
+                                         nullptr,
+                                         &value,
+                                         &size);
+        if (status != ERROR_SUCCESS) {
+            return std::nullopt;
+        }
+        return value != 0;
+    }
+
+    bool EvaluateDirectUiReplacementOptIn() {
+        bool enabled = OptionsStore::Instance().Get().enableDirectUiReplacement;
+
+        if (auto envOverride = ReadEnvironmentOptInOverride()) {
+            LogMessage(LogLevel::Info,
+                       L"DirectUIReplacementIntegration: environment override %ls=%d",
+                       kOptInEnvironmentVariable,
+                       *envOverride ? 1 : 0);
+            return *envOverride;
+        }
+
+        if (auto registryOverride = ReadRegistryOptInOverride()) {
+            LogMessage(LogLevel::Info,
+                       L"DirectUIReplacementIntegration: registry override %ls\\%ls=%d",
+                       kOptInRegistryPath,
+                       kOptInRegistryValue,
+                       *registryOverride ? 1 : 0);
+            enabled = *registryOverride;
+        }
+
+        return enabled;
+    }
 }
 
 bool DirectUIReplacementIntegration::Initialize() {
@@ -40,6 +107,17 @@ bool DirectUIReplacementIntegration::Initialize() {
     }
 
     EnsureFaultMitigationRegistration();
+
+    s_featureOptedIn = EvaluateDirectUiReplacementOptIn();
+    if (!s_featureOptedIn) {
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementIntegration: replacement disabled (opt-in not enabled)");
+        s_enabled = false;
+        s_initialized = true;
+        return true;
+    }
+
+    s_enabled = true;
 
     // Get module instance
     g_hInstance = GetModuleHandleW(nullptr);
@@ -70,7 +148,9 @@ void DirectUIReplacementIntegration::Shutdown() {
         return;
     }
 
-    ShellTabs::DirectUIReplacementHook::Shutdown();
+    if (s_featureOptedIn) {
+        ShellTabs::DirectUIReplacementHook::Shutdown();
+    }
 
     s_initialized = false;
     s_viewCreatedCallback = nullptr;
@@ -78,11 +158,17 @@ void DirectUIReplacementIntegration::Shutdown() {
 }
 
 bool DirectUIReplacementIntegration::IsEnabled() {
-    return s_enabled && s_initialized;
+    return s_featureOptedIn && s_enabled && s_initialized;
 }
 
 void DirectUIReplacementIntegration::SetEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(g_initMutex);
+
+    if (enabled && !s_featureOptedIn) {
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementIntegration: ignoring enable request (feature not opted in)");
+        return;
+    }
 
     if (s_enabled == enabled) {
         return;
@@ -103,6 +189,20 @@ void DirectUIReplacementIntegration::SetEnabled(bool enabled) {
         } else {
             ShellTabs::DirectUIReplacementHook::Shutdown();
         }
+    }
+}
+
+void DirectUIReplacementIntegration::RegisterHost(void* context) {
+    UNREFERENCED_PARAMETER(context);
+    std::lock_guard<std::mutex> lock(g_hostMutex);
+    ++s_activeHostCount;
+}
+
+void DirectUIReplacementIntegration::UnregisterHost(void* context) {
+    UNREFERENCED_PARAMETER(context);
+    std::lock_guard<std::mutex> lock(g_hostMutex);
+    if (s_activeHostCount > 0) {
+        --s_activeHostCount;
     }
 }
 
@@ -128,6 +228,15 @@ void DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(void* contex
         s_viewCreatedCallback = nullptr;
         s_viewCreatedContext = nullptr;
     }
+}
+
+bool DirectUIReplacementIntegration::CanCreateCustomView() {
+    if (!s_initialized || !s_enabled || !s_viewCreatedCallback || !s_featureOptedIn) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(g_hostMutex);
+    return s_activeHostCount > 0;
 }
 
 void DirectUIReplacementIntegration::NotifyViewCreated(

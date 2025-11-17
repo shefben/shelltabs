@@ -12,6 +12,18 @@ This document describes the new architecture for replacing Windows Explorer's na
 4. **Shell Integration**: Maintain compatibility with IShellView and Explorer's shell interfaces
 5. **Easy Customization**: Simple API for applying custom backgrounds, gradients, and item styles
 
+## Opt-in requirement
+
+The DirectUI replacement is **disabled by default** to keep Explorer stable while the custom view matures. To enable it for
+experimentation, opt in through one of the following mechanisms (checked in this order):
+
+1. Set the environment variable `SHELLTABS_ENABLE_DIRECTUI_REPLACEMENT` to `1`, `true`, or `on` before launching Explorer
+2. Create/update `HKCU\Software\ShellTabs\EnableDirectUIReplacement` (DWORD) and set it to `1`
+3. Add `directui_replacement|1` to `%AppData%\ShellTabs\options.db`
+
+Any of these sources can also force the feature off by writing `0`, `false`, or `off`. When no opt-in is found the integration
+initializes in a disabled state and the legacy DirectUI window is left untouched.
+
 ## Key Components
 
 ### 1. CustomFileListView (`include/CustomFileListView.h`, `src/CustomFileListView.cpp`)
