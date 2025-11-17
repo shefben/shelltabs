@@ -9,6 +9,7 @@ namespace shelltabs {
 // Static member initialization
 bool DirectUIReplacementIntegration::s_initialized = false;
 bool DirectUIReplacementIntegration::s_enabled = true;  // Enabled by default
+unsigned int DirectUIReplacementIntegration::s_activeHostCount = 0;
 void (*DirectUIReplacementIntegration::s_viewCreatedCallback)(ShellTabs::CustomFileListView*, HWND, void*) = nullptr;
 void* DirectUIReplacementIntegration::s_viewCreatedContext = nullptr;
 
@@ -16,6 +17,7 @@ namespace {
     std::mutex g_initMutex;
     HINSTANCE g_hInstance = nullptr;
     std::once_flag g_faultMitigationRegistration;
+    std::mutex g_hostMutex;
 
     void DisableDirectUIReplacementAfterFault(const FaultMitigationDetails& details, void*) {
         LogMessage(LogLevel::Warning,
@@ -106,6 +108,20 @@ void DirectUIReplacementIntegration::SetEnabled(bool enabled) {
     }
 }
 
+void DirectUIReplacementIntegration::RegisterHost(void* context) {
+    UNREFERENCED_PARAMETER(context);
+    std::lock_guard<std::mutex> lock(g_hostMutex);
+    ++s_activeHostCount;
+}
+
+void DirectUIReplacementIntegration::UnregisterHost(void* context) {
+    UNREFERENCED_PARAMETER(context);
+    std::lock_guard<std::mutex> lock(g_hostMutex);
+    if (s_activeHostCount > 0) {
+        --s_activeHostCount;
+    }
+}
+
 ShellTabs::CustomFileListView* DirectUIReplacementIntegration::GetCustomViewForWindow(HWND hwnd) {
     if (!s_initialized || !hwnd) {
         return nullptr;
@@ -128,6 +144,15 @@ void DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(void* contex
         s_viewCreatedCallback = nullptr;
         s_viewCreatedContext = nullptr;
     }
+}
+
+bool DirectUIReplacementIntegration::CanCreateCustomView() {
+    if (!s_initialized || !s_enabled || !s_viewCreatedCallback) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(g_hostMutex);
+    return s_activeHostCount > 0;
 }
 
 void DirectUIReplacementIntegration::NotifyViewCreated(
