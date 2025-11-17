@@ -158,8 +158,6 @@ private:
     static HRESULT InjectCustomRibbonTab(IUIFramework* framework, HWND hwnd);
 
     static bool s_enabled;
-    static void* s_originalLoadUI;
-    static void* s_originalInitialize;
     static Microsoft::WRL::ComPtr<RibbonCommandHandler> s_commandHandler;
     static Microsoft::WRL::ComPtr<RibbonApplicationHandler> s_appHandler;
     static std::unordered_map<HWND, Microsoft::WRL::ComPtr<IUIFramework>> s_ribbonInstances;
