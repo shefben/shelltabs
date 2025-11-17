@@ -49,6 +49,7 @@ public:
 private:
     static bool s_initialized;
     static bool s_enabled;
+    static bool s_featureOptedIn;
     static unsigned int s_activeHostCount;
     static void (*s_viewCreatedCallback)(ShellTabs::CustomFileListView*, HWND, void*);
     static void* s_viewCreatedContext;
