@@ -1108,17 +1108,6 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
         LogMessage(LogLevel::Info, L"DirectUI replacement system initialized successfully");
     }
 
-    // Set callback for when custom views are created
-    DirectUIReplacementIntegration::SetCustomViewCreatedCallback(
-        [](ShellTabs::CustomFileListView* view, HWND hwnd, void* context) {
-            auto* self = static_cast<CExplorerBHO*>(context);
-            if (self) {
-                self->OnCustomFileListViewCreated(view, hwnd);
-            }
-        },
-        this
-    );
-
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
         m_gdiplusInitialized = true;
@@ -1131,6 +1120,10 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(this);
+    if (m_directUiReplacementHostRegistered) {
+        DirectUIReplacementIntegration::UnregisterHost(this);
+        m_directUiReplacementHostRegistered = false;
+    }
     DestroyProgressGradientResources();
     ResetListViewAccentBrush();
 
@@ -1671,6 +1664,10 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
                 LogMessage(LogLevel::Info, L"CExplorerBHO::SetSite detaching from site");
                 Disconnect();
                 DirectUIReplacementIntegration::ClearCustomViewCreatedCallback(this);
+                if (m_directUiReplacementHostRegistered) {
+                    DirectUIReplacementIntegration::UnregisterHost(this);
+                    m_directUiReplacementHostRegistered = false;
+                }
                 return S_OK;
             }
 
@@ -1686,6 +1683,20 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             m_site = site;
             m_webBrowser = browser;
             m_shouldRetryEnsure = true;
+
+            if (!m_directUiReplacementHostRegistered) {
+                DirectUIReplacementIntegration::RegisterHost(this);
+                m_directUiReplacementHostRegistered = true;
+            }
+
+            DirectUIReplacementIntegration::SetCustomViewCreatedCallback(
+                [](ShellTabs::CustomFileListView* view, HWND hwnd, void* context) {
+                    auto* self = static_cast<CExplorerBHO*>(context);
+                    if (self) {
+                        self->OnCustomFileListViewCreated(view, hwnd);
+                    }
+                },
+                this);
 
             m_shellBrowser.Reset();
 

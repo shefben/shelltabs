@@ -27,6 +27,10 @@ public:
     // Enable or disable the replacement (can be toggled via settings)
     static void SetEnabled(bool enabled);
 
+    // Track Explorer hosts that expect to receive DirectUI replacement callbacks.
+    static void RegisterHost(void* context);
+    static void UnregisterHost(void* context);
+
     // Get the custom view instance for a given window
     static ShellTabs::CustomFileListView* GetCustomViewForWindow(HWND hwnd);
 
@@ -39,9 +43,14 @@ public:
     // Clear the callback if it's currently registered for the specified context
     static void ClearCustomViewCreatedCallback(void* context);
 
+    // Indicates whether it's safe to create replacement views.
+    static bool CanCreateCustomView();
+
 private:
     static bool s_initialized;
     static bool s_enabled;
+    static bool s_featureOptedIn;
+    static unsigned int s_activeHostCount;
     static void (*s_viewCreatedCallback)(ShellTabs::CustomFileListView*, HWND, void*);
     static void* s_viewCreatedContext;
 

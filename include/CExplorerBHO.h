@@ -499,6 +499,7 @@ class ShellTabsListView;
                 HWND m_directUiView = nullptr;
                 bool m_directUiSubclassInstalled = false;
                 bool m_directUiRenderHooksAttempted = false;
+                bool m_directUiReplacementHostRegistered = false;
                 ShellTabs::CustomFileListView* m_customFileListView = nullptr;
                 HWND m_nativeListView = nullptr;
                 HWND m_listViewControlWindow = nullptr;

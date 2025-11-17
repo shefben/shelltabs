@@ -1538,6 +1538,10 @@ bool DirectUIReplacementHook::HandleCreateWindowRequest(
         return false;
     }
 
+    if (!shelltabs::DirectUIReplacementIntegration::CanCreateCustomView()) {
+        return false;
+    }
+
     if (!IsDirectUIClassName(args.className)) {
         return false;
     }
