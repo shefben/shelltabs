@@ -195,6 +195,7 @@ class ShellTabsListView;
                 struct CustomDrawMonitor {
                         ULONGLONG lastStageTick = 0;
                         bool forced = false;
+                        bool suppressed = false;
                 };
 
                 struct PreparedMenuItem {
