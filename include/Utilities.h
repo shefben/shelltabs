@@ -71,6 +71,10 @@ bool PromptForTextInput(HWND parent, const std::wstring& title, const std::wstri
 bool PromptForColor(HWND parent, COLORREF initial, COLORREF* value);
 bool BrowseForFolder(HWND parent, std::wstring* path);
 
+// Returns true when the given pointer refers to a readable memory region of at least the requested size.
+// This is intended only for defensive checks against corrupted or stale window messages.
+bool IsReadableMemoryRegion(const void* address, size_t size) noexcept;
+
 void LogUnhandledException(const wchar_t* context, const wchar_t* details = nullptr);
 void LogUnhandledExceptionNarrow(const wchar_t* context, const char* details);
 
