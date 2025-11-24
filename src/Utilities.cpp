@@ -15,6 +15,7 @@
 #include <cwchar>
 #include <algorithm>
 #include <PathCch.h>
+#include <memoryapi.h>
 
 #include "Logging.h"
 #include "Module.h"
@@ -189,6 +190,35 @@ void PidlDeleter::operator()(AbsolutePidl* pidl) const noexcept {
     if (pidl) {
         CoTaskMemFree(pidl);
     }
+}
+
+bool IsReadableMemoryRegion(const void* address, size_t size) noexcept {
+    if (!address || size == 0) {
+        return false;
+    }
+
+    MEMORY_BASIC_INFORMATION info{};
+    if (VirtualQuery(address, &info, sizeof(info)) != sizeof(info)) {
+        return false;
+    }
+
+    if (info.State != MEM_COMMIT || (info.Protect & PAGE_GUARD) != 0 || info.Protect == PAGE_NOACCESS) {
+        return false;
+    }
+
+    const DWORD access = info.Protect & 0xFF;
+    const bool readable =
+        access == PAGE_READONLY || access == PAGE_READWRITE || access == PAGE_WRITECOPY ||
+        access == PAGE_EXECUTE_READ || access == PAGE_EXECUTE_READWRITE || access == PAGE_EXECUTE_WRITECOPY;
+    if (!readable) {
+        return false;
+    }
+
+    const auto regionStart = static_cast<const BYTE*>(info.BaseAddress);
+    const auto regionEnd = regionStart + info.RegionSize;
+    const auto start = static_cast<const BYTE*>(address);
+    const auto end = start + size;
+    return start >= regionStart && end <= regionEnd;
 }
 
 UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source) {

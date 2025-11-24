@@ -4906,7 +4906,11 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         case WM_NOTIFY: {
             const NMHDR* header = reinterpret_cast<const NMHDR*>(lParam);
-            if (!header) {
+            if (!IsReadableMemoryRegion(header, sizeof(NMHDR))) {
+                LogMessage(LogLevel::Warning,
+                           L"Ignoring WM_NOTIFY with invalid NMHDR pointer (hwnd=%p lParam=%p)",
+                           hwnd,
+                           reinterpret_cast<void*>(lParam));
                 break;
             }
             bool handled = false;
@@ -4914,7 +4918,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             // FAILSAFE GRADIENT TEXT: Handle ListView custom draw notifications directly
             if (m_listView && header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
                 auto* customDraw = reinterpret_cast<NMLVCUSTOMDRAW*>(lParam);
-                if (customDraw) {
+                if (IsReadableMemoryRegion(customDraw, sizeof(NMLVCUSTOMDRAW))) {
                     LRESULT gradientResult = 0;
                     if (HandleListViewGradientCustomDraw(customDraw, &gradientResult)) {
                         *result = gradientResult;
@@ -4926,7 +4930,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             // FAILSAFE GRADIENT TEXT: Handle TreeView custom draw notifications directly
             if (m_treeView && header->hwndFrom == m_treeView && header->code == NM_CUSTOMDRAW) {
                 auto* customDraw = reinterpret_cast<NMTVCUSTOMDRAW*>(lParam);
-                if (customDraw) {
+                if (IsReadableMemoryRegion(customDraw, sizeof(NMTVCUSTOMDRAW))) {
                     LRESULT gradientResult = 0;
                     if (HandleTreeViewGradientCustomDraw(customDraw, &gradientResult)) {
                         *result = gradientResult;
@@ -4954,7 +4958,11 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (m_statusBar && header->hwndFrom == m_statusBar && header->code == NM_CUSTOMDRAW) {
                 handled = true;
                 auto* customDraw = reinterpret_cast<NMCUSTOMDRAW*>(const_cast<NMHDR*>(header));
-                if (!customDraw) {
+                if (!IsReadableMemoryRegion(customDraw, sizeof(NMCUSTOMDRAW))) {
+                    LogMessage(LogLevel::Warning,
+                               L"Status bar custom draw pointer invalid (hwnd=%p lParam=%p)",
+                               hwnd,
+                               reinterpret_cast<void*>(lParam));
                     *result = CDRF_DODEFAULT;
                 } else if ((customDraw->dwDrawStage & CDDS_PREPAINT) == CDDS_PREPAINT) {
                     OnStatusBarCustomDrawStage(customDraw->dwDrawStage);
