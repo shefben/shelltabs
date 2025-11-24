@@ -9092,6 +9092,9 @@ void CExplorerBHO::UpdateTreeViewDescriptor() {
 
 void CExplorerBHO::OnStatusBarCustomDrawStage(DWORD) {
     m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
+    if (m_statusBarCustomDraw.suppressed) {
+        m_statusBarCustomDraw.suppressed = false;
+    }
     if (m_statusBarCustomDraw.forced && m_statusBar && IsWindow(m_statusBar)) {
         m_statusBarCustomDraw.forced = false;
         m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
@@ -9106,6 +9109,9 @@ void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
     if (!m_statusBarThemeValid) {
         return;
     }
+    if (m_statusBarCustomDraw.suppressed) {
+        return;
+    }
 
     const ULONGLONG now = CurrentTickCount();
     if (m_statusBarCustomDraw.lastStageTick == 0) {
@@ -9116,9 +9122,10 @@ void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
     const bool expired = (now - m_statusBarCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
     if (expired && !m_statusBarCustomDraw.forced) {
         m_statusBarCustomDraw.forced = true;
-        UpdateStatusBarDescriptor();
-        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, true);
-        LogMessage(LogLevel::Warning, L"Status bar custom draw timeout; forcing theme detours (hwnd=%p)", m_statusBar);
+        m_statusBarCustomDraw.suppressed = true;
+        LogMessage(LogLevel::Warning,
+                   L"Status bar custom draw timeout; skipping forced hooks to avoid instability (hwnd=%p)",
+                   m_statusBar);
         InvalidateRect(m_statusBar, nullptr, FALSE);
     } else if (!expired && m_statusBarCustomDraw.forced) {
         m_statusBarCustomDraw.forced = false;
