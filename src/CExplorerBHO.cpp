@@ -1139,8 +1139,10 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     // Initialize DirectUI replacement system
     if (!DirectUIReplacementIntegration::Initialize()) {
         LogMessage(LogLevel::Warning, L"Failed to initialize DirectUI replacement system");
-    } else {
+    } else if (DirectUIReplacementIntegration::IsEnabled()) {
         LogMessage(LogLevel::Info, L"DirectUI replacement system initialized successfully");
+    } else {
+        LogMessage(LogLevel::Info, L"DirectUI replacement system initialized (disabled by default)");
     }
 
     // Set callback for when custom views are created

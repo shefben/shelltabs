@@ -8,7 +8,8 @@ namespace shelltabs {
 
 // Static member initialization
 bool DirectUIReplacementIntegration::s_initialized = false;
-bool DirectUIReplacementIntegration::s_enabled = true;  // Enabled by default
+// Disable DirectUI replacement by default until the custom view is stable.
+bool DirectUIReplacementIntegration::s_enabled = false;
 void (*DirectUIReplacementIntegration::s_viewCreatedCallback)(ShellTabs::CustomFileListView*, HWND, void*) = nullptr;
 void* DirectUIReplacementIntegration::s_viewCreatedContext = nullptr;
 
