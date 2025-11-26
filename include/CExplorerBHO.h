@@ -515,7 +515,7 @@ class ShellTabsListView;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
                 std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
-                std::unordered_map<HWND, std::unique_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
+                std::unordered_map<HWND, std::shared_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
                 std::unordered_set<HWND, HandleHasher> m_scrollbarGlowSubclassed;
                 std::unordered_set<HWND, HandleHasher> m_transparentScrollbars;
                 bool m_watchListViewCreation = false;
