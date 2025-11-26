@@ -971,6 +971,9 @@ bool ShouldBlockProcessAttach() {
 }  // namespace
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+    // Temporary kill switch for the custom ribbon tab while investigating layout regressions
+    constexpr bool kEnableCustomRibbonTab = false;
+
     if (reason == DLL_PROCESS_ATTACH) {
         InitializeLoggingEarly(module);
         LogMessage(LogLevel::Info, L"DllMain PROCESS_ATTACH for %ls", CurrentProcessImageName().c_str());
@@ -991,8 +994,13 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             LogMessage(LogLevel::Warning, L"Failed to initialize theme hooks; gradients will fall back to system colors");
         }
 
-        if (!ExplorerRibbonHook::Initialize()) {
-            LogMessage(LogLevel::Warning, L"Failed to initialize Explorer ribbon hooks; custom ribbon tab will not be available");
+        if (kEnableCustomRibbonTab) {
+            if (!ExplorerRibbonHook::Initialize()) {
+                LogMessage(LogLevel::Warning,
+                           L"Failed to initialize Explorer ribbon hooks; custom ribbon tab will not be available");
+            }
+        } else {
+            LogMessage(LogLevel::Info, L"Custom ribbon tab disabled pending regression fix");
         }
 
         INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX)};
@@ -1004,7 +1012,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         }
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
-        ExplorerRibbonHook::Shutdown();
+        if (kEnableCustomRibbonTab) {
+            ExplorerRibbonHook::Shutdown();
+        }
         ShutdownCompositionIntercept();
         ShutdownThemeHooks();
         ShutdownLogging();
