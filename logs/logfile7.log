@@ -1,0 +1,1119 @@
+=== ShellTabs logging started for C:\Windows\Explorer.exe ===
+[2025-11-26T22:30:23.263Z][pid 41804][tid 18524] INFO DllMain PROCESS_ATTACH for C:\Windows\Explorer.exe
+[2025-11-26T22:30:23.516Z][pid 41804][tid 18524] INFO CompositionIntercept: hooks initialized
+[2025-11-26T22:30:24.291Z][pid 41804][tid 18524] INFO ThemeHooks: installed theme detours (including line drawing hooks)
+[2025-11-26T22:30:24.291Z][pid 41804][tid 18524] INFO ExplorerRibbonHook: Initializing ribbon hooks...
+[2025-11-26T22:30:24.291Z][pid 41804][tid 18524] INFO RibbonCommandHandler: Registered callback for command 50100
+[2025-11-26T22:30:24.291Z][pid 41804][tid 18524] INFO RibbonCommandHandler: Registered callback for command 50101
+[2025-11-26T22:30:24.292Z][pid 41804][tid 18524] INFO RibbonCommandHandler: Registered callback for command 50102
+[2025-11-26T22:30:24.292Z][pid 41804][tid 18524] INFO RibbonCommandHandler: Registered callback for command 50103
+[2025-11-26T22:30:24.292Z][pid 41804][tid 18524] INFO RibbonCommandHandler: Registered callback for command 50104
+[2025-11-26T22:30:24.292Z][pid 41804][tid 18524] INFO ComVTableHook: MinHook already initialized by another subsystem; reusing state
+[2025-11-26T22:30:24.334Z][pid 41804][tid 18524] INFO ComVTableHook: Successfully hooked CoCreateInstance
+[2025-11-26T22:30:24.335Z][pid 41804][tid 18524] INFO ComVTableHook: Registered class hook for {926749FA-2615-4987-8845-C33E65F2B957}
+[2025-11-26T22:30:24.335Z][pid 41804][tid 18524] INFO ExplorerRibbonHook: Ribbon hooks initialized successfully
+[2025-11-26T22:30:24.335Z][pid 41804][tid 18524] INFO InitCommonControlsEx succeeded
+[2025-11-26T22:30:24.467Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: MH_Initialize already satisfied (status=1)
+[2025-11-26T22:30:24.467Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: CreateWindowExW already hooked; relying on shared detour
+[2025-11-26T22:30:24.517Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: FindWindowW hooked successfully
+[2025-11-26T22:30:24.555Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: FindWindowExW hooked successfully
+[2025-11-26T22:30:24.555Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: All hooks initialized successfully
+[2025-11-26T22:30:24.555Z][pid 41804][tid 21148] INFO DirectUI replacement system initialized successfully
+[2025-11-26T22:30:24.555Z][pid 41804][tid 21148] INFO CExplorerBHO::SetSite attaching to site=000000001274A7F8
+[2025-11-26T22:30:24.555Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:24.555Z][pid 41804][tid 21148] INFO EnsureBandVisible: invoking ShowBrowserBar for host=0000000001C40138 (attempt 1)
+[2025-11-26T22:30:24.558Z][pid 41804][tid 21148] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=0000000001C40138 on attempt 1
+[2025-11-26T22:30:24.558Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=00000000021306BA
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Installed travel band subclass (band=00000000001A0024 toolbar=00000000006E018E)
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Breadcrumb CBT hook installed for thread 21148
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000006F25F0)
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000003B26A2)
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Installed breadcrumb gradient subclass on hwnd=00000000003B26A2
+[2025-11-26T22:30:24.559Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=00000000021306BA
+[2025-11-26T22:30:24.560Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-26T22:30:24.560Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:30:24.560Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000006F25F0)
+[2025-11-26T22:30:24.560Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000003B26A2)
+[2025-11-26T22:30:24.560Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ComVTableHook: Intercepted creation of {926749FA-2615-4987-8845-C33E65F2B957}
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework created, setting up hooks...
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Setting up IUIFramework vtable hooks...
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ComVTableHook::HookMethod: Successfully hooked vtable[3] for vtable 00007FF97CD8A048
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ComVTableHook::HookMethod: Successfully hooked vtable[5] for vtable 00007FF97CD8A048
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework vtable hooks installed
+[2025-11-26T22:30:24.565Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework::Initialize called for hwnd=0000000001C40138
+[2025-11-26T22:30:24.567Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Ribbon framework initialized for window 0000000001C40138
+[2025-11-26T22:30:24.567Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework::LoadUI called (instance=00007FF9C5AB0000, resourceName=EXPLORER_RIBBON)
+[2025-11-26T22:30:24.580Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=0)
+[2025-11-26T22:30:24.581Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12336)
+[2025-11-26T22:30:24.581Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12384)
+[2025-11-26T22:30:24.677Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=2)
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Original LoadUI succeeded, injecting custom tab...
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] WARN ExplorerRibbonHook: Failed to load embedded CustomRibbonTab.bml (0x80004005)
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: InjectCustomRibbonTab called for hwnd=0000000000000000
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50000
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50001
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50002
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50003
+[2025-11-26T22:30:24.678Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50004
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50005
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50006
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50007
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50008
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50009
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50010
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50011
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50012
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50013
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50014
+[2025-11-26T22:30:24.679Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50015
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50016
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50017
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50018
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50019
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50020
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50021
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50022
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50023
+[2025-11-26T22:30:24.680Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50024
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50025
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50026
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50027
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50028
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50029
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50030
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50031
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50032
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50033
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50034
+[2025-11-26T22:30:24.681Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50035
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50036
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50037
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50038
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50039
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50040
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50041
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50042
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50043
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50044
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50045
+[2025-11-26T22:30:24.682Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50046
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50047
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50048
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50049
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50050
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50051
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50052
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50053
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50054
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50055
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50056
+[2025-11-26T22:30:24.683Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50057
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50058
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50059
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50060
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50061
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50062
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50063
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50064
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50065
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50066
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50067
+[2025-11-26T22:30:24.684Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50068
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50069
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50070
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50071
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50072
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50073
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50074
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50075
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50076
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50077
+[2025-11-26T22:30:24.685Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50078
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50079
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50080
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50081
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50082
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50083
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50084
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50085
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50086
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50087
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50088
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50089
+[2025-11-26T22:30:24.686Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50090
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50091
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50092
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50093
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50094
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50095
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50096
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50097
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50098
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50099
+[2025-11-26T22:30:24.687Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50100
+[2025-11-26T22:30:24.688Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50101
+[2025-11-26T22:30:24.688Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50102
+[2025-11-26T22:30:24.688Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50103
+[2025-11-26T22:30:24.688Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50104
+[2025-11-26T22:30:24.690Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Custom ribbon tab injection completed
+[2025-11-26T22:30:24.698Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:30:24.728Z][pid 41804][tid 21148] INFO Custom file list view created (hwnd=0000000000FC063E)
+[2025-11-26T22:30:24.728Z][pid 41804][tid 21148] INFO Custom file list view configured successfully
+[2025-11-26T22:30:24.758Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:30:24.781Z][pid 41804][tid 21148] INFO Custom file list view created (hwnd=0000000002982C5A)
+[2025-11-26T22:30:24.781Z][pid 41804][tid 21148] INFO Custom file list view configured successfully
+[2025-11-26T22:30:24.783Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:30:24.784Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000006F25F0)
+[2025-11-26T22:30:24.784Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000006F25F0)
+[2025-11-26T22:30:24.784Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=000000000369162A)
+[2025-11-26T22:30:24.784Z][pid 41804][tid 21148] INFO Installed breadcrumb gradient subclass on hwnd=000000000369162A
+[2025-11-26T22:30:24.784Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=00000000021306BA
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=0000000000322678)
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=0000000001C40138)
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=0000000000322678 frame=0000000001C40138)
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=0000000000322678 list=1 tree=1)
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=0000000000322678 delay=500)
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=0000000000322678)
+[2025-11-26T22:30:24.785Z][pid 41804][tid 21148] INFO Explorer panes not ready: tree view missing (view=0000000000322678)
+[2025-11-26T22:30:24.786Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=0000000000322678 delay=500 attempts=1)
+[2025-11-26T22:30:24.786Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-26T22:30:24.786Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:30:24.786Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000006F25F0)
+[2025-11-26T22:30:24.786Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000006F25F0)
+[2025-11-26T22:30:24.786Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=000000000369162A)
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=0000000000322678)
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=0000000000322678)
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=0000000001C40138)
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=0000000000322678 frame=0000000001C40138)
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=0000000000322678 list=1 tree=1)
+[2025-11-26T22:30:24.787Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=0000000000322678 delay=500)
+[2025-11-26T22:30:24.788Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=0000000000322678)
+[2025-11-26T22:30:24.788Z][pid 41804][tid 21148] INFO Explorer panes not ready: tree view missing (view=0000000000322678)
+[2025-11-26T22:30:24.788Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=0000000000322678 delay=500 attempts=1)
+[2025-11-26T22:30:24.852Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=0000000001C40138)
+[2025-11-26T22:30:24.852Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000006E05A8)
+[2025-11-26T22:30:24.852Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000006F25F0)
+[2025-11-26T22:30:24.852Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000007824D8)
+[2025-11-26T22:30:24.878Z][pid 41804][tid 21148] INFO Explorer status bar discovered (hwnd=00000000012D270A)
+[2025-11-26T22:30:24.892Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000012D270A new=0x00FFFFFF)
+[2025-11-26T22:30:24.893Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000012D270A new=0x00000000)
+[2025-11-26T22:30:24.933Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000012D270A new=0x00191919)
+[2025-11-26T22:30:24.933Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000012D270A new=0x00FFFFFF)
+[2025-11-26T22:30:25.089Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:30:25.089Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000006F25F0)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000006F25F0)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=000000000369162A)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=0000000000322678)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Status bar background reset (hwnd=00000000012D270A previous=0xFF000000)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=0000000000322678)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=0000000001C40138)
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:30:25.090Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=0000000000322678 frame=0000000001C40138)
+[2025-11-26T22:30:25.091Z][pid 41804][tid 21148] INFO Installed explorer tree view subclass (tree=00000000006C26C0)
+[2025-11-26T22:30:25.091Z][pid 41804][tid 21148] INFO Explorer status bar discovered (hwnd=00000000012D270A)
+[2025-11-26T22:30:25.092Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000012D270A new=0x00191919)
+[2025-11-26T22:30:25.092Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000012D270A new=0x00FFFFFF)
+[2025-11-26T22:30:25.092Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=0000000000322678 list=1 tree=0)
+[2025-11-26T22:30:25.092Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=0000000000322678 delay=500)
+[2025-11-26T22:30:25.092Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=0000000000322678)
+[2025-11-26T22:30:25.092Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=0000000000322678 delay=500 attempts=1)
+[2025-11-26T22:30:25.101Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=0000000001C40138)
+[2025-11-26T22:30:25.102Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000006E05A8)
+[2025-11-26T22:30:25.102Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000006F25F0)
+[2025-11-26T22:30:25.102Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000007824D8)
+[2025-11-26T22:32:07.294Z][pid 41804][tid 21148] INFO Breadcrumb CBT hook removed for thread 21148
+[2025-11-26T22:32:07.294Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=0000000000322678)
+[2025-11-26T22:32:07.294Z][pid 41804][tid 21148] INFO Status bar background reset (hwnd=00000000012D270A previous=0xFF000000)
+[2025-11-26T22:32:07.294Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:07.376Z][pid 41804][tid 21148] INFO CExplorerBHO::SetSite detaching from site
+[2025-11-26T22:32:07.377Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:07.377Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:07.380Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=1)
+[2025-11-26T22:32:07.383Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4096)
+[2025-11-26T22:32:07.383Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8197)
+[2025-11-26T22:32:07.383Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:07.383Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8196)
+[2025-11-26T22:32:07.383Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12515)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12514)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12513)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12516)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8228)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16481)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16128)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16129)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9474)
+[2025-11-26T22:32:07.384Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9475)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9473)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9472)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5376)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13651)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13650)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13649)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13648)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9491)
+[2025-11-26T22:32:07.385Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(21824)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9493)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13634)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13632)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(21824)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13635)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20497)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9490)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12386)
+[2025-11-26T22:32:07.386Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9488)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5377)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9492)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5378)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12295)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8224)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12403)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12402)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12401)
+[2025-11-26T22:32:07.387Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8197)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8198)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12388)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12389)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16480)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12385)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12384)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8196)
+[2025-11-26T22:32:07.388Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20496)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8199)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12293)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24576)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20496)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16432)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12336)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8193)
+[2025-11-26T22:32:07.389Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12357)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12352)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12355)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12354)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12353)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20544)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12356)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24832)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12368)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(25088)
+[2025-11-26T22:32:07.390Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8194)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12321)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12324)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12322)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12320)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12323)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12305)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8192)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4097)
+[2025-11-26T22:32:07.391Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8210)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8209)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8211)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8208)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4098)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8229)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8228)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8226)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8225)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8227)
+[2025-11-26T22:32:07.392Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4099)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7216)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1795)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6144)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6448)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(259)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7184)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1793)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7200)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1794)
+[2025-11-26T22:32:07.393Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7217)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1799)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7248)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1797)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6400)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(256)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7168)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1792)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6416)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(257)
+[2025-11-26T22:32:07.394Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7218)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1800)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7232)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1796)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7264)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1798)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7185)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1803)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7201)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1802)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7219)
+[2025-11-26T22:32:07.395Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1801)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7233)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1805)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7937)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3841)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7169)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1804)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7936)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3840)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7220)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1806)
+[2025-11-26T22:32:07.396Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7938)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3842)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7939)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3843)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6146)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2048)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7940)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3844)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7941)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3845)
+[2025-11-26T22:32:07.397Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7942)
+[2025-11-26T22:32:07.398Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3846)
+[2025-11-26T22:32:07.398Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7943)
+[2025-11-26T22:32:07.398Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3847)
+[2025-11-26T22:32:07.398Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6160)
+[2025-11-26T22:32:07.398Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2064)
+[2025-11-26T22:32:07.398Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16130)
+[2025-11-26T22:32:07.402Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24575)
+[2025-11-26T22:32:09.129Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:32:09.222Z][pid 41804][tid 21148] INFO DirectUI replacement system initialized successfully
+[2025-11-26T22:32:09.222Z][pid 41804][tid 21148] INFO CExplorerBHO::SetSite attaching to site=00000000121BD038
+[2025-11-26T22:32:09.222Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.223Z][pid 41804][tid 21148] INFO EnsureBandVisible: invoking ShowBrowserBar for host=00000000011704F4 (attempt 1)
+[2025-11-26T22:32:09.225Z][pid 41804][tid 21148] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=00000000011704F4 on attempt 1
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=00000000007924D8
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Installed travel band subclass (band=00000000005B06E8 toolbar=0000000000D404E4)
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Breadcrumb CBT hook installed for thread 21148
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via deep enumeration (hwnd=0000000000EB2612)
+[2025-11-26T22:32:09.226Z][pid 41804][tid 21148] INFO Installed breadcrumb gradient subclass on hwnd=0000000000EB2612
+[2025-11-26T22:32:09.227Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=00000000007924D8
+[2025-11-26T22:32:09.227Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-26T22:32:09.227Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:09.227Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.227Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via deep enumeration (hwnd=0000000000EB2612)
+[2025-11-26T22:32:09.227Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] INFO ComVTableHook: Intercepted creation of {926749FA-2615-4987-8845-C33E65F2B957}
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework created, setting up hooks...
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Setting up IUIFramework vtable hooks...
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] WARN ComVTableHook::HookMethod: Method already hooked at index 3 for vtable 00007FF97CD8A048
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] WARN ComVTableHook::HookMethod: Method already hooked at index 5 for vtable 00007FF97CD8A048
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework vtable hooks installed
+[2025-11-26T22:32:09.228Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework::Initialize called for hwnd=00000000011704F4
+[2025-11-26T22:32:09.231Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Ribbon framework initialized for window 00000000011704F4
+[2025-11-26T22:32:09.231Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework::LoadUI called (instance=00007FF9C5AB0000, resourceName=EXPLORER_RIBBON)
+[2025-11-26T22:32:09.244Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=0)
+[2025-11-26T22:32:09.245Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12336)
+[2025-11-26T22:32:09.245Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12384)
+[2025-11-26T22:32:09.298Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=2)
+[2025-11-26T22:32:09.299Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Original LoadUI succeeded, injecting custom tab...
+[2025-11-26T22:32:09.299Z][pid 41804][tid 21148] WARN ExplorerRibbonHook: Failed to load embedded CustomRibbonTab.bml (0x80004005)
+[2025-11-26T22:32:09.299Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: InjectCustomRibbonTab called for hwnd=0000000000000000
+[2025-11-26T22:32:09.299Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50000
+[2025-11-26T22:32:09.299Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50001
+[2025-11-26T22:32:09.299Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50002
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50003
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50004
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50005
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50006
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50007
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50008
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50009
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50010
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50011
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50012
+[2025-11-26T22:32:09.300Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50013
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50014
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50015
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50016
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50017
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50018
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50019
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50020
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50021
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50022
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50023
+[2025-11-26T22:32:09.301Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50024
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50025
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50026
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50027
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50028
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50029
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50030
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50031
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50032
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50033
+[2025-11-26T22:32:09.302Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50034
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50035
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50036
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50037
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50038
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50039
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50040
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50041
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50042
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50043
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50044
+[2025-11-26T22:32:09.303Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50045
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50046
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50047
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50048
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50049
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50050
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50051
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50052
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50053
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50054
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50055
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50056
+[2025-11-26T22:32:09.304Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50057
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50058
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50059
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50060
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50061
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50062
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50063
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50064
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50065
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50066
+[2025-11-26T22:32:09.305Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50067
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50068
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50069
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50070
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50071
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50072
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50073
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50074
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50075
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50076
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50077
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50078
+[2025-11-26T22:32:09.306Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50079
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50080
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50081
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50082
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50083
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50084
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50085
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50086
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50087
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50088
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50089
+[2025-11-26T22:32:09.307Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50090
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50091
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50092
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50093
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50094
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50095
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50096
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50097
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50098
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50099
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50100
+[2025-11-26T22:32:09.308Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50101
+[2025-11-26T22:32:09.309Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50102
+[2025-11-26T22:32:09.309Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50103
+[2025-11-26T22:32:09.309Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50104
+[2025-11-26T22:32:09.310Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Custom ribbon tab injection completed
+[2025-11-26T22:32:09.318Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:32:09.357Z][pid 41804][tid 21148] INFO Custom file list view created (hwnd=000000000147285E)
+[2025-11-26T22:32:09.357Z][pid 41804][tid 21148] INFO Custom file list view configured successfully
+[2025-11-26T22:32:09.382Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:32:09.412Z][pid 41804][tid 21148] INFO Custom file list view created (hwnd=0000000000E20512)
+[2025-11-26T22:32:09.412Z][pid 41804][tid 21148] INFO Custom file list view configured successfully
+[2025-11-26T22:32:09.415Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:09.415Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.416Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.416Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000015A2C88)
+[2025-11-26T22:32:09.416Z][pid 41804][tid 21148] INFO Installed breadcrumb gradient subclass on hwnd=00000000015A2C88
+[2025-11-26T22:32:09.417Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=00000000007924D8
+[2025-11-26T22:32:09.417Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=00000000015326D4)
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=00000000011704F4)
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=00000000015326D4 frame=00000000011704F4)
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=00000000015326D4 list=1 tree=1)
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=00000000015326D4 delay=500)
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=00000000015326D4)
+[2025-11-26T22:32:09.418Z][pid 41804][tid 21148] INFO Explorer panes not ready: tree view missing (view=00000000015326D4)
+[2025-11-26T22:32:09.419Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=00000000015326D4 delay=500 attempts=1)
+[2025-11-26T22:32:09.419Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-26T22:32:09.419Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:09.419Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.419Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.420Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000015A2C88)
+[2025-11-26T22:32:09.420Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=00000000015326D4)
+[2025-11-26T22:32:09.420Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=00000000015326D4)
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=00000000011704F4)
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=00000000015326D4 frame=00000000011704F4)
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=00000000015326D4 list=1 tree=1)
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=00000000015326D4 delay=500)
+[2025-11-26T22:32:09.421Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=00000000015326D4)
+[2025-11-26T22:32:09.422Z][pid 41804][tid 21148] INFO Explorer panes not ready: tree view missing (view=00000000015326D4)
+[2025-11-26T22:32:09.422Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=00000000015326D4 delay=500 attempts=1)
+[2025-11-26T22:32:09.491Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000011704F4)
+[2025-11-26T22:32:09.492Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=0000000005012D1E)
+[2025-11-26T22:32:09.492Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000007025F0)
+[2025-11-26T22:32:09.538Z][pid 41804][tid 21148] INFO Explorer status bar discovered (hwnd=00000000006F05A8)
+[2025-11-26T22:32:09.552Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000006F05A8 new=0x00FFFFFF)
+[2025-11-26T22:32:09.553Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000006F05A8 new=0x00000000)
+[2025-11-26T22:32:09.582Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000006F05A8 new=0x00191919)
+[2025-11-26T22:32:09.582Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000006F05A8 new=0x00FFFFFF)
+[2025-11-26T22:32:09.728Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:09.728Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.728Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000007025F0)
+[2025-11-26T22:32:09.728Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000015A2C88)
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=00000000015326D4)
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Status bar background reset (hwnd=00000000006F05A8 previous=0xFF000000)
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=00000000015326D4)
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=00000000011704F4)
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:09.729Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=00000000015326D4 frame=00000000011704F4)
+[2025-11-26T22:32:09.730Z][pid 41804][tid 21148] INFO Installed explorer tree view subclass (tree=00000000003C26A2)
+[2025-11-26T22:32:09.730Z][pid 41804][tid 21148] INFO Explorer status bar discovered (hwnd=00000000006F05A8)
+[2025-11-26T22:32:09.732Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000006F05A8 new=0x00191919)
+[2025-11-26T22:32:09.732Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000006F05A8 new=0x00FFFFFF)
+[2025-11-26T22:32:09.732Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=00000000015326D4 list=1 tree=0)
+[2025-11-26T22:32:09.732Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=00000000015326D4 delay=500)
+[2025-11-26T22:32:09.732Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=00000000015326D4)
+[2025-11-26T22:32:09.732Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=00000000015326D4 delay=500 attempts=1)
+[2025-11-26T22:32:09.754Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000011704F4)
+[2025-11-26T22:32:09.755Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=0000000005012D1E)
+[2025-11-26T22:32:09.755Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000007025F0)
+[2025-11-26T22:32:11.751Z][pid 41804][tid 21148] INFO Breadcrumb CBT hook removed for thread 21148
+[2025-11-26T22:32:11.751Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=00000000015326D4)
+[2025-11-26T22:32:11.752Z][pid 41804][tid 21148] INFO Status bar background reset (hwnd=00000000006F05A8 previous=0xFF000000)
+[2025-11-26T22:32:11.752Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:11.825Z][pid 41804][tid 21148] INFO CExplorerBHO::SetSite detaching from site
+[2025-11-26T22:32:11.825Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:11.825Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:11.827Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=1)
+[2025-11-26T22:32:11.829Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4096)
+[2025-11-26T22:32:11.829Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8197)
+[2025-11-26T22:32:11.829Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:11.829Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8196)
+[2025-11-26T22:32:11.829Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12515)
+[2025-11-26T22:32:11.829Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12514)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12513)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12516)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8228)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16481)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16128)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16129)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9474)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9475)
+[2025-11-26T22:32:11.830Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9473)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9472)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5376)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13651)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13650)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13649)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13648)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9491)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(21824)
+[2025-11-26T22:32:11.831Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9493)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13634)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13632)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(21824)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13635)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20497)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9490)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12386)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9488)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5377)
+[2025-11-26T22:32:11.832Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9492)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5378)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12295)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8224)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12403)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12402)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12401)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8197)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:11.833Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8198)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12388)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12389)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16480)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12385)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12384)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8196)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20496)
+[2025-11-26T22:32:11.834Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8199)
+[2025-11-26T22:32:11.835Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12293)
+[2025-11-26T22:32:11.835Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24576)
+[2025-11-26T22:32:11.835Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20496)
+[2025-11-26T22:32:11.835Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16432)
+[2025-11-26T22:32:11.835Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12336)
+[2025-11-26T22:32:11.835Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8193)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12357)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12352)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12355)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12354)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12353)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20544)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12356)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24832)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12368)
+[2025-11-26T22:32:11.836Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(25088)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8194)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12321)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12324)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12322)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12320)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12323)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12305)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8192)
+[2025-11-26T22:32:11.837Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4097)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8210)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8209)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8211)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8208)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4098)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8229)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8228)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8226)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8225)
+[2025-11-26T22:32:11.838Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8227)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4099)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7216)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1795)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6144)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6448)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(259)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7184)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1793)
+[2025-11-26T22:32:11.839Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7200)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1794)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7217)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1799)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7248)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1797)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6400)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(256)
+[2025-11-26T22:32:11.840Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7168)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1792)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6416)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(257)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7218)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1800)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7232)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1796)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7264)
+[2025-11-26T22:32:11.841Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1798)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7185)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1803)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7201)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1802)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7219)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1801)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7233)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1805)
+[2025-11-26T22:32:11.842Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7937)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3841)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7169)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1804)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7936)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3840)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7220)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1806)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7938)
+[2025-11-26T22:32:11.843Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3842)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7939)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3843)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6146)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2048)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7940)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3844)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7941)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3845)
+[2025-11-26T22:32:11.844Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7942)
+[2025-11-26T22:32:11.845Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3846)
+[2025-11-26T22:32:11.845Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7943)
+[2025-11-26T22:32:11.845Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3847)
+[2025-11-26T22:32:11.845Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6160)
+[2025-11-26T22:32:11.845Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2064)
+[2025-11-26T22:32:11.845Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16130)
+[2025-11-26T22:32:11.853Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24575)
+[2025-11-26T22:32:13.065Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:32:13.157Z][pid 41804][tid 21148] INFO DirectUI replacement system initialized successfully
+[2025-11-26T22:32:13.158Z][pid 41804][tid 21148] INFO CExplorerBHO::SetSite attaching to site=000000002D5F7198
+[2025-11-26T22:32:13.158Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.158Z][pid 41804][tid 21148] INFO EnsureBandVisible: invoking ShowBrowserBar for host=00000000029C2C5A (attempt 1)
+[2025-11-26T22:32:13.161Z][pid 41804][tid 21148] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=00000000029C2C5A on attempt 1
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=0000000001012438
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Installed travel band subclass (band=0000000003980616 toolbar=00000000036B162A)
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Breadcrumb CBT hook installed for thread 21148
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000009527D0)
+[2025-11-26T22:32:13.162Z][pid 41804][tid 21148] INFO Installed breadcrumb gradient subclass on hwnd=00000000009527D0
+[2025-11-26T22:32:13.163Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=0000000001012438
+[2025-11-26T22:32:13.163Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-26T22:32:13.163Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:13.163Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.163Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000009527D0)
+[2025-11-26T22:32:13.163Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] INFO ComVTableHook: Intercepted creation of {926749FA-2615-4987-8845-C33E65F2B957}
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework created, setting up hooks...
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Setting up IUIFramework vtable hooks...
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] WARN ComVTableHook::HookMethod: Method already hooked at index 3 for vtable 00007FF97CD8A048
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] WARN ComVTableHook::HookMethod: Method already hooked at index 5 for vtable 00007FF97CD8A048
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework vtable hooks installed
+[2025-11-26T22:32:13.164Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework::Initialize called for hwnd=00000000029C2C5A
+[2025-11-26T22:32:13.166Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Ribbon framework initialized for window 00000000029C2C5A
+[2025-11-26T22:32:13.166Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: IUIFramework::LoadUI called (instance=00007FF9C5AB0000, resourceName=EXPLORER_RIBBON)
+[2025-11-26T22:32:13.176Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=0)
+[2025-11-26T22:32:13.176Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12336)
+[2025-11-26T22:32:13.176Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12384)
+[2025-11-26T22:32:13.229Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=2)
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Original LoadUI succeeded, injecting custom tab...
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] WARN ExplorerRibbonHook: Failed to load embedded CustomRibbonTab.bml (0x80004005)
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: InjectCustomRibbonTab called for hwnd=0000000000000000
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50000
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50001
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50002
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50003
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50004
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50005
+[2025-11-26T22:32:13.230Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50006
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50007
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50008
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50009
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50010
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50011
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50012
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50013
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50014
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50015
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50016
+[2025-11-26T22:32:13.231Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50017
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50018
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50019
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50020
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50021
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50022
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50023
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50024
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50025
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50026
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50027
+[2025-11-26T22:32:13.232Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50028
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50029
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50030
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50031
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50032
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50033
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50034
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50035
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50036
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50037
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50038
+[2025-11-26T22:32:13.233Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50039
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50040
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50041
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50042
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50043
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50044
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50045
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50046
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50047
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50048
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50049
+[2025-11-26T22:32:13.234Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50050
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50051
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50052
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50053
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50054
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50055
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50056
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50057
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50058
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50059
+[2025-11-26T22:32:13.235Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50060
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50061
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50062
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50063
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50064
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50065
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50066
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50067
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50068
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50069
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50070
+[2025-11-26T22:32:13.236Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50071
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50072
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50073
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50074
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50075
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50076
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50077
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50078
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50079
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50080
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50081
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50082
+[2025-11-26T22:32:13.237Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50083
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50084
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50085
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50086
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50087
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50088
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50089
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50090
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50091
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50092
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50093
+[2025-11-26T22:32:13.238Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50094
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50095
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50096
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50097
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50098
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50099
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50100
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50101
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50102
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50103
+[2025-11-26T22:32:13.239Z][pid 41804][tid 21148] VERBOSE ExplorerRibbonHook: Invalidated command 50104
+[2025-11-26T22:32:13.241Z][pid 41804][tid 21148] INFO ExplorerRibbonHook: Custom ribbon tab injection completed
+[2025-11-26T22:32:13.247Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:32:13.274Z][pid 41804][tid 21148] INFO Custom file list view created (hwnd=00000000014432A0)
+[2025-11-26T22:32:13.274Z][pid 41804][tid 21148] INFO Custom file list view configured successfully
+[2025-11-26T22:32:13.307Z][pid 41804][tid 21148] INFO DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND
+[2025-11-26T22:32:13.341Z][pid 41804][tid 21148] INFO Custom file list view created (hwnd=00000000003D26A2)
+[2025-11-26T22:32:13.341Z][pid 41804][tid 21148] INFO Custom file list view configured successfully
+[2025-11-26T22:32:13.344Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:13.344Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.344Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.345Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012A2DA8)
+[2025-11-26T22:32:13.345Z][pid 41804][tid 21148] INFO Installed breadcrumb gradient subclass on hwnd=00000000012A2DA8
+[2025-11-26T22:32:13.345Z][pid 41804][tid 21148] INFO Installed progress gradient subclass on hwnd=0000000001012438
+[2025-11-26T22:32:13.345Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.345Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=00000000010D2784)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=00000000029C2C5A)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=00000000010D2784 frame=00000000029C2C5A)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=00000000010D2784 list=1 tree=1)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=00000000010D2784 delay=500)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=00000000010D2784)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Explorer panes not ready: tree view missing (view=00000000010D2784)
+[2025-11-26T22:32:13.346Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=00000000010D2784 delay=500 attempts=1)
+[2025-11-26T22:32:13.347Z][pid 41804][tid 21148] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-26T22:32:13.347Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:13.347Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.347Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.347Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012A2DA8)
+[2025-11-26T22:32:13.348Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=00000000010D2784)
+[2025-11-26T22:32:13.348Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.348Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=00000000010D2784)
+[2025-11-26T22:32:13.348Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=00000000029C2C5A)
+[2025-11-26T22:32:13.348Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.348Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=00000000010D2784 frame=00000000029C2C5A)
+[2025-11-26T22:32:13.349Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=00000000010D2784 list=1 tree=1)
+[2025-11-26T22:32:13.349Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=00000000010D2784 delay=500)
+[2025-11-26T22:32:13.349Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=00000000010D2784)
+[2025-11-26T22:32:13.349Z][pid 41804][tid 21148] INFO Explorer panes not ready: tree view missing (view=00000000010D2784)
+[2025-11-26T22:32:13.349Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=00000000010D2784 delay=500 attempts=1)
+[2025-11-26T22:32:13.403Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000029C2C5A)
+[2025-11-26T22:32:13.404Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=0000000000602660)
+[2025-11-26T22:32:13.404Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000008A09E2)
+[2025-11-26T22:32:13.431Z][pid 41804][tid 21148] INFO Explorer status bar discovered (hwnd=00000000010332D0)
+[2025-11-26T22:32:13.443Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000010332D0 new=0x00FFFFFF)
+[2025-11-26T22:32:13.444Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000010332D0 new=0x00000000)
+[2025-11-26T22:32:13.463Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000010332D0 new=0x00191919)
+[2025-11-26T22:32:13.463Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000010332D0 new=0x00FFFFFF)
+[2025-11-26T22:32:13.586Z][pid 41804][tid 21148] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-26T22:32:13.586Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.586Z][pid 41804][tid 21148] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000008A09E2)
+[2025-11-26T22:32:13.586Z][pid 41804][tid 21148] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012A2DA8)
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=00000000010D2784)
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Status bar background reset (hwnd=00000000010332D0 previous=0xFF000000)
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Installed shell view window subclass (view=00000000010D2784)
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Installed explorer frame subclass (frame=00000000029C2C5A)
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Explorer view base subclass ready (view=00000000010D2784 frame=00000000029C2C5A)
+[2025-11-26T22:32:13.587Z][pid 41804][tid 21148] INFO Installed explorer tree view subclass (tree=0000000000F927C0)
+[2025-11-26T22:32:13.588Z][pid 41804][tid 21148] INFO Explorer status bar discovered (hwnd=00000000010332D0)
+[2025-11-26T22:32:13.588Z][pid 41804][tid 21148] INFO Status bar theme background updated (hwnd=00000000010332D0 new=0x00191919)
+[2025-11-26T22:32:13.588Z][pid 41804][tid 21148] INFO Status bar theme text color updated (hwnd=00000000010332D0 new=0x00FFFFFF)
+[2025-11-26T22:32:13.589Z][pid 41804][tid 21148] INFO Explorer pane creation watch armed (view=00000000010D2784 list=1 tree=0)
+[2025-11-26T22:32:13.589Z][pid 41804][tid 21148] INFO Explorer pane fallback timer armed (view=00000000010D2784 delay=500)
+[2025-11-26T22:32:13.589Z][pid 41804][tid 21148] INFO Explorer panes not ready: list view missing (view=00000000010D2784)
+[2025-11-26T22:32:13.589Z][pid 41804][tid 21148] INFO Explorer pane retry timer armed (view=00000000010D2784 delay=500 attempts=1)
+[2025-11-26T22:32:13.612Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000029C2C5A)
+[2025-11-26T22:32:13.612Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=0000000000602660)
+[2025-11-26T22:32:13.612Z][pid 41804][tid 21148] INFO Installed explorer list host subclass (host=00000000008A09E2)
+[2025-11-26T22:32:14.610Z][pid 41804][tid 21148] INFO Breadcrumb CBT hook removed for thread 21148
+[2025-11-26T22:32:14.610Z][pid 41804][tid 21148] INFO Explorer pane creation watch cleared (view=00000000010D2784)
+[2025-11-26T22:32:14.610Z][pid 41804][tid 21148] INFO Status bar background reset (hwnd=00000000010332D0 previous=0xFF000000)
+[2025-11-26T22:32:14.610Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:14.705Z][pid 41804][tid 21148] INFO CExplorerBHO::SetSite detaching from site
+[2025-11-26T22:32:14.705Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:14.706Z][pid 41804][tid 21148] INFO Cleared Open In New Tab pending state
+[2025-11-26T22:32:14.709Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnViewChanged(viewId=0, verb=1)
+[2025-11-26T22:32:14.711Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4096)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8197)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8196)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12515)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12514)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12513)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12516)
+[2025-11-26T22:32:14.712Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8228)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16481)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16128)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16129)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9474)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9475)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9473)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9472)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5376)
+[2025-11-26T22:32:14.713Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13651)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13650)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13649)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13648)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9491)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(21824)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9493)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13634)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13632)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(21824)
+[2025-11-26T22:32:14.714Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(13635)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20497)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9490)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12386)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9488)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5377)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(9492)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(5378)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12295)
+[2025-11-26T22:32:14.715Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8224)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12403)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12402)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12401)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8197)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8198)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12388)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12389)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16480)
+[2025-11-26T22:32:14.716Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12385)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12384)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20576)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8196)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20496)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8199)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12293)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24576)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20496)
+[2025-11-26T22:32:14.717Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16432)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12336)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8193)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12357)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12352)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12355)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12354)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12353)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(20544)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12356)
+[2025-11-26T22:32:14.718Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24832)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12368)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(25088)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8194)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12321)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12324)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12322)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12320)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12323)
+[2025-11-26T22:32:14.719Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(12305)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8192)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4097)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8210)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8209)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8211)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8208)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4098)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8229)
+[2025-11-26T22:32:14.720Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8228)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8226)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8225)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(8227)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(4099)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7216)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1795)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6144)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6448)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(259)
+[2025-11-26T22:32:14.721Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7184)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1793)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7200)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1794)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7217)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1799)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7248)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1797)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6400)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(256)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7168)
+[2025-11-26T22:32:14.722Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1792)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6416)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(257)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7218)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1800)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7232)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1796)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7264)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1798)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7185)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1803)
+[2025-11-26T22:32:14.723Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7201)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1802)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7219)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1801)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7233)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1805)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7937)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3841)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7169)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1804)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7936)
+[2025-11-26T22:32:14.724Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3840)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7220)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(1806)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7938)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3842)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7939)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3843)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6146)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2048)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7940)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3844)
+[2025-11-26T22:32:14.725Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7941)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3845)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7942)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3846)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(7943)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(3847)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(6160)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(2064)
+[2025-11-26T22:32:14.726Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(16130)
+[2025-11-26T22:32:14.730Z][pid 41804][tid 21148] VERBOSE RibbonApplicationHandler: OnDestroyUICommand(24575)
