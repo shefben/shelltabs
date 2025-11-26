@@ -119,8 +119,12 @@
 
 bool MatchesClass(HWND hwnd, const wchar_t* className);
 
+namespace shelltabs {
+
 std::mutex CExplorerBHO::s_liveInstancesMutex;
 std::unordered_set<CExplorerBHO*> CExplorerBHO::s_liveInstances;
+
+}  // namespace shelltabs
 
 namespace {
 
