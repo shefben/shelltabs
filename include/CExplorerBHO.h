@@ -80,6 +80,13 @@ class ShellTabsListView;
                 IFACEMETHODIMP GetSite(REFIID riid, void** site) override;
 
         private:
+                static std::mutex s_liveInstancesMutex;
+                static std::unordered_set<CExplorerBHO*> s_liveInstances;
+
+                static void RegisterLiveInstance(CExplorerBHO* instance);
+                static void UnregisterLiveInstance(CExplorerBHO* instance);
+                static bool IsInstanceAlive(const CExplorerBHO* instance);
+
                 enum class BandEnsureOutcome {
                         Unknown,
                         Success,
