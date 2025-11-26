@@ -48,6 +48,12 @@ set_source_files_properties(src/resource.rc PROPERTIES
     OBJECT_DEPENDS "${RIBBON_IMAGE_SOURCES}"
 )
 
+# Ensure the generated ribbon markup is packaged as a resource alongside our
+# primary resource script so the custom tab can be loaded at runtime.
+set_source_files_properties(src/CustomRibbonTab.rc PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/CustomRibbonTab.bml"
+)
+
 set(MISSING_RIBBON_IMAGES)
 foreach(ribbon_image IN LISTS RIBBON_IMAGE_SOURCES)
     if(NOT EXISTS "${ribbon_image}")
@@ -106,6 +112,7 @@ add_library(ShellTabs SHARED
     src/DirectUIReplacementIntegration.cpp
     src/ComVTableHook.cpp
     src/ExplorerRibbonHook.cpp
+    src/CustomRibbonTab.rc
     src/resource.rc
 )
 

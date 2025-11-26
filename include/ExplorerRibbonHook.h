@@ -113,9 +113,14 @@ public:
     // Set the shared command handler
     void SetCommandHandler(RibbonCommandHandler* handler);
 
+    // Set the original application's handler so we can forward non-custom
+    // commands while handling custom IDs ourselves.
+    void SetOriginalApplication(IUIApplication* original);
+
 private:
     LONG m_refCount;
     Microsoft::WRL::ComPtr<RibbonCommandHandler> m_commandHandler;
+    Microsoft::WRL::ComPtr<IUIApplication> m_originalApp;
 };
 
 //=============================================================================

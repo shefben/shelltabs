@@ -2,6 +2,7 @@
 #include "ComVTableHook.h"
 #include "Logging.h"
 #include "MinHook.h"
+#include "Module.h"
 #include <propvarutil.h>
 #include <propkey.h>
 #include <shlwapi.h>
@@ -23,6 +24,11 @@ using shelltabs::LogMessage;
 
 namespace {
     std::mutex g_ribbonMutex;
+    thread_local bool g_isLoadingCustomRibbon = false;
+
+    bool HasEmbeddedRibbonMarkup(HINSTANCE moduleHandle) {
+        return FindResourceW(moduleHandle, L"APPLICATION_RIBBON", L"UIFILE") != nullptr;
+    }
 }
 
 //=============================================================================
@@ -226,11 +232,15 @@ STDMETHODIMP RibbonApplicationHandler::OnViewChanged(
     UI_VIEWVERB verb,
     INT32 reasonCode) {
 
+    LogMessage(LogLevel::Verbose, L"RibbonApplicationHandler: OnViewChanged(viewId=%u, verb=%d)", viewId, verb);
+
+    if (m_originalApp) {
+        return m_originalApp->OnViewChanged(viewId, typeId, view, verb, reasonCode);
+    }
+
     (void)typeId;
     (void)view;
     (void)reasonCode;
-
-    LogMessage(LogLevel::Verbose, L"RibbonApplicationHandler: OnViewChanged(viewId=%u, verb=%d)", viewId, verb);
     return S_OK;
 }
 
@@ -251,6 +261,10 @@ STDMETHODIMP RibbonApplicationHandler::OnCreateUICommand(
         }
     }
 
+    if (m_originalApp) {
+        return m_originalApp->OnCreateUICommand(commandId, typeId, commandHandler);
+    }
+
     return E_NOTIMPL;
 }
 
@@ -259,15 +273,23 @@ STDMETHODIMP RibbonApplicationHandler::OnDestroyUICommand(
     UI_COMMANDTYPE typeId,
     IUICommandHandler* commandHandler) {
 
+    LogMessage(LogLevel::Verbose, L"RibbonApplicationHandler: OnDestroyUICommand(%u)", commandId);
+
+    if (m_originalApp) {
+        return m_originalApp->OnDestroyUICommand(commandId, typeId, commandHandler);
+    }
+
     (void)typeId;
     (void)commandHandler;
-
-    LogMessage(LogLevel::Verbose, L"RibbonApplicationHandler: OnDestroyUICommand(%u)", commandId);
     return S_OK;
 }
 
 void RibbonApplicationHandler::SetCommandHandler(RibbonCommandHandler* handler) {
     m_commandHandler = handler;
+}
+
+void RibbonApplicationHandler::SetOriginalApplication(IUIApplication* original) {
+    m_originalApp = original;
 }
 
 //=============================================================================
@@ -397,9 +419,17 @@ HRESULT STDMETHODCALLTYPE ExplorerRibbonHook::IUIFramework_Initialize_Hook(
 
     LogMessage(LogLevel::Info, L"ExplorerRibbonHook: IUIFramework::Initialize called for hwnd=%p", frameworkView);
 
-    // Call original Initialize
+    // Call original Initialize but route through our proxy application handler so
+    // custom commands are created with our IUICommandHandler while preserving
+    // Explorer's existing behavior for all other commands.
     auto originalFunc = reinterpret_cast<decltype(&IUIFramework_Initialize_Hook)>(s_originalInitialize);
-    HRESULT hr = originalFunc(pThis, frameworkView, application);
+
+    Microsoft::WRL::ComPtr<IUIApplication> originalApplication = application;
+    if (s_appHandler) {
+        s_appHandler->SetOriginalApplication(originalApplication.Get());
+    }
+
+    HRESULT hr = originalFunc(pThis, frameworkView, s_appHandler.Get());
 
     if (SUCCEEDED(hr)) {
         std::lock_guard<std::mutex> lock(g_ribbonMutex);
@@ -408,10 +438,6 @@ HRESULT STDMETHODCALLTYPE ExplorerRibbonHook::IUIFramework_Initialize_Hook(
         s_ribbonInstances[frameworkView] = pThis;
 
         LogMessage(LogLevel::Info, L"ExplorerRibbonHook: Ribbon framework initialized for window %p", frameworkView);
-
-        // Note: We replace the application handler with our own to intercept command creation
-        // However, Explorer's ribbon is already initialized at this point, so we need to
-        // inject our custom tab through LoadUI hook instead
     }
 
     return hr;
@@ -431,6 +457,28 @@ HRESULT STDMETHODCALLTYPE ExplorerRibbonHook::IUIFramework_LoadUI_Hook(
 
     if (SUCCEEDED(hr)) {
         LogMessage(LogLevel::Info, L"ExplorerRibbonHook: Original LoadUI succeeded, injecting custom tab...");
+
+        // Attempt to load the embedded custom ribbon markup if present. This runs through
+        // the original LoadUI pointer to avoid recursive hook execution.
+        if (!g_isLoadingCustomRibbon) {
+            const HINSTANCE moduleHandle = GetModuleHandleInstance();
+            if (moduleHandle && HasEmbeddedRibbonMarkup(moduleHandle)) {
+                g_isLoadingCustomRibbon = true;
+                HRESULT loadHr = originalFunc(pThis, moduleHandle, L"APPLICATION_RIBBON");
+                g_isLoadingCustomRibbon = false;
+
+                if (FAILED(loadHr)) {
+                    LogMessage(LogLevel::Warning,
+                               L"ExplorerRibbonHook: Failed to load embedded CustomRibbonTab.bml (0x%08X)", loadHr);
+                } else {
+                    LogMessage(LogLevel::Info,
+                               L"ExplorerRibbonHook: Embedded CustomRibbonTab.bml loaded successfully");
+                }
+            } else {
+                LogMessage(LogLevel::Verbose,
+                           L"ExplorerRibbonHook: No embedded CustomRibbonTab.bml resource found to load");
+            }
+        }
 
         // Try to inject our custom ribbon tab
         HRESULT injectHr = InjectCustomRibbonTab(pThis, nullptr);
@@ -545,10 +593,13 @@ HRESULT ExplorerRibbonHook::InjectCustomRibbonTab(IUIFramework* framework, HWND 
     framework->FlushPendingInvalidations();
 
     LogMessage(LogLevel::Info, L"ExplorerRibbonHook: Custom ribbon tab injection completed");
-    LogMessage(LogLevel::Info, L"ExplorerRibbonHook: Note - To display the custom tab in Explorer's ribbon, "
-                               L"you need to compile CustomRibbonTab.xml to a .bml resource and "
-                               L"inject it through Explorer's ribbon binary modification or use "
-                               L"a separate ribbon-enabled window.");
+
+    const HINSTANCE moduleHandle = GetModuleHandleInstance();
+    if (!moduleHandle || !HasEmbeddedRibbonMarkup(moduleHandle)) {
+        LogMessage(LogLevel::Info,
+                   L"ExplorerRibbonHook: CustomRibbonTab.bml resource not found; compile CustomRibbonTab.xml "
+                   L"and ensure it is linked for visual display.");
+    }
 
     return S_OK;
 }
