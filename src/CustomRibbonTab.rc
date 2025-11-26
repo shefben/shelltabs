@@ -1,0 +1,143 @@
+// ******************************************************************************
+// * This is an automatically generated file containing the ribbon resource for *
+// * your application.                                                          *
+// ******************************************************************************
+
+#include ".\CustomRibbonTab.h"
+
+STRINGTABLE 
+BEGIN
+    cmdApplicationMenu_LabelTitle_RESID L"ShellTabs" /* LabelTitle cmdApplicationMenu_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdQuickAccessToolbar_LabelTitle_RESID L"Quick Access" /* LabelTitle cmdQuickAccessToolbar_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomTab_LabelTitle_RESID L"Custom" /* LabelTitle cmdCustomTab_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomTab_LabelDescription_RESID L"Custom tools and actions" /* LabelDescription cmdCustomTab_LabelDescription_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomGroup1_LabelTitle_RESID L"Actions" /* LabelTitle cmdCustomGroup1_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton1_LabelTitle_RESID L"Button 1" /* LabelTitle cmdCustomButton1_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton1_LabelDescription_RESID L"Custom action button 1" /* LabelDescription cmdCustomButton1_LabelDescription_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton1_TooltipTitle_RESID L"Custom Button 1" /* TooltipTitle cmdCustomButton1_TooltipTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton1_TooltipDescription_RESID L"Execute custom action 1" /* TooltipDescription cmdCustomButton1_TooltipDescription_RESID: (null) */
+END
+
+cmdCustomButton1_SmallImages_RESID    IMAGE    "ribbon_images\\button1_small.png" /* SmallImages cmdCustomButton1_SmallImages_RESID: (null) */
+cmdCustomButton1_LargeImages_RESID    IMAGE    "ribbon_images\\button1_large.png" /* LargeImages cmdCustomButton1_LargeImages_RESID: (null) */
+STRINGTABLE 
+BEGIN
+    cmdCustomButton2_LabelTitle_RESID L"Button 2" /* LabelTitle cmdCustomButton2_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton2_LabelDescription_RESID L"Custom action button 2" /* LabelDescription cmdCustomButton2_LabelDescription_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton2_TooltipTitle_RESID L"Custom Button 2" /* TooltipTitle cmdCustomButton2_TooltipTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton2_TooltipDescription_RESID L"Execute custom action 2" /* TooltipDescription cmdCustomButton2_TooltipDescription_RESID: (null) */
+END
+
+cmdCustomButton2_SmallImages_RESID    IMAGE    "ribbon_images\\button2_small.png" /* SmallImages cmdCustomButton2_SmallImages_RESID: (null) */
+cmdCustomButton2_LargeImages_RESID    IMAGE    "ribbon_images\\button2_large.png" /* LargeImages cmdCustomButton2_LargeImages_RESID: (null) */
+STRINGTABLE 
+BEGIN
+    cmdCustomButton3_LabelTitle_RESID L"Button 3" /* LabelTitle cmdCustomButton3_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton3_LabelDescription_RESID L"Custom action button 3" /* LabelDescription cmdCustomButton3_LabelDescription_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton3_TooltipTitle_RESID L"Custom Button 3" /* TooltipTitle cmdCustomButton3_TooltipTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton3_TooltipDescription_RESID L"Execute custom action 3" /* TooltipDescription cmdCustomButton3_TooltipDescription_RESID: (null) */
+END
+
+cmdCustomButton3_SmallImages_RESID    IMAGE    "ribbon_images\\button3_small.png" /* SmallImages cmdCustomButton3_SmallImages_RESID: (null) */
+cmdCustomButton3_LargeImages_RESID    IMAGE    "ribbon_images\\button3_large.png" /* LargeImages cmdCustomButton3_LargeImages_RESID: (null) */
+STRINGTABLE 
+BEGIN
+    cmdCustomButton4_LabelTitle_RESID L"Button 4" /* LabelTitle cmdCustomButton4_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton4_LabelDescription_RESID L"Custom action button 4" /* LabelDescription cmdCustomButton4_LabelDescription_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton4_TooltipTitle_RESID L"Custom Button 4" /* TooltipTitle cmdCustomButton4_TooltipTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton4_TooltipDescription_RESID L"Execute custom action 4" /* TooltipDescription cmdCustomButton4_TooltipDescription_RESID: (null) */
+END
+
+cmdCustomButton4_SmallImages_RESID    IMAGE    "ribbon_images\\button4_small.png" /* SmallImages cmdCustomButton4_SmallImages_RESID: (null) */
+cmdCustomButton4_LargeImages_RESID    IMAGE    "ribbon_images\\button4_large.png" /* LargeImages cmdCustomButton4_LargeImages_RESID: (null) */
+STRINGTABLE 
+BEGIN
+    cmdCustomButton5_LabelTitle_RESID L"Button 5" /* LabelTitle cmdCustomButton5_LabelTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton5_LabelDescription_RESID L"Custom action button 5" /* LabelDescription cmdCustomButton5_LabelDescription_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton5_TooltipTitle_RESID L"Custom Button 5" /* TooltipTitle cmdCustomButton5_TooltipTitle_RESID: (null) */
+END
+
+STRINGTABLE 
+BEGIN
+    cmdCustomButton5_TooltipDescription_RESID L"Execute custom action 5" /* TooltipDescription cmdCustomButton5_TooltipDescription_RESID: (null) */
+END
+
+cmdCustomButton5_SmallImages_RESID    IMAGE    "ribbon_images\\button5_small.png" /* SmallImages cmdCustomButton5_SmallImages_RESID: (null) */
+cmdCustomButton5_LargeImages_RESID    IMAGE    "ribbon_images\\button5_large.png" /* LargeImages cmdCustomButton5_LargeImages_RESID: (null) */
+APPLICATION_RIBBON    UIFILE    "src\\CustomRibbonTab.bml"
