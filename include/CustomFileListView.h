@@ -331,6 +331,12 @@ public:
     static void Shutdown();
     static bool IsEnabled() { return s_enabled; }
 
+    // Allow external detours (e.g., ThemeHooks) to delegate DirectUI window creation
+    static HWND TryHandleCreateWindowEx(
+        DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
+        DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
+        HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
+
     // Register a custom file list view instance
     static void RegisterInstance(HWND hwnd, CustomFileListView* view);
     static void UnregisterInstance(HWND hwnd);
@@ -360,6 +366,7 @@ private:
     static void* s_originalCreateWindowExW;
     static void* s_originalFindWindowW;
     static void* s_originalFindWindowExW;
+    static bool s_usesExternalCreateWindowHook;
     static std::unordered_map<HWND, CustomFileListView*> s_instances;
 };
 
