@@ -6922,6 +6922,19 @@ bool CExplorerBHO::IsTravelToolbarButtonEnabled(UINT commandId) const {
         return false;
     }
 
+    if (commandId == m_travelBackCommandId || commandId == m_travelForwardCommandId) {
+        NavigationAvailability availability{};
+        HWND bandWindow = GetShellTabsBandWindow();
+        if (bandWindow &&
+            SendMessageW(bandWindow, WM_SHELLTABS_QUERY_NAVIGATION_STATE,
+                         reinterpret_cast<WPARAM>(&availability), 0) != 0) {
+            if (commandId == m_travelBackCommandId) {
+                return availability.canGoBack;
+            }
+            return availability.canGoForward;
+        }
+    }
+
     const LRESULT stateResult = SendMessageW(m_travelToolbar, TB_GETSTATE, commandId, 0);
     if (stateResult < 0) {
         return false;

@@ -1516,6 +1516,14 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
     return true;
 }
 
+NavigationAvailability TabBand::GetNavigationAvailability() const {
+    NavigationAvailability availability;
+    const TabLocation selected = m_tabs.SelectedLocation();
+    availability.canGoBack = m_tabs.CanNavigateBack(selected);
+    availability.canGoForward = m_tabs.CanNavigateForward(selected);
+    return availability;
+}
+
 void TabBand::OnToggleGroupCollapsed(int groupIndex) {
     m_tabs.ToggleGroupCollapsed(groupIndex);
     UpdateTabsUI();
@@ -3423,7 +3431,7 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
     }
 
     SessionStore* sessionStore = m_sessionStore.get();
-    if (sessionStore && result->groupStoreLoaded) {
+    if (sessionStore) {
         result->sessionStoreAvailable = true;
         sessionStore->SetMarkerReady(true);
         result->lastSessionUnclean = sessionStore->WasPreviousSessionUnclean();

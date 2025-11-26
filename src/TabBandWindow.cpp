@@ -7268,6 +7268,17 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_QUERY_NAVIGATION_STATE: {
+                if (!self->m_owner) {
+                    return 0;
+                }
+                auto* availability = reinterpret_cast<NavigationAvailability*>(wParam);
+                if (!availability) {
+                    return 0;
+                }
+                *availability = self->m_owner->GetNavigationAvailability();
+                return 1;
+            }
             case WM_SHELLTABS_SHOW_HISTORY_MENU: {
                 if (!self->m_owner) {
                     return 0;
