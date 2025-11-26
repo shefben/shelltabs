@@ -119,6 +119,9 @@
 
 bool MatchesClass(HWND hwnd, const wchar_t* className);
 
+std::mutex CExplorerBHO::s_liveInstancesMutex;
+std::unordered_set<CExplorerBHO*> CExplorerBHO::s_liveInstances;
+
 namespace {
 
 using shelltabs::LogLevel;
@@ -1096,8 +1099,36 @@ std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
 std::mutex CExplorerBHO::s_openInNewTabTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 
+void CExplorerBHO::RegisterLiveInstance(CExplorerBHO* instance) {
+    if (!instance) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(s_liveInstancesMutex);
+    s_liveInstances.insert(instance);
+}
+
+void CExplorerBHO::UnregisterLiveInstance(CExplorerBHO* instance) {
+    if (!instance) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(s_liveInstancesMutex);
+    s_liveInstances.erase(instance);
+}
+
+bool CExplorerBHO::IsInstanceAlive(const CExplorerBHO* instance) {
+    if (!instance) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(s_liveInstancesMutex);
+    return s_liveInstances.find(const_cast<CExplorerBHO*>(instance)) != s_liveInstances.end();
+}
+
 CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     ModuleAddRef();
+    RegisterLiveInstance(this);
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
     m_glowCoordinator.Configure(OptionsStore::Instance().Get());
 
@@ -1112,7 +1143,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     DirectUIReplacementIntegration::SetCustomViewCreatedCallback(
         [](ShellTabs::CustomFileListView* view, HWND hwnd, void* context) {
             auto* self = static_cast<CExplorerBHO*>(context);
-            if (self) {
+            if (self && CExplorerBHO::IsInstanceAlive(self)) {
                 self->OnCustomFileListViewCreated(view, hwnd);
             }
         },
@@ -1129,6 +1160,7 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
 }
 
 CExplorerBHO::~CExplorerBHO() {
+    UnregisterLiveInstance(this);
     Disconnect();
     DestroyProgressGradientResources();
     ResetListViewAccentBrush();
@@ -8252,7 +8284,7 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
 
         if (!observers.empty()) {
             for (CExplorerBHO* observer : observers) {
-                if (!observer || !observer->m_gdiplusInitialized) {
+                if (!observer || !CExplorerBHO::IsInstanceAlive(observer) || !observer->m_gdiplusInitialized) {
                     continue;
                 }
 
@@ -8311,7 +8343,7 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbCbtProc(int code, WPARAM wParam, LPARAM
 LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                       UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8346,7 +8378,7 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
 LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                     UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8380,7 +8412,7 @@ LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM 
 LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8562,7 +8594,7 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
 LRESULT CALLBACK CExplorerBHO::TravelBandSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                      UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8588,7 +8620,7 @@ LRESULT CALLBACK CExplorerBHO::TravelBandSubclassProc(HWND hwnd, UINT msg, WPARA
 LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                          UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8634,7 +8666,7 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
 LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8687,7 +8719,7 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
 LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                          UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -8730,7 +8762,7 @@ LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WP
 LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR refData) {
     auto* self = reinterpret_cast<CExplorerBHO*>(refData);
-    if (!self) {
+    if (!self || !IsInstanceAlive(self)) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
