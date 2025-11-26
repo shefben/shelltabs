@@ -1379,6 +1379,7 @@ bool DirectUIReplacementHook::s_ownsMinHookLifecycle = false;
 void* DirectUIReplacementHook::s_originalCreateWindowExW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowW = nullptr;
 void* DirectUIReplacementHook::s_originalFindWindowExW = nullptr;
+bool DirectUIReplacementHook::s_usesExternalCreateWindowHook = false;
 std::unordered_map<HWND, CustomFileListView*> DirectUIReplacementHook::s_instances;
 
 bool DirectUIReplacementHook::Initialize() {
@@ -1427,10 +1428,16 @@ bool DirectUIReplacementHook::Initialize() {
         }
     };
 
+    bool usingExternalCreateWindowHook = false;
+
     // Hook CreateWindowExW
     const MH_STATUS createHookStatus = MH_CreateHook(&CreateWindowExW, &CreateWindowExW_Hook,
                                                      &s_originalCreateWindowExW);
-    if (createHookStatus != MH_OK) {
+    if (createHookStatus == MH_ERROR_ALREADY_CREATED) {
+        LogMessage(LogLevel::Info,
+                   L"DirectUIReplacementHook: CreateWindowExW already hooked; relying on shared detour");
+        usingExternalCreateWindowHook = true;
+    } else if (createHookStatus != MH_OK) {
         LogMessage(LogLevel::Error,
                    L"DirectUIReplacementHook: Failed to create CreateWindowExW hook (status=%d)",
                    createHookStatus);
@@ -1438,14 +1445,16 @@ bool DirectUIReplacementHook::Initialize() {
         return false;
     }
 
-    const MH_STATUS enableCreateStatus = MH_EnableHook(&CreateWindowExW);
-    if (enableCreateStatus != MH_OK) {
-        LogMessage(LogLevel::Error,
-                   L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook (status=%d)",
-                   enableCreateStatus);
-        disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW);
-        cleanupOnFailure(L"CreateWindowExW enable");
-        return false;
+    if (!usingExternalCreateWindowHook) {
+        const MH_STATUS enableCreateStatus = MH_EnableHook(&CreateWindowExW);
+        if (enableCreateStatus != MH_OK) {
+            LogMessage(LogLevel::Error,
+                       L"DirectUIReplacementHook: Failed to enable CreateWindowExW hook (status=%d)",
+                       enableCreateStatus);
+            disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW);
+            cleanupOnFailure(L"CreateWindowExW enable");
+            return false;
+        }
     }
 
     // Hook FindWindowW
@@ -1487,6 +1496,7 @@ bool DirectUIReplacementHook::Initialize() {
     }
 
     s_enabled = true;
+    s_usesExternalCreateWindowHook = usingExternalCreateWindowHook;
     LogMessage(LogLevel::Info, L"DirectUIReplacementHook: All hooks initialized successfully");
     return true;
 }
@@ -1511,7 +1521,9 @@ void DirectUIReplacementHook::Shutdown() {
     };
 
     // Disable and remove all hooks
-    disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW, L"CreateWindowExW");
+    if (!s_usesExternalCreateWindowHook) {
+        disableAndRemoveHook(&CreateWindowExW, s_originalCreateWindowExW, L"CreateWindowExW");
+    }
     disableAndRemoveHook(&FindWindowW, s_originalFindWindowW, L"FindWindowW");
     disableAndRemoveHook(&FindWindowExW, s_originalFindWindowExW, L"FindWindowExW");
 
@@ -1527,6 +1539,7 @@ void DirectUIReplacementHook::Shutdown() {
     }
 
     s_enabled = false;
+    s_usesExternalCreateWindowHook = false;
     LogMessage(LogLevel::Info, L"DirectUIReplacementHook: All hooks shut down");
 }
 
@@ -1546,16 +1559,24 @@ CustomFileListView* DirectUIReplacementHook::GetInstance(HWND hwnd) {
     return (it != s_instances.end()) ? it->second : nullptr;
 }
 
+HWND DirectUIReplacementHook::TryHandleCreateWindowEx(
+    DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR /*lpWindowName*/, DWORD dwStyle, int X, int Y,
+    int nWidth, int nHeight, HWND hWndParent, HMENU /*hMenu*/, HINSTANCE hInstance, LPVOID /*lpParam*/) {
+    if (!s_enabled || !IsDirectUIClassName(lpClassName)) {
+        return nullptr;
+    }
+
+    LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND");
+    return CreateReplacementWindow(dwExStyle, dwStyle, X, Y, nWidth, nHeight, hWndParent, hInstance);
+}
+
 HWND WINAPI DirectUIReplacementHook::CreateWindowExW_Hook(
     DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
     DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
     HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam) {
-
-    // Check if this is a DirectUIHWND window
-    if (IsDirectUIClassName(lpClassName)) {
-        LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND");
-        return CreateReplacementWindow(dwExStyle, dwStyle, X, Y,
-                                      nWidth, nHeight, hWndParent, hInstance);
+    if (HWND replacement = TryHandleCreateWindowEx(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y,
+                                                  nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam)) {
+        return replacement;
     }
 
     // Call original CreateWindowExW
