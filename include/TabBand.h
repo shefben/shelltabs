@@ -97,6 +97,7 @@ public:
     void OnNavigateBack();
     void OnNavigateForward();
     bool OnShowHistoryMenu(const HistoryMenuRequest& request);
+    NavigationAvailability GetNavigationAvailability() const;
     void OnToggleGroupCollapsed(int groupIndex);
     void OnUnhideAllInGroup(int groupIndex);
     void OnCreateIslandAfter(int groupIndex);
