@@ -169,8 +169,8 @@ private:
     UINT m_dpiY = 96;
 };
 
-std::unique_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKind kind,
-                                                              ExplorerGlowCoordinator& coordinator);
+std::shared_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKind kind,
+                                                             ExplorerGlowCoordinator& coordinator);
 
 }  // namespace shelltabs
 

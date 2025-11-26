@@ -2327,23 +2327,23 @@ LRESULT CALLBACK ExplorerGlowSurface::SubclassProc(HWND hwnd, UINT msg, WPARAM w
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-std::unique_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKind kind,
-                                                              ExplorerGlowCoordinator& coordinator) {
+std::shared_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKind kind,
+                                                             ExplorerGlowCoordinator& coordinator) {
     switch (kind) {
         case ExplorerSurfaceKind::ListView:
-            return std::make_unique<ListViewGlowSurface>(kind, coordinator);
+            return std::make_shared<ListViewGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::Header:
-            return std::make_unique<HeaderGlowSurface>(kind, coordinator);
+            return std::make_shared<HeaderGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::Rebar:
-            return std::make_unique<RebarGlowSurface>(kind, coordinator);
+            return std::make_shared<RebarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::Toolbar:
-            return std::make_unique<ToolbarGlowSurface>(kind, coordinator);
+            return std::make_shared<ToolbarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::Edit:
-            return std::make_unique<EditGlowSurface>(kind, coordinator);
+            return std::make_shared<EditGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::Scrollbar:
-            return std::make_unique<ScrollBarGlowSurface>(kind, coordinator);
+            return std::make_shared<ScrollBarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::DirectUi:
-            return std::make_unique<DirectUiGlowSurface>(kind, coordinator);
+            return std::make_shared<DirectUiGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::PopupMenu:
         case ExplorerSurfaceKind::Tooltip:
             return nullptr;

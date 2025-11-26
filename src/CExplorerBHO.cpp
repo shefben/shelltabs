@@ -2790,12 +2790,13 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
     auto existing = m_glowSurfaces.find(hwnd);
     const bool hadExisting = (existing != m_glowSurfaces.end());
     if (existing != m_glowSurfaces.end()) {
-        if (existing->second && existing->second->Kind() == kind && existing->second->IsAttached()) {
-            existing->second->RequestRepaint();
+        std::shared_ptr<ExplorerGlowSurface> surfaceRef = existing->second;
+        if (surfaceRef && surfaceRef->Kind() == kind && surfaceRef->IsAttached()) {
+            surfaceRef->RequestRepaint();
             return true;
         }
-        if (existing->second) {
-            existing->second->Detach();
+        if (surfaceRef) {
+            surfaceRef->Detach();
         }
         m_glowSurfaces.erase(existing);
     }
@@ -2813,7 +2814,7 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
         installedSubclass = true;
     }
 
-    auto surface = CreateGlowSurfaceWrapper(kind, m_glowCoordinator);
+    std::shared_ptr<ExplorerGlowSurface> surface = CreateGlowSurfaceWrapper(kind, m_glowCoordinator);
     if (!surface) {
         if (installedSubclass) {
             RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
@@ -2871,8 +2872,9 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
         InvalidateRect(target, nullptr, FALSE);
     }
 
-    if (it->second) {
-        it->second->Detach();
+    std::shared_ptr<ExplorerGlowSurface> surface = it->second;
+    if (surface) {
+        surface->Detach();
     }
 
     m_glowSurfaces.erase(it);
