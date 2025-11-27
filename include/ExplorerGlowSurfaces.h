@@ -112,7 +112,7 @@ private:
     bool m_bitmapInterceptEnabled = true;
 };
 
-class ExplorerGlowSurface {
+class ExplorerGlowSurface : public std::enable_shared_from_this<ExplorerGlowSurface> {
 public:
     ExplorerGlowSurface(ExplorerSurfaceKind kind, ExplorerGlowCoordinator& coordinator);
     virtual ~ExplorerGlowSurface();
@@ -167,6 +167,7 @@ private:
     bool m_subclassInstalled = false;
     UINT m_dpiX = 96;
     UINT m_dpiY = 96;
+    std::shared_ptr<ExplorerGlowSurface> m_selfHold;
 };
 
 std::shared_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKind kind,

@@ -3253,15 +3253,11 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
                 reinterpret_cast<LPARAM>(&context));
         }
 
-        // Disabled: registering neon glow surfaces for edit controls is triggering
-        // instability (see crashlog10.log) with crashes originating from the
-        // glow subclass. Skip the edit registration entirely until the root
-        // cause is resolved.
-        // for (HWND edit : FindExplorerEditControls()) {
-        //     if (RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true)) {
-        //         active.insert(edit);
-        //     }
-        // }
+        for (HWND edit : FindExplorerEditControls()) {
+            if (RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true)) {
+                active.insert(edit);
+            }
+        }
     }
 
     if (m_statusBar) {
