@@ -6659,6 +6659,8 @@ void CExplorerBHO::RemoveTravelBandSubclass() {
     }
     ReleaseTravelToolbarCapture();
     ResetTravelToolbarButtonState();
+    m_travelToolbarPressedCommandId = 0;
+    m_travelToolbarPressedRect = {};
     m_travelBand = nullptr;
     m_travelToolbar = nullptr;
     m_travelBandSubclassInstalled = false;
@@ -6746,10 +6748,20 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
         if (isNavigationTarget) {
             BeginTravelToolbarCapture(toolbar);
             m_travelToolbarPressedButton = static_cast<int>(target);
+            const UINT commandId =
+                (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
+            m_travelToolbarPressedCommandId = commandId;
+            m_travelToolbarPressedRect = {};
+
+            if (commandId != 0) {
+                RECT buttonRect{};
+                if (SendMessageW(toolbar, TB_GETRECT, commandId, reinterpret_cast<LPARAM>(&buttonRect))) {
+                    m_travelToolbarPressedRect = buttonRect;
+                }
+            }
+
             if ((target == TravelToolbarTarget::kBack && canGoBack) ||
                 (target == TravelToolbarTarget::kForward && canGoForward)) {
-                const UINT commandId =
-                    (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
                 SetTravelToolbarButtonPressed(commandId, true);
             }
             if (result) {
@@ -6758,7 +6770,7 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
             return true;
         }
 
-        m_travelToolbarPressedButton = -1;
+        ClearTravelToolbarPressContext();
         if (target == TravelToolbarTarget::kDropdown) {
             BeginTravelToolbarCapture(toolbar);
             if (m_travelHistoryDropdownCommandId != 0) {
@@ -6777,6 +6789,7 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
                 const bool shown = ShowTravelHistoryMenu(kind, buttonRect, result);
                 ResetTravelToolbarButtonState();
                 ReleaseTravelToolbarCapture();
+                ClearTravelToolbarPressContext();
                 if (shown) {
                     if (result) {
                         *result = 0;
@@ -6786,6 +6799,7 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
             } else {
                 ResetTravelToolbarButtonState();
                 ReleaseTravelToolbarCapture();
+                ClearTravelToolbarPressContext();
             }
         }
         return false;
@@ -6797,15 +6811,28 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
     const TravelToolbarTarget pressedTarget = pressedNavigationButton
                                                   ? static_cast<TravelToolbarTarget>(m_travelToolbarPressedButton)
                                                   : TravelToolbarTarget::kNone;
+    const RECT pressedRect = m_travelToolbarPressedRect;
+    const UINT pressedCommand = m_travelToolbarPressedCommandId;
 
     ReleaseTravelToolbarCapture();
     ResetTravelToolbarButtonState();
-    m_travelToolbarPressedButton = -1;
+    ClearTravelToolbarPressContext();
 
     if (pressedNavigationButton) {
+        const bool hasRect = (pressedCommand != 0) && (pressedRect.right > pressedRect.left) &&
+                             (pressedRect.bottom > pressedRect.top);
+        const bool insidePressedRect = hasRect && PtInRect(&pressedRect, point);
         if (target == pressedTarget) {
             const bool canNavigate =
                 (pressedTarget == TravelToolbarTarget::kBack) ? canGoBack : canGoForward;
+            if (canNavigate) {
+                PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
+            }
+        } else if (insidePressedRect) {
+            // Some Windows builds fail TB_HITTEST on mouse-up for these split buttons unless the
+            // cursor is perfectly positioned. Fall back to the cached rect so a single click still
+            // navigates when the pointer never left the button.
+            const bool canNavigate = (pressedTarget == TravelToolbarTarget::kBack) ? canGoBack : canGoForward;
             if (canNavigate) {
                 PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
             }
@@ -6913,6 +6940,12 @@ void CExplorerBHO::ResetTravelToolbarButtonState() {
     SetTravelToolbarButtonPressed(m_travelBackCommandId, false);
     SetTravelToolbarButtonPressed(m_travelForwardCommandId, false);
     SetTravelToolbarButtonPressed(m_travelHistoryDropdownCommandId, false);
+}
+
+void CExplorerBHO::ClearTravelToolbarPressContext() {
+    m_travelToolbarPressedButton = -1;
+    m_travelToolbarPressedCommandId = 0;
+    m_travelToolbarPressedRect = {};
 }
 
 void CExplorerBHO::SetTravelToolbarButtonPressed(UINT commandId, bool pressed) {
@@ -8700,6 +8733,7 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
             if (self->m_travelToolbarMouseCaptured && reinterpret_cast<HWND>(lParam) != hwnd) {
                 self->m_travelToolbarMouseCaptured = false;
                 self->ResetTravelToolbarButtonState();
+                self->ClearTravelToolbarPressContext();
             }
             break;
         }
