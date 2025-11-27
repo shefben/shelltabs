@@ -312,6 +312,98 @@ std::wstring DescribeSymbolForAddress(const void* address, std::wstring* lineInf
     return symbolBuffer;
 }
 
+std::wstring DescribePointerWithModule(const void* address) {
+    if (!address) {
+        return L"(null)";
+    }
+
+    const std::wstring module = DescribeModuleForAddress(address);
+    wchar_t buffer[MAX_PATH + 64] = {};
+    swprintf(buffer, ARRAYSIZE(buffer), L"%p (%ls)", address, module.c_str());
+    return buffer;
+}
+
+void LogExceptionParameters(uint64_t faultId, const EXCEPTION_RECORD* record) {
+    if (!record || record->NumberParameters == 0) {
+        return;
+    }
+
+    std::wstring parameters;
+    parameters.reserve(128);
+
+    for (ULONG i = 0; i < record->NumberParameters && i < EXCEPTION_MAXIMUM_PARAMETERS; ++i) {
+        wchar_t buffer[32] = {};
+        swprintf(buffer, ARRAYSIZE(buffer), L"%ls0x%p", parameters.empty() ? L"" : L", ",
+                 reinterpret_cast<void*>(record->ExceptionInformation[i]));
+        parameters.append(buffer);
+    }
+
+    if (!parameters.empty()) {
+        LogMessage(LogLevel::Error, L"[fault %llu] Exception parameters: %ls", faultId, parameters.c_str());
+    }
+}
+
+void LogRegisterContext(uint64_t faultId, const CONTEXT* context) {
+    if (!context) {
+        LogMessage(LogLevel::Warning, L"[fault %llu] No context record available for register dump", faultId);
+        return;
+    }
+
+#if defined(_M_X64)
+    LogMessage(LogLevel::Error,
+               L"[fault %llu] Registers: RIP=%p RSP=%p RBP=%p RAX=%p RBX=%p RCX=%p RDX=%p",
+               faultId,
+               reinterpret_cast<void*>(context->Rip),
+               reinterpret_cast<void*>(context->Rsp),
+               reinterpret_cast<void*>(context->Rbp),
+               reinterpret_cast<void*>(context->Rax),
+               reinterpret_cast<void*>(context->Rbx),
+               reinterpret_cast<void*>(context->Rcx),
+               reinterpret_cast<void*>(context->Rdx));
+
+    LogMessage(LogLevel::Error,
+               L"[fault %llu] Registers (cont'd): RSI=%p RDI=%p R8=%p R9=%p R10=%p R11=%p",
+               faultId,
+               reinterpret_cast<void*>(context->Rsi),
+               reinterpret_cast<void*>(context->Rdi),
+               reinterpret_cast<void*>(context->R8),
+               reinterpret_cast<void*>(context->R9),
+               reinterpret_cast<void*>(context->R10),
+               reinterpret_cast<void*>(context->R11));
+
+    LogMessage(LogLevel::Error,
+               L"[fault %llu] Registers (cont'd): R12=%p R13=%p R14=%p R15=%p Flags=0x%08X",
+               faultId,
+               reinterpret_cast<void*>(context->R12),
+               reinterpret_cast<void*>(context->R13),
+               reinterpret_cast<void*>(context->R14),
+               reinterpret_cast<void*>(context->R15),
+               context->EFlags);
+#else
+    LogMessage(LogLevel::Warning, L"[fault %llu] Register dump not implemented for this architecture", faultId);
+#endif
+}
+
+void LogExceptionDetails(uint64_t faultId, const EXCEPTION_RECORD* record, const CONTEXT* context) {
+    if (!record) {
+        LogMessage(LogLevel::Warning, L"[fault %llu] Missing EXCEPTION_RECORD; skipping detailed logging", faultId);
+        return;
+    }
+
+    const std::wstring addressDescription = DescribePointerWithModule(record->ExceptionAddress);
+
+    LogMessage(LogLevel::Error,
+               L"[fault %llu] Exception record: code=0x%08X flags=0x%08X address=%ls parameters=%lu",
+               faultId,
+               record->ExceptionCode,
+               record->ExceptionFlags,
+               addressDescription.c_str(),
+               record->NumberParameters);
+
+    LogExceptionParameters(faultId, record);
+    LogRegisterContext(faultId, context);
+}
+
 void LogStackTrace(uint64_t faultId) {
     void* frames[kMaxStackFrames] = {};
     const USHORT captured = RtlCaptureStackBackTrace(0, kMaxStackFrames, frames, nullptr);
@@ -476,13 +568,14 @@ LONG CALLBACK VectoredExceptionHandler(_In_ struct _EXCEPTION_POINTERS* info) {
         const ULONG_PTR* exceptionInfo = info->ExceptionRecord->ExceptionInformation;
         const ULONG_PTR isWrite = exceptionInfo ? exceptionInfo[0] : 0;
         const ULONG_PTR faultAddress = exceptionInfo ? exceptionInfo[1] : 0;
+        const std::wstring faultTarget = DescribePointerWithModule(reinterpret_cast<const void*>(faultAddress));
         LogMessage(LogLevel::Error,
                    L"ShellTabs access violation [fault %llu]: %ls at %p (%ls) targeting %p on thread %lu",
                    faultId,
                    isWrite ? L"write" : L"read",
                    address,
                    moduleDescription.c_str(),
-                   reinterpret_cast<void*>(faultAddress),
+                   faultTarget.c_str(),
                    GetCurrentThreadId());
     } else {
         LogMessage(LogLevel::Error,
@@ -494,6 +587,7 @@ LONG CALLBACK VectoredExceptionHandler(_In_ struct _EXCEPTION_POINTERS* info) {
                    GetCurrentThreadId());
     }
 
+    LogExceptionDetails(faultId, info->ExceptionRecord, info->ContextRecord);
     LogStackTrace(faultId);
     MaybeWriteMinidump(faultId, info);
 
@@ -514,6 +608,7 @@ LONG CALLBACK UnhandledExceptionFilterCallback(_In_ struct _EXCEPTION_POINTERS* 
     const auto code = info->ExceptionRecord->ExceptionCode;
     const void* address = info->ExceptionRecord->ExceptionAddress;
     LogMessage(LogLevel::Error, L"Unhandled exception 0x%08X at %p", code, address);
+    LogExceptionDetails(++g_faultSequence, info->ExceptionRecord, info->ContextRecord);
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
