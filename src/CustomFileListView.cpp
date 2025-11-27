@@ -1546,11 +1546,20 @@ void DirectUIReplacementHook::Shutdown() {
 void DirectUIReplacementHook::RegisterInstance(HWND hwnd, CustomFileListView* view) {
     std::lock_guard<std::mutex> lock(g_instanceMutex);
     s_instances[hwnd] = view;
+    LogMessage(LogLevel::Info,
+               L"DirectUIReplacementHook: Registered custom view (hwnd=%p view=%p total=%zu)",
+               hwnd,
+               view,
+               s_instances.size());
 }
 
 void DirectUIReplacementHook::UnregisterInstance(HWND hwnd) {
     std::lock_guard<std::mutex> lock(g_instanceMutex);
     s_instances.erase(hwnd);
+    LogMessage(LogLevel::Info,
+               L"DirectUIReplacementHook: Unregistered custom view (hwnd=%p remaining=%zu)",
+               hwnd,
+               s_instances.size());
 }
 
 CustomFileListView* DirectUIReplacementHook::GetInstance(HWND hwnd) {
@@ -1566,7 +1575,15 @@ HWND DirectUIReplacementHook::TryHandleCreateWindowEx(
         return nullptr;
     }
 
-    LogMessage(LogLevel::Info, L"DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND");
+    LogMessage(LogLevel::Info,
+               L"DirectUIReplacementHook: Intercepted CreateWindowExW for DirectUIHWND parent=%p exStyle=0x%08X style=0x%08X pos=(%d,%d) size=%dx%d",
+               hWndParent,
+               dwExStyle,
+               dwStyle,
+               X,
+               Y,
+               nWidth,
+               nHeight);
     return CreateReplacementWindow(dwExStyle, dwStyle, X, Y, nWidth, nHeight, hWndParent, hInstance);
 }
 
@@ -1643,6 +1660,11 @@ HWND DirectUIReplacementHook::CreateReplacementWindow(
     if (hwnd) {
         RegisterInstance(hwnd, customView);
     } else {
+        LogMessage(LogLevel::Error,
+                   L"DirectUIReplacementHook: Failed to create custom view window (parent=%p style=0x%08X exStyle=0x%08X)",
+                   hWndParent,
+                   dwStyle,
+                   dwExStyle);
         delete customView;
     }
 
