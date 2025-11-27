@@ -8810,6 +8810,43 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+namespace {
+
+int HandleExplorerViewException(CExplorerBHO* self, HWND hwnd, UINT msg, EXCEPTION_POINTERS* info) noexcept {
+    const DWORD code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
+    const void* address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
+    LogMessage(LogLevel::Error,
+               L"Explorer view subclass exception (code=0x%08X address=%p hwnd=%p msg=%u); removing ShellTabs hooks",
+               code, address, hwnd, msg);
+
+    if (self && hwnd) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
+        self->m_listViewHostSubclassed.erase(hwnd);
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+int HandleStatusBarException(CExplorerBHO* self, HWND hwnd, UINT msg, EXCEPTION_POINTERS* info) noexcept {
+    const DWORD code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
+    const void* address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
+    LogMessage(LogLevel::Error,
+               L"Status bar subclass exception (code=0x%08X address=%p hwnd=%p msg=%u); detaching ShellTabs hooks",
+               code,
+               address,
+               hwnd,
+               msg);
+
+    if (self && hwnd) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::StatusBarSubclassProc, kStatusBarSubclassId);
+        self->m_statusBarSubclassInstalled = false;
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+}  // namespace
+
 LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
@@ -8818,7 +8855,14 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
     }
 
     LRESULT result = 0;
-    if (self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result)) {
+    bool handled = false;
+    __try {
+        handled = self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result);
+    } __except (HandleExplorerViewException(self, hwnd, msg, GetExceptionInformation())) {
+        handled = false;
+        result = 0;
+    }
+    if (handled) {
         return result;
     }
 
@@ -8914,7 +8958,13 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
     }
 
     bool handled = false;
-    LRESULT result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, &handled);
+    LRESULT result = 0;
+    __try {
+        result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, &handled);
+    } __except (HandleStatusBarException(self, hwnd, msg, GetExceptionInformation())) {
+        handled = false;
+        result = 0;
+    }
     if (handled) {
         return result;
     }
