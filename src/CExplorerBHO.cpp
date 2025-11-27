@@ -3222,6 +3222,7 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         RemoveStatusBarSubclass(m_statusBar);
         ResetStatusBarTheme(m_statusBar);
         m_statusBar = nullptr;
+        m_statusBarThreadId = 0;
     }
 
     if (statusBarCandidate != m_statusBar) {
@@ -3240,6 +3241,7 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         m_statusBarCustomDraw = {};
         if (m_statusBar) {
             LogMessage(LogLevel::Info, L"Explorer status bar discovered (hwnd=%p)", m_statusBar);
+            GetWindowThreadProcessId(m_statusBar, &m_statusBarThreadId);
             InstallStatusBarSubclass();
             RegisterThemeSurface(m_statusBar, ExplorerSurfaceKind::Toolbar, &m_glowCoordinator);
             UpdateStatusBarDescriptor();
@@ -3301,6 +3303,14 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
 void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
     HWND target = statusBar ? statusBar : m_statusBar;
     if (target && IsWindow(target)) {
+        DWORD targetThread = 0;
+        GetWindowThreadProcessId(target, &targetThread);
+        if (targetThread != 0 && targetThread != GetCurrentThreadId()) {
+            LogMessage(LogLevel::Warning,
+                       L"Status bar reset skipped: cross-thread access (hwnd=%p ownerThread=%lu)", target,
+                       targetThread);
+            return;
+        }
         const COLORREF previous =
             static_cast<COLORREF>(SendMessageW(target, SB_SETBKCOLOR, 0, CLR_DEFAULT));
         LogMessage(LogLevel::Info, L"Status bar background reset (hwnd=%p previous=0x%08X)", target, previous);
@@ -3316,6 +3326,19 @@ void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
     }
 }
 
+bool CExplorerBHO::IsStatusBarOnCurrentThread() const {
+    if (!m_statusBar || !IsWindow(m_statusBar)) {
+        return false;
+    }
+
+    DWORD windowThread = m_statusBarThreadId;
+    if (windowThread == 0) {
+        GetWindowThreadProcessId(m_statusBar, &windowThread);
+    }
+
+    return windowThread == GetCurrentThreadId();
+}
+
 void CExplorerBHO::InstallStatusBarSubclass() {
     if (!m_statusBar || m_statusBarSubclassInstalled) {
         return;
@@ -3324,12 +3347,15 @@ void CExplorerBHO::InstallStatusBarSubclass() {
     if (!IsWindow(m_statusBar) || !MatchesClass(m_statusBar, STATUSCLASSNAMEW) ||
         !IsWindowOwnedByThisExplorer(m_statusBar)) {
         LogMessage(LogLevel::Warning,
-                   L"Status bar subclass skipped: handle no longer valid or owned (hwnd=%p)", m_statusBar);
+                  L"Status bar subclass skipped: handle no longer valid or owned (hwnd=%p)", m_statusBar);
         return;
     }
 
     DWORD windowThread = 0;
     GetWindowThreadProcessId(m_statusBar, &windowThread);
+    if (windowThread != 0) {
+        m_statusBarThreadId = windowThread;
+    }
     if (windowThread != GetCurrentThreadId()) {
         LogMessage(LogLevel::Warning, L"Status bar subclass skipped: cross-thread window (hwnd=%p thread=%lu)",
                    m_statusBar, windowThread);
@@ -3366,6 +3392,14 @@ void CExplorerBHO::RemoveStatusBarSubclass(HWND statusBar) {
         return;
     }
 
+    DWORD targetThread = 0;
+    GetWindowThreadProcessId(target, &targetThread);
+    if (targetThread != 0 && targetThread != GetCurrentThreadId()) {
+        LogMessage(LogLevel::Warning, L"Status bar subclass removal skipped: cross-thread window (hwnd=%p thread=%lu)",
+                   target, targetThread);
+        return;
+    }
+
     RemovePropW(target, kStatusBarSubclassPropertyName);
 
     if (!m_statusBarSubclassInstalled) {
@@ -3393,6 +3427,7 @@ LRESULT CExplorerBHO::HandleStatusBarMessage(
         RemoveStatusBarSubclass(hwnd);
         if (hwnd == m_statusBar) {
             m_statusBar = nullptr;
+            m_statusBarThreadId = 0;
             m_statusBarThemeValid = false;
             m_statusBarBackgroundColor = CLR_DEFAULT;
             m_statusBarTextColor = CLR_DEFAULT;
@@ -3536,11 +3571,19 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         return;
     }
 
+    if (!IsStatusBarOnCurrentThread()) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar theme update skipped: cross-thread window (hwnd=%p ownerThread=%lu)", m_statusBar,
+                   m_statusBarThreadId);
+        return;
+    }
+
     if (!IsWindowOwnedByThisExplorer(m_statusBar)) {
         LogMessage(LogLevel::Warning, L"Status bar theme update aborted: handle no longer owned (hwnd=%p)", m_statusBar);
         RemoveStatusBarSubclass(m_statusBar);
         ResetStatusBarTheme(m_statusBar);
         m_statusBar = nullptr;
+        m_statusBarThreadId = 0;
         return;
     }
 
@@ -4884,15 +4927,16 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             break;
         }
         case WM_PARENTNOTIFY: {
-            if (LOWORD(wParam) == WM_DESTROY) {
-                HWND child = reinterpret_cast<HWND>(lParam);
-                if (child && child == m_statusBar) {
-                    LogMessage(LogLevel::Info, L"Explorer status bar WM_DESTROY observed (hwnd=%p)", child);
-                    RemoveStatusBarSubclass(child);
-                    ResetStatusBarTheme(child);
-                    m_statusBar = nullptr;
+                if (LOWORD(wParam) == WM_DESTROY) {
+                    HWND child = reinterpret_cast<HWND>(lParam);
+                    if (child && child == m_statusBar) {
+                        LogMessage(LogLevel::Info, L"Explorer status bar WM_DESTROY observed (hwnd=%p)", child);
+                        RemoveStatusBarSubclass(child);
+                        ResetStatusBarTheme(child);
+                        m_statusBar = nullptr;
+                        m_statusBarThreadId = 0;
+                    }
                 }
-            }
             if ((isShellViewWindow || isDirectUiHost) && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
                 EnsureListViewSubclass();
                 UpdateGlowSurfaceTargets();
@@ -9313,6 +9357,7 @@ void CExplorerBHO::HandleStatusBarCustomDrawTimeout() {
     }
 
     m_statusBar = nullptr;
+    m_statusBarThreadId = 0;
     m_statusBarCustomDraw = {};
 }
 
