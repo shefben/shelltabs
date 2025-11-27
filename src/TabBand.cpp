@@ -3469,10 +3469,15 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
             LogMessage(LogLevel::Info, L"TabBand session crash marker created");
         }
 
-        bool reopenOnCrash = result->optionsLoaded ? optionsSnapshot.reopenOnCrash : m_options.reopenOnCrash;
+        const bool reopenOnCrash =
+            result->optionsLoaded ? optionsSnapshot.reopenOnCrash : m_options.reopenOnCrash;
+
         bool shouldRestore = !hasPendingSeed;
-        if (result->lastSessionUnclean && !reopenOnCrash) {
-            shouldRestore = false;
+        if (result->lastSessionUnclean) {
+            const LogLevel level = reopenOnCrash ? LogLevel::Info : LogLevel::Warning;
+            LogMessage(level, reopenOnCrash ? L"Replaying crashed session after explorer restart"
+                                            : L"Restoring session despite reopenOnCrash disabled to recover from crash");
+            shouldRestore = !hasPendingSeed;
         }
         result->shouldRestoreSession = shouldRestore;
         if (shouldRestore && !stopToken.stop_requested()) {
