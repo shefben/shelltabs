@@ -9091,6 +9091,7 @@ void CExplorerBHO::UpdateTreeViewDescriptor() {
 
 void CExplorerBHO::OnStatusBarCustomDrawStage(DWORD) {
     m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
+    m_statusBarCustomDraw.timeoutCount = 0;
     if (m_statusBarCustomDraw.suppressed) {
         m_statusBarCustomDraw.suppressed = false;
     }
@@ -9119,6 +9120,17 @@ void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
     }
 
     const bool expired = (now - m_statusBarCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
+    if (expired) {
+        ++m_statusBarCustomDraw.timeoutCount;
+    } else {
+        m_statusBarCustomDraw.timeoutCount = 0;
+    }
+
+    if (m_statusBarCustomDraw.timeoutCount >= kMaxStatusBarCustomDrawTimeouts) {
+        HandleStatusBarCustomDrawTimeout();
+        return;
+    }
+
     if (expired && !m_statusBarCustomDraw.forced) {
         m_statusBarCustomDraw.forced = true;
         m_statusBarCustomDraw.suppressed = true;
@@ -9132,6 +9144,20 @@ void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
         LogMessage(LogLevel::Info, L"Status bar custom draw signals resumed (hwnd=%p)", m_statusBar);
         InvalidateRect(m_statusBar, nullptr, FALSE);
     }
+}
+
+void CExplorerBHO::HandleStatusBarCustomDrawTimeout() {
+    if (m_statusBar && IsWindow(m_statusBar)) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar custom draw timeout threshold reached; disabling status bar theming (hwnd=%p)",
+                   m_statusBar);
+        RemoveStatusBarSubclass(m_statusBar);
+        ResetStatusBarTheme(m_statusBar);
+        UnregisterGlowSurface(m_statusBar);
+    }
+
+    m_statusBar = nullptr;
+    m_statusBarCustomDraw = {};
 }
 
 void CExplorerBHO::UpdateStatusBarDescriptor() {
