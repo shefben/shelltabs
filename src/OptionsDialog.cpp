@@ -578,74 +578,184 @@ void DrawColorBox(HDC hdc, RECT rect, COLORREF color) {
     FrameRect(hdc, &rect, static_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
 }
 
+class ScopedComInitializer {
+public:
+    explicit ScopedComInitializer(COINIT model) : result_(CoInitializeEx(nullptr, model)) {
+        shouldUninitialize_ = (result_ == S_OK || result_ == S_FALSE);
+    }
+
+    ~ScopedComInitializer() {
+        if (shouldUninitialize_) {
+            CoUninitialize();
+        }
+    }
+
+    bool CanUseCom() const { return result_ == S_OK || result_ == S_FALSE; }
+    HRESULT Result() const { return result_; }
+
+private:
+    HRESULT result_ = E_FAIL;
+    bool shouldUninitialize_ = false;
+};
+
+int CALLBACK BrowseInitialPathProc(HWND hwnd, UINT message, LPARAM, LPARAM data) {
+    if (message == BFFM_INITIALIZED && data) {
+        const auto* initial = reinterpret_cast<const std::wstring*>(data);
+        if (initial && !initial->empty()) {
+            SendMessageW(hwnd, BFFM_SETSELECTIONW, TRUE, reinterpret_cast<LPARAM>(initial->c_str()));
+        }
+    }
+    return 0;
+}
+
 bool BrowseForFolder(HWND parent, std::wstring* path, const wchar_t* title = nullptr) {
     if (!path) return false;
 
-    Microsoft::WRL::ComPtr<IFileDialog> dialog;
-    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                  IID_PPV_ARGS(&dialog));
-    if (FAILED(hr)) return false;
-
-    DWORD options = 0;
-    dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-
-    if (title) dialog->SetTitle(title);
-
-    if (SUCCEEDED(dialog->Show(parent))) {
-        Microsoft::WRL::ComPtr<IShellItem> item;
-        if (SUCCEEDED(dialog->GetResult(&item))) {
-            wchar_t* filePath = nullptr;
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath))) {
-                *path = filePath;
-                CoTaskMemFree(filePath);
-                return true;
+    ScopedComInitializer com(COINIT_APARTMENTTHREADED);
+    if (com.CanUseCom()) {
+        Microsoft::WRL::ComPtr<IFileDialog> dialog;
+        if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                      IID_PPV_ARGS(&dialog))) &&
+            dialog) {
+            DWORD options = 0;
+            if (SUCCEEDED(dialog->GetOptions(&options))) {
+                dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+            }
+            if (title) {
+                dialog->SetTitle(title);
+            }
+            if (path && !path->empty()) {
+                Microsoft::WRL::ComPtr<IShellItem> folder;
+                if (SUCCEEDED(SHCreateItemFromParsingName(path->c_str(), nullptr, IID_PPV_ARGS(&folder))) &&
+                    folder) {
+                    dialog->SetFolder(folder.Get());
+                }
+            }
+            if (SUCCEEDED(dialog->Show(parent))) {
+                Microsoft::WRL::ComPtr<IShellItem> item;
+                if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+                    wchar_t* filePath = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath)) && filePath) {
+                        *path = filePath;
+                        CoTaskMemFree(filePath);
+                        return true;
+                    }
+                    if (filePath) {
+                        CoTaskMemFree(filePath);
+                    }
+                }
+                return false;
             }
         }
     }
-    return false;
+
+    if (com.Result() == RPC_E_CHANGED_MODE) {
+        LogMessage(LogLevel::Warning,
+                   L"BrowseForFolder: COM apartment mismatch; falling back to SHBrowseForFolder");
+    }
+
+    std::wstring initial = *path;
+    BROWSEINFOW bi{};
+    bi.hwndOwner = parent;
+    bi.lpszTitle = title ? title : L"Select Folder";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI | BIF_NONEWFOLDERBUTTON;
+    bi.lpfn = BrowseInitialPathProc;
+    bi.lParam = reinterpret_cast<LPARAM>(&initial);
+
+    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+    if (!pidl) {
+        return false;
+    }
+
+    wchar_t buffer[MAX_PATH];
+    bool success = SHGetPathFromIDListW(pidl, buffer) != FALSE;
+    CoTaskMemFree(pidl);
+    if (success) {
+        *path = buffer;
+    }
+    return success;
 }
 
 bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* dir) {
     if (!path) return false;
 
-    Microsoft::WRL::ComPtr<IFileDialog> dialog;
-    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                  IID_PPV_ARGS(&dialog));
-    if (FAILED(hr)) return false;
+    ScopedComInitializer com(COINIT_APARTMENTTHREADED);
+    if (com.CanUseCom()) {
+        Microsoft::WRL::ComPtr<IFileDialog> dialog;
+        if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                      IID_PPV_ARGS(&dialog))) &&
+            dialog) {
+            COMDLG_FILTERSPEC filters[] = {
+                {L"Images", L"*.jpg;*.jpeg;*.png;*.bmp;*.gif"},
+                {L"All Files", L"*.*"},
+            };
+            dialog->SetFileTypes(2, filters);
+            dialog->SetTitle(L"Select Image");
 
-    COMDLG_FILTERSPEC filters[] = {
-        { L"Images", L"*.jpg;*.jpeg;*.png;*.bmp;*.gif" },
-        { L"All Files", L"*.*" }
-    };
-    dialog->SetFileTypes(2, filters);
-    dialog->SetTitle(L"Select Image");
+            if (dir && !dir->empty()) {
+                Microsoft::WRL::ComPtr<IShellItem> folder;
+                if (SUCCEEDED(SHCreateItemFromParsingName(dir->c_str(), nullptr, IID_PPV_ARGS(&folder))) && folder) {
+                    dialog->SetFolder(folder.Get());
+                }
+            }
 
-    if (dir && !dir->empty()) {
-        Microsoft::WRL::ComPtr<IShellItem> folder;
-        if (SUCCEEDED(SHCreateItemFromParsingName(dir->c_str(), nullptr,
-                                                  IID_PPV_ARGS(&folder)))) {
-            dialog->SetFolder(folder.Get());
+            if (SUCCEEDED(dialog->Show(parent))) {
+                Microsoft::WRL::ComPtr<IShellItem> item;
+                if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+                    wchar_t* filePath = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath)) && filePath) {
+                        *path = filePath;
+                        if (dir) {
+                            *dir = *path;
+                            size_t pos = dir->find_last_of(L"\\");
+                            if (pos != std::wstring::npos) {
+                                dir->resize(pos);
+                            }
+                        }
+                        CoTaskMemFree(filePath);
+                        return true;
+                    }
+                    if (filePath) {
+                        CoTaskMemFree(filePath);
+                    }
+                }
+                return false;
+            }
         }
     }
 
-    if (SUCCEEDED(dialog->Show(parent))) {
-        Microsoft::WRL::ComPtr<IShellItem> item;
-        if (SUCCEEDED(dialog->GetResult(&item))) {
-            wchar_t* filePath = nullptr;
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath))) {
-                *path = filePath;
-                if (dir) {
-                    *dir = *path;
-                    size_t pos = dir->find_last_of(L"\\");
-                    if (pos != std::wstring::npos) {
-                        dir->resize(pos);
-                    }
-                }
-                CoTaskMemFree(filePath);
-                return true;
+    if (com.Result() == RPC_E_CHANGED_MODE) {
+        LogMessage(LogLevel::Warning,
+                   L"BrowseForImage: COM apartment mismatch; falling back to GetOpenFileName");
+    }
+
+    wchar_t buffer[MAX_PATH] = {};
+    if (path && !path->empty()) {
+        wcsncpy_s(buffer, path->c_str(), _TRUNCATE);
+    }
+    std::wstring initialDir = (dir && !dir->empty()) ? *dir : std::wstring();
+    const wchar_t filter[] = L"Images\0*.jpg;*.jpeg;*.png;*.bmp;*.gif\0All Files\0*.*\0\0";
+
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = parent;
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFile = buffer;
+    ofn.nMaxFile = static_cast<DWORD>(std::size(buffer));
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
+    ofn.lpstrInitialDir = initialDir.empty() ? nullptr : initialDir.c_str();
+
+    if (GetOpenFileNameW(&ofn)) {
+        *path = buffer;
+        if (dir) {
+            *dir = *path;
+            size_t pos = dir->find_last_of(L"\\");
+            if (pos != std::wstring::npos) {
+                dir->resize(pos);
             }
         }
+        return true;
     }
     return false;
 }
