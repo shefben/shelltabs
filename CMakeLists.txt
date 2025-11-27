@@ -109,7 +109,6 @@ add_library(ShellTabs SHARED
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/CustomFileListView.cpp
-    src/DirectUIReplacementIntegration.cpp
     src/ComVTableHook.cpp
     src/ExplorerRibbonHook.cpp
     src/CustomRibbonTab.rc

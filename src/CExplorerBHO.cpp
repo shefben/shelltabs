@@ -1,6 +1,5 @@
 #include "CExplorerBHO.h"
 #include "ShellTabsListView.h"
-#include "CustomFileListView.h"
 
 #include <combaseapi.h>
 #include <exdispid.h>
@@ -1135,26 +1134,6 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     RegisterLiveInstance(this);
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
     m_glowCoordinator.Configure(OptionsStore::Instance().Get());
-
-    // Initialize DirectUI replacement system
-    if (!DirectUIReplacementIntegration::Initialize()) {
-        LogMessage(LogLevel::Warning, L"Failed to initialize DirectUI replacement system");
-    } else if (DirectUIReplacementIntegration::IsEnabled()) {
-        LogMessage(LogLevel::Info, L"DirectUI replacement system initialized successfully");
-    } else {
-        LogMessage(LogLevel::Info, L"DirectUI replacement system initialized (disabled by default)");
-    }
-
-    // Set callback for when custom views are created
-    DirectUIReplacementIntegration::SetCustomViewCreatedCallback(
-        [](ShellTabs::CustomFileListView* view, HWND hwnd, void* context) {
-            auto* self = static_cast<CExplorerBHO*>(context);
-            if (self && CExplorerBHO::IsInstanceAlive(self)) {
-                self->OnCustomFileListViewCreated(view, hwnd);
-            }
-        },
-        this
-    );
 
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
@@ -2912,39 +2891,6 @@ void CExplorerBHO::TryInstallDirectUiRenderHooks(HWND directUiHost) {
     m_directUiRenderHooksAttempted = true;
 }
 
-void CExplorerBHO::OnCustomFileListViewCreated(ShellTabs::CustomFileListView* view, HWND hwnd) {
-    if (!view || !hwnd) {
-        return;
-    }
-
-    LogMessage(LogLevel::Info, L"Custom file list view created (hwnd=%p)", hwnd);
-
-    // Store the custom view instance
-    m_customFileListView = view;
-    m_directUiView = hwnd;
-
-    // Configure the view with our glow coordinator
-    view->SetGlowCoordinator(&m_glowCoordinator);
-
-    // Get the color descriptor for DirectUI surfaces
-    auto* descriptor = m_glowCoordinator.LookupSurfaceDescriptor(hwnd);
-    if (descriptor) {
-        view->SetColorDescriptor(descriptor);
-    }
-
-    // Attach to the current shell view for item synchronization
-    if (m_shellView) {
-        view->AttachToShellView(m_shellView.Get());
-    }
-
-    // Background images now set via LVM_SETBKIMAGE, no custom paint callback needed
-    view->SetBackgroundPaintCallback(nullptr, nullptr);
-
-    // Register as a glow surface
-    RegisterGlowSurface(hwnd, ExplorerSurfaceKind::DirectUi, false);
-
-    LogMessage(LogLevel::Info, L"Custom file list view configured successfully");
-}
 
 void CExplorerBHO::RequestHeaderGlowRepaint() const {
     for (const auto& entry : m_glowSurfaces) {

@@ -10,7 +10,6 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
@@ -81,7 +80,6 @@ enum class FileListViewMode {
     Content
 };
 
-// Custom window class that replaces DirectUIHWND
 class CustomFileListView {
 public:
     CustomFileListView();
@@ -322,52 +320,6 @@ private:
     bool m_layoutDirty = true;
 
     static constexpr const wchar_t* WINDOW_CLASS_NAME = L"ShellTabsFileListView";
-};
-
-// Global hook management
-class DirectUIReplacementHook {
-public:
-    static bool Initialize();
-    static void Shutdown();
-    static bool IsEnabled() { return s_enabled; }
-
-    // Allow external detours (e.g., ThemeHooks) to delegate DirectUI window creation
-    static HWND TryHandleCreateWindowEx(
-        DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
-        DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
-        HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
-
-    // Register a custom file list view instance
-    static void RegisterInstance(HWND hwnd, CustomFileListView* view);
-    static void UnregisterInstance(HWND hwnd);
-    static CustomFileListView* GetInstance(HWND hwnd);
-
-private:
-    // Window creation hooks
-    static HWND WINAPI CreateWindowExW_Hook(
-        DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
-        DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
-        HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
-
-    // Window search hooks
-    static HWND WINAPI FindWindowW_Hook(
-        LPCWSTR lpClassName, LPCWSTR lpWindowName);
-
-    static HWND WINAPI FindWindowExW_Hook(
-        HWND hWndParent, HWND hWndChildAfter, LPCWSTR lpClassName, LPCWSTR lpWindowName);
-
-    static bool IsDirectUIClassName(LPCWSTR className);
-    static HWND CreateReplacementWindow(DWORD dwExStyle, DWORD dwStyle,
-                                       int X, int Y, int nWidth, int nHeight,
-                                       HWND hWndParent, HINSTANCE hInstance);
-
-    static bool s_enabled;
-    static bool s_ownsMinHookLifecycle;
-    static void* s_originalCreateWindowExW;
-    static void* s_originalFindWindowW;
-    static void* s_originalFindWindowExW;
-    static bool s_usesExternalCreateWindowHook;
-    static std::unordered_map<HWND, CustomFileListView*> s_instances;
 };
 
 } // namespace ShellTabs
