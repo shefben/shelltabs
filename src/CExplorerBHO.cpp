@@ -7790,7 +7790,7 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         ImageList_GetIconSize(imageList, &imageWidth, &imageHeight);
     }
 
-auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::wstring {
+   auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::wstring {
     if ((button.fsStyle & BTNS_SHOWTEXT) == 0) {
         // Non-text buttons still keep command strings (e.g. the search scope "All Locations"
         // button). Explorer never renders those labels, so skip them to avoid overlaying the
@@ -7848,26 +7848,6 @@ auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::
 
     return std::wstring();
 };
-
-
-        // Some breadcrumb configurations clear the toolbar's stored text. In those cases, query the
-        // button information directly so we can render the gradient text ourselves.
-        constexpr size_t kMaxBreadcrumbText = 512;
-        std::wstring fallback(kMaxBreadcrumbText, L'\0');
-        TBBUTTONINFOW info{};
-        info.cbSize = sizeof(info);
-        info.dwMask = TBIF_BYINDEX | TBIF_TEXT;
-        info.pszText = fallback.data();
-        info.cchText = static_cast<int>(fallback.size());
-        if (SendMessage(hwnd, TB_GETBUTTONINFOW, static_cast<WPARAM>(buttonIndex), reinterpret_cast<LPARAM>(&info))) {
-            fallback.resize(std::wcslen(fallback.c_str()));
-            if (!fallback.empty()) {
-                return fallback;
-            }
-        }
-
-        return std::wstring();
-    };
 
     const int buttonCount = static_cast<int>(SendMessage(hwnd, TB_BUTTONCOUNT, 0, 0));
     const LRESULT hotItemIndex = SendMessage(hwnd, TB_GETHOTITEM, 0, 0);
