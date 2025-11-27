@@ -2048,6 +2048,13 @@ bool ExplorerGlowSurface::Attach(HWND hwnd) {
     m_dpiX = dpi;
     m_dpiY = dpi;
 
+    // Hold a self reference for the lifetime of the subclass so callbacks cannot outlive
+    // the surface even if the owning container releases its shared_ptr during teardown.
+    // This reference is released in Detach once the subclass has been removed.
+    if (!m_selfHold) {
+        m_selfHold = shared_from_this();
+    }
+
     if (!SetWindowSubclass(hwnd, &ExplorerGlowSurface::SubclassProc, reinterpret_cast<UINT_PTR>(this),
                            reinterpret_cast<DWORD_PTR>(this))) {
         return false;
@@ -2062,16 +2069,30 @@ bool ExplorerGlowSurface::Attach(HWND hwnd) {
 void ExplorerGlowSurface::Detach() {
     if (!m_subclassInstalled) {
         m_hwnd = nullptr;
+        m_selfHold.reset();
         return;
     }
 
     HWND hwnd = m_hwnd;
-    m_hwnd = nullptr;
-    m_subclassInstalled = false;
+    bool removed = true;
     if (hwnd && IsWindow(hwnd)) {
-        RemoveWindowSubclass(hwnd, &ExplorerGlowSurface::SubclassProc, reinterpret_cast<UINT_PTR>(this));
+        if (!RemoveWindowSubclass(hwnd, &ExplorerGlowSurface::SubclassProc, reinterpret_cast<UINT_PTR>(this))) {
+            const DWORD error = GetLastError();
+            if (error != ERROR_INVALID_PARAMETER && error != ERROR_SUCCESS) {
+                removed = false;
+            }
+        }
     }
-    OnDetached();
+
+    if (removed) {
+        m_hwnd = nullptr;
+        m_subclassInstalled = false;
+        m_selfHold.reset();
+        OnDetached();
+    } else {
+        // If removal failed, keep tracking the window so a later teardown can succeed safely.
+        m_hwnd = hwnd;
+    }
 }
 
 bool ExplorerGlowSurface::IsAttached() const noexcept {
