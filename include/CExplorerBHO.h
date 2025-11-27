@@ -201,6 +201,7 @@ class ShellTabsListView;
                         ULONGLONG lastStageTick = 0;
                         bool forced = false;
                         bool suppressed = false;
+                        size_t timeoutCount = 0;
                 };
 
                 struct PreparedMenuItem {
@@ -399,6 +400,7 @@ class ShellTabsListView;
                 void UpdateTreeViewDescriptor();
                 void OnStatusBarCustomDrawStage(DWORD stage);
                 void EvaluateStatusBarForcedHooks(UINT message);
+                void HandleStatusBarCustomDrawTimeout();
                 void UpdateStatusBarDescriptor();
                 static ULONGLONG CurrentTickCount();
 		enum class BreadcrumbDiscoveryStage {
@@ -579,6 +581,7 @@ class ShellTabsListView;
                 static constexpr UINT kOpenInNewTabCommandId = 0xE170;
                 static constexpr UINT kCustomCommandIdBase = 0xE200;
                 static constexpr ULONGLONG kCustomDrawTimeoutMs = 2000;
+                static constexpr size_t kMaxStatusBarCustomDrawTimeouts = 3;
         };
 
 }  // namespace shelltabs

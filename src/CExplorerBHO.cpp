@@ -35,6 +35,7 @@
 #include <wrl/client.h>
 #include <shobjidl_core.h>
 #include <optional>
+#include <tuple>
 
 #include "BackgroundCache.h"
 #include "ShellTabsMessages.h"
@@ -999,6 +1000,18 @@ COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
     }
 
     return bestColor;
+}
+
+COLORREF BlendColors(COLORREF base, COLORREF overlay, double ratio) {
+    ratio = std::clamp(ratio, 0.0, 1.0);
+    const auto blendChannel = [&](int a, int b) -> BYTE {
+        const double value = static_cast<double>(a) * (1.0 - ratio) + static_cast<double>(b) * ratio;
+        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
+    };
+
+    return RGB(blendChannel(GetRValue(base), GetRValue(overlay)),
+               blendChannel(GetGValue(base), GetGValue(overlay)),
+               blendChannel(GetBValue(base), GetBValue(overlay)));
 }
 
 COLORREF ChooseAccentTextColor(COLORREF accent) {
@@ -3082,6 +3095,9 @@ void CExplorerBHO::ResetGlowSurfaces() {
 
 namespace {
 
+constexpr wchar_t kStatusBarSubclassPropertyName[] = L"ShellTabs_StatusBarOwner";
+constexpr UINT_PTR kStatusBarSubclassId = 0x53544253;  // 'STBS'
+
 bool IsValidStatusBarWindow(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) {
         return false;
@@ -3197,6 +3213,17 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         statusBarCandidate = nullptr;
     }
 
+    const bool statusBarReplaced = (statusBarCandidate != m_statusBar);
+    const bool statusBarInvalid =
+        m_statusBar && (!IsWindow(m_statusBar) || !MatchesClass(m_statusBar, STATUSCLASSNAMEW) ||
+                         !IsWindowOwnedByThisExplorer(m_statusBar));
+
+    if (statusBarInvalid) {
+        RemoveStatusBarSubclass(m_statusBar);
+        ResetStatusBarTheme(m_statusBar);
+        m_statusBar = nullptr;
+    }
+
     if (statusBarCandidate != m_statusBar) {
         if (m_statusBar) {
             LogMessage(LogLevel::Info, L"Explorer status bar released (hwnd=%p)", m_statusBar);
@@ -3219,6 +3246,10 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
             m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
             m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
         }
+    }
+
+    if (!statusBarReplaced && m_statusBar && !m_statusBarSubclassInstalled) {
+        InstallStatusBarSubclass();
     }
 
     if (frame && IsWindow(frame)) {
@@ -3286,13 +3317,42 @@ void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
 }
 
 void CExplorerBHO::InstallStatusBarSubclass() {
-    if (!m_statusBar || m_statusBarSubclassInstalled || !IsWindow(m_statusBar)) {
+    if (!m_statusBar || m_statusBarSubclassInstalled) {
         return;
     }
 
-    if (!SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this),
+    if (!IsWindow(m_statusBar) || !MatchesClass(m_statusBar, STATUSCLASSNAMEW) ||
+        !IsWindowOwnedByThisExplorer(m_statusBar)) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar subclass skipped: handle no longer valid or owned (hwnd=%p)", m_statusBar);
+        return;
+    }
+
+    DWORD windowThread = 0;
+    GetWindowThreadProcessId(m_statusBar, &windowThread);
+    if (windowThread != GetCurrentThreadId()) {
+        LogMessage(LogLevel::Warning, L"Status bar subclass skipped: cross-thread window (hwnd=%p thread=%lu)",
+                   m_statusBar, windowThread);
+        return;
+    }
+
+    HANDLE existingOwner = GetPropW(m_statusBar, kStatusBarSubclassPropertyName);
+    if (existingOwner && existingOwner != this) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar already subclassed by another instance; aborting subclass install (hwnd=%p)",
+                   m_statusBar);
+        return;
+    }
+
+    if (!SetPropW(m_statusBar, kStatusBarSubclassPropertyName, this)) {
+        LogLastError(L"SetProp(status bar owner)", GetLastError());
+        return;
+    }
+
+    if (!SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, kStatusBarSubclassId,
             reinterpret_cast<DWORD_PTR>(this))) {
         LogLastError(L"SetWindowSubclass(status bar)", GetLastError());
+        RemovePropW(m_statusBar, kStatusBarSubclassPropertyName);
         return;
     }
 
@@ -3300,17 +3360,19 @@ void CExplorerBHO::InstallStatusBarSubclass() {
 }
 
 void CExplorerBHO::RemoveStatusBarSubclass(HWND statusBar) {
-    if (!m_statusBarSubclassInstalled) {
-        return;
-    }
-
     HWND target = statusBar ? statusBar : m_statusBar;
     if (!target || !IsWindow(target)) {
         m_statusBarSubclassInstalled = false;
         return;
     }
 
-    if (!RemoveWindowSubclass(target, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this))) {
+    RemovePropW(target, kStatusBarSubclassPropertyName);
+
+    if (!m_statusBarSubclassInstalled) {
+        return;
+    }
+
+    if (!RemoveWindowSubclass(target, &CExplorerBHO::StatusBarSubclassProc, kStatusBarSubclassId)) {
         const DWORD error = GetLastError();
         if (error != ERROR_INVALID_PARAMETER && error != ERROR_SUCCESS) {
             LogLastError(L"RemoveWindowSubclass(status bar)", error);
@@ -3492,98 +3554,105 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         return;
     }
 
-    HWND frame = GetTopLevelExplorerWindow();
-    HWND rebar = nullptr;
-    if (frame && IsWindow(frame)) {
-        rebar = FindDescendantWindow(frame, L"ReBarWindow32");
-        if (rebar && !IsWindowOwnedByThisExplorer(rebar)) {
-            rebar = nullptr;
+    const bool darkMode = IsAppDarkModePreferred();
+
+    auto sampleChrome = [&]() -> std::optional<ToolbarChromeSample> {
+        HWND frame = GetTopLevelExplorerWindow();
+        if (frame && !IsWindow(frame)) {
+            frame = nullptr;
         }
-    }
 
-    std::optional<ToolbarChromeSample> chrome;
-    if (rebar && IsWindow(rebar)) {
-        chrome = SampleToolbarChrome(rebar);
-    }
-    if (!chrome && frame && IsWindow(frame)) {
-        chrome = SampleToolbarChrome(frame);
-    }
+        HWND rebar = nullptr;
+        if (frame) {
+            rebar = FindDescendantWindow(frame, L"ReBarWindow32");
+            if (rebar && !IsWindowOwnedByThisExplorer(rebar)) {
+                rebar = nullptr;
+            }
+        }
 
-    if (!chrome) {
+        if (rebar && IsWindow(rebar)) {
+            if (auto chrome = SampleToolbarChrome(rebar)) {
+                return chrome;
+            }
+        }
+
+        if (frame && IsWindow(frame)) {
+            if (auto chrome = SampleToolbarChrome(frame)) {
+                return chrome;
+            }
+        }
+
         HWND parent = GetParent(m_statusBar);
         if (parent && IsWindow(parent) && IsWindowOwnedByThisExplorer(parent)) {
-            chrome = SampleToolbarChrome(parent);
+            if (auto chrome = SampleToolbarChrome(parent)) {
+                return chrome;
+            }
         }
-    }
 
-    std::optional<COLORREF> backgroundCandidate;
-    COLORREF gradientTop = CLR_DEFAULT;
-    COLORREF gradientBottom = CLR_DEFAULT;
-
-    if (chrome) {
-        auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
-            const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
-            const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
-            const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
-            return RGB(red, green, blue);
-        };
-
-        const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
-        backgroundCandidate = background;
-        gradientTop = chrome->topColor;
-        gradientBottom = chrome->bottomColor;
-    } else if (IsAppDarkModePreferred()) {
-        LogMessage(LogLevel::Info, L"Status bar theme fallback to dark preference (hwnd=%p)", m_statusBar);
-        backgroundCandidate = RGB(32, 32, 32);
-        gradientTop = backgroundCandidate.value();
-        gradientBottom = backgroundCandidate.value();
-    }
-
-    if (!backgroundCandidate.has_value()) {
-        if (m_statusBarThemeValid) {
-            LogMessage(LogLevel::Warning, L"Status bar theme reset: failed to sample toolbar chrome (hwnd=%p)", m_statusBar);
-        }
-        ResetStatusBarTheme(m_statusBar);
-        return;
-    }
-
-    const COLORREF background = backgroundCandidate.value();
-
-    auto resolveGradientColor = [&](COLORREF color) -> COLORREF {
-        return color == CLR_DEFAULT ? background : color;
+        return std::nullopt;
     };
 
-    const COLORREF resolvedTop = resolveGradientColor(gradientTop);
-    const COLORREF resolvedBottom = resolveGradientColor(gradientBottom);
-    COLORREF text = ChooseStatusBarTextColor(resolvedTop, resolvedBottom);
+    auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
+        const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
+        const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
+        const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
+        return RGB(red, green, blue);
+    };
 
-    if (auto themeText = QueryStatusBarThemeTextColor(m_statusBar)) {
-        const double topLuminance = ComputeColorLuminance(resolvedTop);
-        const double bottomLuminance = ComputeColorLuminance(resolvedBottom);
-        const double themeLuminance = ComputeColorLuminance(themeText.value());
-        const double contrastTop = ComputeContrastRatio(topLuminance, themeLuminance);
-        const double contrastBottom = ComputeContrastRatio(bottomLuminance, themeLuminance);
-        const double themeContrast = std::min(contrastTop, contrastBottom);
-        constexpr double kThemeContrastThreshold = 4.5;
-        if (themeContrast >= kThemeContrastThreshold || !m_statusBarThemeValid) {
-            text = themeText.value();
+    auto resolveThemeFromChrome = [&](const ToolbarChromeSample& chrome) {
+        const COLORREF background = averageColor(chrome.topColor, chrome.bottomColor);
+        return std::tuple{background, chrome.topColor, chrome.bottomColor};
+    };
+
+    COLORREF background = GetSysColor(COLOR_3DFACE);
+    COLORREF gradientTop = background;
+    COLORREF gradientBottom = background;
+    COLORREF textColor = RGB(0, 0, 0);
+
+    if (darkMode) {
+        constexpr COLORREF kDarkTop = RGB(48, 48, 48);
+        constexpr COLORREF kDarkBottom = RGB(32, 32, 32);
+
+        if (auto chrome = sampleChrome()) {
+            gradientTop = BlendColors(kDarkTop, chrome->topColor, 0.35);
+            gradientBottom = BlendColors(kDarkBottom, chrome->bottomColor, 0.35);
+            background = averageColor(gradientTop, gradientBottom);
+        } else {
+            background = averageColor(kDarkTop, kDarkBottom);
+            gradientTop = kDarkTop;
+            gradientBottom = kDarkBottom;
+            LogMessage(LogLevel::Info, L"Status bar using fallback dark palette (hwnd=%p)", m_statusBar);
         }
+
+        textColor = RGB(255, 255, 255);
+    } else if (auto chrome = sampleChrome()) {
+        std::tie(background, gradientTop, gradientBottom) = resolveThemeFromChrome(*chrome);
+        textColor = ChooseStatusBarTextColor(gradientTop, gradientBottom);
+
+        if (auto themeText = QueryStatusBarThemeTextColor(m_statusBar)) {
+            const double topLuminance = ComputeColorLuminance(gradientTop);
+            const double bottomLuminance = ComputeColorLuminance(gradientBottom);
+            const double themeLuminance = ComputeColorLuminance(themeText.value());
+            const double contrastTop = ComputeContrastRatio(topLuminance, themeLuminance);
+            const double contrastBottom = ComputeContrastRatio(bottomLuminance, themeLuminance);
+            const double themeContrast = std::min(contrastTop, contrastBottom);
+            constexpr double kThemeContrastThreshold = 4.5;
+            if (themeContrast >= kThemeContrastThreshold || !m_statusBarThemeValid) {
+                textColor = themeText.value();
+            }
+        }
+    } else {
+        LogMessage(LogLevel::Warning, L"Status bar theme using system default colors (hwnd=%p)", m_statusBar);
+        textColor = ChooseStatusBarTextColor(gradientTop, gradientBottom);
     }
 
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
-    const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
+    const bool textChanged = !m_statusBarThemeValid || textColor != m_statusBarTextColor;
 
-    bool chromeChanged = false;
-    ToolbarChromeSample chromeForStorage{background, background};
-    if (chrome) {
-        chromeForStorage = *chrome;
-    }
-    if (!m_statusBarChromeSample.has_value()) {
-        chromeChanged = true;
-    } else {
-        chromeChanged = m_statusBarChromeSample->topColor != chromeForStorage.topColor ||
+    ToolbarChromeSample chromeForStorage{gradientTop, gradientBottom};
+    bool chromeChanged = !m_statusBarChromeSample.has_value() ||
+                        m_statusBarChromeSample->topColor != chromeForStorage.topColor ||
                         m_statusBarChromeSample->bottomColor != chromeForStorage.bottomColor;
-    }
 
     if (!backgroundChanged && !textChanged && !chromeChanged) {
         return;
@@ -3594,12 +3663,12 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     }
 
     if (textChanged) {
-        LogMessage(LogLevel::Info, L"Status bar theme text color updated (hwnd=%p new=0x%08X)", m_statusBar, text);
+        LogMessage(LogLevel::Info, L"Status bar theme text color updated (hwnd=%p new=0x%08X)", m_statusBar, textColor);
     }
 
     m_statusBarThemeValid = true;
     m_statusBarBackgroundColor = background;
-    m_statusBarTextColor = text;
+    m_statusBarTextColor = textColor;
     m_statusBarChromeSample = chromeForStorage;
 
     UpdateStatusBarDescriptor();
@@ -9091,6 +9160,7 @@ void CExplorerBHO::UpdateTreeViewDescriptor() {
 
 void CExplorerBHO::OnStatusBarCustomDrawStage(DWORD) {
     m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
+    m_statusBarCustomDraw.timeoutCount = 0;
     if (m_statusBarCustomDraw.suppressed) {
         m_statusBarCustomDraw.suppressed = false;
     }
@@ -9119,6 +9189,17 @@ void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
     }
 
     const bool expired = (now - m_statusBarCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
+    if (expired) {
+        ++m_statusBarCustomDraw.timeoutCount;
+    } else {
+        m_statusBarCustomDraw.timeoutCount = 0;
+    }
+
+    if (m_statusBarCustomDraw.timeoutCount >= kMaxStatusBarCustomDrawTimeouts) {
+        HandleStatusBarCustomDrawTimeout();
+        return;
+    }
+
     if (expired && !m_statusBarCustomDraw.forced) {
         m_statusBarCustomDraw.forced = true;
         m_statusBarCustomDraw.suppressed = true;
@@ -9132,6 +9213,20 @@ void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
         LogMessage(LogLevel::Info, L"Status bar custom draw signals resumed (hwnd=%p)", m_statusBar);
         InvalidateRect(m_statusBar, nullptr, FALSE);
     }
+}
+
+void CExplorerBHO::HandleStatusBarCustomDrawTimeout() {
+    if (m_statusBar && IsWindow(m_statusBar)) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar custom draw timeout threshold reached; disabling status bar theming (hwnd=%p)",
+                   m_statusBar);
+        RemoveStatusBarSubclass(m_statusBar);
+        ResetStatusBarTheme(m_statusBar);
+        UnregisterGlowSurface(m_statusBar);
+    }
+
+    m_statusBar = nullptr;
+    m_statusBarCustomDraw = {};
 }
 
 void CExplorerBHO::UpdateStatusBarDescriptor() {
