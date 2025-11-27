@@ -189,6 +189,7 @@ private:
     bool m_lastSessionUnclean = false;
     bool m_sessionFlushTimerActive = false;
     bool m_sessionFlushTimerPending = false;
+    bool m_pendingSessionSave = false;
     std::jthread m_initializationThread;
     uint64_t m_initializationSequence = 0;
     bool m_backgroundInitializationActive = false;
@@ -245,6 +246,7 @@ private:
     void InitializeTabs();
     void UpdateTabsUI();
     void EnsureSessionStore();
+    void TryActivateSessionPersistence();
     bool RestoreSession();
     void SaveSession();
     void StartSessionFlushTimer();

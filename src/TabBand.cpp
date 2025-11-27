@@ -2144,6 +2144,7 @@ void TabBand::DisconnectSite() {
     m_internalNavigation = false;
     m_allowExternalNewWindows = 0;
     m_sessionStore.reset();
+    m_pendingSessionSave = false;
 }
 
 void TabBand::InitializeTabs() {
@@ -2152,6 +2153,7 @@ void TabBand::InitializeTabs() {
     StopSessionFlushTimer();
     m_backgroundInitializationActive = false;
     m_sessionPersistenceReady = false;
+    m_pendingSessionSave = false;
     if (m_sessionStore) {
         m_sessionStore->SetMarkerReady(false);
     }
@@ -2242,7 +2244,26 @@ void TabBand::EnsureSessionStore() {
     m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
     if (m_sessionStore) {
         m_sessionStore->SetMarkerReady(false);
+        TryActivateSessionPersistence();
     }
+}
+
+void TabBand::TryActivateSessionPersistence() {
+    if (m_backgroundInitializationActive || !m_sessionStore || m_sessionPersistenceReady) {
+        return;
+    }
+
+    m_sessionPersistenceReady = true;
+    m_sessionStore->SetMarkerReady(true);
+    m_lastSessionUnclean = m_sessionStore->WasPreviousSessionUnclean();
+
+    if (!m_sessionMarkerActive) {
+        m_sessionStore->MarkSessionActive();
+        m_sessionMarkerActive = true;
+        LogMessage(LogLevel::Info, L"TabBand session crash marker created (post-init)");
+    }
+
+    StartSessionFlushTimer();
 }
 
 bool TabBand::RestoreSession() {
@@ -2355,12 +2376,10 @@ void TabBand::SaveSession() {
         return;
     }
 
-    if (!m_sessionPersistenceReady) {
-        return;
-    }
-
     EnsureSessionStore();
-    if (!m_sessionStore) {
+    TryActivateSessionPersistence();
+    if (!m_sessionPersistenceReady || !m_sessionStore) {
+        m_pendingSessionSave = true;
         return;
     }
 
@@ -2437,7 +2456,8 @@ void TabBand::SaveSession() {
         return;
     }
 
-    m_sessionStore->Save(data);
+    const bool saved = m_sessionStore->Save(data);
+    m_pendingSessionSave = !saved;
 }
 
 void TabBand::StartSessionFlushTimer() {
@@ -3405,6 +3425,11 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
 
     auto result = std::make_unique<InitializationResult>();
     result->sequence = sequence;
+
+    // Ensure the session store is available in case the initial construction was
+    // deferred (e.g., immediately after an explorer.exe crash). This allows us to
+    // adopt any orphaned crash markers before attempting restore.
+    EnsureSessionStore();
 
     if (stopToken.stop_requested()) {
         return;
