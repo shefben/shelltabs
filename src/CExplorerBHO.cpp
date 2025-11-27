@@ -7790,26 +7790,65 @@ bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
         ImageList_GetIconSize(imageList, &imageWidth, &imageHeight);
     }
 
-    auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::wstring {
-        if ((button.fsStyle & BTNS_SHOWTEXT) == 0) {
-            // Non-text buttons still keep command strings (e.g. the search scope "All Locations"
-            // button). Explorer never renders those labels, so skip them to avoid overlaying the
-            // actual breadcrumb segments with stale command text when gradients are enabled.
-            return std::wstring();
+auto fetchBreadcrumbText = [&](int buttonIndex, const TBBUTTON& button) -> std::wstring {
+    if ((button.fsStyle & BTNS_SHOWTEXT) == 0) {
+        // Non-text buttons still keep command strings (e.g. the search scope "All Locations"
+        // button). Explorer never renders those labels, so skip them to avoid overlaying the
+        // actual breadcrumb segments with stale command text when gradients are enabled.
+        return std::wstring();
+    }
+
+    const UINT commandId = static_cast<UINT>(button.idCommand);
+
+    auto shouldSkipLabel = [](const std::wstring& text) -> bool {
+        if (text.empty()) {
+            return false;
         }
 
-        const UINT commandId = static_cast<UINT>(button.idCommand);
+        // The search-scope button label that Explorer itself never draws,
+        // but our gradient code would otherwise overlay on top of the first crumb.
+        if (_wcsicmp(text.c_str(), L"All Locations") == 0) {
+            return true;
+        }
 
-        LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, 0);
-        if (textLength > 0) {
-            std::wstring text(static_cast<size_t>(textLength) + 1, L'\0');
-            LRESULT copied =
-                SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, reinterpret_cast<LPARAM>(text.data()));
-            if (copied > 0) {
-                text.resize(static_cast<size_t>(copied));
+        // If you find other similar scope labels later, add them here.
+        return false;
+    };
+
+    LRESULT textLength = SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, 0);
+    if (textLength > 0) {
+        std::wstring text(static_cast<size_t>(textLength) + 1, L'\0');
+        LRESULT copied =
+            SendMessage(hwnd, TB_GETBUTTONTEXTW, commandId, reinterpret_cast<LPARAM>(text.data()));
+        if (copied > 0) {
+            text.resize(static_cast<size_t>(copied));
+            if (!shouldSkipLabel(text)) {
                 return text;
             }
+            return std::wstring();
         }
+    }
+
+    // Some breadcrumb configurations clear the toolbar's stored text. In those cases, query the
+    // button information directly so we can render the gradient text ourselves.
+    constexpr size_t kMaxBreadcrumbText = 512;
+    std::wstring fallback(kMaxBreadcrumbText, L'\0');
+    TBBUTTONINFOW info{};
+    info.cbSize = sizeof(info);
+    info.dwMask = TBIF_BYINDEX | TBIF_TEXT;
+    info.pszText = fallback.data();
+    info.cchText = static_cast<int>(fallback.size());
+    if (SendMessage(hwnd, TB_GETBUTTONINFOW, static_cast<WPARAM>(buttonIndex),
+                    reinterpret_cast<LPARAM>(&info))) {
+        fallback.resize(std::wcslen(fallback.c_str()));
+        if (!fallback.empty() && !shouldSkipLabel(fallback)) {
+            return fallback;
+        }
+    }
+
+    return std::wstring();
+};
+
 
         // Some breadcrumb configurations clear the toolbar's stored text. In those cases, query the
         // button information directly so we can render the gradient text ourselves.
