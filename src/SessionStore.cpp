@@ -35,6 +35,7 @@ constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
 constexpr wchar_t kMarkerSuffix[] = L".lock";
 constexpr wchar_t kTempSuffix[] = L".tmp";
 constexpr wchar_t kCheckpointSuffix[] = L".previous";
+constexpr wchar_t kBackupSuffix[] = L".bak";
 constexpr wchar_t kChecksumToken[] = L"checksum";
 
 void NotifySessionChecksumMismatch(const std::wstring& corruptedPath) {
@@ -107,6 +108,14 @@ std::wstring BuildCheckpointPath(const std::wstring& storagePath) {
     }
 
     return storagePath + kCheckpointSuffix;
+}
+
+std::wstring BuildBackupPath(const std::wstring& storagePath) {
+    if (storagePath.empty()) {
+        return {};
+    }
+
+    return storagePath + kBackupSuffix;
 }
 
 }  // namespace
@@ -498,16 +507,6 @@ bool SessionStore::WasPreviousSessionUnclean() const {
         }
     }
 
-    const bool staleTempDetected = CleanupStaleTemp(m_storagePath);
-
-    bool checkpointDetected = false;
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        checkpointDetected = true;
-        m_pendingCheckpointCleanup = true;
-    }
-
     if (!markerPath.empty() && GetFileAttributesW(markerPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
         return true;
     }
@@ -518,7 +517,25 @@ bool SessionStore::WasPreviousSessionUnclean() const {
         return true;
     }
 
-    return staleTempDetected || checkpointDetected;
+    const bool staleTempDetected = CleanupStaleTemp(m_storagePath);
+    if (staleTempDetected) {
+        return true;
+    }
+
+    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
+    if (!checkpointPath.empty() &&
+        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return true;
+    }
+
+    const std::wstring backupPath = BuildBackupPath(m_storagePath);
+    if (!backupPath.empty() &&
+        GetFileAttributesW(backupPath.c_str()) != INVALID_FILE_ATTRIBUTES &&
+        GetFileAttributesW(m_storagePath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return true;
+    }
+
+    return false;
 }
 
 void SessionStore::MarkSessionActive() const {
@@ -560,11 +577,6 @@ void SessionStore::MarkSessionActive() const {
         DeleteFileW(legacyMarker.c_str());
     }
 
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        m_pendingCheckpointCleanup = true;
-    }
 }
 
 void SessionStore::ClearSessionMarker() const {
@@ -599,22 +611,6 @@ void SessionStore::ClearSessionMarker() const {
         LogMessage(LogLevel::Warning, L"SessionStore failed to delete crash marker %ls (error=%lu)",
                    markerPath.c_str(), GetLastError());
     }
-
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        (m_pendingCheckpointCleanup ||
-         GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES)) {
-        if (!DeleteFileW(checkpointPath.c_str())) {
-            const DWORD checkpointError = GetLastError();
-            if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to delete checkpoint %ls (error=%lu)",
-                           checkpointPath.c_str(), checkpointError);
-            }
-        } else {
-            m_pendingCheckpointCleanup = false;
-        }
-    }
 }
 
 bool SessionStore::Load(SessionData& data) const {
@@ -623,156 +619,74 @@ bool SessionStore::Load(SessionData& data) const {
         return false;
     }
 
-    CleanupStaleTemp(m_storagePath);
-
-    std::wstring content;
-    bool fileExists = false;
-    if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
-        const DWORD readError = GetLastError();
-        LogMessage(LogLevel::Warning, L"SessionStore failed to read %ls (error=%lu)", m_storagePath.c_str(),
-                   readError);
-        return false;
-    }
-
+    const std::wstring tempPath = BuildTempPath(m_storagePath);
     const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    bool checkpointChecksumMismatch = false;
-    std::wstring checkpointCorruptionPath;
+    const std::wstring backupPath = BuildBackupPath(m_storagePath);
 
-    auto restoreFromCheckpoint = [&](const wchar_t* reason) -> bool {
-        if (checkpointPath.empty()) {
-            return false;
-        }
-
-        std::wstring checkpointContent;
-        bool checkpointExists = false;
-        if (!ReadUtf8File(checkpointPath, &checkpointContent, &checkpointExists)) {
-            const DWORD checkpointError = GetLastError();
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore failed to read checkpoint %ls (error=%lu) while handling %ls",
-                       checkpointPath.c_str(), checkpointError, reason);
-            return false;
-        }
-        if (!checkpointExists) {
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checkpoint %ls missing while handling %ls",
-                       checkpointPath.c_str(), reason);
-            return false;
-        }
-
-        SessionData fallbackData;
-        std::wstring fallbackSnapshot;
-        const SessionFileStatus status = ParseSessionDocument(checkpointContent, fallbackData, fallbackSnapshot);
-        if (status == SessionFileStatus::kChecksumMismatch) {
-            checkpointChecksumMismatch = true;
-            checkpointCorruptionPath = checkpointPath;
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checkpoint %ls failed checksum while handling %ls",
-                       checkpointPath.c_str(), reason);
-            return false;
-        }
-        if (status == SessionFileStatus::kParseError) {
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checkpoint %ls was malformed while handling %ls",
-                       checkpointPath.c_str(), reason);
-            return false;
-        }
-
-        LogMessage(LogLevel::Warning,
-                   L"SessionStore restoring checkpoint %ls after %ls",
-                   checkpointPath.c_str(), reason);
-
-        data = std::move(fallbackData);
-        m_lastSerializedSnapshot = std::move(fallbackSnapshot);
-
-        if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(),
-                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore failed to promote checkpoint %ls -> %ls (error=%lu)",
-                       checkpointPath.c_str(), m_storagePath.c_str(), GetLastError());
-            m_pendingCheckpointCleanup = true;
-        } else {
-            m_pendingCheckpointCleanup = false;
-        }
-
-        return true;
+    struct SnapshotCandidate {
+        std::wstring path;
+        const wchar_t* label = L"";
     };
 
-    if (!fileExists) {
-        if (restoreFromCheckpoint(L"missing session file")) {
-            return true;
+    std::vector<SnapshotCandidate> candidates;
+    if (!tempPath.empty() && GetFileAttributesW(tempPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        candidates.push_back({tempPath, L"temp"});
+    }
+    candidates.push_back({m_storagePath, L"primary"});
+    if (!checkpointPath.empty()) {
+        candidates.push_back({checkpointPath, L"checkpoint"});
+    }
+    if (!backupPath.empty()) {
+        candidates.push_back({backupPath, L"backup"});
+    }
+
+    bool checksumMismatch = false;
+    std::wstring corruptionPath;
+
+    for (const auto& candidate : candidates) {
+        std::wstring content;
+        bool exists = false;
+        if (!ReadUtf8File(candidate.path, &content, &exists)) {
+            LogMessage(LogLevel::Warning, L"SessionStore failed to read %ls (%ls) (error=%lu)",
+                       candidate.path.c_str(), candidate.label, GetLastError());
+            continue;
+        }
+        if (!exists) {
+            continue;
         }
 
-        if (checkpointChecksumMismatch) {
-            NotifySessionChecksumMismatch(checkpointCorruptionPath);
+        SessionData candidateData;
+        std::wstring snapshot;
+        const SessionFileStatus status = ParseSessionDocument(content, candidateData, snapshot);
+        if (status == SessionFileStatus::kChecksumMismatch) {
+            checksumMismatch = true;
+            corruptionPath = candidate.path;
+            LogMessage(LogLevel::Warning, L"SessionStore checksum mismatch for %ls (%ls)", candidate.path.c_str(),
+                       candidate.label);
+            continue;
+        }
+        if (status == SessionFileStatus::kParseError || status == SessionFileStatus::kEmpty) {
+            LogMessage(LogLevel::Warning, L"SessionStore invalid snapshot %ls (%ls) status=%d", candidate.path.c_str(),
+                       candidate.label, static_cast<int>(status));
+            continue;
         }
 
-        const size_t separator = m_storagePath.find_last_of(L"\\/");
-        if (separator != std::wstring::npos) {
-            std::wstring directory = m_storagePath.substr(0, separator);
-            if (!directory.empty()) {
-                CreateDirectoryW(directory.c_str(), nullptr);
-            }
+        if (candidate.path == tempPath) {
+            DeleteFileW(tempPath.c_str());
         }
 
-        HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
-                                     FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (created != INVALID_HANDLE_VALUE) {
-            CloseHandle(created);
-        }
-        m_lastSerializedSnapshot = std::wstring();
-        m_pendingCheckpointCleanup = false;
+        LogMessage(LogLevel::Info, L"SessionStore restored snapshot from %ls (%ls)", candidate.path.c_str(),
+                   candidate.label);
+        data = std::move(candidateData);
+        m_lastSerializedSnapshot = std::move(snapshot);
         return true;
     }
 
-    SessionData parsedData;
-    std::wstring snapshot;
-    const SessionFileStatus status = ParseSessionDocument(content, parsedData, snapshot);
-
-    switch (status) {
-        case SessionFileStatus::kSuccess:
-            data = std::move(parsedData);
-            m_lastSerializedSnapshot = std::move(snapshot);
-            break;
-        case SessionFileStatus::kEmpty:
-            data = SessionData{};
-            m_lastSerializedSnapshot = std::move(snapshot);
-            break;
-        case SessionFileStatus::kChecksumMismatch:
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checksum mismatch detected for %ls", m_storagePath.c_str());
-            if (restoreFromCheckpoint(L"checksum mismatch")) {
-                return true;
-            }
-            NotifySessionChecksumMismatch(checkpointChecksumMismatch ? checkpointCorruptionPath : m_storagePath);
-            return false;
-        case SessionFileStatus::kParseError:
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore failed to parse %ls", m_storagePath.c_str());
-            if (restoreFromCheckpoint(L"parse failure")) {
-                return true;
-            }
-            if (checkpointChecksumMismatch) {
-                NotifySessionChecksumMismatch(checkpointCorruptionPath);
-            }
-            return false;
+    if (checksumMismatch) {
+        NotifySessionChecksumMismatch(corruptionPath);
     }
 
-    if (!checkpointPath.empty() &&
-        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        if (!DeleteFileW(checkpointPath.c_str())) {
-            const DWORD checkpointError = GetLastError();
-            if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to delete checkpoint %ls (error=%lu)",
-                           checkpointPath.c_str(), checkpointError);
-                m_pendingCheckpointCleanup = true;
-            }
-        } else {
-            m_pendingCheckpointCleanup = false;
-        }
-    }
-
-    return true;
+    return false;
 }
 
 bool SessionStore::Save(const SessionData& data) const {
@@ -853,24 +767,10 @@ bool SessionStore::Save(const SessionData& data) const {
     }
 
     const std::wstring tempPath = BuildTempPath(m_storagePath);
+    const std::wstring backupPath = BuildBackupPath(m_storagePath);
+
     if (tempPath.empty()) {
         return false;
-    }
-
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    bool checkpointCreated = false;
-    if (!checkpointPath.empty()) {
-        if (MoveFileExW(m_storagePath.c_str(), checkpointPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-            checkpointCreated = true;
-        } else {
-            const DWORD rotateError = GetLastError();
-            if (rotateError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to rotate %ls -> %ls (error=%lu)",
-                           m_storagePath.c_str(), checkpointPath.c_str(), rotateError);
-                return false;
-            }
-        }
     }
 
     DeleteFileW(tempPath.c_str());
@@ -879,14 +779,6 @@ bool SessionStore::Save(const SessionData& data) const {
     if (tempFile == INVALID_HANDLE_VALUE) {
         LogMessage(LogLevel::Warning, L"SessionStore failed to create temp file %ls (error=%lu)", tempPath.c_str(),
                    GetLastError());
-        if (checkpointCreated) {
-            if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to restore checkpoint %ls after temp creation failure (error=%lu)",
-                           checkpointPath.c_str(), GetLastError());
-                m_pendingCheckpointCleanup = true;
-            }
-        }
         return false;
     }
 
@@ -910,15 +802,11 @@ bool SessionStore::Save(const SessionData& data) const {
         LogMessage(LogLevel::Warning, L"SessionStore failed to serialize temp file %ls (error=%lu)", tempPath.c_str(),
                    writeError);
         DeleteFileW(tempPath.c_str());
-        if (checkpointCreated) {
-            if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to restore checkpoint %ls after write failure (error=%lu)",
-                           checkpointPath.c_str(), GetLastError());
-                m_pendingCheckpointCleanup = true;
-            }
-        }
         return false;
+    }
+
+    if (!backupPath.empty()) {
+        MoveFileExW(m_storagePath.c_str(), backupPath.c_str(), MOVEFILE_REPLACE_EXISTING);
     }
 
     if (!MoveFileExW(tempPath.c_str(), m_storagePath.c_str(),
@@ -927,30 +815,10 @@ bool SessionStore::Save(const SessionData& data) const {
         LogMessage(LogLevel::Warning, L"SessionStore failed to promote temp file %ls -> %ls (error=%lu)",
                    tempPath.c_str(), m_storagePath.c_str(), promoteError);
         DeleteFileW(tempPath.c_str());
-        if (checkpointCreated) {
-            if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to restore checkpoint %ls after promotion failure (error=%lu)",
-                           checkpointPath.c_str(), GetLastError());
-                m_pendingCheckpointCleanup = true;
-            }
+        if (!backupPath.empty()) {
+            MoveFileExW(backupPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING);
         }
         return false;
-    }
-
-    if (!checkpointPath.empty() &&
-        (checkpointCreated || GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES)) {
-        if (!DeleteFileW(checkpointPath.c_str())) {
-            const DWORD checkpointError = GetLastError();
-            if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to delete checkpoint %ls (error=%lu)",
-                           checkpointPath.c_str(), checkpointError);
-                m_pendingCheckpointCleanup = true;
-            }
-        } else {
-            m_pendingCheckpointCleanup = false;
-        }
     }
 
     m_lastSerializedSnapshot = std::move(serialized);
