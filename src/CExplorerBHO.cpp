@@ -8830,7 +8830,7 @@ int __stdcall CExplorerBHO::HandleExplorerViewException(CExplorerBHO* self, HWND
 }
 
 int __stdcall CExplorerBHO::HandleStatusBarException(CExplorerBHO* self, HWND hwnd, UINT msg,
-                                                    EXCEPTION_POINTERS* info) noexcept {
+                                                   EXCEPTION_POINTERS* info) noexcept {
     const DWORD code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
     const void* address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
     LogMessage(LogLevel::Error,
@@ -8848,6 +8848,34 @@ int __stdcall CExplorerBHO::HandleStatusBarException(CExplorerBHO* self, HWND hw
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+namespace {
+
+bool HandleExplorerViewMessageWithSeh(
+    CExplorerBHO* self, HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result) noexcept {
+    bool handled = false;
+    __try {
+        handled = self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, result);
+    } __except (CExplorerBHO::HandleExplorerViewException(self, hwnd, msg, GetExceptionInformation())) {
+        handled = false;
+        *result = 0;
+    }
+    return handled;
+}
+
+bool HandleStatusBarMessageWithSeh(
+    CExplorerBHO* self, HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool* handled) noexcept {
+    LRESULT result = 0;
+    __try {
+        result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, handled);
+    } __except (CExplorerBHO::HandleStatusBarException(self, hwnd, msg, GetExceptionInformation())) {
+        *handled = false;
+        result = 0;
+    }
+    return result;
+}
+
+}  // namespace
+
 LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
@@ -8856,13 +8884,7 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
     }
 
     LRESULT result = 0;
-    bool handled = false;
-    __try {
-        handled = self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result);
-    } __except (HandleExplorerViewException(self, hwnd, msg, GetExceptionInformation())) {
-        handled = false;
-        result = 0;
-    }
+    const bool handled = HandleExplorerViewMessageWithSeh(self, hwnd, msg, wParam, lParam, &result);
     if (handled) {
         return result;
     }
@@ -8959,13 +8981,7 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
     }
 
     bool handled = false;
-    LRESULT result = 0;
-    __try {
-        result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, &handled);
-    } __except (HandleStatusBarException(self, hwnd, msg, GetExceptionInformation())) {
-        handled = false;
-        result = 0;
-    }
+    const LRESULT result = HandleStatusBarMessageWithSeh(self, hwnd, msg, wParam, lParam, &handled);
     if (handled) {
         return result;
     }
