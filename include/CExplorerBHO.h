@@ -428,6 +428,10 @@ class ShellTabsListView;
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static bool HandleExplorerViewMessageWithSeh(CExplorerBHO* self, HWND hwnd, UINT msg,
+                        WPARAM wParam, LPARAM lParam, LRESULT* result) noexcept;
+                static bool HandleStatusBarMessageWithSeh(CExplorerBHO* self, HWND hwnd, UINT msg,
+                        WPARAM wParam, LPARAM lParam, bool* handled) noexcept;
                 static int __stdcall HandleExplorerViewException(CExplorerBHO* self, HWND hwnd, UINT msg,
                         EXCEPTION_POINTERS* info) noexcept;
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
