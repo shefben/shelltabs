@@ -3095,6 +3095,9 @@ void CExplorerBHO::ResetGlowSurfaces() {
 
 namespace {
 
+constexpr wchar_t kStatusBarSubclassPropertyName[] = L"ShellTabs_StatusBarOwner";
+constexpr UINT_PTR kStatusBarSubclassId = 0x53544253;  // 'STBS'
+
 bool IsValidStatusBarWindow(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) {
         return false;
@@ -3210,6 +3213,17 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         statusBarCandidate = nullptr;
     }
 
+    const bool statusBarReplaced = (statusBarCandidate != m_statusBar);
+    const bool statusBarInvalid =
+        m_statusBar && (!IsWindow(m_statusBar) || !MatchesClass(m_statusBar, STATUSCLASSNAMEW) ||
+                         !IsWindowOwnedByThisExplorer(m_statusBar));
+
+    if (statusBarInvalid) {
+        RemoveStatusBarSubclass(m_statusBar);
+        ResetStatusBarTheme(m_statusBar);
+        m_statusBar = nullptr;
+    }
+
     if (statusBarCandidate != m_statusBar) {
         if (m_statusBar) {
             LogMessage(LogLevel::Info, L"Explorer status bar released (hwnd=%p)", m_statusBar);
@@ -3232,6 +3246,10 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
             m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
             m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
         }
+    }
+
+    if (!statusBarReplaced && m_statusBar && !m_statusBarSubclassInstalled) {
+        InstallStatusBarSubclass();
     }
 
     if (frame && IsWindow(frame)) {
@@ -3299,13 +3317,42 @@ void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
 }
 
 void CExplorerBHO::InstallStatusBarSubclass() {
-    if (!m_statusBar || m_statusBarSubclassInstalled || !IsWindow(m_statusBar)) {
+    if (!m_statusBar || m_statusBarSubclassInstalled) {
         return;
     }
 
-    if (!SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this),
+    if (!IsWindow(m_statusBar) || !MatchesClass(m_statusBar, STATUSCLASSNAMEW) ||
+        !IsWindowOwnedByThisExplorer(m_statusBar)) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar subclass skipped: handle no longer valid or owned (hwnd=%p)", m_statusBar);
+        return;
+    }
+
+    DWORD windowThread = 0;
+    GetWindowThreadProcessId(m_statusBar, &windowThread);
+    if (windowThread != GetCurrentThreadId()) {
+        LogMessage(LogLevel::Warning, L"Status bar subclass skipped: cross-thread window (hwnd=%p thread=%lu)",
+                   m_statusBar, windowThread);
+        return;
+    }
+
+    HANDLE existingOwner = GetPropW(m_statusBar, kStatusBarSubclassPropertyName);
+    if (existingOwner && existingOwner != this) {
+        LogMessage(LogLevel::Warning,
+                   L"Status bar already subclassed by another instance; aborting subclass install (hwnd=%p)",
+                   m_statusBar);
+        return;
+    }
+
+    if (!SetPropW(m_statusBar, kStatusBarSubclassPropertyName, this)) {
+        LogLastError(L"SetProp(status bar owner)", GetLastError());
+        return;
+    }
+
+    if (!SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, kStatusBarSubclassId,
             reinterpret_cast<DWORD_PTR>(this))) {
         LogLastError(L"SetWindowSubclass(status bar)", GetLastError());
+        RemovePropW(m_statusBar, kStatusBarSubclassPropertyName);
         return;
     }
 
@@ -3313,17 +3360,19 @@ void CExplorerBHO::InstallStatusBarSubclass() {
 }
 
 void CExplorerBHO::RemoveStatusBarSubclass(HWND statusBar) {
-    if (!m_statusBarSubclassInstalled) {
-        return;
-    }
-
     HWND target = statusBar ? statusBar : m_statusBar;
     if (!target || !IsWindow(target)) {
         m_statusBarSubclassInstalled = false;
         return;
     }
 
-    if (!RemoveWindowSubclass(target, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this))) {
+    RemovePropW(target, kStatusBarSubclassPropertyName);
+
+    if (!m_statusBarSubclassInstalled) {
+        return;
+    }
+
+    if (!RemoveWindowSubclass(target, &CExplorerBHO::StatusBarSubclassProc, kStatusBarSubclassId)) {
         const DWORD error = GetLastError();
         if (error != ERROR_INVALID_PARAMETER && error != ERROR_SUCCESS) {
             LogLastError(L"RemoveWindowSubclass(status bar)", error);
