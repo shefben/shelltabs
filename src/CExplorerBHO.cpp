@@ -35,6 +35,7 @@
 #include <wrl/client.h>
 #include <shobjidl_core.h>
 #include <optional>
+#include <tuple>
 
 #include "BackgroundCache.h"
 #include "ShellTabsMessages.h"
@@ -999,6 +1000,18 @@ COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
     }
 
     return bestColor;
+}
+
+COLORREF BlendColors(COLORREF base, COLORREF overlay, double ratio) {
+    ratio = std::clamp(ratio, 0.0, 1.0);
+    const auto blendChannel = [&](int a, int b) -> BYTE {
+        const double value = static_cast<double>(a) * (1.0 - ratio) + static_cast<double>(b) * ratio;
+        return static_cast<BYTE>(std::clamp<int>(static_cast<int>(std::lround(value)), 0, 255));
+    };
+
+    return RGB(blendChannel(GetRValue(base), GetRValue(overlay)),
+               blendChannel(GetGValue(base), GetGValue(overlay)),
+               blendChannel(GetBValue(base), GetBValue(overlay)));
 }
 
 COLORREF ChooseAccentTextColor(COLORREF accent) {
@@ -3492,98 +3505,105 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         return;
     }
 
-    HWND frame = GetTopLevelExplorerWindow();
-    HWND rebar = nullptr;
-    if (frame && IsWindow(frame)) {
-        rebar = FindDescendantWindow(frame, L"ReBarWindow32");
-        if (rebar && !IsWindowOwnedByThisExplorer(rebar)) {
-            rebar = nullptr;
+    const bool darkMode = IsAppDarkModePreferred();
+
+    auto sampleChrome = [&]() -> std::optional<ToolbarChromeSample> {
+        HWND frame = GetTopLevelExplorerWindow();
+        if (frame && !IsWindow(frame)) {
+            frame = nullptr;
         }
-    }
 
-    std::optional<ToolbarChromeSample> chrome;
-    if (rebar && IsWindow(rebar)) {
-        chrome = SampleToolbarChrome(rebar);
-    }
-    if (!chrome && frame && IsWindow(frame)) {
-        chrome = SampleToolbarChrome(frame);
-    }
+        HWND rebar = nullptr;
+        if (frame) {
+            rebar = FindDescendantWindow(frame, L"ReBarWindow32");
+            if (rebar && !IsWindowOwnedByThisExplorer(rebar)) {
+                rebar = nullptr;
+            }
+        }
 
-    if (!chrome) {
+        if (rebar && IsWindow(rebar)) {
+            if (auto chrome = SampleToolbarChrome(rebar)) {
+                return chrome;
+            }
+        }
+
+        if (frame && IsWindow(frame)) {
+            if (auto chrome = SampleToolbarChrome(frame)) {
+                return chrome;
+            }
+        }
+
         HWND parent = GetParent(m_statusBar);
         if (parent && IsWindow(parent) && IsWindowOwnedByThisExplorer(parent)) {
-            chrome = SampleToolbarChrome(parent);
+            if (auto chrome = SampleToolbarChrome(parent)) {
+                return chrome;
+            }
         }
-    }
 
-    std::optional<COLORREF> backgroundCandidate;
-    COLORREF gradientTop = CLR_DEFAULT;
-    COLORREF gradientBottom = CLR_DEFAULT;
-
-    if (chrome) {
-        auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
-            const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
-            const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
-            const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
-            return RGB(red, green, blue);
-        };
-
-        const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
-        backgroundCandidate = background;
-        gradientTop = chrome->topColor;
-        gradientBottom = chrome->bottomColor;
-    } else if (IsAppDarkModePreferred()) {
-        LogMessage(LogLevel::Info, L"Status bar theme fallback to dark preference (hwnd=%p)", m_statusBar);
-        backgroundCandidate = RGB(32, 32, 32);
-        gradientTop = backgroundCandidate.value();
-        gradientBottom = backgroundCandidate.value();
-    }
-
-    if (!backgroundCandidate.has_value()) {
-        if (m_statusBarThemeValid) {
-            LogMessage(LogLevel::Warning, L"Status bar theme reset: failed to sample toolbar chrome (hwnd=%p)", m_statusBar);
-        }
-        ResetStatusBarTheme(m_statusBar);
-        return;
-    }
-
-    const COLORREF background = backgroundCandidate.value();
-
-    auto resolveGradientColor = [&](COLORREF color) -> COLORREF {
-        return color == CLR_DEFAULT ? background : color;
+        return std::nullopt;
     };
 
-    const COLORREF resolvedTop = resolveGradientColor(gradientTop);
-    const COLORREF resolvedBottom = resolveGradientColor(gradientBottom);
-    COLORREF text = ChooseStatusBarTextColor(resolvedTop, resolvedBottom);
+    auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
+        const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
+        const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
+        const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
+        return RGB(red, green, blue);
+    };
 
-    if (auto themeText = QueryStatusBarThemeTextColor(m_statusBar)) {
-        const double topLuminance = ComputeColorLuminance(resolvedTop);
-        const double bottomLuminance = ComputeColorLuminance(resolvedBottom);
-        const double themeLuminance = ComputeColorLuminance(themeText.value());
-        const double contrastTop = ComputeContrastRatio(topLuminance, themeLuminance);
-        const double contrastBottom = ComputeContrastRatio(bottomLuminance, themeLuminance);
-        const double themeContrast = std::min(contrastTop, contrastBottom);
-        constexpr double kThemeContrastThreshold = 4.5;
-        if (themeContrast >= kThemeContrastThreshold || !m_statusBarThemeValid) {
-            text = themeText.value();
+    auto resolveThemeFromChrome = [&](const ToolbarChromeSample& chrome) {
+        const COLORREF background = averageColor(chrome.topColor, chrome.bottomColor);
+        return std::tuple{background, chrome.topColor, chrome.bottomColor};
+    };
+
+    COLORREF background = GetSysColor(COLOR_3DFACE);
+    COLORREF gradientTop = background;
+    COLORREF gradientBottom = background;
+    COLORREF textColor = RGB(0, 0, 0);
+
+    if (darkMode) {
+        constexpr COLORREF kDarkTop = RGB(48, 48, 48);
+        constexpr COLORREF kDarkBottom = RGB(32, 32, 32);
+
+        if (auto chrome = sampleChrome()) {
+            gradientTop = BlendColors(kDarkTop, chrome->topColor, 0.35);
+            gradientBottom = BlendColors(kDarkBottom, chrome->bottomColor, 0.35);
+            background = averageColor(gradientTop, gradientBottom);
+        } else {
+            background = averageColor(kDarkTop, kDarkBottom);
+            gradientTop = kDarkTop;
+            gradientBottom = kDarkBottom;
+            LogMessage(LogLevel::Info, L"Status bar using fallback dark palette (hwnd=%p)", m_statusBar);
         }
+
+        textColor = RGB(255, 255, 255);
+    } else if (auto chrome = sampleChrome()) {
+        std::tie(background, gradientTop, gradientBottom) = resolveThemeFromChrome(*chrome);
+        textColor = ChooseStatusBarTextColor(gradientTop, gradientBottom);
+
+        if (auto themeText = QueryStatusBarThemeTextColor(m_statusBar)) {
+            const double topLuminance = ComputeColorLuminance(gradientTop);
+            const double bottomLuminance = ComputeColorLuminance(gradientBottom);
+            const double themeLuminance = ComputeColorLuminance(themeText.value());
+            const double contrastTop = ComputeContrastRatio(topLuminance, themeLuminance);
+            const double contrastBottom = ComputeContrastRatio(bottomLuminance, themeLuminance);
+            const double themeContrast = std::min(contrastTop, contrastBottom);
+            constexpr double kThemeContrastThreshold = 4.5;
+            if (themeContrast >= kThemeContrastThreshold || !m_statusBarThemeValid) {
+                textColor = themeText.value();
+            }
+        }
+    } else {
+        LogMessage(LogLevel::Warning, L"Status bar theme using system default colors (hwnd=%p)", m_statusBar);
+        textColor = ChooseStatusBarTextColor(gradientTop, gradientBottom);
     }
 
     const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
-    const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
+    const bool textChanged = !m_statusBarThemeValid || textColor != m_statusBarTextColor;
 
-    bool chromeChanged = false;
-    ToolbarChromeSample chromeForStorage{background, background};
-    if (chrome) {
-        chromeForStorage = *chrome;
-    }
-    if (!m_statusBarChromeSample.has_value()) {
-        chromeChanged = true;
-    } else {
-        chromeChanged = m_statusBarChromeSample->topColor != chromeForStorage.topColor ||
+    ToolbarChromeSample chromeForStorage{gradientTop, gradientBottom};
+    bool chromeChanged = !m_statusBarChromeSample.has_value() ||
+                        m_statusBarChromeSample->topColor != chromeForStorage.topColor ||
                         m_statusBarChromeSample->bottomColor != chromeForStorage.bottomColor;
-    }
 
     if (!backgroundChanged && !textChanged && !chromeChanged) {
         return;
@@ -3594,12 +3614,12 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     }
 
     if (textChanged) {
-        LogMessage(LogLevel::Info, L"Status bar theme text color updated (hwnd=%p new=0x%08X)", m_statusBar, text);
+        LogMessage(LogLevel::Info, L"Status bar theme text color updated (hwnd=%p new=0x%08X)", m_statusBar, textColor);
     }
 
     m_statusBarThemeValid = true;
     m_statusBarBackgroundColor = background;
-    m_statusBarTextColor = text;
+    m_statusBarTextColor = textColor;
     m_statusBarChromeSample = chromeForStorage;
 
     UpdateStatusBarDescriptor();
