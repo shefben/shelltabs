@@ -8810,14 +8810,16 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-namespace {
-
-int HandleExplorerViewException(CExplorerBHO* self, HWND hwnd, UINT msg, EXCEPTION_POINTERS* info) noexcept {
+int __stdcall CExplorerBHO::HandleExplorerViewException(CExplorerBHO* self, HWND hwnd, UINT msg,
+                                                       EXCEPTION_POINTERS* info) noexcept {
     const DWORD code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
     const void* address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
     LogMessage(LogLevel::Error,
                L"Explorer view subclass exception (code=0x%08X address=%p hwnd=%p msg=%u); removing ShellTabs hooks",
-               code, address, hwnd, msg);
+               code,
+               address,
+               hwnd,
+               msg);
 
     if (self && hwnd) {
         RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
@@ -8827,7 +8829,8 @@ int HandleExplorerViewException(CExplorerBHO* self, HWND hwnd, UINT msg, EXCEPTI
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-int HandleStatusBarException(CExplorerBHO* self, HWND hwnd, UINT msg, EXCEPTION_POINTERS* info) noexcept {
+int __stdcall CExplorerBHO::HandleStatusBarException(CExplorerBHO* self, HWND hwnd, UINT msg,
+                                                    EXCEPTION_POINTERS* info) noexcept {
     const DWORD code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
     const void* address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
     LogMessage(LogLevel::Error,
@@ -8844,8 +8847,6 @@ int HandleStatusBarException(CExplorerBHO* self, HWND hwnd, UINT msg, EXCEPTION_
 
     return EXCEPTION_EXECUTE_HANDLER;
 }
-
-}  // namespace
 
 LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {

@@ -428,8 +428,12 @@ class ShellTabsListView;
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static int __stdcall HandleExplorerViewException(CExplorerBHO* self, HWND hwnd, UINT msg,
+                        EXCEPTION_POINTERS* info) noexcept;
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static int __stdcall HandleStatusBarException(CExplorerBHO* self, HWND hwnd, UINT msg,
+                        EXCEPTION_POINTERS* info) noexcept;
                 static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
