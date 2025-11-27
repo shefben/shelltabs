@@ -6939,6 +6939,18 @@ bool CExplorerBHO::IsTravelToolbarButtonEnabled(UINT commandId) const {
         return false;
     }
 
+    // Always query the underlying toolbar state so we can fall back to the
+    // native enablement even if ShellTabs' navigation state is briefly out of
+    // sync (for example, immediately after a navigation completes).
+    bool toolbarEnabled = false;
+    {
+        const LRESULT stateResult = SendMessageW(m_travelToolbar, TB_GETSTATE, commandId, 0);
+        if (stateResult >= 0) {
+            const BYTE state = static_cast<BYTE>(stateResult);
+            toolbarEnabled = (state & TBSTATE_ENABLED) != 0;
+        }
+    }
+
     if (commandId == m_travelBackCommandId || commandId == m_travelForwardCommandId) {
         NavigationAvailability availability{};
         HWND bandWindow = GetShellTabsBandWindow();
@@ -6946,18 +6958,20 @@ bool CExplorerBHO::IsTravelToolbarButtonEnabled(UINT commandId) const {
             SendMessageW(bandWindow, WM_SHELLTABS_QUERY_NAVIGATION_STATE,
                          reinterpret_cast<WPARAM>(&availability), 0) != 0) {
             if (commandId == m_travelBackCommandId) {
-                return availability.canGoBack;
+                if (availability.canGoBack) {
+                    return true;
+                }
+                // Fall back to the toolbar's notion if the tab state is stale.
+                return toolbarEnabled;
             }
-            return availability.canGoForward;
+            if (availability.canGoForward) {
+                return true;
+            }
+            return toolbarEnabled;
         }
     }
 
-    const LRESULT stateResult = SendMessageW(m_travelToolbar, TB_GETSTATE, commandId, 0);
-    if (stateResult < 0) {
-        return false;
-    }
-    const BYTE state = static_cast<BYTE>(stateResult);
-    return (state & TBSTATE_ENABLED) != 0;
+    return toolbarEnabled;
 }
 
 void CExplorerBHO::BeginTravelToolbarCapture(HWND toolbar) {
