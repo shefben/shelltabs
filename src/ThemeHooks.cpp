@@ -20,7 +20,6 @@
 #include <wingdi.h>
 
 #include "Logging.h"
-#include "CustomFileListView.h"
 #include "DpiUtils.h"
 #include "CompositionIntercept.h"
 #include "BreadcrumbGradient.h"
@@ -950,13 +949,6 @@ BOOL WINAPI TrackPopupMenuExDetour(HMENU menu, UINT flags, int x, int y, HWND hw
 HWND WINAPI CreateWindowExWDetour(DWORD exStyle, LPCWSTR className, LPCWSTR windowName, DWORD style, int x, int y,
                                   int width, int height, HWND hwndParent, HMENU menu, HINSTANCE instance,
                                   LPVOID param) {
-    if (HWND replacement = ShellTabs::DirectUIReplacementHook::TryHandleCreateWindowEx(exStyle, className, windowName,
-                                                                                       style, x, y, width, height,
-                                                                                       hwndParent, menu, instance,
-                                                                                       param)) {
-        return replacement;
-    }
-
     const bool isMenuClass = IsMenuClassName(className);
     const bool isTooltipClass = !isMenuClass && IsTooltipClassName(className);
 
