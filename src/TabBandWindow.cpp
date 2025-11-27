@@ -850,6 +850,12 @@ void TabBandWindow::Destroy() {
     ClearGdiCache();
     ClearDropHoverState();
     HidePreviewWindow(true);
+    if (m_parentRebar && m_rebarSubclassed) {
+        if (IsWindow(m_parentRebar)) {
+            RemoveWindowSubclass(m_parentRebar, RebarSubclassProc, 0);
+        }
+        m_rebarSubclassed = false;
+    }
     if (m_hwnd) {
         if (auto* manager = ResolveManager()) {
             manager->UnregisterProgressListener(m_hwnd);
