@@ -8848,10 +8848,8 @@ int __stdcall CExplorerBHO::HandleStatusBarException(CExplorerBHO* self, HWND hw
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-namespace {
-
-bool HandleExplorerViewMessageWithSeh(
-    CExplorerBHO* self, HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result) noexcept {
+bool CExplorerBHO::HandleExplorerViewMessageWithSeh(CExplorerBHO* self, HWND hwnd, UINT msg, WPARAM wParam,
+                                                   LPARAM lParam, LRESULT* result) noexcept {
     bool handled = false;
     __try {
         handled = self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, result);
@@ -8862,8 +8860,8 @@ bool HandleExplorerViewMessageWithSeh(
     return handled;
 }
 
-bool HandleStatusBarMessageWithSeh(
-    CExplorerBHO* self, HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool* handled) noexcept {
+bool CExplorerBHO::HandleStatusBarMessageWithSeh(CExplorerBHO* self, HWND hwnd, UINT msg, WPARAM wParam,
+                                                LPARAM lParam, bool* handled) noexcept {
     LRESULT result = 0;
     __try {
         result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, handled);
@@ -8873,8 +8871,6 @@ bool HandleStatusBarMessageWithSeh(
     }
     return result;
 }
-
-}  // namespace
 
 LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                        UINT_PTR subclassId, DWORD_PTR) {
