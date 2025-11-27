@@ -33,7 +33,6 @@
 #include <utility>
 #include <vector>
 
-#include "BackgroundCache.h"
 #include "GroupStore.h"
 #include "Logging.h"
 #include "Module.h"
@@ -60,8 +59,6 @@ constexpr int kComboHeight = 200;
 constexpr int kSliderHeight = 24;
 constexpr int kPreviewSize = 64;
 constexpr int kColorBoxSize = 28;
-
-constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
 
 // Modern control IDs - clearly organized by page
 enum ControlIds : int {
@@ -153,22 +150,6 @@ enum ControlIds : int {
     IDC_GLOW_SURF_DIRECTUI = 6226,
     IDC_GLOW_SURF_SCROLLBAR = 6227,
 
-    // Backgrounds (6300-6399)
-    IDC_BG_ENABLE = 6300,
-    IDC_BG_UNIVERSAL_GROUP = 6301,
-    IDC_BG_UNIVERSAL_PREVIEW = 6302,
-    IDC_BG_UNIVERSAL_BROWSE = 6303,
-    IDC_BG_UNIVERSAL_CLEAR = 6304,
-    IDC_BG_UNIVERSAL_NAME = 6305,
-    IDC_BG_FOLDER_GROUP = 6310,
-    IDC_BG_FOLDER_LIST = 6311,
-    IDC_BG_FOLDER_ADD = 6312,
-    IDC_BG_FOLDER_EDIT = 6313,
-    IDC_BG_FOLDER_REMOVE = 6314,
-    IDC_BG_FOLDER_PREVIEW = 6315,
-    IDC_BG_FOLDER_NAME = 6316,
-    IDC_BG_FOLDER_CLEAN = 6317,
-
     // Context Menus (6400-6499)
     IDC_CTX_TREE = 6400,
     IDC_CTX_TEMPLATE = 6401,
@@ -254,16 +235,6 @@ struct OptionsDialogData {
     HBRUSH glowPrimaryBrush = nullptr;
     HBRUSH glowSecondaryBrush = nullptr;
     HBRUSH groupColorBrush = nullptr;
-
-    // Background previews
-    HBITMAP universalPreview = nullptr;
-    HBITMAP folderPreview = nullptr;
-    UINT64 universalPreviewToken = 0;
-    UINT64 folderPreviewToken = 0;
-    std::wstring lastImageDir;
-    std::wstring lastFolderPath;
-    std::vector<std::wstring> createdCachedImages;
-    std::vector<std::wstring> pendingCachedRemovals;
 
     // Context menu tree state
     std::vector<std::vector<size_t>> contextTreePaths;
@@ -676,90 +647,6 @@ bool BrowseForFolder(HWND parent, std::wstring* path, const wchar_t* title = nul
     return success;
 }
 
-bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* dir) {
-    if (!path) return false;
-
-    ScopedComInitializer com(COINIT_APARTMENTTHREADED);
-    if (com.CanUseCom()) {
-        Microsoft::WRL::ComPtr<IFileDialog> dialog;
-        if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                      IID_PPV_ARGS(&dialog))) &&
-            dialog) {
-            COMDLG_FILTERSPEC filters[] = {
-                {L"Images", L"*.jpg;*.jpeg;*.png;*.bmp;*.gif"},
-                {L"All Files", L"*.*"},
-            };
-            dialog->SetFileTypes(2, filters);
-            dialog->SetTitle(L"Select Image");
-
-            if (dir && !dir->empty()) {
-                Microsoft::WRL::ComPtr<IShellItem> folder;
-                if (SUCCEEDED(SHCreateItemFromParsingName(dir->c_str(), nullptr, IID_PPV_ARGS(&folder))) && folder) {
-                    dialog->SetFolder(folder.Get());
-                }
-            }
-
-            if (SUCCEEDED(dialog->Show(parent))) {
-                Microsoft::WRL::ComPtr<IShellItem> item;
-                if (SUCCEEDED(dialog->GetResult(&item)) && item) {
-                    wchar_t* filePath = nullptr;
-                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath)) && filePath) {
-                        *path = filePath;
-                        if (dir) {
-                            *dir = *path;
-                            size_t pos = dir->find_last_of(L"\\");
-                            if (pos != std::wstring::npos) {
-                                dir->resize(pos);
-                            }
-                        }
-                        CoTaskMemFree(filePath);
-                        return true;
-                    }
-                    if (filePath) {
-                        CoTaskMemFree(filePath);
-                    }
-                }
-                return false;
-            }
-        }
-    }
-
-    if (com.Result() == RPC_E_CHANGED_MODE) {
-        LogMessage(LogLevel::Warning,
-                   L"BrowseForImage: COM apartment mismatch; falling back to GetOpenFileName");
-    }
-
-    wchar_t buffer[MAX_PATH] = {};
-    if (path && !path->empty()) {
-        wcsncpy_s(buffer, path->c_str(), _TRUNCATE);
-    }
-    std::wstring initialDir = (dir && !dir->empty()) ? *dir : std::wstring();
-    const wchar_t filter[] = L"Images\0*.jpg;*.jpeg;*.png;*.bmp;*.gif\0All Files\0*.*\0\0";
-
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = parent;
-    ofn.lpstrFilter = filter;
-    ofn.nFilterIndex = 1;
-    ofn.lpstrFile = buffer;
-    ofn.nMaxFile = static_cast<DWORD>(std::size(buffer));
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
-    ofn.lpstrInitialDir = initialDir.empty() ? nullptr : initialDir.c_str();
-
-    if (GetOpenFileNameW(&ofn)) {
-        *path = buffer;
-        if (dir) {
-            *dir = *path;
-            size_t pos = dir->find_last_of(L"\\");
-            if (pos != std::wstring::npos) {
-                dir->resize(pos);
-            }
-        }
-        return true;
-    }
-    return false;
-}
-
 //=============================================================================
 // GENERAL PAGE
 //=============================================================================
@@ -780,16 +667,6 @@ DialogTemplatePtr CreateGeneralPageTemplate() {
         L"Remember folder paths in saved groups",
         kMargin, y, 280, kCheckHeight);
     y += kCheckHeight + kSpacing * 2;
-
-    // Dock mode
-    builder.AddStatic(IDC_GEN_DOCK_LABEL,
-        L"Tab band position:",
-        kMargin, y, 120, kLabelHeight);
-    y += kLabelHeight + 4;
-
-    builder.AddComboBox(IDC_GEN_DOCK_COMBO,
-        kMargin, y, 200, kComboHeight);
-    y += kEditHeight + kSpacing * 2;
 
     // New tab behavior
     builder.AddStatic(IDC_GEN_NEWTAB_LABEL,
@@ -829,16 +706,6 @@ void InitGeneralPage(HWND page, OptionsDialogData* data) {
         data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(page, IDC_GEN_PERSIST,
         data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
-
-    // Populate dock mode combo
-    HWND dockCombo = GetDlgItem(page, IDC_GEN_DOCK_COMBO);
-    if (dockCombo) {
-        const wchar_t* modes[] = { L"Automatic", L"Top", L"Bottom", L"Left", L"Right" };
-        for (const auto* mode : modes) {
-            ComboBox_AddString(dockCombo, mode);
-        }
-        ComboBox_SetCurSel(dockCombo, static_cast<int>(data->workingOptions.tabDockMode));
-    }
 
     // Populate new tab combo
     HWND newTabCombo = GetDlgItem(page, IDC_GEN_NEWTAB_COMBO);
@@ -921,14 +788,6 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
                     (IsDlgButtonChecked(page, IDC_GEN_PERSIST) == BST_CHECKED);
                 PropSheet_Changed(GetParent(page), page);
             }
-            else if (id == IDC_GEN_DOCK_COMBO && code == CBN_SELCHANGE) {
-                HWND combo = GetDlgItem(page, IDC_GEN_DOCK_COMBO);
-                int sel = ComboBox_GetCurSel(combo);
-                if (sel >= 0) {
-                    data->workingOptions.tabDockMode = static_cast<TabBandDockMode>(sel);
-                    PropSheet_Changed(GetParent(page), page);
-                }
-            }
             else if (id == IDC_GEN_NEWTAB_COMBO && code == CBN_SELCHANGE) {
                 HWND combo = GetDlgItem(page, IDC_GEN_NEWTAB_COMBO);
                 int sel = ComboBox_GetCurSel(combo);
@@ -984,7 +843,7 @@ DialogTemplatePtr CreateAppearancePageTemplate() {
 
     // Breadcrumb section
     builder.AddGroupBox(IDC_APP_BREADCRUMB_GROUP, L"Breadcrumb Bar",
-        kMargin, y, kPageWidth - 2 * kMargin, 100);
+        kMargin, y, kPageWidth - 2 * kMargin, 170);
     y += 18;
 
     builder.AddCheckbox(IDC_APP_BREADCRUMB_ENABLE,
@@ -999,6 +858,21 @@ DialogTemplatePtr CreateAppearancePageTemplate() {
         kMargin + kGroupMargin + 100, y - 2, 200, kSliderHeight);
     builder.AddStatic(IDC_APP_BREADCRUMB_TRANS_VAL, L"45%",
         kMargin + kGroupMargin + 310, y, 40, kLabelHeight);
+
+    y += kSliderHeight + kSpacing * 2;
+
+    builder.AddCheckbox(IDC_APP_FONT_ENABLE,
+        L"Enable gradient font color",
+        kMargin + kGroupMargin, y, 220, kCheckHeight);
+    y += kCheckHeight + kSpacing;
+
+    builder.AddStatic(IDC_APP_FONT_BRIGHT_LABEL,
+        L"Font gradient strength:",
+        kMargin + kGroupMargin, y, 140, kLabelHeight);
+    builder.AddSlider(IDC_APP_FONT_BRIGHT,
+        kMargin + kGroupMargin + 150, y - 2, 180, kSliderHeight);
+    builder.AddStatic(IDC_APP_FONT_BRIGHT_VAL, L"85%",
+        kMargin + kGroupMargin + 340, y, 40, kLabelHeight);
 
     y += kSliderHeight + kSpacing * 2;
 
@@ -1045,6 +919,24 @@ void InitAppearancePage(HWND page, OptionsDialogData* data) {
     swprintf_s(buf, L"%d%%", data->workingOptions.breadcrumbGradientTransparency);
     SetDlgItemTextW(page, IDC_APP_BREADCRUMB_TRANS_VAL, buf);
 
+    CheckDlgButton(page, IDC_APP_FONT_ENABLE,
+        data->workingOptions.enableBreadcrumbFontGradient ? BST_CHECKED : BST_UNCHECKED);
+
+    HWND fontSlider = GetDlgItem(page, IDC_APP_FONT_BRIGHT);
+    if (fontSlider) {
+        SendMessageW(fontSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
+        SendMessageW(fontSlider, TBM_SETPOS, TRUE, data->workingOptions.breadcrumbFontBrightness);
+    }
+
+    swprintf_s(buf, L"%d%%", data->workingOptions.breadcrumbFontBrightness);
+    SetDlgItemTextW(page, IDC_APP_FONT_BRIGHT_VAL, buf);
+
+    const BOOL fontGradientEnabled =
+        IsDlgButtonChecked(page, IDC_APP_FONT_ENABLE) == BST_CHECKED ? TRUE : FALSE;
+    EnableWindow(GetDlgItem(page, IDC_APP_FONT_BRIGHT_LABEL), fontGradientEnabled);
+    EnableWindow(fontSlider, fontGradientEnabled);
+    EnableWindow(GetDlgItem(page, IDC_APP_FONT_BRIGHT_VAL), fontGradientEnabled);
+
     CheckDlgButton(page, IDC_APP_TAB_SEL_CHECK,
         data->workingOptions.useCustomTabSelectedColor ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(page, IDC_APP_TAB_UNSEL_CHECK,
@@ -1077,6 +969,15 @@ INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM l
             if (id == IDC_APP_BREADCRUMB_ENABLE && code == BN_CLICKED) {
                 data->workingOptions.enableBreadcrumbGradient =
                     (IsDlgButtonChecked(page, IDC_APP_BREADCRUMB_ENABLE) == BST_CHECKED);
+                PropSheet_Changed(GetParent(page), page);
+            }
+            else if (id == IDC_APP_FONT_ENABLE && code == BN_CLICKED) {
+                const BOOL enabled =
+                    IsDlgButtonChecked(page, IDC_APP_FONT_ENABLE) == BST_CHECKED ? TRUE : FALSE;
+                data->workingOptions.enableBreadcrumbFontGradient = enabled == TRUE;
+                EnableWindow(GetDlgItem(page, IDC_APP_FONT_BRIGHT_LABEL), enabled);
+                EnableWindow(GetDlgItem(page, IDC_APP_FONT_BRIGHT), enabled);
+                EnableWindow(GetDlgItem(page, IDC_APP_FONT_BRIGHT_VAL), enabled);
                 PropSheet_Changed(GetParent(page), page);
             }
             else if (id == IDC_APP_TAB_SEL_CHECK && code == BN_CLICKED) {
@@ -1118,6 +1019,14 @@ INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM l
                 wchar_t buf[32];
                 swprintf_s(buf, L"%d%%", pos);
                 SetDlgItemTextW(page, IDC_APP_BREADCRUMB_TRANS_VAL, buf);
+                PropSheet_Changed(GetParent(page), page);
+            }
+            else if (id == IDC_APP_FONT_BRIGHT) {
+                int pos = static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+                data->workingOptions.breadcrumbFontBrightness = pos;
+                wchar_t buf[32];
+                swprintf_s(buf, L"%d%%", pos);
+                SetDlgItemTextW(page, IDC_APP_FONT_BRIGHT_VAL, buf);
                 PropSheet_Changed(GetParent(page), page);
             }
             break;
@@ -1545,179 +1454,6 @@ INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
             si.nMax = kActualContentHeight;
             si.nPage = static_cast<UINT>(pageHeight);
             SetScrollInfo(page, SB_VERT, &si, TRUE);
-            break;
-        }
-
-        case WM_NOTIFY: {
-            NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
-            if (nmhdr->code == PSN_APPLY && data) {
-                return PSNRET_NOERROR;
-            }
-            break;
-        }
-    }
-
-    return FALSE;
-}
-
-//=============================================================================
-// BACKGROUNDS PAGE
-//=============================================================================
-
-// Helper function to generate unique token for async operations
-static UINT64 GenerateToken() {
-    static std::atomic<UINT64> counter{1};
-    return counter.fetch_add(1, std::memory_order_relaxed);
-}
-
-DialogTemplatePtr CreateBackgroundsPageTemplate() {
-    DialogBuilder builder(kPageWidth, kPageHeight);
-
-    int y = kMargin;
-
-    // Enable checkbox
-    builder.AddCheckbox(IDC_BG_ENABLE,
-        L"Enable custom folder backgrounds",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing * 2;
-
-    // Universal background group
-    builder.AddGroupBox(IDC_BG_UNIVERSAL_GROUP, L"Universal Background",
-        kMargin, y, kPageWidth - 2 * kMargin, 100);
-    y += 18;
-
-    builder.AddStatic(-1, L"Image:",
-        kMargin + kGroupMargin, y, 60, kLabelHeight);
-    builder.AddStatic(IDC_BG_UNIVERSAL_PREVIEW, L"",
-        kMargin + kGroupMargin + 65, y - 2, kPreviewSize, kPreviewSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
-    y += kPreviewSize + kSpacing;
-
-    builder.AddPushButton(IDC_BG_UNIVERSAL_BROWSE, L"Browse...",
-        kMargin + kGroupMargin, y, 80, kButtonHeight);
-    builder.AddPushButton(IDC_BG_UNIVERSAL_CLEAR, L"Clear",
-        kMargin + kGroupMargin + 90, y, 60, kButtonHeight);
-    y += kButtonHeight + 6;
-
-    builder.AddStatic(IDC_BG_UNIVERSAL_NAME, L"(no image selected)",
-        kMargin + kGroupMargin, y, kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
-    y += kLabelHeight + kSpacing * 2;
-
-    // Folder overrides group
-    builder.AddGroupBox(IDC_BG_FOLDER_GROUP, L"Folder-Specific Backgrounds",
-        kMargin, y, kPageWidth - 2 * kMargin, 150);
-    y += 18;
-
-    builder.AddListBox(IDC_BG_FOLDER_LIST,
-        kMargin + kGroupMargin, y, 200, 80);
-
-    builder.AddStatic(IDC_BG_FOLDER_PREVIEW, L"",
-        kMargin + kGroupMargin + 210, y, kPreviewSize, kPreviewSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
-    y += 86;
-
-    builder.AddStatic(IDC_BG_FOLDER_NAME, L"",
-        kMargin + kGroupMargin, y, kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
-    y += kLabelHeight + 6;
-
-    builder.AddPushButton(IDC_BG_FOLDER_ADD, L"Add...",
-        kMargin + kGroupMargin, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_EDIT, L"Edit...",
-        kMargin + kGroupMargin + 70, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_REMOVE, L"Remove",
-        kMargin + kGroupMargin + 140, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_CLEAN, L"Clean Up...",
-        kMargin + kGroupMargin + 210, y, 80, kButtonHeight);
-
-    return builder.Build();
-}
-
-void InitBackgroundsPage(HWND page, OptionsDialogData* data) {
-    if (!data) return;
-
-    CheckDlgButton(page, IDC_BG_ENABLE,
-        data->workingOptions.enableFolderBackgrounds ? BST_CHECKED : BST_UNCHECKED);
-
-    // Set universal background name
-    HWND nameLabel = GetDlgItem(page, IDC_BG_UNIVERSAL_NAME);
-    if (nameLabel) {
-        if (data->workingOptions.universalFolderBackgroundImage.displayName.empty()) {
-            SetWindowTextW(nameLabel, L"(no image selected)");
-        } else {
-            SetWindowTextW(nameLabel, data->workingOptions.universalFolderBackgroundImage.displayName.c_str());
-        }
-    }
-
-    // Populate folder list
-    HWND folderList = GetDlgItem(page, IDC_BG_FOLDER_LIST);
-    if (folderList) {
-        SendMessageW(folderList, LB_RESETCONTENT, 0, 0);
-        for (const auto& entry : data->workingOptions.folderBackgroundEntries) {
-            SendMessageW(folderList, LB_ADDSTRING, 0,
-                reinterpret_cast<LPARAM>(entry.folderPath.c_str()));
-        }
-    }
-
-    // Update control states
-    bool enabled = data->workingOptions.enableFolderBackgrounds;
-    EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_BROWSE), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_CLEAR), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_LIST), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_ADD), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_EDIT), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_REMOVE), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_CLEAN), enabled);
-}
-
-INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
-    OptionsDialogData* data = nullptr;
-
-    if (msg == WM_INITDIALOG) {
-        PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
-        data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
-        SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
-        InitBackgroundsPage(page, data);
-        return TRUE;
-    }
-
-    data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
-
-    switch (msg) {
-        case WM_COMMAND: {
-            if (!data) break;
-
-            int id = LOWORD(wParam);
-            int code = HIWORD(wParam);
-
-            if (id == IDC_BG_ENABLE && code == BN_CLICKED) {
-                data->workingOptions.enableFolderBackgrounds =
-                    (IsDlgButtonChecked(page, IDC_BG_ENABLE) == BST_CHECKED);
-
-                bool enabled = data->workingOptions.enableFolderBackgrounds;
-                EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_BROWSE), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_CLEAR), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_LIST), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_ADD), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_EDIT), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_REMOVE), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_CLEAN), enabled);
-
-                PropSheet_Changed(GetParent(page), page);
-            }
-            else if (id == IDC_BG_UNIVERSAL_BROWSE && code == BN_CLICKED) {
-                std::wstring path;
-                if (BrowseForImage(page, &path, &data->lastImageDir)) {
-                    data->workingOptions.universalFolderBackgroundImage.displayName = path;
-                    SetWindowTextW(GetDlgItem(page, IDC_BG_UNIVERSAL_NAME), path.c_str());
-                    PropSheet_Changed(GetParent(page), page);
-                }
-            }
-            else if (id == IDC_BG_UNIVERSAL_CLEAR && code == BN_CLICKED) {
-                data->workingOptions.universalFolderBackgroundImage.displayName.clear();
-                data->workingOptions.universalFolderBackgroundImage.cachedImagePath.clear();
-                SetWindowTextW(GetDlgItem(page, IDC_BG_UNIVERSAL_NAME), L"(no image selected)");
-                PropSheet_Changed(GetParent(page), page);
-            }
             break;
         }
 
@@ -2592,18 +2328,16 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     auto generalTemplate = CreateGeneralPageTemplate();
     auto appearanceTemplate = CreateAppearancePageTemplate();
     auto glowTemplate = CreateGlowEffectsPageTemplate();
-    auto backgroundsTemplate = CreateBackgroundsPageTemplate();
     auto contextTemplate = CreateContextMenusPageTemplate();
     auto groupsTemplate = CreateGroupsPageTemplate();
 
-    if (!generalTemplate || !appearanceTemplate || !glowTemplate ||
-        !backgroundsTemplate || !contextTemplate || !groupsTemplate) {
+    if (!generalTemplate || !appearanceTemplate || !glowTemplate || !contextTemplate || !groupsTemplate) {
         MessageBoxW(parent, L"Failed to create dialog templates.", L"Error", MB_OK | MB_ICONERROR);
         return result;
     }
 
     // Create property sheet pages
-    std::array<PROPSHEETPAGEW, 6> pages{};
+    std::array<PROPSHEETPAGEW, 5> pages{};
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
@@ -2633,26 +2367,18 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     pages[3].dwSize = sizeof(PROPSHEETPAGEW);
     pages[3].dwFlags = PSP_USETITLE | PSP_DLGINDIRECT;
     pages[3].hInstance = hInst;
-    pages[3].pResource = backgroundsTemplate.get();
-    pages[3].pszTitle = L"Backgrounds";
-    pages[3].pfnDlgProc = BackgroundsPageProc;
+    pages[3].pResource = contextTemplate.get();
+    pages[3].pszTitle = L"Context Menus";
+    pages[3].pfnDlgProc = ContextMenusPageProc;
     pages[3].lParam = reinterpret_cast<LPARAM>(data.get());
 
     pages[4].dwSize = sizeof(PROPSHEETPAGEW);
     pages[4].dwFlags = PSP_USETITLE | PSP_DLGINDIRECT;
     pages[4].hInstance = hInst;
-    pages[4].pResource = contextTemplate.get();
-    pages[4].pszTitle = L"Context Menus";
-    pages[4].pfnDlgProc = ContextMenusPageProc;
+    pages[4].pResource = groupsTemplate.get();
+    pages[4].pszTitle = L"Groups";
+    pages[4].pfnDlgProc = GroupsPageProc;
     pages[4].lParam = reinterpret_cast<LPARAM>(data.get());
-
-    pages[5].dwSize = sizeof(PROPSHEETPAGEW);
-    pages[5].dwFlags = PSP_USETITLE | PSP_DLGINDIRECT;
-    pages[5].hInstance = hInst;
-    pages[5].pResource = groupsTemplate.get();
-    pages[5].pszTitle = L"Groups";
-    pages[5].pfnDlgProc = GroupsPageProc;
-    pages[5].lParam = reinterpret_cast<LPARAM>(data.get());
 
     // Create property sheet
     PROPSHEETHEADERW psh{};
@@ -2697,9 +2423,6 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     if (data->glowPrimaryBrush) DeleteObject(data->glowPrimaryBrush);
     if (data->glowSecondaryBrush) DeleteObject(data->glowSecondaryBrush);
     if (data->groupColorBrush) DeleteObject(data->groupColorBrush);
-
-    if (data->universalPreview) DeleteObject(data->universalPreview);
-    if (data->folderPreview) DeleteObject(data->folderPreview);
 
     return result;
 }

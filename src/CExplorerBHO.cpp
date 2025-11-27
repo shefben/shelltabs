@@ -9326,9 +9326,13 @@ void CExplorerBHO::UpdateStatusBarDescriptor() {
     descriptor.role = SurfacePaintRole::StatusPane;
     descriptor.userAccessibilityOptOut = false;
 
+    const bool darkModePreferred = IsAppDarkModePreferred();
+    constexpr COLORREF kDarkTop = RGB(48, 48, 48);
+    constexpr COLORREF kDarkBottom = RGB(32, 32, 32);
+
     COLORREF fallback = m_statusBarBackgroundColor;
     if (fallback == CLR_DEFAULT) {
-        fallback = GetSysColor(COLOR_3DFACE);
+        fallback = darkModePreferred ? RGB(40, 40, 40) : GetSysColor(COLOR_3DFACE);
     }
     GlowColorSet fill{};
     fill.valid = true;
@@ -9341,6 +9345,10 @@ void CExplorerBHO::UpdateStatusBarDescriptor() {
         fill.start = top;
         fill.end = bottom;
         fill.gradient = (top != bottom);
+    } else if (darkModePreferred) {
+        fill.start = kDarkTop;
+        fill.end = kDarkBottom;
+        fill.gradient = true;
     }
     descriptor.fillColors = fill;
     descriptor.fillOverride = fill.valid;
@@ -9356,7 +9364,7 @@ void CExplorerBHO::UpdateStatusBarDescriptor() {
         COLORREF bgColor = fill.valid ? fill.start : GetSysColor(COLOR_3DFACE);
         double bgLuminance = ComputeColorLuminance(bgColor);
         // Use white text on dark backgrounds, black text on light backgrounds
-        descriptor.textColor = (bgLuminance < 0.5) ? RGB(255, 255, 255) : RGB(0, 0, 0);
+        descriptor.textColor = (bgLuminance < 0.5 || darkModePreferred) ? RGB(255, 255, 255) : RGB(0, 0, 0);
         descriptor.textOverride = true;
     }
 
