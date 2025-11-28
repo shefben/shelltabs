@@ -17,6 +17,7 @@
 #include <gdiplus.h>
 #include <new>
 #include <exception>
+#include <atomic>
 
 #include <algorithm>
 #include <array>
@@ -141,6 +142,7 @@ using shelltabs::EvaluateBreadcrumbGradientColor;
 using shelltabs::ResolveBreadcrumbGradientPalette;
 using shelltabs::ComputeColorLuminance;
 using shelltabs::ComputeContrastRatio;
+using shelltabs::HasFaultMitigationTriggered;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
@@ -151,6 +153,10 @@ constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
 // Empirically observed vtable slot for IUIElement::Draw on Windows 10/11.
 constexpr size_t kDirectUiDrawMethodIndex = 12;
 const IID IID_IUIElement = {0x0A498932, 0xD65C, 0x4E0C, {0x80, 0xDA, 0x8A, 0x2C, 0xA8, 0xF2, 0x53, 0x20}};
+constexpr uint32_t kStatusBarCrossThreadDisableThreshold = 3;
+
+std::atomic<bool> g_disableStatusBarSubclass{false};
+std::atomic<uint32_t> g_statusBarCrossThreadFailures{0};
 
 void ConfigureToolbarForCustomSeparators(HWND toolbar) {
     if (!toolbar || !IsWindow(toolbar)) {
@@ -3097,7 +3103,6 @@ namespace {
 
 constexpr wchar_t kStatusBarSubclassPropertyName[] = L"ShellTabs_StatusBarOwner";
 constexpr UINT_PTR kStatusBarSubclassId = 0x53544253;  // 'STBS'
-
 bool IsValidStatusBarWindow(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) {
         return false;
@@ -3344,6 +3349,12 @@ void CExplorerBHO::InstallStatusBarSubclass() {
         return;
     }
 
+    if (g_disableStatusBarSubclass.load(std::memory_order_relaxed) || HasFaultMitigationTriggered()) {
+        LogMessage(LogLevel::Warning, L"Status bar subclass disabled after previous faults; skipping (hwnd=%p)",
+                   m_statusBar);
+        return;
+    }
+
     if (!IsWindow(m_statusBar) || !MatchesClass(m_statusBar, STATUSCLASSNAMEW) ||
         !IsWindowOwnedByThisExplorer(m_statusBar)) {
         LogMessage(LogLevel::Warning,
@@ -3357,8 +3368,19 @@ void CExplorerBHO::InstallStatusBarSubclass() {
         m_statusBarThreadId = windowThread;
     }
     if (windowThread != GetCurrentThreadId()) {
-        LogMessage(LogLevel::Warning, L"Status bar subclass skipped: cross-thread window (hwnd=%p thread=%lu)",
-                   m_statusBar, windowThread);
+        const uint32_t failures = g_statusBarCrossThreadFailures.fetch_add(1, std::memory_order_relaxed) + 1;
+        LogMessage(LogLevel::Warning,
+                   L"Status bar subclass skipped: cross-thread window (hwnd=%p thread=%lu failure=%lu)",
+                   m_statusBar,
+                   windowThread,
+                   static_cast<unsigned long>(failures));
+        if (failures >= kStatusBarCrossThreadDisableThreshold) {
+            g_disableStatusBarSubclass.store(true, std::memory_order_relaxed);
+            LogMessage(LogLevel::Warning,
+                       L"Status bar subclassing disabled after %lu cross-thread attempts (hwnd=%p)",
+                       static_cast<unsigned long>(failures),
+                       m_statusBar);
+        }
         return;
     }
 
@@ -3382,6 +3404,7 @@ void CExplorerBHO::InstallStatusBarSubclass() {
         return;
     }
 
+    g_statusBarCrossThreadFailures.store(0, std::memory_order_relaxed);
     m_statusBarSubclassInstalled = true;
 }
 
@@ -8843,6 +8866,8 @@ int __stdcall CExplorerBHO::HandleStatusBarException(CExplorerBHO* self, HWND hw
     if (self && hwnd) {
         RemoveWindowSubclass(hwnd, &CExplorerBHO::StatusBarSubclassProc, kStatusBarSubclassId);
         self->m_statusBarSubclassInstalled = false;
+        g_disableStatusBarSubclass.store(true, std::memory_order_relaxed);
+        LogMessage(LogLevel::Warning, L"Status bar subclassing disabled after exception (hwnd=%p)", hwnd);
     }
 
     return EXCEPTION_EXECUTE_HANDLER;

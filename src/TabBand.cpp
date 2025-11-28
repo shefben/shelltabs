@@ -2323,6 +2323,8 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
         auto appendTab = [&](const SessionTab& tabData) {
             UniquePidl pidl = ParseDisplayName(tabData.path);
             if (!pidl) {
+                LogMessage(LogLevel::Warning, L"TabBand::RestoreSession skipped tab with unparsable path: %ls",
+                           tabData.path.c_str());
                 return;
             }
             TabInfo tab;
@@ -2356,6 +2358,7 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
     }
 
     if (groups.empty()) {
+        LogMessage(LogLevel::Warning, L"TabBand::RestoreSession produced no valid groups; falling back to placeholder");
         return false;
     }
 
@@ -3473,12 +3476,16 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
         const bool reopenOnCrash =
             result->optionsLoaded ? optionsSnapshot.reopenOnCrash : m_options.reopenOnCrash;
 
-        bool shouldRestore = !hasPendingSeed;
+        bool shouldRestore = true;
+        if (hasPendingSeed) {
+            LogMessage(LogLevel::Info,
+                       L"TabBand::RunBackgroundInitialization restoring session despite pending seed to retain tabs");
+        }
         if (result->lastSessionUnclean) {
             const LogLevel level = reopenOnCrash ? LogLevel::Info : LogLevel::Warning;
             LogMessage(level, reopenOnCrash ? L"Replaying crashed session after explorer restart"
                                             : L"Restoring session despite reopenOnCrash disabled to recover from crash");
-            shouldRestore = !hasPendingSeed;
+            shouldRestore = true;
         }
         result->shouldRestoreSession = shouldRestore;
         if (shouldRestore && !stopToken.stop_requested()) {
@@ -3560,8 +3567,14 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
     m_tabs.Clear();
 
     bool restored = false;
-    if (result->shouldRestoreSession && result->hasSessionData) {
+    const bool allowRestore = result->shouldRestoreSession && result->hasSessionData;
+    if (allowRestore) {
         restored = RestoreSessionFromData(result->sessionData);
+        if (!restored) {
+            LogMessage(LogLevel::Warning, L"TabBand::HandleInitializationResult failed to restore session payload");
+        }
+    } else if (!result->shouldRestoreSession && result->hasSessionData) {
+        LogMessage(LogLevel::Info, L"TabBand::HandleInitializationResult skipped session restore due to pending seed");
     }
 
     bool handledPendingSeed = false;
