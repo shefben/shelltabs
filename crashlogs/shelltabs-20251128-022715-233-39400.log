@@ -1,0 +1,27 @@
+=== ShellTabs logging started for C:\Windows\explorer.exe ===
+[2025-11-28T02:27:15.233Z][pid 39400][tid 21612] INFO DllMain PROCESS_ATTACH for C:\Windows\explorer.exe
+[2025-11-28T02:27:15.388Z][pid 39400][tid 21612] INFO CompositionIntercept: hooks initialized
+[2025-11-28T02:27:15.846Z][pid 39400][tid 21612] INFO ThemeHooks: installed theme detours (including line drawing hooks)
+[2025-11-28T02:27:15.846Z][pid 39400][tid 21612] INFO Custom ribbon tab disabled pending regression fix
+[2025-11-28T02:27:15.846Z][pid 39400][tid 21612] INFO InitCommonControlsEx succeeded
+[2025-11-28T02:27:15.876Z][pid 39400][tid 26524] INFO DllMain PROCESS_DETACH for C:\Windows\explorer.exe
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for SelectObject (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for ExtCreatePen (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for CreatePenIndirect (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for CreatePen (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for MoveToEx (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for PolylineTo (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for Polyline (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for LineTo (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for CreateWindowExW (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for TrackPopupMenuEx (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for TrackPopupMenu (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for SetBkColor (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for SetTextColor (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for ExtTextOutW (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for GdiGradientFill (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for FillRect (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for DrawThemeEdge (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] WARN ThemeHooks: MH_DisableHook failed for DrawThemeBackground (status=2)
+[2025-11-28T02:27:16.504Z][pid 39400][tid 26524] INFO ThemeHooks: detached theme detours (including line drawing hooks)
+[2025-11-28T02:27:16.505Z][pid 39400][tid 26524] INFO Logging shutting down

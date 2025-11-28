@@ -1,0 +1,48 @@
+=== ShellTabs logging started for C:\Windows\system32\regsvr32.exe ===
+[2025-11-27T21:07:20.680Z][pid 21164][tid 12760] INFO DllMain PROCESS_ATTACH for C:\Windows\system32\regsvr32.exe
+[2025-11-27T21:07:20.835Z][pid 21164][tid 12760] INFO CompositionIntercept: hooks initialized
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO ThemeHooks: installed theme detours (including line drawing hooks)
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO Custom ribbon tab disabled pending regression fix
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO InitCommonControlsEx succeeded
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO DllRegisterServer - begin
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO DllRegisterServer invoked
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO GetModulePath succeeded
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO DllRegisterServer module path: F:\development\steam\emulator_bot\shelltabs\build\bin\Release\ShellTabs.dll
+[2025-11-27T21:07:21.306Z][pid 21164][tid 12760] INFO RegisterAppId succeeded
+[2025-11-27T21:07:21.308Z][pid 21164][tid 12760] INFO RegisterInprocServer (band) succeeded
+[2025-11-27T21:07:21.309Z][pid 21164][tid 12760] INFO RegisterDeskBandKey succeeded
+[2025-11-27T21:07:21.309Z][pid 21164][tid 12760] INFO RegisterExplorerBar succeeded
+[2025-11-27T21:07:21.309Z][pid 21164][tid 12760] INFO RegisterExplorerApproved (band) succeeded
+[2025-11-27T21:07:21.309Z][pid 21164][tid 12760] INFO RegisterToolbarValue succeeded
+[2025-11-27T21:07:21.311Z][pid 21164][tid 12760] INFO ClearExplorerBandCache succeeded
+[2025-11-27T21:07:21.313Z][pid 21164][tid 12760] INFO RegisterInprocServer (BHO) succeeded
+[2025-11-27T21:07:21.313Z][pid 21164][tid 12760] INFO RegisterExplorerApproved (BHO) succeeded
+[2025-11-27T21:07:21.313Z][pid 21164][tid 12760] INFO RegisterBrowserHelper succeeded
+[2025-11-27T21:07:21.314Z][pid 21164][tid 12760] INFO RegisterInprocServer (open folder command) succeeded
+[2025-11-27T21:07:21.315Z][pid 21164][tid 12760] INFO RegisterOpenFolderCommand succeeded
+[2025-11-27T21:07:21.316Z][pid 21164][tid 12760] INFO RegisterInprocServer (FTP folder) succeeded
+[2025-11-27T21:07:21.316Z][pid 21164][tid 12760] INFO RegisterExplorerApproved (FTP folder) succeeded
+[2025-11-27T21:07:21.317Z][pid 21164][tid 12760] INFO RegisterNamespaceNode (FTP) succeeded
+[2025-11-27T21:07:21.317Z][pid 21164][tid 12760] INFO DllRegisterServer completed successfully
+[2025-11-27T21:07:21.317Z][pid 21164][tid 12760] INFO DllRegisterServer - end
+[2025-11-27T21:07:21.665Z][pid 21164][tid 12760] INFO DllMain PROCESS_DETACH for C:\Windows\system32\regsvr32.exe
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for SelectObject (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for ExtCreatePen (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for CreatePenIndirect (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for CreatePen (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for MoveToEx (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for PolylineTo (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for Polyline (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for LineTo (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for CreateWindowExW (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for TrackPopupMenuEx (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for TrackPopupMenu (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for SetBkColor (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for SetTextColor (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for ExtTextOutW (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for GdiGradientFill (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for FillRect (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for DrawThemeEdge (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] WARN ThemeHooks: MH_DisableHook failed for DrawThemeBackground (status=2)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] INFO ThemeHooks: detached theme detours (including line drawing hooks)
+[2025-11-27T21:07:22.314Z][pid 21164][tid 12760] INFO Logging shutting down

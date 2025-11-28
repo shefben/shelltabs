@@ -1,0 +1,262 @@
+=== ShellTabs logging started for C:\Windows\Explorer.exe ===
+[2025-11-27T21:02:14.199Z][pid 15900][tid 40264] INFO DllMain PROCESS_ATTACH for C:\Windows\Explorer.exe
+[2025-11-27T21:02:14.378Z][pid 15900][tid 40264] INFO CompositionIntercept: hooks initialized
+[2025-11-27T21:02:14.909Z][pid 15900][tid 40264] INFO ThemeHooks: installed theme detours (including line drawing hooks)
+[2025-11-27T21:02:14.909Z][pid 15900][tid 40264] INFO Custom ribbon tab disabled pending regression fix
+[2025-11-27T21:02:14.910Z][pid 15900][tid 40264] INFO InitCommonControlsEx succeeded
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand constructed (this=000000001002D670)
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::SetSite begin (this=000000001002D670, site=0000000021BB9EA8)
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::DisconnectSite (this=000000001002D670)
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore resolving storage (this=000000001002D670)
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore window token unavailable; deferring initialization
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::SetSite resolved browser interfaces
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::SetSite EnsureWindow
+[2025-11-27T21:02:15.011Z][pid 15900][tid 12780] INFO TabBand::EnsureWindow creating band window (this=000000001002D670)
+[2025-11-27T21:02:15.013Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore resolving storage (this=000000001002D670)
+[2025-11-27T21:02:15.014Z][pid 15900][tid 12780] INFO TabBand::ResolveWindowToken adopted crashed session token 50218E18-8090-4F81-BA49-1DD1EB445B0E
+[2025-11-27T21:02:15.014Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore window token 50218E18-8090-4F81-BA49-1DD1EB445B0E
+[2025-11-27T21:02:15.014Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore using storage path C:\Users\ben\AppData\Roaming\ShellTabs\session-50218E18-8090-4F81-BA49-1DD1EB445B0E.db
+[2025-11-27T21:02:15.015Z][pid 15900][tid 12780] INFO TabBand session crash marker created (post-init)
+[2025-11-27T21:02:15.017Z][pid 15900][tid 12780] INFO TabBand::EnsureWindow created window hwnd=0000000001383400
+[2025-11-27T21:02:15.017Z][pid 15900][tid 12780] INFO TabBand::SetSite EnsureSessionStore
+[2025-11-27T21:02:15.017Z][pid 15900][tid 12780] INFO TabBand::SetSite BrowserEvents connected
+[2025-11-27T21:02:15.017Z][pid 15900][tid 12780] INFO TabBand::SetSite InitializeTabs
+[2025-11-27T21:02:15.018Z][pid 15900][tid 12780] INFO TabBand::InitializeTabs - begin
+[2025-11-27T21:02:15.018Z][pid 15900][tid 12780] INFO TabBand::InitializeTabs - end
+[2025-11-27T21:02:15.018Z][pid 15900][tid 12780] INFO TabBand::SetSite UpdateTabsUI (initial)
+[2025-11-27T21:02:15.018Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.018Z][pid 15900][tid 12780] INFO TabBand::SetSite completed successfully
+[2025-11-27T21:02:15.018Z][pid 15900][tid 14472] INFO TabBand::RunBackgroundInitialization begin (this=000000001002D670, seq=1)
+[2025-11-27T21:02:15.019Z][pid 15900][tid 14472] INFO TabBand session crash marker created
+[2025-11-27T21:02:15.019Z][pid 15900][tid 14472] INFO SessionStore restored snapshot from C:\Users\ben\AppData\Roaming\ShellTabs\session-50218E18-8090-4F81-BA49-1DD1EB445B0E.db (primary)
+[2025-11-27T21:02:15.044Z][pid 15900][tid 12780] INFO CExplorerBHO::SetSite attaching to site=0000000021CCFAC8
+[2025-11-27T21:02:15.045Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.045Z][pid 15900][tid 12780] INFO EnsureBandVisible: invoking ShowBrowserBar for host=0000000000153444 (attempt 1)
+[2025-11-27T21:02:15.047Z][pid 15900][tid 12780] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=0000000000153444 on attempt 1
+[2025-11-27T21:02:15.048Z][pid 15900][tid 12780] INFO Installed progress gradient subclass on hwnd=00000000005C2474
+[2025-11-27T21:02:15.048Z][pid 15900][tid 12780] INFO Installed travel band subclass (band=0000000000410558 toolbar=00000000019F2CE4)
+[2025-11-27T21:02:15.048Z][pid 15900][tid 12780] INFO Breadcrumb CBT hook installed for thread 12780
+[2025-11-27T21:02:15.048Z][pid 15900][tid 12780] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-27T21:02:15.048Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.048Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=000000000108272E)
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000083332D6)
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Installed breadcrumb gradient subclass on hwnd=00000000083332D6
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Installed progress gradient subclass on hwnd=00000000005C2474
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=000000000108272E)
+[2025-11-27T21:02:15.049Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via deep enumeration (hwnd=00000000083332D6)
+[2025-11-27T21:02:15.050Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.201Z][pid 15900][tid 12780] INFO TabBand::HandleInitializationResult applying sequence 1
+[2025-11-27T21:02:15.201Z][pid 15900][tid 12780] INFO TabBand::RestoreSession loaded 1 groups
+[2025-11-27T21:02:15.202Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=000000000108272E)
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=000000000108272E)
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012F333E)
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Installed breadcrumb gradient subclass on hwnd=00000000012F333E
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Installed progress gradient subclass on hwnd=00000000005C2474
+[2025-11-27T21:02:15.203Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.262Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.263Z][pid 15900][tid 12780] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-27T21:02:15.263Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.263Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=000000000108272E)
+[2025-11-27T21:02:15.263Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=000000000108272E)
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012F333E)
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Installed shell view window subclass (view=00000000008F2660)
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Installed explorer frame subclass (frame=0000000000153444)
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Explorer view base subclass ready (view=00000000008F2660 frame=0000000000153444)
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-27T21:02:15.264Z][pid 15900][tid 12780] INFO Installed explorer DirectUI host subclass (direct=00000000011926B0)
+[2025-11-27T21:02:15.265Z][pid 15900][tid 12780] INFO Installed explorer tree view subclass (tree=000000000030002E)
+[2025-11-27T21:02:15.265Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=00000000008F2660 list=1 tree=0)
+[2025-11-27T21:02:15.265Z][pid 15900][tid 12780] INFO Explorer pane fallback timer armed (view=00000000008F2660 delay=500)
+[2025-11-27T21:02:15.265Z][pid 15900][tid 12780] INFO Explorer panes not ready: list view missing (view=00000000008F2660)
+[2025-11-27T21:02:15.265Z][pid 15900][tid 12780] INFO Explorer pane retry timer armed (view=00000000008F2660 delay=500 attempts=1)
+[2025-11-27T21:02:15.266Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.266Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.266Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=000000000108272E)
+[2025-11-27T21:02:15.266Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=000000000108272E)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012F333E)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Explorer pane creation watch cleared (view=00000000008F2660)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Installed shell view window subclass (view=00000000008F2660)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Installed explorer frame subclass (frame=0000000000153444)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Explorer view base subclass ready (view=00000000008F2660 frame=0000000000153444)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-27T21:02:15.267Z][pid 15900][tid 12780] INFO Installed explorer DirectUI host subclass (direct=00000000011926B0)
+[2025-11-27T21:02:15.268Z][pid 15900][tid 12780] INFO Installed explorer tree view subclass (tree=000000000030002E)
+[2025-11-27T21:02:15.268Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=00000000008F2660 list=1 tree=0)
+[2025-11-27T21:02:15.268Z][pid 15900][tid 12780] INFO Explorer pane fallback timer armed (view=00000000008F2660 delay=500)
+[2025-11-27T21:02:15.268Z][pid 15900][tid 12780] INFO Explorer panes not ready: list view missing (view=00000000008F2660)
+[2025-11-27T21:02:15.268Z][pid 15900][tid 12780] INFO Explorer pane retry timer armed (view=00000000008F2660 delay=500 attempts=1)
+[2025-11-27T21:02:15.286Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.295Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.295Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=000000000108272E)
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=000000000108272E)
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=00000000012F333E)
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Explorer pane creation watch cleared (view=00000000008F2660)
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Installed shell view window subclass (view=00000000008F2660)
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Installed explorer frame subclass (frame=0000000000153444)
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.296Z][pid 15900][tid 12780] INFO Explorer view base subclass ready (view=00000000008F2660 frame=0000000000153444)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] INFO Installed explorer DirectUI host subclass (direct=00000000011926B0)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] INFO Installed explorer tree view subclass (tree=000000000030002E)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=00000000008F2660 list=1 tree=0)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] INFO Explorer pane fallback timer armed (view=00000000008F2660 delay=500)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] INFO Explorer panes not ready: list view missing (view=00000000008F2660)
+[2025-11-27T21:02:15.297Z][pid 15900][tid 12780] INFO Explorer pane retry timer armed (view=00000000008F2660 delay=500 attempts=1)
+[2025-11-27T21:02:15.302Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=0000000000153444)
+[2025-11-27T21:02:15.302Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=0000000000A726E6)
+[2025-11-27T21:02:15.302Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=00000000025627DC)
+[2025-11-27T21:02:15.302Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=000000000108272E)
+[2025-11-27T21:02:15.302Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=0000000000C32744)
+[2025-11-27T21:02:15.316Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=00000000008F2660 list=1 tree=1)
+[2025-11-27T21:02:15.316Z][pid 15900][tid 12780] INFO Explorer panes not ready: tree view missing (view=00000000008F2660)
+[2025-11-27T21:02:15.319Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.321Z][pid 15900][tid 12780] INFO CExplorerBHO::SetSite detaching from site
+[2025-11-27T21:02:15.321Z][pid 15900][tid 12780] INFO Breadcrumb CBT hook removed for thread 12780
+[2025-11-27T21:02:15.321Z][pid 15900][tid 12780] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-27T21:02:15.322Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.322Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.325Z][pid 15900][tid 12780] INFO TabBand::DisconnectSite (this=000000001002D670)
+[2025-11-27T21:02:15.326Z][pid 15900][tid 12780] INFO TabBand::SetSite begin (this=000000001002D670, site=0000000000000000)
+[2025-11-27T21:02:15.326Z][pid 15900][tid 12780] INFO TabBand::SetSite site unchanged
+[2025-11-27T21:02:15.326Z][pid 15900][tid 12780] INFO TabBand destroyed (this=000000001002D670)
+[2025-11-27T21:02:15.326Z][pid 15900][tid 12780] INFO TabBand::DisconnectSite (this=000000001002D670)
+[2025-11-27T21:02:15.326Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore resolving storage (this=000000001002D670)
+[2025-11-27T21:02:15.326Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore window token unavailable; deferring initialization
+[2025-11-27T21:02:15.420Z][pid 15900][tid 12780] INFO TabBand constructed (this=00000000221842C0)
+[2025-11-27T21:02:15.420Z][pid 15900][tid 12780] INFO TabBand::SetSite begin (this=00000000221842C0, site=0000000021BB9EA8)
+[2025-11-27T21:02:15.420Z][pid 15900][tid 12780] INFO TabBand::DisconnectSite (this=00000000221842C0)
+[2025-11-27T21:02:15.421Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore resolving storage (this=00000000221842C0)
+[2025-11-27T21:02:15.421Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore window token unavailable; deferring initialization
+[2025-11-27T21:02:15.421Z][pid 15900][tid 12780] INFO TabBand::SetSite resolved browser interfaces
+[2025-11-27T21:02:15.421Z][pid 15900][tid 12780] INFO TabBand::SetSite EnsureWindow
+[2025-11-27T21:02:15.421Z][pid 15900][tid 12780] INFO TabBand::EnsureWindow creating band window (this=00000000221842C0)
+[2025-11-27T21:02:15.422Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore resolving storage (this=00000000221842C0)
+[2025-11-27T21:02:15.423Z][pid 15900][tid 12780] INFO TabBand::ResolveWindowToken adopted crashed session token 7DAF6705-F036-4F50-AA1B-1ACBA6FD79AB
+[2025-11-27T21:02:15.423Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore window token 7DAF6705-F036-4F50-AA1B-1ACBA6FD79AB
+[2025-11-27T21:02:15.423Z][pid 15900][tid 12780] INFO TabBand::EnsureSessionStore using storage path C:\Users\ben\AppData\Roaming\ShellTabs\session-7DAF6705-F036-4F50-AA1B-1ACBA6FD79AB.db
+[2025-11-27T21:02:15.423Z][pid 15900][tid 12780] INFO TabBand session crash marker created (post-init)
+[2025-11-27T21:02:15.425Z][pid 15900][tid 12780] INFO TabBand::EnsureWindow created window hwnd=00000000022E05AA
+[2025-11-27T21:02:15.425Z][pid 15900][tid 12780] INFO TabBand::SetSite EnsureSessionStore
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::SetSite BrowserEvents connected
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::SetSite InitializeTabs
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::InitializeTabs - begin
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::InitializeTabs - end
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::SetSite UpdateTabsUI (initial)
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 1 items
+[2025-11-27T21:02:15.426Z][pid 15900][tid 34080] INFO TabBand::RunBackgroundInitialization begin (this=00000000221842C0, seq=1)
+[2025-11-27T21:02:15.426Z][pid 15900][tid 12780] INFO TabBand::SetSite completed successfully
+[2025-11-27T21:02:15.426Z][pid 15900][tid 34080] INFO TabBand session crash marker created
+[2025-11-27T21:02:15.427Z][pid 15900][tid 34080] INFO SessionStore restored snapshot from C:\Users\ben\AppData\Roaming\ShellTabs\session-7DAF6705-F036-4F50-AA1B-1ACBA6FD79AB.db (primary)
+[2025-11-27T21:02:15.452Z][pid 15900][tid 12780] INFO CExplorerBHO::SetSite attaching to site=0000000022102DD8
+[2025-11-27T21:02:15.452Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.452Z][pid 15900][tid 12780] INFO EnsureBandVisible: invoking ShowBrowserBar for host=00000000008D267A (attempt 1)
+[2025-11-27T21:02:15.455Z][pid 15900][tid 12780] INFO EnsureBandVisible: ShowBrowserBar succeeded for host=00000000008D267A on attempt 1
+[2025-11-27T21:02:15.455Z][pid 15900][tid 12780] INFO Installed progress gradient subclass on hwnd=00000000015C0A60
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Installed travel band subclass (band=0000000000163444 toolbar=0000000000B425C0)
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Breadcrumb CBT hook installed for thread 12780
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Breadcrumb gradients enabled; locating toolbar (installed=0 background=0 text=1)
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via deep enumeration (hwnd=000000000130333E)
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Installed breadcrumb gradient subclass on hwnd=000000000130333E
+[2025-11-27T21:02:15.456Z][pid 15900][tid 12780] INFO Installed progress gradient subclass on hwnd=00000000015C0A60
+[2025-11-27T21:02:15.457Z][pid 15900][tid 12780] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-27T21:02:15.457Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.457Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.457Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via deep enumeration (hwnd=000000000130333E)
+[2025-11-27T21:02:15.457Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.541Z][pid 15900][tid 12780] INFO TabBand::HandleInitializationResult applying sequence 1
+[2025-11-27T21:02:15.541Z][pid 15900][tid 12780] INFO TabBand::RestoreSession loaded 1 groups
+[2025-11-27T21:02:15.542Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000001DC048A)
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Installed breadcrumb gradient subclass on hwnd=0000000001DC048A
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Installed progress gradient subclass on hwnd=00000000015C0A60
+[2025-11-27T21:02:15.544Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.592Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-27T21:02:15.593Z][pid 15900][tid 12780] INFO Breadcrumb gradients enabled; locating toolbar (installed=1 background=0 text=1)
+[2025-11-27T21:02:15.593Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.593Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000001DC048A)
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Installed shell view window subclass (view=000000000105286C)
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Installed explorer frame subclass (frame=00000000008D267A)
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] INFO Explorer view base subclass ready (view=000000000105286C frame=00000000008D267A)
+[2025-11-27T21:02:15.594Z][pid 15900][tid 12780] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO Installed explorer DirectUI host subclass (direct=00000000025727DC)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO Installed explorer tree view subclass (tree=00000000005E2728)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=000000000105286C list=1 tree=0)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO Explorer pane fallback timer armed (view=000000000105286C delay=500)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO Explorer panes not ready: list view missing (view=000000000105286C)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO Explorer pane retry timer armed (view=000000000105286C delay=500 attempts=1)
+[2025-11-27T21:02:15.595Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-27T21:02:15.596Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.596Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.596Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.596Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000001DC048A)
+[2025-11-27T21:02:15.596Z][pid 15900][tid 12780] INFO Explorer pane creation watch cleared (view=000000000105286C)
+[2025-11-27T21:02:15.596Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Installed shell view window subclass (view=000000000105286C)
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Installed explorer frame subclass (frame=00000000008D267A)
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Explorer view base subclass ready (view=000000000105286C frame=00000000008D267A)
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Installed explorer DirectUI host subclass (direct=00000000025727DC)
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Installed explorer tree view subclass (tree=00000000005E2728)
+[2025-11-27T21:02:15.597Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=000000000105286C list=1 tree=0)
+[2025-11-27T21:02:15.598Z][pid 15900][tid 12780] INFO Explorer pane fallback timer armed (view=000000000105286C delay=500)
+[2025-11-27T21:02:15.598Z][pid 15900][tid 12780] INFO Explorer panes not ready: list view missing (view=000000000105286C)
+[2025-11-27T21:02:15.598Z][pid 15900][tid 12780] INFO Explorer pane retry timer armed (view=000000000105286C delay=500 attempts=1)
+[2025-11-27T21:02:15.608Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-27T21:02:15.619Z][pid 15900][tid 12780] INFO TabBand::UpdateTabsUI applying 2 items
+[2025-11-27T21:02:15.619Z][pid 15900][tid 12780] INFO Breadcrumb QueryService(IShellBrowser) failed: 0x80004001
+[2025-11-27T21:02:15.620Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IShellBrowser (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.620Z][pid 15900][tid 12780] INFO Breadcrumb ribbon frame discovered via IWebBrowser2 (hwnd=00000000029E2D60)
+[2025-11-27T21:02:15.620Z][pid 15900][tid 12780] INFO Breadcrumb toolbar located via window enumeration (hwnd=0000000001DC048A)
+[2025-11-27T21:02:15.620Z][pid 15900][tid 12780] INFO Explorer pane creation watch cleared (view=000000000105286C)
+[2025-11-27T21:02:15.620Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.620Z][pid 15900][tid 12780] INFO Installed shell view window subclass (view=000000000105286C)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Installed explorer frame subclass (frame=00000000008D267A)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Explorer view base subclass ready (view=000000000105286C frame=00000000008D267A)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] VERBOSE DirectUI IUIElement unavailable (hr=0x80004001)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Installed explorer DirectUI host subclass (direct=00000000025727DC)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Installed explorer tree view subclass (tree=00000000005E2728)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=000000000105286C list=1 tree=0)
+[2025-11-27T21:02:15.621Z][pid 15900][tid 12780] INFO Explorer pane fallback timer armed (view=000000000105286C delay=500)
+[2025-11-27T21:02:15.622Z][pid 15900][tid 12780] INFO Explorer panes not ready: list view missing (view=000000000105286C)
+[2025-11-27T21:02:15.622Z][pid 15900][tid 12780] INFO Explorer pane retry timer armed (view=000000000105286C delay=500 attempts=1)
+[2025-11-27T21:02:15.626Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=00000000008D267A)
+[2025-11-27T21:02:15.626Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=00000000014227AA)
+[2025-11-27T21:02:15.626Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=0000000002AA27B4)
+[2025-11-27T21:02:15.626Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=00000000029E2D60)
+[2025-11-27T21:02:15.627Z][pid 15900][tid 12780] INFO Installed explorer list host subclass (host=0000000000A32628)
+[2025-11-27T21:02:15.640Z][pid 15900][tid 12780] INFO Explorer pane creation watch armed (view=000000000105286C list=1 tree=1)
+[2025-11-27T21:02:15.640Z][pid 15900][tid 12780] INFO Explorer panes not ready: tree view missing (view=000000000105286C)
+[2025-11-27T21:02:15.642Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.642Z][pid 15900][tid 12780] INFO CExplorerBHO::SetSite detaching from site
+[2025-11-27T21:02:15.642Z][pid 15900][tid 12780] INFO Breadcrumb CBT hook removed for thread 12780
+[2025-11-27T21:02:15.642Z][pid 15900][tid 12780] INFO Explorer pane creation watch cleared (view=0000000000000000)
+[2025-11-27T21:02:15.643Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.643Z][pid 15900][tid 12780] INFO Cleared Open In New Tab pending state
+[2025-11-27T21:02:15.645Z][pid 15900][tid 12780] INFO TabBand::DisconnectSite (this=00000000221842C0)
+[2025-11-27T21:02:15.646Z][pid 15900][tid 12780] ERROR Unhandled exception 0xC0000005 at 00007FF9F2008823
+[2025-11-27T21:02:15.646Z][pid 15900][tid 12780] ERROR [fault 1] Exception record: code=0xC0000005 flags=0x00000000 address=00007FF9F2008823 (C:\Windows\System32\SHLWAPI.dll+0x8823) parameters=2
+[2025-11-27T21:02:15.646Z][pid 15900][tid 12780] ERROR [fault 1] Exception parameters: 0x0000000000000000, 0xFFFFFFFFFFFFFFFF
+[2025-11-27T21:02:15.646Z][pid 15900][tid 12780] ERROR [fault 1] Registers: RIP=00007FF9F2008823 RSP=000000000EE9E910 RBP=000000000EE9E970 RAX=0000000000000000 RBX=0000000000000000 RCX=0000000021F679F0 RDX=0055005C003A0043
+[2025-11-27T21:02:15.646Z][pid 15900][tid 12780] ERROR [fault 1] Registers (cont'd): RSI=00007FF9F2032680 RDI=000000000EE9E9E8 R8=0000000000CC3540 R9=0000000000000001 R10=0000000000008000 R11=000000000EE9E760
+[2025-11-27T21:02:15.646Z][pid 15900][tid 12780] ERROR [fault 1] Registers (cont'd): R12=00000000029E2D60 R13=000000000EE9F130 R14=00007FF9F2008A10 R15=0000000000000000 Flags=0x00010206
