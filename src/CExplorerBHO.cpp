@@ -1,6 +1,5 @@
 #include "CExplorerBHO.h"
 #include "ShellTabsListView.h"
-#include "CustomFileListView.h"
 
 #include <combaseapi.h>
 #include <exdispid.h>
@@ -950,51 +949,6 @@ Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
                           blendChannel(color.GetG(), blendGreen), blendChannel(color.GetB(), blendBlue));
 }
 
-COLORREF ChooseStatusBarTextColor(COLORREF topColor, COLORREF bottomColor) {
-    const double topLuminance = ComputeColorLuminance(topColor);
-    const double bottomLuminance = ComputeColorLuminance(bottomColor);
-
-    const double blackLuminance = ComputeColorLuminance(RGB(0, 0, 0));
-    const double whiteLuminance = ComputeColorLuminance(RGB(255, 255, 255));
-
-    const double contrastBlackTop = ComputeContrastRatio(topLuminance, blackLuminance);
-    const double contrastBlackBottom = ComputeContrastRatio(bottomLuminance, blackLuminance);
-    const double contrastWhiteTop = ComputeContrastRatio(topLuminance, whiteLuminance);
-    const double contrastWhiteBottom = ComputeContrastRatio(bottomLuminance, whiteLuminance);
-
-    const double minContrastBlack = std::min(contrastBlackTop, contrastBlackBottom);
-    const double minContrastWhite = std::min(contrastWhiteTop, contrastWhiteBottom);
-
-    constexpr double kMinimumReadableContrast = 4.5;
-    COLORREF bestColor = minContrastBlack >= minContrastWhite ? RGB(0, 0, 0) : RGB(255, 255, 255);
-    double bestContrast = (bestColor == RGB(0, 0, 0)) ? minContrastBlack : minContrastWhite;
-
-    const double averageLuminance = (topLuminance + bottomLuminance) * 0.5;
-    if (averageLuminance < 0.35 && bestColor == RGB(0, 0, 0)) {
-        const COLORREF lightFallback = RGB(240, 240, 240);
-        const double lightLuminance = ComputeColorLuminance(lightFallback);
-        const double lightContrastTop = ComputeContrastRatio(topLuminance, lightLuminance);
-        const double lightContrastBottom = ComputeContrastRatio(bottomLuminance, lightLuminance);
-        const double lightContrast = std::min(lightContrastTop, lightContrastBottom);
-        if (lightContrast > bestContrast || lightContrast >= kMinimumReadableContrast) {
-            bestColor = lightFallback;
-            bestContrast = lightContrast;
-        }
-    }
-
-    if (bestContrast < kMinimumReadableContrast) {
-        if (bestColor == RGB(0, 0, 0) && minContrastWhite > bestContrast) {
-            bestColor = RGB(255, 255, 255);
-            bestContrast = minContrastWhite;
-        } else if (bestColor != RGB(0, 0, 0) && minContrastBlack > bestContrast) {
-            bestColor = RGB(0, 0, 0);
-            bestContrast = minContrastBlack;
-        }
-    }
-
-    return bestColor;
-}
-
 COLORREF ChooseAccentTextColor(COLORREF accent) {
     return ComputeColorLuminance(accent) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
 }
@@ -1100,24 +1054,6 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
     m_glowCoordinator.Configure(OptionsStore::Instance().Get());
-
-    // Initialize DirectUI replacement system
-    if (!DirectUIReplacementIntegration::Initialize()) {
-        LogMessage(LogLevel::Warning, L"Failed to initialize DirectUI replacement system");
-    } else {
-        LogMessage(LogLevel::Info, L"DirectUI replacement system initialized successfully");
-    }
-
-    // Set callback for when custom views are created
-    DirectUIReplacementIntegration::SetCustomViewCreatedCallback(
-        [](ShellTabs::CustomFileListView* view, HWND hwnd, void* context) {
-            auto* self = static_cast<CExplorerBHO*>(context);
-            if (self) {
-                self->OnCustomFileListViewCreated(view, hwnd);
-            }
-        },
-        this
-    );
 
     Gdiplus::GdiplusStartupInput gdiplusInput;
     if (Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok) {
@@ -1444,9 +1380,6 @@ void CExplorerBHO::Disconnect() {
     RemoveTravelBandSubclass();
     RemoveAddressEditSubclass();
     RemoveExplorerViewSubclass();
-    RemoveStatusBarSubclass();
-    ResetStatusBarTheme();
-    m_statusBar = nullptr;
     DisconnectEvents();
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
@@ -2737,7 +2670,6 @@ bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool
 
     if (kind == ExplorerSurfaceKind::DirectUi) {
         shelltabs::RegisterDirectUiHost(hwnd);
-        TryInstallDirectUiRenderHooks(hwnd);
     }
 
     switch (kind) {
@@ -2840,70 +2772,6 @@ void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
     }
 
     m_glowSurfaces.erase(it);
-}
-
-void CExplorerBHO::TryInstallDirectUiRenderHooks(HWND directUiHost) {
-    if (!directUiHost || !IsWindow(directUiHost)) {
-        return;
-    }
-    if (!m_shellView) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
-    HRESULT hr = m_shellView.As(&serviceProvider);
-    if (FAILED(hr) || !serviceProvider) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<IUnknown> element;
-    hr = serviceProvider->QueryService(IID_IUIElement, IID_IUnknown, &element);
-    if (FAILED(hr) || !element) {
-        LogMessage(LogLevel::Verbose, L"DirectUI IUIElement unavailable (hr=0x%08X)", hr);
-        return;
-    }
-
-    const bool firstAttempt = !m_directUiRenderHooksAttempted;
-    shelltabs::RegisterDirectUiRenderInterface(element.Get(), kDirectUiDrawMethodIndex, directUiHost,
-                                               &m_glowCoordinator);
-    if (firstAttempt) {
-        LogMessage(LogLevel::Info, L"DirectUI render detour registration attempted (host=%p)", directUiHost);
-    }
-    m_directUiRenderHooksAttempted = true;
-}
-
-void CExplorerBHO::OnCustomFileListViewCreated(ShellTabs::CustomFileListView* view, HWND hwnd) {
-    if (!view || !hwnd) {
-        return;
-    }
-
-    LogMessage(LogLevel::Info, L"Custom file list view created (hwnd=%p)", hwnd);
-
-    // Store the custom view instance
-    m_customFileListView = view;
-    m_directUiView = hwnd;
-
-    // Configure the view with our glow coordinator
-    view->SetGlowCoordinator(&m_glowCoordinator);
-
-    // Get the color descriptor for DirectUI surfaces
-    auto* descriptor = m_glowCoordinator.LookupSurfaceDescriptor(hwnd);
-    if (descriptor) {
-        view->SetColorDescriptor(descriptor);
-    }
-
-    // Attach to the current shell view for item synchronization
-    if (m_shellView) {
-        view->AttachToShellView(m_shellView.Get());
-    }
-
-    // Background images now set via LVM_SETBKIMAGE, no custom paint callback needed
-    view->SetBackgroundPaintCallback(nullptr, nullptr);
-
-    // Register as a glow surface
-    RegisterGlowSurface(hwnd, ExplorerSurfaceKind::DirectUi, false);
-
-    LogMessage(LogLevel::Info, L"Custom file list view configured successfully");
 }
 
 void CExplorerBHO::RequestHeaderGlowRepaint() const {
@@ -3094,56 +2962,6 @@ void CExplorerBHO::ResetGlowSurfaces() {
     m_transparentScrollbars.clear();
 }
 
-namespace {
-
-bool IsValidStatusBarWindow(HWND hwnd) {
-    if (!hwnd || !IsWindow(hwnd)) {
-        return false;
-    }
-    if (!IsWindowVisible(hwnd)) {
-        return false;
-    }
-    RECT rc = {};
-    if (!GetClientRect(hwnd, &rc)) {
-        return false;
-    }
-    return rc.right > rc.left && rc.bottom > rc.top;
-}
-
-HWND FindVisibleStatusBarDescendant(HWND parent) {
-    if (!parent || !IsWindow(parent)) {
-        return nullptr;
-    }
-
-    for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-        if (MatchesClass(child, STATUSCLASSNAMEW) && IsValidStatusBarWindow(child)) {
-            return child;
-        }
-
-        if (HWND found = FindVisibleStatusBarDescendant(child)) {
-            return found;
-        }
-    }
-
-    return nullptr;
-}
-
-HWND ResolveStatusBarWindow(IShellBrowser* shellBrowser, HWND frame) {
-    HWND statusBar = nullptr;
-    if (shellBrowser && SUCCEEDED(shellBrowser->GetControlWindow(FCW_STATUS, &statusBar)) &&
-        IsValidStatusBarWindow(statusBar)) {
-        return statusBar;
-    }
-
-    if (!frame || !IsWindow(frame)) {
-        return nullptr;
-    }
-
-    return FindVisibleStatusBarDescendant(frame);
-}
-
-}  // namespace
-
 void CExplorerBHO::UpdateGlowSurfaceTargets() {
     std::unordered_set<HWND, HandleHasher> active;
 
@@ -3206,35 +3024,6 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
     registerScrollbarsFor(m_directUiView);
 
     HWND frame = GetTopLevelExplorerWindow();
-    HWND statusBarCandidate = ResolveStatusBarWindow(m_shellBrowser.Get(), frame);
-    if (statusBarCandidate && !IsWindowOwnedByThisExplorer(statusBarCandidate)) {
-        statusBarCandidate = nullptr;
-    }
-
-    if (statusBarCandidate != m_statusBar) {
-        if (m_statusBar) {
-            LogMessage(LogLevel::Info, L"Explorer status bar released (hwnd=%p)", m_statusBar);
-            RemoveStatusBarSubclass(m_statusBar);
-            ResetStatusBarTheme(m_statusBar);
-            m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
-            UnregisterThemeSurface(m_statusBar);
-        }
-        m_statusBar = statusBarCandidate;
-        m_statusBarThemeValid = false;
-        m_statusBarBackgroundColor = CLR_DEFAULT;
-        m_statusBarTextColor = CLR_DEFAULT;
-        m_statusBarChromeSample.reset();
-        m_statusBarCustomDraw = {};
-        if (m_statusBar) {
-            LogMessage(LogLevel::Info, L"Explorer status bar discovered (hwnd=%p)", m_statusBar);
-            InstallStatusBarSubclass();
-            RegisterThemeSurface(m_statusBar, ExplorerSurfaceKind::Toolbar, &m_glowCoordinator);
-            UpdateStatusBarDescriptor();
-            m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
-            m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
-        }
-    }
-
     if (frame && IsWindow(frame)) {
         HWND rebar = FindDescendantWindow(frame, L"ReBarWindow32");
         if (rebar && IsWindow(rebar) && IsWindowOwnedByThisExplorer(rebar)) {
@@ -3274,351 +3063,7 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         }
     }
 
-    if (m_statusBar) {
-        UpdateStatusBarTheme();
-    }
-
     PruneGlowSurfaces(active);
-}
-
-void CExplorerBHO::ResetStatusBarTheme(HWND statusBar) {
-    HWND target = statusBar ? statusBar : m_statusBar;
-    if (target && IsWindow(target)) {
-        const COLORREF previous =
-            static_cast<COLORREF>(SendMessageW(target, SB_SETBKCOLOR, 0, CLR_DEFAULT));
-        LogMessage(LogLevel::Info, L"Status bar background reset (hwnd=%p previous=0x%08X)", target, previous);
-        InvalidateRect(target, nullptr, TRUE);
-    }
-
-    m_statusBarThemeValid = false;
-    m_statusBarBackgroundColor = CLR_DEFAULT;
-    m_statusBarTextColor = CLR_DEFAULT;
-    m_statusBarChromeSample.reset();
-    if (target && target == m_statusBar) {
-        UpdateStatusBarDescriptor();
-    }
-}
-
-void CExplorerBHO::InstallStatusBarSubclass() {
-    if (!m_statusBar || m_statusBarSubclassInstalled || !IsWindow(m_statusBar)) {
-        return;
-    }
-
-    if (!SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this),
-            reinterpret_cast<DWORD_PTR>(this))) {
-        LogLastError(L"SetWindowSubclass(status bar)", GetLastError());
-        return;
-    }
-
-    m_statusBarSubclassInstalled = true;
-}
-
-void CExplorerBHO::RemoveStatusBarSubclass(HWND statusBar) {
-    if (!m_statusBarSubclassInstalled) {
-        return;
-    }
-
-    HWND target = statusBar ? statusBar : m_statusBar;
-    if (!target || !IsWindow(target)) {
-        m_statusBarSubclassInstalled = false;
-        return;
-    }
-
-    if (!RemoveWindowSubclass(target, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this))) {
-        const DWORD error = GetLastError();
-        if (error != ERROR_INVALID_PARAMETER && error != ERROR_SUCCESS) {
-            LogLastError(L"RemoveWindowSubclass(status bar)", error);
-        }
-    }
-
-    m_statusBarSubclassInstalled = false;
-}
-
-LRESULT CExplorerBHO::HandleStatusBarMessage(
-    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool* handled) {
-    if (handled) {
-        *handled = false;
-    }
-
-    if (msg == WM_NCDESTROY) {
-        const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-        RemoveStatusBarSubclass(hwnd);
-        if (hwnd == m_statusBar) {
-            m_statusBar = nullptr;
-            m_statusBarThemeValid = false;
-            m_statusBarBackgroundColor = CLR_DEFAULT;
-            m_statusBarTextColor = CLR_DEFAULT;
-            m_statusBarChromeSample.reset();
-            m_statusBarCustomDraw = {};
-        }
-        if (handled) {
-            *handled = true;
-        }
-        return result;
-    }
-
-    if (!m_statusBarThemeValid || IsSystemHighContrastActive()) {
-        return 0;
-    }
-
-    auto paintBackground = [&](HDC dc, const RECT& paintRect) {
-        if (!dc) {
-            return;
-        }
-
-        auto fillSolid = [&](HDC targetDc, const RECT& rect, COLORREF color) {
-            if (color == CLR_DEFAULT) {
-                FillRect(targetDc, &rect, GetSysColorBrush(COLOR_3DFACE));
-                return;
-            }
-            HBRUSH brush = CreateSolidBrush(color);
-            if (!brush) {
-                FillRect(targetDc, &rect, GetSysColorBrush(COLOR_3DFACE));
-                return;
-            }
-            FillRect(targetDc, &rect, brush);
-            DeleteObject(brush);
-        };
-
-        COLORREF fallback = m_statusBarBackgroundColor;
-        if (fallback == CLR_DEFAULT) {
-            fallback = GetSysColor(COLOR_3DFACE);
-        }
-
-        COLORREF top = fallback;
-        COLORREF bottom = fallback;
-        if (m_statusBarChromeSample) {
-            top = m_statusBarChromeSample->topColor;
-            bottom = m_statusBarChromeSample->bottomColor;
-        }
-        if (top == CLR_DEFAULT) {
-            top = fallback;
-        }
-        if (bottom == CLR_DEFAULT) {
-            bottom = fallback;
-        }
-
-        if (top == bottom) {
-            fillSolid(dc, paintRect, top);
-            return;
-        }
-
-        TRIVERTEX vertices[2]{};
-        vertices[0].x = paintRect.left;
-        vertices[0].y = paintRect.top;
-        vertices[0].Red = static_cast<COLOR16>(GetRValue(top) * 0x101);
-        vertices[0].Green = static_cast<COLOR16>(GetGValue(top) * 0x101);
-        vertices[0].Blue = static_cast<COLOR16>(GetBValue(top) * 0x101);
-        vertices[0].Alpha = 0xFFFF;
-        vertices[1].x = paintRect.right;
-        vertices[1].y = paintRect.bottom;
-        vertices[1].Red = static_cast<COLOR16>(GetRValue(bottom) * 0x101);
-        vertices[1].Green = static_cast<COLOR16>(GetGValue(bottom) * 0x101);
-        vertices[1].Blue = static_cast<COLOR16>(GetBValue(bottom) * 0x101);
-        vertices[1].Alpha = 0xFFFF;
-        GRADIENT_RECT gradientRect{0, 1};
-
-        if (!GradientFill(dc, vertices, 2, &gradientRect, 1, GRADIENT_FILL_RECT_V)) {
-            fillSolid(dc, paintRect, top);
-        }
-    };
-
-    switch (msg) {
-        case WM_ERASEBKGND: {
-            EvaluateStatusBarForcedHooks(msg);
-            HDC dc = reinterpret_cast<HDC>(wParam);
-            if (!dc) {
-                break;
-            }
-            RECT rect{};
-            if (!GetClientRect(hwnd, &rect)) {
-                break;
-            }
-            paintBackground(dc, rect);
-            if (handled) {
-                *handled = true;
-            }
-            return TRUE;
-        }
-        case WM_PRINTCLIENT: {
-            EvaluateStatusBarForcedHooks(msg);
-            HDC dc = reinterpret_cast<HDC>(wParam);
-            if (dc) {
-                RECT rect{};
-                if (lParam) {
-                    rect = *reinterpret_cast<RECT*>(lParam);
-                } else {
-                    GetClientRect(hwnd, &rect);
-                }
-                paintBackground(dc, rect);
-            }
-            const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-            if (handled) {
-                *handled = true;
-            }
-            return result;
-        }
-        case WM_PAINT: {
-            if (wParam) {
-                HDC dc = reinterpret_cast<HDC>(wParam);
-                RECT rect{};
-                if (lParam) {
-                    rect = *reinterpret_cast<RECT*>(lParam);
-                } else {
-                    GetClientRect(hwnd, &rect);
-                }
-                paintBackground(dc, rect);
-                const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-                if (handled) {
-                    *handled = true;
-                }
-                return result;
-            }
-            break;
-        }
-        default:
-            break;
-    }
-
-    return 0;
-}
-
-void CExplorerBHO::UpdateStatusBarTheme() {
-    if (!m_statusBar || !IsWindow(m_statusBar)) {
-        return;
-    }
-
-    if (!IsWindowOwnedByThisExplorer(m_statusBar)) {
-        LogMessage(LogLevel::Warning, L"Status bar theme update aborted: handle no longer owned (hwnd=%p)", m_statusBar);
-        RemoveStatusBarSubclass(m_statusBar);
-        ResetStatusBarTheme(m_statusBar);
-        m_statusBar = nullptr;
-        return;
-    }
-
-    InstallStatusBarSubclass();
-
-    if (IsSystemHighContrastActive()) {
-        if (m_statusBarThemeValid) {
-            LogMessage(LogLevel::Info, L"Status bar theme disabled for high contrast (hwnd=%p)", m_statusBar);
-        }
-        ResetStatusBarTheme(m_statusBar);
-        return;
-    }
-
-    HWND frame = GetTopLevelExplorerWindow();
-    HWND rebar = nullptr;
-    if (frame && IsWindow(frame)) {
-        rebar = FindDescendantWindow(frame, L"ReBarWindow32");
-        if (rebar && !IsWindowOwnedByThisExplorer(rebar)) {
-            rebar = nullptr;
-        }
-    }
-
-    std::optional<ToolbarChromeSample> chrome;
-    if (rebar && IsWindow(rebar)) {
-        chrome = SampleToolbarChrome(rebar);
-    }
-    if (!chrome && frame && IsWindow(frame)) {
-        chrome = SampleToolbarChrome(frame);
-    }
-
-    if (!chrome) {
-        HWND parent = GetParent(m_statusBar);
-        if (parent && IsWindow(parent) && IsWindowOwnedByThisExplorer(parent)) {
-            chrome = SampleToolbarChrome(parent);
-        }
-    }
-
-    std::optional<COLORREF> backgroundCandidate;
-    COLORREF gradientTop = CLR_DEFAULT;
-    COLORREF gradientBottom = CLR_DEFAULT;
-
-    if (chrome) {
-        auto averageColor = [](COLORREF first, COLORREF second) -> COLORREF {
-            const int red = (static_cast<int>(GetRValue(first)) + static_cast<int>(GetRValue(second))) / 2;
-            const int green = (static_cast<int>(GetGValue(first)) + static_cast<int>(GetGValue(second))) / 2;
-            const int blue = (static_cast<int>(GetBValue(first)) + static_cast<int>(GetBValue(second))) / 2;
-            return RGB(red, green, blue);
-        };
-
-        const COLORREF background = averageColor(chrome->topColor, chrome->bottomColor);
-        backgroundCandidate = background;
-        gradientTop = chrome->topColor;
-        gradientBottom = chrome->bottomColor;
-    } else if (IsAppDarkModePreferred()) {
-        LogMessage(LogLevel::Info, L"Status bar theme fallback to dark preference (hwnd=%p)", m_statusBar);
-        backgroundCandidate = RGB(32, 32, 32);
-        gradientTop = backgroundCandidate.value();
-        gradientBottom = backgroundCandidate.value();
-    }
-
-    if (!backgroundCandidate.has_value()) {
-        if (m_statusBarThemeValid) {
-            LogMessage(LogLevel::Warning, L"Status bar theme reset: failed to sample toolbar chrome (hwnd=%p)", m_statusBar);
-        }
-        ResetStatusBarTheme(m_statusBar);
-        return;
-    }
-
-    const COLORREF background = backgroundCandidate.value();
-
-    auto resolveGradientColor = [&](COLORREF color) -> COLORREF {
-        return color == CLR_DEFAULT ? background : color;
-    };
-
-    const COLORREF resolvedTop = resolveGradientColor(gradientTop);
-    const COLORREF resolvedBottom = resolveGradientColor(gradientBottom);
-    COLORREF text = ChooseStatusBarTextColor(resolvedTop, resolvedBottom);
-
-    if (auto themeText = QueryStatusBarThemeTextColor(m_statusBar)) {
-        const double topLuminance = ComputeColorLuminance(resolvedTop);
-        const double bottomLuminance = ComputeColorLuminance(resolvedBottom);
-        const double themeLuminance = ComputeColorLuminance(themeText.value());
-        const double contrastTop = ComputeContrastRatio(topLuminance, themeLuminance);
-        const double contrastBottom = ComputeContrastRatio(bottomLuminance, themeLuminance);
-        const double themeContrast = std::min(contrastTop, contrastBottom);
-        constexpr double kThemeContrastThreshold = 4.5;
-        if (themeContrast >= kThemeContrastThreshold || !m_statusBarThemeValid) {
-            text = themeText.value();
-        }
-    }
-
-    const bool backgroundChanged = !m_statusBarThemeValid || background != m_statusBarBackgroundColor;
-    const bool textChanged = !m_statusBarThemeValid || text != m_statusBarTextColor;
-
-    bool chromeChanged = false;
-    ToolbarChromeSample chromeForStorage{background, background};
-    if (chrome) {
-        chromeForStorage = *chrome;
-    }
-    if (!m_statusBarChromeSample.has_value()) {
-        chromeChanged = true;
-    } else {
-        chromeChanged = m_statusBarChromeSample->topColor != chromeForStorage.topColor ||
-                        m_statusBarChromeSample->bottomColor != chromeForStorage.bottomColor;
-    }
-
-    if (!backgroundChanged && !textChanged && !chromeChanged) {
-        return;
-    }
-
-    if (backgroundChanged) {
-        LogMessage(LogLevel::Info, L"Status bar theme background updated (hwnd=%p new=0x%08X)", m_statusBar, background);
-    }
-
-    if (textChanged) {
-        LogMessage(LogLevel::Info, L"Status bar theme text color updated (hwnd=%p new=0x%08X)", m_statusBar, text);
-    }
-
-    m_statusBarThemeValid = true;
-    m_statusBarBackgroundColor = background;
-    m_statusBarTextColor = text;
-    m_statusBarChromeSample = chromeForStorage;
-
-    UpdateStatusBarDescriptor();
-
-    InvalidateRect(m_statusBar, nullptr, TRUE);
 }
 
 void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
@@ -3912,7 +3357,6 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
         UnregisterGlowSurface(m_directUiView);
         m_directUiView = nullptr;
         m_directUiSubclassInstalled = false;
-        m_directUiRenderHooksAttempted = false;
     }
 
     if (m_listView && (!IsWindow(m_listView) || !m_listViewSubclassInstalled)) {
@@ -3951,7 +3395,6 @@ bool CExplorerBHO::TryResolveExplorerPanes() {
                 m_directUiView = directUiHost;
                 m_directUiSubclassInstalled = true;
                 shelltabs::RegisterDirectUiHost(directUiHost);
-                TryInstallDirectUiRenderHooks(directUiHost);
                 RegisterGlowSurface(directUiHost, ExplorerSurfaceKind::DirectUi, false);
                 LogMessage(LogLevel::Info, L"Installed explorer DirectUI host subclass (direct=%p)", directUiHost);
             } else {
@@ -4216,18 +3659,11 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
 
     ResetGlowSurfaces();
 
-    if (m_statusBar) {
-        RemoveStatusBarSubclass();
-        ResetStatusBarTheme();
-        m_statusBar = nullptr;
-    }
-
     m_shellViewWindowSubclassInstalled = false;
     m_frameWindow = nullptr;
     m_frameSubclassInstalled = false;
     m_directUiView = nullptr;
     m_directUiSubclassInstalled = false;
-    m_directUiRenderHooksAttempted = false;
     m_treeView = nullptr;
     m_treeViewSubclassInstalled = false;
     m_loggedExplorerPanesReady = false;
@@ -4781,14 +4217,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         UpdateGlowSurfaceTargets();
         UpdateListViewDescriptor();
         UpdateTreeViewDescriptor();
-        UpdateStatusBarDescriptor();
-        m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
         m_listViewCustomDraw.lastStageTick = CurrentTickCount();
-        m_statusBarCustomDraw.forced = false;
         m_listViewCustomDraw.forced = false;
-        if (m_statusBar && IsWindow(m_statusBar)) {
-            m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
-        }
         if (m_listView && IsWindow(m_listView)) {
             m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
         }
@@ -4812,32 +4242,17 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             if (isListView || isListViewHost) {
                 EvaluateListViewForcedHooks(msg);
             }
-            if (hwnd == m_statusBar) {
-                EvaluateStatusBarForcedHooks(msg);
-            }
             break;
         }
         case WM_ERASEBKGND: {
             if (isListView || isListViewHost) {
                 EvaluateListViewForcedHooks(msg);
             }
-            if (hwnd == m_statusBar) {
-                EvaluateStatusBarForcedHooks(msg);
-            }
             // With LVM_SETBKIMAGE, no special WM_ERASEBKGND handling needed for backgrounds
             // The ListView control handles background painting internally
             break;
         }
         case WM_PARENTNOTIFY: {
-            if (LOWORD(wParam) == WM_DESTROY) {
-                HWND child = reinterpret_cast<HWND>(lParam);
-                if (child && child == m_statusBar) {
-                    LogMessage(LogLevel::Info, L"Explorer status bar WM_DESTROY observed (hwnd=%p)", child);
-                    RemoveStatusBarSubclass(child);
-                    ResetStatusBarTheme(child);
-                    m_statusBar = nullptr;
-                }
-            }
             if ((isShellViewWindow || isDirectUiHost) && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
                 EnsureListViewSubclass();
                 UpdateGlowSurfaceTargets();
@@ -4883,8 +4298,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                     glow->second->RequestRepaint();
                 }
             }
-
-            UpdateStatusBarTheme();
             break;
         }
         case WM_DPICHANGED: {
@@ -4949,32 +4362,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 if (glowSurface->second->HandleNotify(*header, &glowResult)) {
                     *result = glowResult;
                     return true;
-                }
-            }
-            if (m_statusBar && header->hwndFrom == m_statusBar && header->code == NM_CUSTOMDRAW) {
-                handled = true;
-                auto* customDraw = reinterpret_cast<NMCUSTOMDRAW*>(const_cast<NMHDR*>(header));
-                if (!customDraw) {
-                    *result = CDRF_DODEFAULT;
-                } else if ((customDraw->dwDrawStage & CDDS_PREPAINT) == CDDS_PREPAINT) {
-                    OnStatusBarCustomDrawStage(customDraw->dwDrawStage);
-                    *result = CDRF_NOTIFYITEMDRAW;
-                } else if ((customDraw->dwDrawStage & CDDS_ITEMPREPAINT) == CDDS_ITEMPREPAINT) {
-                    OnStatusBarCustomDrawStage(customDraw->dwDrawStage);
-                    if (m_statusBarThemeValid) {
-                        if (m_statusBarTextColor != CLR_DEFAULT) {
-                            ::SetTextColor(customDraw->hdc, m_statusBarTextColor);
-                        }
-                        if (m_statusBarBackgroundColor != CLR_DEFAULT) {
-                            ::SetBkColor(customDraw->hdc, m_statusBarBackgroundColor);
-                            ::SetBkMode(customDraw->hdc, OPAQUE);
-                        } else {
-                            ::SetBkMode(customDraw->hdc, TRANSPARENT);
-                        }
-                    }
-                    *result = CDRF_NEWFONT;
-                } else {
-                    *result = CDRF_DODEFAULT;
                 }
             }
             if (handled) {
@@ -8738,22 +8125,6 @@ LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WP
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(
-    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR refData) {
-    auto* self = reinterpret_cast<CExplorerBHO*>(refData);
-    if (!self) {
-        return DefSubclassProc(hwnd, msg, wParam, lParam);
-    }
-
-    bool handled = false;
-    LRESULT result = self->HandleStatusBarMessage(hwnd, msg, wParam, lParam, &handled);
-    if (handled) {
-        return result;
-    }
-
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
-}
-
 ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
 
 // FAILSAFE GRADIENT TEXT: Direct custom draw handler for ListView items
@@ -9101,89 +8472,4 @@ void CExplorerBHO::UpdateTreeViewDescriptor() {
     m_glowCoordinator.SetSurfaceRole(m_treeView, SurfacePaintRole::Generic);
 }
 
-void CExplorerBHO::OnStatusBarCustomDrawStage(DWORD) {
-    m_statusBarCustomDraw.lastStageTick = CurrentTickCount();
-    if (m_statusBarCustomDraw.forced && m_statusBar && IsWindow(m_statusBar)) {
-        m_statusBarCustomDraw.forced = false;
-        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
-        LogMessage(LogLevel::Info, L"Status bar custom draw restored (hwnd=%p)", m_statusBar);
-    }
-}
-
-void CExplorerBHO::EvaluateStatusBarForcedHooks(UINT) {
-    if (!m_statusBar || !IsWindow(m_statusBar)) {
-        return;
-    }
-    if (!m_statusBarThemeValid) {
-        return;
-    }
-
-    const ULONGLONG now = CurrentTickCount();
-    if (m_statusBarCustomDraw.lastStageTick == 0) {
-        m_statusBarCustomDraw.lastStageTick = now;
-        return;
-    }
-
-    const bool expired = (now - m_statusBarCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
-    if (expired && !m_statusBarCustomDraw.forced) {
-        m_statusBarCustomDraw.forced = true;
-        UpdateStatusBarDescriptor();
-        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, true);
-        LogMessage(LogLevel::Warning, L"Status bar custom draw timeout; forcing theme detours (hwnd=%p)", m_statusBar);
-        InvalidateRect(m_statusBar, nullptr, FALSE);
-    } else if (!expired && m_statusBarCustomDraw.forced) {
-        m_statusBarCustomDraw.forced = false;
-        m_glowCoordinator.SetSurfaceForcedHooks(m_statusBar, false);
-        LogMessage(LogLevel::Info, L"Status bar custom draw signals resumed (hwnd=%p)", m_statusBar);
-        InvalidateRect(m_statusBar, nullptr, FALSE);
-    }
-}
-
-void CExplorerBHO::UpdateStatusBarDescriptor() {
-    if (!m_statusBar || !IsWindow(m_statusBar)) {
-        return;
-    }
-
-    SurfaceColorDescriptor descriptor{};
-    descriptor.kind = ExplorerSurfaceKind::Toolbar;
-    descriptor.role = SurfacePaintRole::StatusPane;
-    descriptor.userAccessibilityOptOut = false;
-
-    COLORREF fallback = m_statusBarBackgroundColor;
-    if (fallback == CLR_DEFAULT) {
-        fallback = GetSysColor(COLOR_3DFACE);
-    }
-    GlowColorSet fill{};
-    fill.valid = true;
-    fill.start = fallback;
-    fill.end = fallback;
-    fill.gradient = false;
-    if (m_statusBarThemeValid && m_statusBarChromeSample) {
-        COLORREF top = m_statusBarChromeSample->topColor == CLR_DEFAULT ? fallback : m_statusBarChromeSample->topColor;
-        COLORREF bottom = m_statusBarChromeSample->bottomColor == CLR_DEFAULT ? fallback : m_statusBarChromeSample->bottomColor;
-        fill.start = top;
-        fill.end = bottom;
-        fill.gradient = (top != bottom);
-    }
-    descriptor.fillColors = fill;
-    descriptor.fillOverride = fill.valid;
-    descriptor.backgroundColor = fill.start;
-    descriptor.backgroundOverride = descriptor.fillOverride;
-    descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
-
-    if (m_statusBarThemeValid && m_statusBarTextColor != CLR_DEFAULT) {
-        descriptor.textColor = m_statusBarTextColor;
-        descriptor.textOverride = true;
-    } else {
-        // Use appropriate text color based on background luminance to ensure readability
-        COLORREF bgColor = fill.valid ? fill.start : GetSysColor(COLOR_3DFACE);
-        double bgLuminance = ComputeColorLuminance(bgColor);
-        // Use white text on dark backgrounds, black text on light backgrounds
-        descriptor.textColor = (bgLuminance < 0.5) ? RGB(255, 255, 255) : RGB(0, 0, 0);
-        descriptor.textOverride = true;
-    }
-
-    m_glowCoordinator.UpdateSurfaceDescriptor(m_statusBar, descriptor);
-    m_glowCoordinator.SetSurfaceRole(m_statusBar, SurfacePaintRole::StatusPane);
-}
 }  // namespace shelltabs

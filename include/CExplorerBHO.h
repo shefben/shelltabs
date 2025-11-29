@@ -38,16 +38,11 @@
 #include "OptionsStore.h"
 #include "PaneHooks.h"
 #include "Utilities.h"
-#include "DirectUIReplacementIntegration.h"
 #include "VisualPropertiesInterop.h"
 #include "ShellTabsMessages.h"
 
 namespace Gdiplus {
 class Bitmap;
-}
-
-namespace ShellTabs {
-class CustomFileListView;
 }
 
 namespace shelltabs {
@@ -359,14 +354,11 @@ class ShellTabsListView;
                 HBRUSH GetListViewAccentBrush(COLORREF accentColor);
                 bool ApplyListViewSelectionAccent(NMLVCUSTOMDRAW* customDraw, bool fillBackground);
                 void EnsureListViewSubclass();
-                void EnsureListViewHostSubclass(HWND hostWindow);
                 bool TryAttachListViewFromFolderView();
                 HWND ResolveListViewFromFolderView();
                 bool AttachTreeView(HWND treeView);
                 bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
                 void UnregisterGlowSurface(HWND hwnd);
-                void TryInstallDirectUiRenderHooks(HWND directUiHost);
-                void OnCustomFileListViewCreated(ShellTabs::CustomFileListView* view, HWND hwnd);
                 ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd);
                 const ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd) const;
                 bool ShouldSuppressScrollbarDrawing(HWND hwnd) const;
@@ -376,25 +368,16 @@ class ShellTabsListView;
                 void RequestScrollbarGlowRepaint(HWND hwnd);
                 void UpdateGlowSurfaceTargets();
                 void RequestHeaderGlowRepaint() const;
-                void UpdateStatusBarTheme();
-                void ResetStatusBarTheme(HWND statusBar = nullptr);
-                void InstallStatusBarSubclass();
-                void RemoveStatusBarSubclass(HWND statusBar = nullptr);
-                LRESULT HandleStatusBarMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool* handled);
                 void PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active);
                 void ResetGlowSurfaces();
                 bool AttachListView(HWND listView);
                 void DetachListView();
-                void DetachListViewHosts();
                 bool HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
                 bool HandleTreeViewGradientCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result);
                 void OnListViewCustomDrawStage(DWORD stage);
                 void EvaluateListViewForcedHooks(UINT message);
                 void UpdateListViewDescriptor();
                 void UpdateTreeViewDescriptor();
-                void OnStatusBarCustomDrawStage(DWORD stage);
-                void EvaluateStatusBarForcedHooks(UINT message);
-                void UpdateStatusBarDescriptor();
                 static ULONGLONG CurrentTickCount();
 		enum class BreadcrumbDiscoveryStage {
 			None,
@@ -420,8 +403,6 @@ class ShellTabsListView;
                 static LRESULT CALLBACK TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                        UINT_PTR subclassId, DWORD_PTR refData);
-                static LRESULT CALLBACK StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
@@ -498,28 +479,18 @@ class ShellTabsListView;
                 bool m_frameSubclassInstalled = false;
                 HWND m_directUiView = nullptr;
                 bool m_directUiSubclassInstalled = false;
-                bool m_directUiRenderHooksAttempted = false;
-                ShellTabs::CustomFileListView* m_customFileListView = nullptr;
                 HWND m_nativeListView = nullptr;
                 HWND m_listViewControlWindow = nullptr;
                 HWND m_listView = nullptr;
                 HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
                 bool m_treeViewSubclassInstalled = false;
-                std::unordered_set<HWND, HandleHasher> m_listViewHostSubclassed;
                 std::unordered_map<HWND, std::unique_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
                 std::unordered_set<HWND, HandleHasher> m_scrollbarGlowSubclassed;
                 std::unordered_set<HWND, HandleHasher> m_transparentScrollbars;
                 bool m_watchListViewCreation = false;
                 bool m_watchTreeViewCreation = false;
-                HWND m_statusBar = nullptr;
-                COLORREF m_statusBarBackgroundColor = CLR_DEFAULT;
-                COLORREF m_statusBarTextColor = CLR_DEFAULT;
-                bool m_statusBarThemeValid = false;
-                bool m_statusBarSubclassInstalled = false;
-                std::optional<ToolbarChromeSample> m_statusBarChromeSample;
                 CustomDrawMonitor m_listViewCustomDraw{};
-                CustomDrawMonitor m_statusBarCustomDraw{};
                 bool m_explorerPaneRetryPending = false;
                 UINT_PTR m_explorerPaneRetryTimerId = 0;
                 DWORD m_explorerPaneRetryDelayMs = 0;
