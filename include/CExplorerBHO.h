@@ -36,7 +36,6 @@
 #include "EditGradientRenderer.h"
 #include "ExplorerThemeUtils.h"
 #include "OptionsStore.h"
-#include "PaneHooks.h"
 #include "Utilities.h"
 #include "VisualPropertiesInterop.h"
 #include "ShellTabsMessages.h"
@@ -48,8 +47,6 @@ class Bitmap;
 namespace shelltabs {
 
 struct ShellTabsOptions;
-class NamespaceTreeHost;
-class ShellTabsListView;
 
         class CExplorerBHO : public IObjectWithSite,
                              public IDispatch {
@@ -97,13 +94,6 @@ class ShellTabsListView;
                         size_t operator()(HWND hwnd) const noexcept {
                                 return reinterpret_cast<size_t>(hwnd);
                         }
-                };
-
-                struct TreeItemPidlResolution {
-                        UniquePidl owned;
-                        PCIDLIST_ABSOLUTE raw = nullptr;
-
-                        [[nodiscard]] bool empty() const noexcept { return raw == nullptr; }
                 };
 
                 struct ContextMenuSelectionItem {
@@ -267,17 +257,6 @@ class ShellTabsListView;
                 void UpdateExplorerViewSubclass();
                 void RemoveExplorerViewSubclass();
                 bool InstallExplorerViewSubclass(HWND viewWindow);
-                bool TryResolveExplorerPanes();
-                void HandleExplorerPaneCandidate(HWND candidate);
-                void UpdateExplorerPaneCreationWatch(bool watchListView, bool watchTreeView);
-                void ScheduleExplorerPaneRetry();
-                void CancelExplorerPaneRetry(bool resetAttemptState = true);
-                void ScheduleExplorerPaneFallback();
-                void CancelExplorerPaneFallback();
-                //bool InstallExplorerViewSubclass(HWND viewWindow, HWND listView, HWND treeView, HWND directUiHost);
-                void TryAttachNamespaceTreeControl(IShellView* shellView);
-                void ResetNamespaceTreeControl();
-                void InvalidateNamespaceTreeControl() const;
                 bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
                 void HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam);
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
@@ -302,7 +281,6 @@ class ShellTabsListView;
                 bool CollectContextSelectionFromItemArray(IShellItemArray* items,
                         ContextMenuSelectionSnapshot& selection) const;
                 bool CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const;
-                bool CollectContextSelectionFromTreeView(ContextMenuSelectionSnapshot& selection) const;
                 bool AppendSelectionItemFromShellItem(IShellItem* item, ContextMenuSelectionSnapshot& selection) const;
                 bool AppendSelectionItemFromPidl(PCIDLIST_ABSOLUTE pidl,
                         ContextMenuSelectionSnapshot& selection) const;
@@ -327,8 +305,6 @@ class ShellTabsListView;
                 bool ExecuteCommandLine(const std::wstring& commandLine) const;
                 HBITMAP CreateBitmapFromIcon(HICON icon, SIZE desiredSize) const;
                 void CleanupContextMenuResources();
-                TreeItemPidlResolution ResolveTreeViewItemPidl(HWND treeView, const TVITEMEXW& item) const;
-                bool ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const;
                 bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
                 void DispatchOpenInNewTab(const std::vector<std::wstring>& paths);
                 void QueueOpenInNewTabRequests(const std::vector<std::wstring>& paths);
@@ -356,7 +332,6 @@ class ShellTabsListView;
                 void EnsureListViewSubclass();
                 bool TryAttachListViewFromFolderView();
                 HWND ResolveListViewFromFolderView();
-                bool AttachTreeView(HWND treeView);
                 bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
                 void UnregisterGlowSurface(HWND hwnd);
                 ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd);
@@ -373,11 +348,9 @@ class ShellTabsListView;
                 bool AttachListView(HWND listView);
                 void DetachListView();
                 bool HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
-                bool HandleTreeViewGradientCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result);
                 void OnListViewCustomDrawStage(DWORD stage);
                 void EvaluateListViewForcedHooks(UINT message);
                 void UpdateListViewDescriptor();
-                void UpdateTreeViewDescriptor();
                 static ULONGLONG CurrentTickCount();
 		enum class BreadcrumbDiscoveryStage {
 			None,
@@ -477,34 +450,14 @@ class ShellTabsListView;
                 bool m_shellViewWindowSubclassInstalled = false;
                 HWND m_frameWindow = nullptr;
                 bool m_frameSubclassInstalled = false;
-                HWND m_directUiView = nullptr;
-                bool m_directUiSubclassInstalled = false;
                 HWND m_nativeListView = nullptr;
-                HWND m_listViewControlWindow = nullptr;
                 HWND m_listView = nullptr;
-                HWND m_treeView = nullptr;
                 bool m_listViewSubclassInstalled = false;
-                bool m_treeViewSubclassInstalled = false;
                 std::unordered_map<HWND, std::unique_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
                 std::unordered_set<HWND, HandleHasher> m_scrollbarGlowSubclassed;
                 std::unordered_set<HWND, HandleHasher> m_transparentScrollbars;
-                bool m_watchListViewCreation = false;
-                bool m_watchTreeViewCreation = false;
                 CustomDrawMonitor m_listViewCustomDraw{};
-                bool m_explorerPaneRetryPending = false;
-                UINT_PTR m_explorerPaneRetryTimerId = 0;
-                DWORD m_explorerPaneRetryDelayMs = 0;
-                size_t m_explorerPaneRetryAttempts = 0;
-                bool m_explorerPaneFallbackPending = false;
-                bool m_explorerPaneFallbackUsed = false;
-                UINT_PTR m_explorerPaneFallbackTimerId = 0;
-                bool m_loggedExplorerPanesReady = false;
-                bool m_loggedListViewMissing = false;
-                bool m_loggedTreeViewMissing = false;
-                PaneHookRouter m_paneHooks;
                 ExplorerGlowCoordinator m_glowCoordinator;
-                Microsoft::WRL::ComPtr<INameSpaceTreeControl> m_namespaceTreeControl;
-                std::unique_ptr<NamespaceTreeHost> m_namespaceTreeHost;
                 struct FolderBackgroundEntryData {
                         std::wstring imagePath;
                         std::wstring folderDisplayPath;
@@ -516,7 +469,6 @@ class ShellTabsListView;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
-                std::unique_ptr<ShellTabsListView> m_listViewControl;
                 bool m_hasActiveListViewAccent = false;
                 COLORREF m_activeListViewAccentColor = 0;
                 COLORREF m_activeListViewTextColor = 0;

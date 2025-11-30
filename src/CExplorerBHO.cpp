@@ -1,5 +1,4 @@
 #include "CExplorerBHO.h"
-#include "ShellTabsListView.h"
 
 #include <combaseapi.h>
 #include <exdispid.h>
@@ -48,7 +47,6 @@
 #include "CompositionIntercept.h"
 #include "Notifications.h"
 #include "OptionsStore.h"
-#include "ShellTabsTreeView.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"
 #include "ExplorerThemeUtils.h"
@@ -1050,7 +1048,7 @@ std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
 std::mutex CExplorerBHO::s_openInNewTabTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 
-CExplorerBHO::CExplorerBHO() : m_refCount(1), m_paneHooks() {
+CExplorerBHO::CExplorerBHO() : m_refCount(1) {
     ModuleAddRef();
     m_bufferedPaintInitialized = SUCCEEDED(BufferedPaintInit());
     m_glowCoordinator.Configure(OptionsStore::Instance().Get());
@@ -1722,40 +1720,6 @@ IFACEMETHODIMP CExplorerBHO::GetSite(REFIID riid, void** site) {
             return m_site->QueryInterface(riid, site);
         },
         []() -> HRESULT { return E_FAIL; });
-}
-
-CExplorerBHO::TreeItemPidlResolution CExplorerBHO::ResolveTreeViewItemPidl(HWND treeView,
-                                                                           const TVITEMEXW& item) const {
-    TreeItemPidlResolution resolved;
-
-    if (!item.hItem) {
-        return resolved;
-    }
-
-    if (treeView && m_namespaceTreeControl) {
-        RECT itemBounds{};
-        HTREEITEM handle = item.hItem;
-        if (TreeView_GetItemRect(treeView, handle, &itemBounds, TRUE)) {
-            const LONG centerX = static_cast<LONG>(itemBounds.left + (itemBounds.right - itemBounds.left) / 2);
-            const LONG centerY = static_cast<LONG>(itemBounds.top + (itemBounds.bottom - itemBounds.top) / 2);
-            POINT queryPoint{centerX, centerY};
-
-            Microsoft::WRL::ComPtr<IShellItem> shellItem;
-            HRESULT hr = m_namespaceTreeControl->HitTest(&queryPoint, &shellItem);
-            if (SUCCEEDED(hr) && shellItem) {
-                PIDLIST_ABSOLUTE pidl = nullptr;
-                hr = SHGetIDListFromObject(shellItem.Get(), &pidl);
-                if (SUCCEEDED(hr) && pidl) {
-                    resolved.owned.reset(reinterpret_cast<ITEMIDLIST*>(pidl));
-                    resolved.raw = resolved.owned.get();
-                    return resolved;
-                }
-            }
-        }
-    }
-
-    resolved.raw = reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam);
-    return resolved;
 }
 
 HRESULT CExplorerBHO::ConnectEvents() {
@@ -2467,7 +2431,6 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
 
 void CExplorerBHO::DetachListView() {
     HWND listView = m_listView;
-    HWND controlWindow = m_listViewControlWindow;
 
     if (listView && IsWindow(listView)) {
         m_glowCoordinator.SetSurfaceForcedHooks(listView, false);
@@ -2492,18 +2455,10 @@ void CExplorerBHO::DetachListView() {
         UnregisterGlowSurface(listView);
     }
 
-    if (controlWindow) {
-        UnregisterGlowSurface(controlWindow);
-    }
-
     m_listView = nullptr;
     m_listViewSubclassInstalled = false;
-    m_listViewControlWindow = nullptr;
 
-    m_listViewControl.reset();
     ResetListViewAccentBrush();
-
-    // Surface caching removed with LVM_SETBKIMAGE approach
 
     m_nativeListView = nullptr;
 }
@@ -2531,8 +2486,6 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     m_listView = listView;
     m_listViewSubclassInstalled = true;
     m_nativeListView = nullptr;  // Not used with hook-based approach
-    m_listViewControlWindow = nullptr;  // Not used with hook-based approach
-    m_listViewControl.reset();  // Not used with hook-based approach
 
     m_listViewCustomDraw = {};
     m_listViewCustomDraw.lastStageTick = CurrentTickCount();
@@ -2562,94 +2515,6 @@ bool CExplorerBHO::AttachListView(HWND listView) {
     RefreshListViewAccentState();
     InvalidateRect(m_listView, nullptr, FALSE);
     return true;
-}
-
-bool CExplorerBHO::AttachTreeView(HWND treeView) {
-    if (!treeView || !IsWindow(treeView)) {
-        if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
-            RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-        }
-        m_treeView = nullptr;
-        m_treeViewSubclassInstalled = false;
-        m_paneHooks.SetTreeView(nullptr);
-        return false;
-    }
-
-    if (treeView == m_listView || treeView == m_listViewControlWindow) {
-        return false;
-    }
-
-    if (m_treeView == treeView && m_treeViewSubclassInstalled) {
-        return true;
-    }
-
-    if (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView)) {
-        RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc,
-                             reinterpret_cast<UINT_PTR>(this));
-    }
-
-    if (!SetWindowSubclass(treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-        LogLastError(L"SetWindowSubclass(tree view)", GetLastError());
-        m_treeView = nullptr;
-        m_treeViewSubclassInstalled = false;
-        m_paneHooks.SetTreeView(nullptr);
-        return false;
-    }
-
-    m_treeView = treeView;
-    m_treeViewSubclassInstalled = true;
-    m_paneHooks.SetTreeView(
-        m_treeView,
-        [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
-            return ResolveHighlightFromPidl(pidl, highlight);
-        },
-        m_namespaceTreeControl.Get());
-
-    // Register as glow surface for gradient text support
-    RegisterGlowSurface(m_treeView, ExplorerSurfaceKind::ListView, true);
-    UpdateTreeViewDescriptor();
-
-    // CRITICAL: Enable custom draw for gradient text on TreeView
-    // TreeView automatically sends NM_CUSTOMDRAW if TVS_NOTOOLTIPS is not set
-    DWORD style = GetWindowLongW(m_treeView, GWL_STYLE);
-    style &= ~TVS_NOTOOLTIPS;  // Ensure tooltips are enabled (needed for custom draw)
-    SetWindowLongW(m_treeView, GWL_STYLE, style);
-
-    LogMessage(LogLevel::Info, L"Installed explorer tree view subclass (tree=%p)", treeView);
-    return true;
-}
-
-void CExplorerBHO::EnsureListViewHostSubclass(HWND hostWindow) {
-    if (!hostWindow || !IsWindow(hostWindow)) {
-        return;
-    }
-
-    if (hostWindow == m_listView || hostWindow == m_listViewControlWindow || hostWindow == m_shellViewWindow ||
-        hostWindow == m_directUiView) {
-        return;
-    }
-
-    if (m_listViewHostSubclassed.find(hostWindow) != m_listViewHostSubclassed.end()) {
-        return;
-    }
-
-    if (SetWindowSubclass(hostWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-        m_listViewHostSubclassed.insert(hostWindow);
-        LogMessage(LogLevel::Info, L"Installed explorer list host subclass (host=%p)", hostWindow);
-    } else {
-        LogLastError(L"SetWindowSubclass(list host)", GetLastError());
-    }
-}
-
-void CExplorerBHO::DetachListViewHosts() {
-    for (HWND hostWindow : m_listViewHostSubclassed) {
-        if (hostWindow) {
-            // RemoveWindowSubclass will fail gracefully if window is already destroyed
-            RemoveWindowSubclass(hostWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-        }
-    }
-    m_listViewHostSubclassed.clear();
 }
 
 bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass) {
@@ -3012,16 +2877,8 @@ void CExplorerBHO::UpdateGlowSurfaceTargets() {
         }
     }
 
-    if (m_directUiView && IsWindow(m_directUiView)) {
-        if (RegisterGlowSurface(m_directUiView, ExplorerSurfaceKind::DirectUi, true)) {
-            active.insert(m_directUiView);
-        }
-    }
-
     registerScrollbarsFor(m_listView);
-    registerScrollbarsFor(m_listViewControlWindow);
     registerScrollbarsFor(m_shellViewWindow);
-    registerScrollbarsFor(m_directUiView);
 
     HWND frame = GetTopLevelExplorerWindow();
     if (frame && IsWindow(frame)) {
@@ -3138,10 +2995,6 @@ bool CExplorerBHO::TryAttachListViewFromFolderView() {
         return false;
     }
 
-    if (HWND parent = GetParent(listView)) {
-        EnsureListViewHostSubclass(parent);
-    }
-
     RefreshListViewAccentState();
     return true;
 }
@@ -3189,7 +3042,7 @@ void CExplorerBHO::EnsureListViewSubclass() {
         return;
     }
 
-    const HWND baseScopes[] = {m_directUiView, m_shellViewWindow, m_frameWindow};
+    const HWND baseScopes[] = {m_shellViewWindow, m_frameWindow};
     std::vector<HWND> hostCandidates;
     std::unordered_set<HWND, HandleHasher> visited;
 
@@ -3237,8 +3090,6 @@ void CExplorerBHO::EnsureListViewSubclass() {
         if (!candidate || !IsWindow(candidate)) {
             continue;
         }
-
-        EnsureListViewHostSubclass(candidate);
 
         HWND listView = nullptr;
         if (MatchesClass(candidate, L"SysListView32")) {
@@ -3288,10 +3139,6 @@ void CExplorerBHO::UpdateExplorerViewSubclass() {
     }
     m_shellViewWindow = viewWindow;
     UpdateCurrentFolderBackground();
-
-    if (!TryResolveExplorerPanes()) {
-        ScheduleExplorerPaneRetry();
-    }
 }
 
 bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow) {
@@ -3341,300 +3188,10 @@ bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow) {
     return installed;
 }
 
-bool CExplorerBHO::TryResolveExplorerPanes() {
-    if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
-        return false;
-    }
 
-    if (m_directUiView && (!IsWindow(m_directUiView) || !m_directUiSubclassInstalled)) {
-        // Cache the window handle to avoid TOCTOU race
-        HWND cachedView = m_directUiView;
-        if (cachedView && m_directUiSubclassInstalled) {
-            // RemoveWindowSubclass will fail gracefully if window is already destroyed
-            RemoveWindowSubclass(cachedView, &CExplorerBHO::ExplorerViewSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-        }
-        UnregisterGlowSurface(m_directUiView);
-        m_directUiView = nullptr;
-        m_directUiSubclassInstalled = false;
-    }
 
-    if (m_listView && (!IsWindow(m_listView) || !m_listViewSubclassInstalled)) {
-        DetachListView();
-    }
-
-    if (m_treeView && (!IsWindow(m_treeView) || !m_treeViewSubclassInstalled)) {
-        // Cache the window handle to avoid TOCTOU race
-        HWND cachedTreeView = m_treeView;
-        if (cachedTreeView && m_treeViewSubclassInstalled) {
-            // RemoveWindowSubclass will fail gracefully if window is already destroyed
-            RemoveWindowSubclass(cachedTreeView, &CExplorerBHO::ExplorerViewSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-        }
-        m_treeView = nullptr;
-        m_treeViewSubclassInstalled = false;
-    }
-
-    bool listViewResolved = (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView));
-    bool treeViewResolved = (m_treeView && m_treeViewSubclassInstalled && IsWindow(m_treeView));
-
-    if (!m_directUiSubclassInstalled) {
-        HWND directUiHost = FindDescendantWindow(m_shellViewWindow, L"UIItemsView");
-        if (!directUiHost) {
-            directUiHost = FindDescendantWindow(m_shellViewWindow, L"ItemsViewWnd");
-        }
-        if (!directUiHost) {
-            directUiHost = FindDescendantWindow(m_shellViewWindow, L"DirectUIHWND");
-        }
-
-        if (directUiHost && directUiHost != m_shellViewWindow && directUiHost != m_listView &&
-            directUiHost != m_listViewControlWindow &&
-            IsWindow(directUiHost)) {
-            if (SetWindowSubclass(directUiHost, &CExplorerBHO::ExplorerViewSubclassProc,
-                                  reinterpret_cast<UINT_PTR>(this), 0)) {
-                m_directUiView = directUiHost;
-                m_directUiSubclassInstalled = true;
-                shelltabs::RegisterDirectUiHost(directUiHost);
-                RegisterGlowSurface(directUiHost, ExplorerSurfaceKind::DirectUi, false);
-                LogMessage(LogLevel::Info, L"Installed explorer DirectUI host subclass (direct=%p)", directUiHost);
-            } else {
-                LogLastError(L"SetWindowSubclass(DirectUI host)", GetLastError());
-                m_directUiView = nullptr;
-                m_directUiSubclassInstalled = false;
-            }
-        } else if (!directUiHost) {
-            m_directUiView = nullptr;
-        }
-    }
-
-    if (!listViewResolved && TryAttachListViewFromFolderView()) {
-        listViewResolved = true;
-    }
-
-    if (!listViewResolved) {
-        const HWND candidates[] = {m_directUiView, m_shellViewWindow};
-        for (HWND candidate : candidates) {
-            if (!candidate || !IsWindow(candidate)) {
-                continue;
-            }
-            HWND listView = FindDescendantWindow(candidate, L"SysListView32");
-            if (listView && AttachListView(listView)) {
-                listViewResolved = true;
-                RefreshListViewAccentState();
-                break;
-            }
-        }
-    }
-
-    if (!treeViewResolved) {
-        HWND treeView = nullptr;
-        if (m_shellBrowser) {
-            HWND browserTree = nullptr;
-            if (SUCCEEDED(m_shellBrowser->GetControlWindow(FCW_TREE, &browserTree)) && browserTree &&
-                browserTree != m_listView && browserTree != m_listViewControlWindow && IsWindow(browserTree)) {
-                treeView = browserTree;
-            }
-        }
-        if (!treeView) {
-            treeView = FindDescendantWindow(m_shellViewWindow, L"SysTreeView32");
-        }
-        if (treeView && AttachTreeView(treeView)) {
-            treeViewResolved = true;
-        }
-    }
-
-    if (m_treeViewSubclassInstalled && m_treeView) {
-        m_paneHooks.SetTreeView(
-            m_treeView,
-            [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
-                return ResolveHighlightFromPidl(pidl, highlight);
-            },
-            m_namespaceTreeControl.Get());
-    } else {
-        m_paneHooks.SetTreeView(nullptr);
-    }
-
-    UpdateGlowSurfaceTargets();
-
-    UpdateExplorerPaneCreationWatch(!listViewResolved, !treeViewResolved);
-
-    if (listViewResolved && treeViewResolved) {
-        CancelExplorerPaneRetry();
-        CancelExplorerPaneFallback();
-        if (!m_loggedExplorerPanesReady) {
-            LogMessage(LogLevel::Info, L"Explorer panes resolved (view=%p list=%p tree=%p direct=%p)", m_shellViewWindow,
-                       m_listView, m_treeView, m_directUiView);
-            UpdateCurrentFolderBackground();
-            m_loggedExplorerPanesReady = true;
-        }
-        m_loggedListViewMissing = false;
-        m_loggedTreeViewMissing = false;
-        return true;
-    }
-
-    m_loggedExplorerPanesReady = false;
-
-    if (m_watchListViewCreation || m_watchTreeViewCreation) {
-        ScheduleExplorerPaneFallback();
-    } else {
-        CancelExplorerPaneFallback();
-    }
-
-    if (!listViewResolved) {
-        if (!m_loggedListViewMissing) {
-            LogMessage(LogLevel::Info, L"Explorer panes not ready: list view missing (view=%p)", m_shellViewWindow);
-            m_loggedListViewMissing = true;
-        }
-    } else {
-        m_loggedListViewMissing = false;
-    }
-
-    if (!treeViewResolved) {
-        if (!m_loggedTreeViewMissing) {
-            LogMessage(LogLevel::Info, L"Explorer panes not ready: tree view missing (view=%p)", m_shellViewWindow);
-            m_loggedTreeViewMissing = true;
-        }
-    } else {
-        m_loggedTreeViewMissing = false;
-    }
-
-    ScheduleExplorerPaneRetry();
-    return false;
-}
-
-void CExplorerBHO::HandleExplorerPaneCandidate(HWND candidate) {
-    if (!candidate || !IsWindow(candidate)) {
-        return;
-    }
-
-    if (!m_watchListViewCreation && !m_watchTreeViewCreation) {
-        return;
-    }
-
-    wchar_t className[64] = {};
-    if (GetClassNameW(candidate, className, static_cast<int>(_countof(className))) == 0) {
-        return;
-    }
-
-    if (m_watchListViewCreation && _wcsicmp(className, L"SysListView32") == 0) {
-        LogMessage(LogLevel::Info,
-                   L"Explorer pane creation event detected: list view (child=%p parent=%p)", candidate, m_shellViewWindow);
-        if (AttachListView(candidate)) {
-            RefreshListViewAccentState();
-        }
-    } else if (m_watchTreeViewCreation && _wcsicmp(className, L"SysTreeView32") == 0) {
-        LogMessage(LogLevel::Info,
-                   L"Explorer pane creation event detected: tree view (child=%p parent=%p)", candidate, m_shellViewWindow);
-        AttachTreeView(candidate);
-    }
-}
-
-void CExplorerBHO::UpdateExplorerPaneCreationWatch(bool watchListView, bool watchTreeView) {
-    const bool previousListWatch = m_watchListViewCreation;
-    const bool previousTreeWatch = m_watchTreeViewCreation;
-
-    m_watchListViewCreation = watchListView;
-    m_watchTreeViewCreation = watchTreeView;
-
-    if (previousListWatch != watchListView || previousTreeWatch != watchTreeView) {
-        if (watchListView || watchTreeView) {
-            LogMessage(LogLevel::Info,
-                       L"Explorer pane creation watch armed (view=%p list=%d tree=%d)", m_shellViewWindow, watchListView,
-                       watchTreeView);
-        } else {
-            LogMessage(LogLevel::Info, L"Explorer pane creation watch cleared (view=%p)", m_shellViewWindow);
-            m_explorerPaneFallbackUsed = false;
-        }
-    }
-}
-
-void CExplorerBHO::ScheduleExplorerPaneRetry() {
-    if (m_explorerPaneRetryPending) {
-        return;
-    }
-    if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
-        return;
-    }
-
-    DWORD nextDelay = (m_explorerPaneRetryDelayMs == 0) ? kEnsureRetryInitialDelayMs : m_explorerPaneRetryDelayMs * 2;
-    if (nextDelay > kEnsureRetryMaxDelayMs) {
-        nextDelay = kEnsureRetryMaxDelayMs;
-    }
-
-    UINT_PTR timerId = SetTimer(m_shellViewWindow, 0, nextDelay, nullptr);
-    if (timerId == 0) {
-        LogLastError(L"SetTimer(explorer pane retry)", GetLastError());
-        return;
-    }
-
-    m_explorerPaneRetryPending = true;
-    m_explorerPaneRetryTimerId = timerId;
-    m_explorerPaneRetryDelayMs = nextDelay;
-    ++m_explorerPaneRetryAttempts;
-
-    LogMessage(LogLevel::Info,
-               L"Explorer pane retry timer armed (view=%p delay=%u attempts=%zu)",
-               m_shellViewWindow, nextDelay, m_explorerPaneRetryAttempts);
-}
-
-void CExplorerBHO::CancelExplorerPaneRetry(bool resetAttemptState) {
-    if (m_explorerPaneRetryPending && m_shellViewWindow && IsWindow(m_shellViewWindow) &&
-        m_explorerPaneRetryTimerId != 0) {
-        if (!KillTimer(m_shellViewWindow, m_explorerPaneRetryTimerId)) {
-            const DWORD error = GetLastError();
-            if (error != 0) {
-                LogLastError(L"KillTimer(explorer pane retry)", error);
-            }
-        }
-    }
-
-    m_explorerPaneRetryPending = false;
-    m_explorerPaneRetryTimerId = 0;
-    if (resetAttemptState) {
-        m_explorerPaneRetryDelayMs = 0;
-        m_explorerPaneRetryAttempts = 0;
-    }
-}
-
-void CExplorerBHO::ScheduleExplorerPaneFallback() {
-    if (m_explorerPaneFallbackPending || m_explorerPaneFallbackUsed) {
-        return;
-    }
-    if (!m_shellViewWindow || !IsWindow(m_shellViewWindow)) {
-        return;
-    }
-
-    UINT_PTR timerId = SetTimer(m_shellViewWindow, 0, kEnsureRetryInitialDelayMs, nullptr);
-    if (timerId != 0) {
-        m_explorerPaneFallbackPending = true;
-        m_explorerPaneFallbackTimerId = timerId;
-        m_explorerPaneFallbackUsed = true;
-        LogMessage(LogLevel::Info, L"Explorer pane fallback timer armed (view=%p delay=%u)", m_shellViewWindow,
-                   kEnsureRetryInitialDelayMs);
-    } else {
-        LogLastError(L"SetTimer(explorer pane fallback)", GetLastError());
-    }
-}
-
-void CExplorerBHO::CancelExplorerPaneFallback() {
-    if (m_explorerPaneFallbackPending && m_shellViewWindow && IsWindow(m_shellViewWindow) &&
-        m_explorerPaneFallbackTimerId != 0) {
-        if (!KillTimer(m_shellViewWindow, m_explorerPaneFallbackTimerId)) {
-            const DWORD error = GetLastError();
-            if (error != 0) {
-                LogLastError(L"KillTimer(explorer pane fallback)", error);
-            }
-        }
-    }
-    m_explorerPaneFallbackPending = false;
-    m_explorerPaneFallbackTimerId = 0;
-}
 
 void CExplorerBHO::RemoveExplorerViewSubclass() {
-    CancelExplorerPaneFallback();
-    CancelExplorerPaneRetry();
-    UpdateExplorerPaneCreationWatch(false, false);
-    ResetNamespaceTreeControl();
 
     // Cache window handles to avoid TOCTOU races
     // RemoveWindowSubclass will fail gracefully if window is already destroyed
@@ -3647,115 +3204,17 @@ void CExplorerBHO::RemoveExplorerViewSubclass() {
                              reinterpret_cast<UINT_PTR>(this));
     }
     DetachListView();
-    DetachListViewHosts();
-    if (m_directUiView && m_directUiSubclassInstalled) {
-        RemoveWindowSubclass(m_directUiView, &CExplorerBHO::ExplorerViewSubclassProc,
-                             reinterpret_cast<UINT_PTR>(this));
-    }
-    UnregisterGlowSurface(m_directUiView);
-    if (m_treeView && m_treeViewSubclassInstalled) {
-        RemoveWindowSubclass(m_treeView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-    }
 
     ResetGlowSurfaces();
 
     m_shellViewWindowSubclassInstalled = false;
     m_frameWindow = nullptr;
     m_frameSubclassInstalled = false;
-    m_directUiView = nullptr;
-    m_directUiSubclassInstalled = false;
-    m_treeView = nullptr;
-    m_treeViewSubclassInstalled = false;
-    m_loggedExplorerPanesReady = false;
     m_loggedListViewMissing = false;
-    m_loggedTreeViewMissing = false;
-    m_paneHooks.Reset();
     m_shellViewWindow = nullptr;
     m_folderView2.Reset();
     m_shellView.Reset();
     ClearPendingOpenInNewTabState();
-}
-
-void CExplorerBHO::TryAttachNamespaceTreeControl(IShellView* shellView) {
-    if (!shellView) {
-        return;
-    }
-
-    ResetNamespaceTreeControl();
-
-    Microsoft::WRL::ComPtr<IServiceProvider> serviceProvider;
-    HRESULT hr = shellView->QueryInterface(IID_PPV_ARGS(&serviceProvider));
-    if (FAILED(hr) || !serviceProvider) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<INameSpaceTreeControl> treeControl;
-    hr = serviceProvider->QueryService(SID_NamespaceTreeControl, IID_PPV_ARGS(&treeControl));
-    if (FAILED(hr) || !treeControl) {
-        return;
-    }
-
-    m_namespaceTreeControl = treeControl;
-
-    auto resolver = [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
-        return ResolveHighlightFromPidl(pidl, highlight);
-    };
-
-    auto host = std::make_unique<NamespaceTreeHost>(treeControl, resolver);
-    if (!host || !host->Initialize()) {
-        LogMessage(LogLevel::Warning, L"Namespace tree host initialization failed");
-        m_namespaceTreeHost.reset();
-        return;
-    }
-
-    m_namespaceTreeHost = std::move(host);
-
-    if (m_treeView && IsWindow(m_treeView)) {
-        m_paneHooks.SetTreeView(
-            m_treeView,
-            [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
-                return ResolveHighlightFromPidl(pidl, highlight);
-            },
-            m_namespaceTreeControl.Get());
-    }
-
-    InvalidateNamespaceTreeControl();
-}
-
-void CExplorerBHO::ResetNamespaceTreeControl() {
-    m_namespaceTreeHost.reset();
-    m_namespaceTreeControl.Reset();
-
-    if (m_treeView && IsWindow(m_treeView)) {
-        m_paneHooks.SetTreeView(
-            m_treeView,
-            [this](PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) {
-                return ResolveHighlightFromPidl(pidl, highlight);
-            },
-            nullptr);
-    }
-}
-
-void CExplorerBHO::InvalidateNamespaceTreeControl() const {
-    if (m_namespaceTreeHost) {
-        m_namespaceTreeHost->InvalidateAll();
-        return;
-    }
-
-    if (!m_namespaceTreeControl) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<INameSpaceTreeControl> control(m_namespaceTreeControl);
-    Microsoft::WRL::ComPtr<IOleWindow> oleWindow;
-    if (FAILED(control.As(&oleWindow)) || !oleWindow) {
-        return;
-    }
-
-    HWND hwnd = nullptr;
-    if (SUCCEEDED(oleWindow->GetWindow(&hwnd)) && hwnd) {
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
 }
 
 void CExplorerBHO::ClearFolderBackgrounds() {
@@ -4019,11 +3478,6 @@ void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
     };
 
     requestRedraw(m_listView);
-    requestRedraw(m_listViewControlWindow);
-    requestRedraw(m_directUiView);
-    for (HWND host : m_listViewHostSubclassed) {
-        requestRedraw(host);
-    }
     requestRedraw(m_shellViewWindow);
     requestRedraw(m_frameWindow);
 }
@@ -4149,16 +3603,9 @@ void CExplorerBHO::RefreshListViewAccentState() {
         ResetListViewAccentBrush();
     }
 
-    if (m_listViewControl) {
-        auto resolver = [this](COLORREF* accent, COLORREF* text) {
-            return ResolveActiveGroupAccent(accent, text);
-        };
-        m_listViewControl->SetAccentColorResolver(resolver);
-        m_listViewControl->SetUseAccentColors(shouldUseAccentColors);
-    } else if (m_listView && IsWindow(m_listView)) {
+    if (m_listView && IsWindow(m_listView)) {
         InvalidateRect(m_listView, nullptr, FALSE);
     }
-    InvalidateNamespaceTreeControl();
 }
 
 bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -4168,37 +3615,8 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     }
 
     const bool isListView = (hwnd == m_listView);
-    const bool isDirectUiHost = (hwnd == m_directUiView);
-    const bool isListViewHost = (m_listViewHostSubclassed.find(hwnd) != m_listViewHostSubclassed.end());
     const bool isShellViewWindow = (hwnd == m_shellViewWindow);
     const bool isGlowSurface = (m_glowSurfaces.find(hwnd) != m_glowSurfaces.end());
-
-    if (msg == WM_TIMER) {
-        if (m_explorerPaneRetryPending && wParam == m_explorerPaneRetryTimerId) {
-            const size_t attempts = m_explorerPaneRetryAttempts;
-            CancelExplorerPaneRetry(false);
-            if (!isShellViewWindow || !IsWindow(hwnd)) {
-                return false;
-            }
-            LogMessage(LogLevel::Info,
-                       L"Explorer pane retry timer fired (view=%p attempts=%zu)", hwnd,
-                       attempts);
-            TryResolveExplorerPanes();
-            *result = 0;
-            return true;
-        }
-
-        if (m_explorerPaneFallbackPending && wParam == m_explorerPaneFallbackTimerId) {
-            CancelExplorerPaneFallback();
-            if (!isShellViewWindow || !IsWindow(hwnd)) {
-                return false;
-            }
-            LogMessage(LogLevel::Info, L"Explorer pane fallback timer fired (view=%p)", hwnd);
-            TryResolveExplorerPanes();
-            *result = 0;
-            return true;
-        }
-    }
 
     const UINT optionsChangedMessage = GetOptionsChangedMessage();
     if (optionsChangedMessage != 0 && msg == optionsChangedMessage) {
@@ -4216,21 +3634,16 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
         }
         UpdateGlowSurfaceTargets();
         UpdateListViewDescriptor();
-        UpdateTreeViewDescriptor();
         m_listViewCustomDraw.lastStageTick = CurrentTickCount();
         m_listViewCustomDraw.forced = false;
         if (m_listView && IsWindow(m_listView)) {
             m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
         }
-        if (m_treeView && IsWindow(m_treeView)) {
-            m_glowCoordinator.SetSurfaceForcedHooks(m_treeView, false);
-            InvalidateRect(m_treeView, nullptr, FALSE);
-        }
         *result = 0;
         return true;
     }
 
-    if ((isShellViewWindow || isDirectUiHost || isListViewHost) &&
+    if (isShellViewWindow &&
         (msg == WM_WINDOWPOSCHANGED || msg == WM_SHOWWINDOW || msg == WM_SIZE || msg == WM_PAINT)) {
         EnsureListViewSubclass();
         UpdateGlowSurfaceTargets();
@@ -4239,13 +3652,13 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
     switch (msg) {
         case WM_PAINT:
         case WM_PRINTCLIENT: {
-            if (isListView || isListViewHost) {
+            if (isListView) {
                 EvaluateListViewForcedHooks(msg);
             }
             break;
         }
         case WM_ERASEBKGND: {
-            if (isListView || isListViewHost) {
+            if (isListView) {
                 EvaluateListViewForcedHooks(msg);
             }
             // With LVM_SETBKIMAGE, no special WM_ERASEBKGND handling needed for backgrounds
@@ -4253,7 +3666,7 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
             break;
         }
         case WM_PARENTNOTIFY: {
-            if ((isShellViewWindow || isDirectUiHost) && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
+            if (isShellViewWindow && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
                 EnsureListViewSubclass();
                 UpdateGlowSurfaceTargets();
                 if (LOWORD(wParam) == WM_CREATE) {
@@ -4336,26 +3749,6 @@ bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam,
                 }
             }
 
-            // FAILSAFE GRADIENT TEXT: Handle TreeView custom draw notifications directly
-            if (m_treeView && header->hwndFrom == m_treeView && header->code == NM_CUSTOMDRAW) {
-                auto* customDraw = reinterpret_cast<NMTVCUSTOMDRAW*>(lParam);
-                if (customDraw) {
-                    LRESULT gradientResult = 0;
-                    if (HandleTreeViewGradientCustomDraw(customDraw, &gradientResult)) {
-                        *result = gradientResult;
-                        return true;
-                    }
-                }
-            }
-
-            if (m_paneHooks.HandleNotify(header, result)) {
-                handled = true;
-            }
-            if (m_namespaceTreeHost && header->hwndFrom == m_namespaceTreeHost->GetWindow()) {
-                if (m_namespaceTreeHost->HandleNotify(header, result)) {
-                    handled = true;
-                }
-            }
             auto glowSurface = m_glowSurfaces.find(header->hwndFrom);
             if (glowSurface != m_glowSurfaces.end() && glowSurface->second) {
                 LRESULT glowResult = 0;
@@ -4506,69 +3899,8 @@ void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
 }
 
 void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint) {
-    HWND target = sourceWindow;
-    if (!target || !IsWindow(target)) {
-        target = GetFocus();
-    }
-
-    if (!target || (!IsWindow(target))) {
-        return;
-    }
-
-    if (target == m_listView) {
-        if (!m_listViewControl) {
-            return;
-        }
-
-        if (screenPoint.x == -1 && screenPoint.y == -1) {
-            return;
-        }
-
-        POINT clientPoint = screenPoint;
-        if (!ScreenToClient(target, &clientPoint)) {
-            return;
-        }
-
-        ShellTabsListView::HitTestResult hit{};
-        if (!m_listViewControl->HitTest(clientPoint, &hit) || hit.index < 0 || (hit.flags & LVHT_ONITEM) == 0) {
-            return;
-        }
-
-        if ((m_listViewControl->GetItemState(hit.index, LVIS_SELECTED) & LVIS_SELECTED) != 0) {
-            return;
-        }
-
-        if (m_listViewControl->SelectExclusive(hit.index)) {
-            LogMessage(LogLevel::Info, L"Context menu selection synchronized to list view item %d", hit.index);
-        }
-        return;
-    }
-
-    if (target == m_treeView) {
-        if (screenPoint.x == -1 && screenPoint.y == -1) {
-            return;
-        }
-
-        POINT clientPoint = screenPoint;
-        if (!ScreenToClient(target, &clientPoint)) {
-            return;
-        }
-
-        TVHITTESTINFO hit{};
-        hit.pt = clientPoint;
-        HTREEITEM item = TreeView_HitTest(m_treeView, &hit);
-        if (!item || (hit.flags & (TVHT_ONITEM | TVHT_ONITEMBUTTON | TVHT_ONITEMINDENT)) == 0) {
-            return;
-        }
-
-        HTREEITEM current = TreeView_GetSelection(m_treeView);
-        if (current == item) {
-            return;
-        }
-
-        TreeView_SelectItem(m_treeView, item);
-        LogMessage(LogLevel::Info, L"Context menu selection synchronized to tree view item %p", item);
-    }
+    (void)sourceWindow;
+    (void)screenPoint;
 }
 
 void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
@@ -4659,13 +3991,6 @@ bool CExplorerBHO::CollectContextMenuSelection(ContextMenuSelectionSnapshot& sel
         return true;
     }
 
-    selection.Clear();
-    if (CollectContextSelectionFromTreeView(selection) && !selection.items.empty()) {
-        LogMessage(LogLevel::Info, L"CollectContextMenuSelection resolved %zu item(s) from tree view",
-                   selection.items.size());
-        return true;
-    }
-
     LogMessage(LogLevel::Info, L"CollectContextMenuSelection found no eligible selection");
     selection.Clear();
     return false;
@@ -4741,24 +4066,6 @@ bool CExplorerBHO::CollectContextSelectionFromItemArray(IShellItemArray* items,
 }
 
 bool CExplorerBHO::CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const {
-    if (m_listViewControl) {
-        bool appended = false;
-        for (const auto& item : m_listViewControl->GetSelectionSnapshot()) {
-            if (!item.pidl) {
-                continue;
-            }
-            if (AppendSelectionItemFromPidl(item.pidl.get(), selection)) {
-                appended = true;
-            }
-        }
-
-        if (!appended) {
-            LogMessage(LogLevel::Info, L"CollectContextSelectionFromListView found no selection");
-        }
-
-        return appended;
-    }
-
     if (!m_listView || !IsWindow(m_listView)) {
         return false;
     }
@@ -4784,62 +4091,6 @@ bool CExplorerBHO::CollectContextSelectionFromListView(ContextMenuSelectionSnaps
     }
 
     return appended;
-}
-
-bool CExplorerBHO::CollectContextSelectionFromTreeView(ContextMenuSelectionSnapshot& selection) const {
-    bool appended = false;
-
-    if (m_namespaceTreeControl) {
-        Microsoft::WRL::ComPtr<IShellItemArray> items;
-        const HRESULT hr = m_namespaceTreeControl->GetSelectedItems(&items);
-        if (SUCCEEDED(hr) && items) {
-            if (CollectContextSelectionFromItemArray(items.Get(), selection)) {
-                appended = true;
-            } else {
-                LogMessage(LogLevel::Info,
-                           L"CollectContextSelectionFromTreeView skipped: namespace tree selection produced no items");
-            }
-        } else {
-            LogMessage(LogLevel::Info,
-                       L"CollectContextSelectionFromTreeView skipped: unable to query namespace tree selection (hr=0x%08lX)",
-                       hr);
-        }
-    }
-
-    if (appended) {
-        return true;
-    }
-
-    if (!m_treeView || !IsWindow(m_treeView)) {
-        return false;
-    }
-
-    HTREEITEM selectionItem = TreeView_GetSelection(m_treeView);
-    if (!selectionItem) {
-        LogMessage(LogLevel::Info, L"CollectContextSelectionFromTreeView skipped: no selection");
-        return false;
-    }
-
-    TVITEMEXW tvItem{};
-    tvItem.mask = TVIF_PARAM;
-    tvItem.hItem = selectionItem;
-    if (!TreeView_GetItemW(m_treeView, &tvItem)) {
-        LogLastError(L"TreeView_GetItem(selection)", GetLastError());
-        return false;
-    }
-
-    TreeItemPidlResolution resolved = ResolveTreeViewItemPidl(m_treeView, tvItem);
-    if (resolved.empty()) {
-        LogMessage(LogLevel::Info, L"CollectContextSelectionFromTreeView skipped: selection PIDL unresolved");
-        return false;
-    }
-
-    if (AppendSelectionItemFromPidl(resolved.raw, selection)) {
-        return true;
-    }
-
-    LogMessage(LogLevel::Info, L"CollectContextSelectionFromTreeView skipped: selection not eligible");
-    return false;
 }
 
 bool CExplorerBHO::AppendSelectionItemFromShellItem(IShellItem* item,
@@ -5666,25 +4917,6 @@ void CExplorerBHO::ExecuteContextMenuCommand(const ContextMenuItem& item) const 
     if (succeeded == 0) {
         LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand failed for all generated commands");
     }
-}
-
-
-bool CExplorerBHO::ResolveHighlightFromPidl(PCIDLIST_ABSOLUTE pidl, PaneHighlight* highlight) const {
-    if (!pidl) {
-        return false;
-    }
-
-    std::vector<std::wstring> paths;
-    if (!AppendPathFromPidl(pidl, paths) || paths.empty()) {
-        return false;
-    }
-
-    const std::wstring normalizedPath = NormalizePaneHighlightKey(paths.front());
-    if (normalizedPath.empty()) {
-        return false;
-    }
-
-    return TryGetPaneHighlight(normalizedPath, highlight);
 }
 
 bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const {
@@ -8045,32 +7277,15 @@ LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPA
         if (hwnd == self->m_listView) {
             self->m_listView = nullptr;
             self->m_listViewSubclassInstalled = false;
-        } else if (hwnd == self->m_listViewControlWindow) {
-            self->m_listViewControlWindow = nullptr;
-            self->m_listViewControl.reset();
-            if (self->m_nativeListView && IsWindow(self->m_nativeListView)) {
-                EnableWindow(self->m_nativeListView, TRUE);
-                ShowWindow(self->m_nativeListView, SW_SHOW);
-            }
-            self->m_nativeListView = nullptr;
-        } else if (hwnd == self->m_directUiView) {
-            self->m_directUiView = nullptr;
-            self->m_directUiSubclassInstalled = false;
-        } else if (hwnd == self->m_treeView) {
-            self->m_treeView = nullptr;
-            self->m_treeViewSubclassInstalled = false;
-            self->m_paneHooks.SetTreeView(nullptr);
         } else if (hwnd == self->m_frameWindow) {
             self->m_frameWindow = nullptr;
             self->m_frameSubclassInstalled = false;
         } else if (hwnd == self->m_shellViewWindow) {
             self->m_shellViewWindowSubclassInstalled = false;
             self->m_shellViewWindow = nullptr;
-        } else {
-            self->m_listViewHostSubclassed.erase(hwnd);
         }
 
-        if (!self->m_listView && !self->m_treeView && !self->m_shellViewWindow) {
+        if (!self->m_listView && !self->m_shellViewWindow) {
             self->m_shellView.Reset();
             self->ClearPendingOpenInNewTabState();
         }
@@ -8251,108 +7466,6 @@ bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, 
     return false;
 }
 
-// FAILSAFE GRADIENT TEXT: Direct custom draw handler for TreeView items
-bool CExplorerBHO::HandleTreeViewGradientCustomDraw(NMTVCUSTOMDRAW* customDraw, LRESULT* result) {
-    if (!customDraw || !result) {
-        return false;
-    }
-
-    const ShellTabsOptions& options = OptionsStore::Instance().Get();
-    BreadcrumbGradientConfig gradientConfig{};
-    gradientConfig.enabled = true;
-    gradientConfig.brightness = options.breadcrumbFontBrightness;
-    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
-    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
-    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
-    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
-    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
-    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
-    BreadcrumbGradientPalette palette = ResolveBreadcrumbGradientPalette(gradientConfig);
-
-    const DWORD drawStage = customDraw->nmcd.dwDrawStage;
-
-    if (drawStage == CDDS_PREPAINT) {
-        *result = CDRF_NOTIFYITEMDRAW;
-        return true;
-    }
-
-    if (drawStage == CDDS_ITEMPREPAINT) {
-        // Get the item handle and text
-        HTREEITEM hItem = reinterpret_cast<HTREEITEM>(customDraw->nmcd.dwItemSpec);
-        if (!hItem) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        wchar_t textBuffer[MAX_PATH * 2] = {};
-        TVITEMEXW item{};
-        item.hItem = hItem;
-        item.mask = TVIF_TEXT;
-        item.pszText = textBuffer;
-        item.cchTextMax = ARRAYSIZE(textBuffer);
-
-        if (!TreeView_GetItem(m_treeView, &item) || !textBuffer[0]) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        const size_t textLen = wcslen(textBuffer);
-        if (textLen == 0) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        // Get item rect for text positioning
-        RECT textRect = customDraw->nmcd.rc;
-
-        // Render gradient text character by character
-        HDC dc = customDraw->nmcd.hdc;
-        const int oldBkMode = SetBkMode(dc, TRANSPARENT);
-
-        // Calculate total text width for gradient mapping
-        SIZE totalSize{};
-        if (!GetTextExtentPoint32W(dc, textBuffer, static_cast<int>(textLen), &totalSize)) {
-            SetBkMode(dc, oldBkMode);
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        const double gradientWidth = std::max(1.0, static_cast<double>(totalSize.cx));
-        double currentX = static_cast<double>(textRect.left);
-
-        // Draw each character with its gradient color
-        for (size_t i = 0; i < textLen; ++i) {
-            SIZE charSize{};
-            if (!GetTextExtentPoint32W(dc, &textBuffer[i], 1, &charSize)) {
-                continue;
-            }
-
-            // Calculate gradient position (0.0 to 1.0) based on character center
-            const double charCenterX = currentX + static_cast<double>(charSize.cx) * 0.5;
-            const double position = std::clamp((charCenterX - static_cast<double>(textRect.left)) / gradientWidth, 0.0, 1.0);
-            const COLORREF color = EvaluateBreadcrumbGradientColor(palette, position);
-
-            // Set the gradient color for this character
-            SetTextColor(dc, color);
-
-            // Draw the character
-            RECT charRect = textRect;
-            charRect.left = static_cast<LONG>(currentX);
-            charRect.right = charRect.left + charSize.cx;
-            DrawTextW(dc, &textBuffer[i], 1, &charRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-            // Advance position
-            currentX += static_cast<double>(charSize.cx);
-        }
-
-        SetBkMode(dc, oldBkMode);
-        *result = CDRF_SKIPDEFAULT;  // We drew the text, skip default
-        return true;
-    }
-
-    return false;
-}
-
 void CExplorerBHO::OnListViewCustomDrawStage(DWORD) {
     m_listViewCustomDraw.lastStageTick = CurrentTickCount();
     if (m_listViewCustomDraw.forced && m_listView && IsWindow(m_listView)) {
@@ -8436,40 +7549,6 @@ void CExplorerBHO::UpdateListViewDescriptor() {
 
     m_glowCoordinator.UpdateSurfaceDescriptor(m_listView, descriptor);
     m_glowCoordinator.SetSurfaceRole(m_listView, SurfacePaintRole::ListViewRows);
-}
-
-void CExplorerBHO::UpdateTreeViewDescriptor() {
-    if (!m_treeView || !IsWindow(m_treeView)) {
-        return;
-    }
-
-    SurfaceColorDescriptor descriptor{};
-    descriptor.kind = ExplorerSurfaceKind::ListView;
-    descriptor.role = SurfacePaintRole::Generic;
-    descriptor.fillColors = m_glowCoordinator.ResolveColors(ExplorerSurfaceKind::ListView);
-    descriptor.fillOverride = descriptor.fillColors.valid;
-    descriptor.userAccessibilityOptOut = false;
-    descriptor.textOverride = false;
-    descriptor.backgroundOverride = false;
-    descriptor.forceOpaqueBackground = false;
-
-    // Configure gradient text - FORCED ALWAYS ENABLED
-    const ShellTabsOptions& options = OptionsStore::Instance().Get();
-    descriptor.gradientTextEnabled = true;  // FORCED: Always enable gradient text for TreeView items
-    descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
-    BreadcrumbGradientConfig gradientConfig{};
-    gradientConfig.enabled = true;
-    gradientConfig.brightness = options.breadcrumbFontBrightness;
-    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
-    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
-    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
-    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
-    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
-    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
-    descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
-
-    m_glowCoordinator.UpdateSurfaceDescriptor(m_treeView, descriptor);
-    m_glowCoordinator.SetSurfaceRole(m_treeView, SurfacePaintRole::Generic);
 }
 
 }  // namespace shelltabs

@@ -97,13 +97,9 @@ add_library(ShellTabs SHARED
     src/ExplorerGlowSurfaces.cpp
     src/CompositionIntercept.cpp
     src/ThemeHooks.cpp
-    src/PaneHooks.cpp
-    src/ShellTabsListView.cpp
-    src/ShellTabsTreeView.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/ComVTableHook.cpp
-    src/ExplorerRibbonHook.cpp
     src/resource.rc
 )
 
@@ -216,16 +212,6 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
         _WIN32_WINNT=0x0A00
     )
 
-    add_executable(ShellTabsPaneHooksTests
-        tests/PaneHooksTests.cpp
-        src/PaneHooks.cpp
-    )
-
-    target_include_directories(ShellTabsPaneHooksTests PRIVATE
-        include
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-
     add_executable(ShellTabsThemeTransitionTests
         tests/ThemeTransitionTests.cpp
         tests/TestLoggingStubs.cpp
@@ -249,17 +235,6 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
     target_include_directories(ShellTabsTabManagerTests PRIVATE
         include
         ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-
-    target_compile_definitions(ShellTabsPaneHooksTests PRIVATE
-        UNICODE
-        _UNICODE
-        _WIN32_WINNT=0x0A00
-    )
-
-    target_link_libraries(ShellTabsPaneHooksTests PRIVATE
-        user32
-        comctl32
     )
 
     target_compile_definitions(ShellTabsThemeTransitionTests PRIVATE

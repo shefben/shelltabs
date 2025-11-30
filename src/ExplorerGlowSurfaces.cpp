@@ -4,7 +4,6 @@
 #include "EditGradientRenderer.h"
 
 #include "ExplorerThemeUtils.h"
-#include "ShellTabsListView.h"
 
 #include <algorithm>
 #include <array>
@@ -482,16 +481,7 @@ protected:
         }
 
         if (GetFocus() == hwnd) {
-            int focused = -1;
-            if (ShellTabsListView* control = ShellTabsListView::FromListView(hwnd)) {
-                ShellTabsListView::SelectionItem item;
-                if (control->TryGetFocusedItem(&item)) {
-                    focused = item.index;
-                }
-            } else {
-                focused = ListView_GetNextItem(hwnd, -1, LVNI_FOCUSED);
-            }
-
+            int focused = ListView_GetNextItem(hwnd, -1, LVNI_FOCUSED);
             if (focused >= 0) {
                 RECT focusRect{};
                 if (ListView_GetItemRect(listView, focused, &focusRect, LVIR_BOUNDS)) {
