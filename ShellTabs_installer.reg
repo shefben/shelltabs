@@ -20,7 +20,7 @@ Windows Registry Editor Version 5.00
 "AppID"="{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}"
 
 [HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}\InprocServer32]
-@="F:\\development\\steam\\emulator_bot\\shelltabs\\build\\bin\\Release\\ShellTabs.dll"
+@="c:\\ShellTabs.dll"
 "ThreadingModel"="Apartment"
 
 [HKEY_CLASSES_ROOT\CLSID\{A9C6F73E-43F4-47C3-8E45-59F80335277E}\ProgID]
@@ -90,7 +90,7 @@ Windows Registry Editor Version 5.00
 "AppID"="{E2BF3AC0-8F7E-4C1D-B848-4AFCC4B0F8A2}"
 
 [HKEY_CLASSES_ROOT\CLSID\{1A5E6BC2-89A2-46D3-9077-0CF76C63FE13}\InprocServer32]
-@="F:\\development\\steam\\emulator_bot\\shelltabs\\build\\bin\\Release\\ShellTabs.dll"
+@="F:\\ShellTabs.dll"
 "ThreadingModel"="Apartment"
 
 [HKEY_CLASSES_ROOT\CLSID\{1A5E6BC2-89A2-46D3-9077-0CF76C63FE13}\ShellFolder]
