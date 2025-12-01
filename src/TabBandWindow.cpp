@@ -2876,8 +2876,16 @@ void TabBandWindow::ResetThemePalette() {
         m_themePalette.borderBottom = BlendColors(baseBackground, RGB(0, 0, 0), 0.22);
     }
 
-    const COLORREF tabBase = chrome.valid ? BlendColors(baseBackground, windowColor, m_darkMode ? 0.25 : 0.12)
-                                          : AdjustForDarkTone(windowColor, 0.4, m_darkMode);
+    COLORREF tabBase;
+    if (m_darkMode) {
+        // In dark mode, use a visible gray that contrasts with the dark background
+        // Start from the rebar background and lighten it significantly for inactive tabs
+        tabBase = BlendColors(baseBackground, RGB(255, 255, 255), 0.20);
+    } else if (chrome.valid) {
+        tabBase = BlendColors(baseBackground, windowColor, 0.12);
+    } else {
+        tabBase = AdjustForDarkTone(windowColor, 0.4, m_darkMode);
+    }
     m_themePalette.tabBase = tabBase;
     m_themePalette.tabSelectedBase = BlendColors(tabBase, m_accentColor, m_darkMode ? 0.5 : 0.35);
     m_themePalette.tabText = foregroundColor;
@@ -5132,20 +5140,25 @@ void TabBandWindow::UnregisterShellNotifications() {
 }
 
 void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
-    struct ShellChangeNotification {
-        PCIDLIST_ABSOLUTE from;
-        PCIDLIST_ABSOLUTE to;
-    };
-
-    const auto* notification = reinterpret_cast<const ShellChangeNotification*>(lParam);
-    if (!notification) {
+    // With SHCNRF_NewDelivery, wParam is a notification handle and lParam contains event flags.
+    // We must use SHChangeNotification_Lock to get the actual PIDLs.
+    LONG eventId = 0;
+    PIDLIST_ABSOLUTE* pidls = nullptr;
+    HANDLE lock = SHChangeNotification_Lock(
+        reinterpret_cast<HANDLE>(wParam), static_cast<DWORD>(lParam), &pidls, &eventId);
+    if (!lock) {
         return;
     }
+
     auto* manager = ResolveManager();
     if (!manager) {
+        SHChangeNotification_Unlock(lock);
         return;
     }
-    const LONG eventId = static_cast<LONG>(wParam) & 0xFFFF;
+
+    PCIDLIST_ABSOLUTE from = pidls ? pidls[0] : nullptr;
+    PCIDLIST_ABSOLUTE to = pidls ? pidls[1] : nullptr;
+
     auto touch = [manager](PCIDLIST_ABSOLUTE pidl) {
         if (!pidl) {
             return;
@@ -5175,16 +5188,18 @@ void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
         case SHCNE_RENAMEITEM:
         case SHCNE_RENAMEFOLDER:
         case SHCNE_UPDATEITEM:
-            touch(notification->from);
-            touch(notification->to);
+            touch(from);
+            touch(to);
             break;
         case SHCNE_UPDATEDIR:
-            clear(notification->from);
-            clear(notification->to);
+            clear(from);
+            clear(to);
             break;
         default:
             break;
     }
+
+    SHChangeNotification_Unlock(lock);
 }
 
 void TabBandWindow::UpdateCloseButtonHover(const POINT& pt) {
@@ -5464,7 +5479,14 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
 bool TabBandWindow::HandleMouseDown(const POINT& pt) {
     UpdateCloseButtonHover(pt);
     HitInfo hit = HitTest(pt);
+    LogMessage(LogLevel::Info,
+               L"HandleMouseDown hit=%d type=%d itemIndex=%llu closeButton=%d location=(group=%d,tab=%d)",
+               hit.hit ? 1 : 0, static_cast<int>(hit.type),
+               static_cast<unsigned long long>(hit.itemIndex),
+               hit.closeButton ? 1 : 0,
+               hit.location.groupIndex, hit.location.tabIndex);
     if (!hit.hit || hit.type == HitType::kWhitespace || hit.type == HitType::kNewTab) {
+        LogMessage(LogLevel::Info, L"HandleMouseDown returning false (not a valid hit)");
         return false;
     }
 
@@ -5500,9 +5522,13 @@ bool TabBandWindow::HandleMouseDown(const POINT& pt) {
 }
 
 bool TabBandWindow::HandleMouseUp(const POINT& pt) {
+	LogMessage(LogLevel::Info, L"HandleMouseUp pt=(%d,%d) closeClick=%d tracking=%d",
+	           pt.x, pt.y, m_drag.closeClick ? 1 : 0, m_drag.tracking ? 1 : 0);
+
 	// 1) Empty-island "+" click → open "This PC" and consume
 	int groupIndex = -1;
         if (FindEmptyIslandPlusAt(pt, &groupIndex) && m_owner) {
+                LogMessage(LogLevel::Info, L"HandleMouseUp: empty island + click, groupIndex=%d", groupIndex);
                 m_owner->OnNewTabRequested(groupIndex);
                 return true; // handled; UI refresh hides the '+'
         }
@@ -6634,13 +6660,18 @@ void TabBandWindow::CompleteDrop() {
 }
 
 void TabBandWindow::RequestSelection(const HitInfo& hit) {
+    LogMessage(LogLevel::Info, L"RequestSelection type=%d location=(group=%d,tab=%d) owner=%p",
+               static_cast<int>(hit.type), hit.location.groupIndex, hit.location.tabIndex, m_owner);
     if (!m_owner) {
+        LogMessage(LogLevel::Warning, L"RequestSelection: no owner, ignoring");
         return;
     }
 
     if (hit.type == HitType::kTab && hit.location.IsValid()) {
+        LogMessage(LogLevel::Info, L"RequestSelection: calling OnTabSelected");
         m_owner->OnTabSelected(hit.location);
     } else if (hit.type == HitType::kGroupHeader) {
+        LogMessage(LogLevel::Info, L"RequestSelection: calling OnToggleGroupCollapsed");
         m_owner->OnToggleGroupCollapsed(hit.location.groupIndex);
     }
 }
@@ -7083,6 +7114,25 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             return 0;
         }
         switch (message) {
+            case WM_MOUSEACTIVATE: {
+                HWND topLevel = reinterpret_cast<HWND>(wParam);
+                UINT hitTest = LOWORD(lParam);
+                UINT mouseMsg = HIWORD(lParam);
+                LogMessage(LogLevel::Info,
+                           L"TabBandWindow WM_MOUSEACTIVATE topLevel=%p hitTest=%u mouseMsg=0x%04X",
+                           topLevel, hitTest, mouseMsg);
+                // Don't eat the activation - let it through
+                return fallback();
+            }
+            case WM_ACTIVATE: {
+                WORD activeState = LOWORD(wParam);
+                WORD minimized = HIWORD(wParam);
+                HWND other = reinterpret_cast<HWND>(lParam);
+                LogMessage(LogLevel::Info,
+                           L"TabBandWindow WM_ACTIVATE state=%u minimized=%u other=%p",
+                           activeState, minimized, other);
+                return fallback();
+            }
             case WM_CREATE: {
                 if (EnsureNewTabButtonClassRegistered()) {
                     self->m_newTabButton = CreateWindowExW(0, kNewTabButtonClassName, L"New tab",
@@ -7143,6 +7193,12 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_LBUTTONDOWN: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                HWND focus = GetFocus();
+                HWND foreground = GetForegroundWindow();
+                HWND active = GetActiveWindow();
+                LogMessage(LogLevel::Info,
+                           L"TabBandWindow WM_LBUTTONDOWN pt=(%d,%d) focus=%p foreground=%p active=%p hwnd=%p",
+                           pt.x, pt.y, focus, foreground, active, hwnd);
                 if (self->HandleMouseDown(pt)) {
                     return 0;
                 }
@@ -7150,6 +7206,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             }
             case WM_LBUTTONUP: {
                 POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                LogMessage(LogLevel::Info, L"TabBandWindow WM_LBUTTONUP pt=(%d,%d)", pt.x, pt.y);
                 if (self->HandleMouseUp(pt)) {
                     return 0;
                 }

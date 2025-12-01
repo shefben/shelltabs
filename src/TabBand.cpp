@@ -736,10 +736,15 @@ bool TabBand::OnCtrlBeforeNavigate(const std::wstring& url) {
 }
 
 void TabBand::OnTabSelected(TabLocation location) {
+    LogMessage(LogLevel::Info, L"OnTabSelected location=(group=%d,tab=%d)",
+               location.groupIndex, location.tabIndex);
     const auto current = m_tabs.SelectedLocation();
     if (current.groupIndex == location.groupIndex && current.tabIndex == location.tabIndex) {
+        LogMessage(LogLevel::Info, L"OnTabSelected: already selected, ignoring");
         return;
     }
+    LogMessage(LogLevel::Info, L"OnTabSelected: navigating from (group=%d,tab=%d) to (group=%d,tab=%d)",
+               current.groupIndex, current.tabIndex, location.groupIndex, location.tabIndex);
     NavigateToTab(location);
 }
 
@@ -2685,11 +2690,15 @@ void TabBand::CancelPendingPreviewForGroup(const TabGroup& group) const {
 }
 
 void TabBand::NavigateToTab(TabLocation location) {
+    LogMessage(LogLevel::Info, L"NavigateToTab location=(group=%d,tab=%d) shellBrowser=%p",
+               location.groupIndex, location.tabIndex, m_shellBrowser.Get());
     if (!m_shellBrowser) {
+        LogMessage(LogLevel::Warning, L"NavigateToTab: no shell browser, aborting");
         return;
     }
     auto* tab = m_tabs.Get(location);
     if (!tab || !tab->pidl) {
+        LogMessage(LogLevel::Warning, L"NavigateToTab: tab or pidl is null, aborting");
         return;
     }
 
@@ -2703,9 +2712,13 @@ void TabBand::NavigateToTab(TabLocation location) {
     SaveSession();
     m_internalNavigation = true;
     EnsureFtpNamespaceBinding(tab->pidl.get());
+    LogMessage(LogLevel::Info, L"NavigateToTab: calling BrowseObject");
     const HRESULT hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER);
     if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"NavigateToTab: BrowseObject failed (hr=0x%08X)", hr);
         m_internalNavigation = false;
+    } else {
+        LogMessage(LogLevel::Info, L"NavigateToTab: BrowseObject succeeded");
     }
 }
 

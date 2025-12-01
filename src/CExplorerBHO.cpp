@@ -4148,10 +4148,11 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
         if (isNavigationTarget) {
             BeginTravelToolbarCapture(toolbar);
             m_travelToolbarPressedButton = static_cast<int>(target);
-            if ((target == TravelToolbarTarget::kBack && canGoBack) ||
-                (target == TravelToolbarTarget::kForward && canGoForward)) {
-                const UINT commandId =
-                    (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
+            // Always show pressed state - ShellTabs may have history even when
+            // Windows' native back/forward buttons appear disabled
+            const UINT commandId =
+                (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
+            if (commandId != 0) {
                 SetTravelToolbarButtonPressed(commandId, true);
             }
             if (result) {
@@ -4206,11 +4207,10 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
 
     if (pressedNavigationButton) {
         if (target == pressedTarget) {
-            const bool canNavigate =
-                (pressedTarget == TravelToolbarTarget::kBack) ? canGoBack : canGoForward;
-            if (canNavigate) {
-                PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
-            }
+            // Always post the navigation message - ShellTabs maintains its own history
+            // that may differ from Windows' native back/forward state. The TabBand
+            // will check if navigation is actually possible in its history.
+            PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
         }
 
         if (result) {
@@ -4896,6 +4896,16 @@ void CExplorerBHO::UpdateProgressSubclass() {
 
 bool CExplorerBHO::HandleBreadcrumbPaint(HWND hwnd) {
     if ((!m_breadcrumbGradientEnabled && !m_breadcrumbFontGradientEnabled) || !m_gdiplusInitialized) {
+        return false;
+    }
+
+    // Validate window is still valid before proceeding with paint
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    // Verify this is still the tracked breadcrumb toolbar
+    if (hwnd != m_breadcrumbToolbar || !m_breadcrumbSubclassInstalled) {
         return false;
     }
 
@@ -5788,6 +5798,20 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
+    // Handle WM_NCDESTROY first - remove subclass and return immediately
+    // to avoid accessing potentially invalid state after removal
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::BreadcrumbSubclassProc, subclassId);
+        self->m_breadcrumbToolbar = nullptr;
+        self->m_breadcrumbSubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Validate that this is still our tracked window and subclass is active
+    if (!self->m_breadcrumbSubclassInstalled || hwnd != self->m_breadcrumbToolbar) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
     switch (msg) {
         case WM_PAINT:
             if (self->HandleBreadcrumbPaint(hwnd)) {
@@ -5806,9 +5830,6 @@ LRESULT CALLBACK CExplorerBHO::BreadcrumbSubclassProc(HWND hwnd, UINT msg, WPARA
                 InvalidateRect(hwnd, nullptr, TRUE);
             }
             break;
-        case WM_NCDESTROY:
-            self->RemoveBreadcrumbSubclass();
-            break;
         default:
             break;
     }
@@ -5820,6 +5841,19 @@ LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM 
                                                     UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
     if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Handle WM_NCDESTROY first - remove subclass and return immediately
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::ProgressSubclassProc, subclassId);
+        self->m_progressWindow = nullptr;
+        self->m_progressSubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Validate that this is still our tracked window and subclass is active
+    if (!self->m_progressSubclassInstalled || hwnd != self->m_progressWindow) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -5840,9 +5874,6 @@ LRESULT CALLBACK CExplorerBHO::ProgressSubclassProc(HWND hwnd, UINT msg, WPARAM 
                 InvalidateRect(hwnd, nullptr, TRUE);
             }
             break;
-        case WM_NCDESTROY:
-            self->RemoveProgressSubclass();
-            break;
         default:
             break;
     }
@@ -5854,6 +5885,19 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
                                                        UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
     if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Handle WM_NCDESTROY first - remove subclass and return immediately
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::AddressEditSubclassProc, subclassId);
+        self->m_addressEditWindow = nullptr;
+        self->m_addressEditSubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Validate that this is still our tracked window and subclass is active
+    if (!self->m_addressEditSubclassInstalled || hwnd != self->m_addressEditWindow) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -6022,9 +6066,6 @@ LRESULT CALLBACK CExplorerBHO::AddressEditSubclassProc(HWND hwnd, UINT msg, WPAR
             }
             return result;
         }
-        case WM_NCDESTROY:
-            self->RemoveAddressEditSubclass();
-            break;
         default:
             break;
     }
@@ -6039,6 +6080,19 @@ LRESULT CALLBACK CExplorerBHO::TravelBandSubclassProc(HWND hwnd, UINT msg, WPARA
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
+    // Handle WM_NCDESTROY first - remove subclass and return immediately
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::TravelBandSubclassProc, subclassId);
+        self->m_travelBand = nullptr;
+        self->m_travelBandSubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Validate that this is still our tracked window and subclass is active
+    if (!self->m_travelBandSubclassInstalled || hwnd != self->m_travelBand) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
     switch (msg) {
         case WM_NOTIFY: {
             auto* header = reinterpret_cast<NMHDR*>(lParam);
@@ -6048,9 +6102,6 @@ LRESULT CALLBACK CExplorerBHO::TravelBandSubclassProc(HWND hwnd, UINT msg, WPARA
             }
             break;
         }
-        case WM_NCDESTROY:
-            self->RemoveTravelBandSubclass();
-            break;
         default:
             break;
     }
@@ -6062,6 +6113,19 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
                                                          UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
     if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Handle WM_NCDESTROY first - remove subclass and return immediately
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::TravelToolbarSubclassProc, subclassId);
+        self->m_travelToolbar = nullptr;
+        self->m_travelToolbarSubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    // Validate that this is still our tracked window and subclass is active
+    if (!self->m_travelToolbarSubclassInstalled || hwnd != self->m_travelToolbar) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
@@ -6094,9 +6158,6 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
             }
             break;
         }
-        case WM_NCDESTROY:
-            self->RemoveTravelBandSubclass();
-            break;
         default:
             break;
     }
