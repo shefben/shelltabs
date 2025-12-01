@@ -254,11 +254,6 @@ struct ShellTabsOptions;
                                            std::vector<HWND>& edits) const;
                 bool EnsureProgressGradientResources();
                 void DestroyProgressGradientResources();
-                void UpdateExplorerViewSubclass();
-                void RemoveExplorerViewSubclass();
-                bool InstallExplorerViewSubclass(HWND viewWindow);
-                bool HandleExplorerViewMessage(HWND source, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* result);
-                void HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam);
                 void ReloadFolderBackgrounds(const ShellTabsOptions& options);
                 void ClearFolderBackgrounds();
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
@@ -268,7 +263,6 @@ struct ShellTabsOptions;
                 void UpdateCurrentFolderBackground();
                 void InvalidateFolderBackgroundTargets() const;
                 std::wstring ResolveBackgroundCacheKey() const;
-                void RefreshListViewControlBackground();
                 Microsoft::WRL::ComPtr<IVisualProperties> GetCurrentVisualProperties() const;
                 void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
                 void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
@@ -280,7 +274,6 @@ struct ShellTabsOptions;
                 bool CollectContextSelectionFromFolderView(ContextMenuSelectionSnapshot& selection) const;
                 bool CollectContextSelectionFromItemArray(IShellItemArray* items,
                         ContextMenuSelectionSnapshot& selection) const;
-                bool CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const;
                 bool AppendSelectionItemFromShellItem(IShellItem* item, ContextMenuSelectionSnapshot& selection) const;
                 bool AppendSelectionItemFromPidl(PCIDLIST_ABSOLUTE pidl,
                         ContextMenuSelectionSnapshot& selection) const;
@@ -323,34 +316,6 @@ struct ShellTabsOptions;
                 bool HandleProgressPaint(HWND hwnd);
                 void PaintAddressEditOverlay(HWND hwnd, HDC dc, const RECT* clip = nullptr);
                 bool DrawAddressEditContent(HWND hwnd, HDC dc, GradientEditRenderOptions options = {});
-                bool ShouldUseListViewAccentColors() const;
-                bool ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const;
-                void RefreshListViewAccentState();
-                void ResetListViewAccentBrush();
-                HBRUSH GetListViewAccentBrush(COLORREF accentColor);
-                bool ApplyListViewSelectionAccent(NMLVCUSTOMDRAW* customDraw, bool fillBackground);
-                void EnsureListViewSubclass();
-                bool TryAttachListViewFromFolderView();
-                HWND ResolveListViewFromFolderView();
-                bool RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass);
-                void UnregisterGlowSurface(HWND hwnd);
-                ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd);
-                const ExplorerGlowSurface* ResolveGlowSurface(HWND hwnd) const;
-                bool ShouldSuppressScrollbarDrawing(HWND hwnd) const;
-                bool PaintScrollbarGlow(HWND hwnd, HDC existingDc, HRGN region);
-                void EnsureScrollbarTransparency(HWND hwnd);
-                void RestoreScrollbarTransparency(HWND hwnd);
-                void RequestScrollbarGlowRepaint(HWND hwnd);
-                void UpdateGlowSurfaceTargets();
-                void RequestHeaderGlowRepaint() const;
-                void PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active);
-                void ResetGlowSurfaces();
-                bool AttachListView(HWND listView);
-                void DetachListView();
-                bool HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result);
-                void OnListViewCustomDrawStage(DWORD stage);
-                void EvaluateListViewForcedHooks(UINT message);
-                void UpdateListViewDescriptor();
                 static ULONGLONG CurrentTickCount();
 		enum class BreadcrumbDiscoveryStage {
 			None,
@@ -374,10 +339,6 @@ struct ShellTabsOptions;
                 static LRESULT CALLBACK TravelBandSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK TravelToolbarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                        UINT_PTR subclassId, DWORD_PTR refData);
-                static LRESULT CALLBACK ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                        UINT_PTR subclassId, DWORD_PTR refData);
-                static LRESULT CALLBACK ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
 
                 std::atomic<long> m_refCount;
@@ -444,19 +405,6 @@ struct ShellTabsOptions;
 		bool m_gdiplusInitialized = false;
 		ULONG_PTR m_gdiplusToken = 0;
 		mutable BreadcrumbDiscoveryStage m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
-                Microsoft::WRL::ComPtr<IShellView> m_shellView;
-                Microsoft::WRL::ComPtr<IFolderView2> m_folderView2;
-                HWND m_shellViewWindow = nullptr;
-                bool m_shellViewWindowSubclassInstalled = false;
-                HWND m_frameWindow = nullptr;
-                bool m_frameSubclassInstalled = false;
-                HWND m_nativeListView = nullptr;
-                HWND m_listView = nullptr;
-                bool m_listViewSubclassInstalled = false;
-                std::unordered_map<HWND, std::unique_ptr<ExplorerGlowSurface>, HandleHasher> m_glowSurfaces;
-                std::unordered_set<HWND, HandleHasher> m_scrollbarGlowSubclassed;
-                std::unordered_set<HWND, HandleHasher> m_transparentScrollbars;
-                CustomDrawMonitor m_listViewCustomDraw{};
                 ExplorerGlowCoordinator m_glowCoordinator;
                 struct FolderBackgroundEntryData {
                         std::wstring imagePath;
@@ -469,11 +417,6 @@ struct ShellTabsOptions;
                 mutable std::unique_ptr<Gdiplus::Bitmap> m_universalBackgroundBitmap;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
-                bool m_hasActiveListViewAccent = false;
-                COLORREF m_activeListViewAccentColor = 0;
-                COLORREF m_activeListViewTextColor = 0;
-                HBRUSH m_listViewAccentBrush = nullptr;
-                COLORREF m_listViewAccentBrushColor = 0;
                 HBITMAP m_currentBackgroundBitmap = nullptr;
                 HMENU m_trackedContextMenu = nullptr;
                 std::vector<std::wstring> m_pendingOpenInNewTabPaths;

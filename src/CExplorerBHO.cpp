@@ -1065,7 +1065,6 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1) {
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DestroyProgressGradientResources();
-    ResetListViewAccentBrush();
 
     // Clean up the background bitmap
     if (m_currentBackgroundBitmap) {
@@ -1073,7 +1072,6 @@ CExplorerBHO::~CExplorerBHO() {
         m_currentBackgroundBitmap = nullptr;
     }
 
-    m_glowSurfaces.clear();
     if (m_bufferedPaintInitialized) {
         BufferedPaintUnInit();
         m_bufferedPaintInitialized = false;
@@ -1377,7 +1375,6 @@ void CExplorerBHO::Disconnect() {
     RemoveProgressSubclass();
     RemoveTravelBandSubclass();
     RemoveAddressEditSubclass();
-    RemoveExplorerViewSubclass();
     DisconnectEvents();
     m_webBrowser.Reset();
     m_shellBrowser.Reset();
@@ -1648,7 +1645,6 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
             }
             EnsureBandVisible();
             UpdateBreadcrumbSubclass();
-            UpdateExplorerViewSubclass();
             return S_OK;
 
         },
@@ -1780,7 +1776,6 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_DOCUMENTCOMPLETE:
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
-                    UpdateExplorerViewSubclass();
                     break;
                 case DISPID_ONQUIT:
                     Disconnect();
@@ -2429,794 +2424,6 @@ bool CExplorerBHO::IsWindowOwnedByThisExplorer(HWND hwnd) const {
     return root == frame;
 }
 
-void CExplorerBHO::DetachListView() {
-    HWND listView = m_listView;
-
-    if (listView && IsWindow(listView)) {
-        m_glowCoordinator.SetSurfaceForcedHooks(listView, false);
-    }
-    m_listViewCustomDraw = {};
-
-    if (listView) {
-        if (HWND header = ListView_GetHeader(listView)) {
-            // RemoveWindowSubclass will fail gracefully if window is already destroyed
-            RemoveWindowSubclass(header, &CExplorerBHO::ExplorerViewSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-            UnregisterGlowSurface(header);
-        }
-    }
-
-    if (listView && m_listViewSubclassInstalled) {
-        // RemoveWindowSubclass will fail gracefully if window is already destroyed
-        RemoveWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-    }
-
-    if (listView) {
-        UnregisterGlowSurface(listView);
-    }
-
-    m_listView = nullptr;
-    m_listViewSubclassInstalled = false;
-
-    ResetListViewAccentBrush();
-
-    m_nativeListView = nullptr;
-}
-
-bool CExplorerBHO::AttachListView(HWND listView) {
-    if (!listView || !IsWindow(listView)) {
-        DetachListView();
-        return false;
-    }
-
-    // If already attached to this ListView, nothing to do
-    if (m_listView == listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
-        return true;
-    }
-
-    DetachListView();
-
-    // Attach directly to the native ListView using hooks instead of wrapping it
-    if (!SetWindowSubclass(listView, &CExplorerBHO::ExplorerViewSubclassProc,
-                           reinterpret_cast<UINT_PTR>(this), 0)) {
-        LogLastError(L"SetWindowSubclass(list view)", GetLastError());
-        return false;
-    }
-
-    m_listView = listView;
-    m_listViewSubclassInstalled = true;
-    m_nativeListView = nullptr;  // Not used with hook-based approach
-
-    m_listViewCustomDraw = {};
-    m_listViewCustomDraw.lastStageTick = CurrentTickCount();
-
-    RegisterGlowSurface(listView, ExplorerSurfaceKind::ListView, true);
-    if (HWND header = ListView_GetHeader(m_listView)) {
-        RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true);
-    }
-
-    UpdateListViewDescriptor();
-
-    // Forced hooks no longer needed - background is set via LVM_SETBKIMAGE
-    // not through ThemeHooks paint callbacks
-    m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
-
-    LogMessage(LogLevel::Info,
-               L"Attached to native list view using MinHook (list=%p)", m_listView);
-
-    // CRITICAL: Enable custom draw for gradient text
-    // Set extended styles to ensure NM_CUSTOMDRAW notifications are sent
-    DWORD exStyle = ListView_GetExtendedListViewStyle(m_listView);
-    exStyle |= LVS_EX_DOUBLEBUFFER;  // Enable double buffering for smooth rendering
-    ListView_SetExtendedListViewStyle(m_listView, exStyle);
-
-    // Set up ListView background transparency and initial state
-    RefreshListViewControlBackground();
-    RefreshListViewAccentState();
-    InvalidateRect(m_listView, nullptr, FALSE);
-    return true;
-}
-
-bool CExplorerBHO::RegisterGlowSurface(HWND hwnd, ExplorerSurfaceKind kind, bool ensureSubclass) {
-    if (!hwnd || !IsWindow(hwnd)) {
-        return false;
-    }
-    if (!IsWindowOwnedByThisExplorer(hwnd)) {
-        return false;
-    }
-    const bool glowActive = m_glowCoordinator.ShouldRenderSurface(kind);
-    const bool gradientActive =
-        (kind == ExplorerSurfaceKind::Edit && m_glowCoordinator.BreadcrumbFontGradient().enabled);
-
-    if (!glowActive && !gradientActive) {
-        UnregisterGlowSurface(hwnd);
-        return false;
-    }
-
-    if (kind == ExplorerSurfaceKind::DirectUi) {
-        shelltabs::RegisterDirectUiHost(hwnd);
-    }
-
-    switch (kind) {
-        case ExplorerSurfaceKind::Toolbar:
-            ConfigureToolbarForCustomSeparators(hwnd);
-            break;
-        case ExplorerSurfaceKind::Header:
-            ConfigureHeaderForCustomDividers(hwnd);
-            break;
-        default:
-            break;
-    }
-
-    auto existing = m_glowSurfaces.find(hwnd);
-    const bool hadExisting = (existing != m_glowSurfaces.end());
-    if (existing != m_glowSurfaces.end()) {
-        if (existing->second && existing->second->Kind() == kind && existing->second->IsAttached()) {
-            existing->second->RequestRepaint();
-            return true;
-        }
-        if (existing->second) {
-            existing->second->Detach();
-        }
-        m_glowSurfaces.erase(existing);
-    }
-
-    bool installedSubclass = false;
-    if (ensureSubclass && !hadExisting) {
-        if (!SetWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-            const DWORD error = GetLastError();
-            std::wstring message = L"SetWindowSubclass(";
-            message += DescribeSurfaceKind(kind);
-            message += L")";
-            LogLastError(message.c_str(), error);
-            return false;
-        }
-        installedSubclass = true;
-    }
-
-    auto surface = CreateGlowSurfaceWrapper(kind, m_glowCoordinator);
-    if (!surface) {
-        if (installedSubclass) {
-            RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-        }
-        return false;
-    }
-    if (!surface->Attach(hwnd)) {
-        if (installedSubclass) {
-            RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-        }
-        return false;
-    }
-
-    RegisterThemeSurface(hwnd, kind, &m_glowCoordinator);
-
-    surface->RequestRepaint();
-    LogMessage(LogLevel::Info, L"Registered glow surface %ls (hwnd=%p)", DescribeSurfaceKind(kind), hwnd);
-    m_glowSurfaces.emplace(hwnd, std::move(surface));
-
-    if (kind == ExplorerSurfaceKind::Scrollbar) {
-        if (m_glowCoordinator.ShouldRenderSurface(kind)) {
-            EnsureScrollbarTransparency(hwnd);
-        }
-
-        if (m_scrollbarGlowSubclassed.find(hwnd) == m_scrollbarGlowSubclassed.end()) {
-            if (SetWindowSubclass(hwnd, &CExplorerBHO::ScrollbarGlowSubclassProc,
-                                  reinterpret_cast<UINT_PTR>(this), 0)) {
-                m_scrollbarGlowSubclassed.insert(hwnd);
-            } else {
-                const DWORD error = GetLastError();
-                LogLastError(L"SetWindowSubclass(scrollbar glow)", error);
-            }
-        }
-    }
-    return true;
-}
-
-void CExplorerBHO::UnregisterGlowSurface(HWND hwnd) {
-    if (!hwnd) {
-        return;
-    }
-    shelltabs::UnregisterDirectUiHost(hwnd);
-    auto it = m_glowSurfaces.find(hwnd);
-    if (it == m_glowSurfaces.end()) {
-        return;
-    }
-
-    UnregisterThemeSurface(hwnd);
-
-    if (HWND target = it->first; target && IsWindow(target)) {
-        RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-        RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc, reinterpret_cast<UINT_PTR>(this));
-        m_scrollbarGlowSubclassed.erase(target);
-        RestoreScrollbarTransparency(target);
-        InvalidateRect(target, nullptr, FALSE);
-    }
-
-    if (it->second) {
-        it->second->Detach();
-    }
-
-    m_glowSurfaces.erase(it);
-}
-
-void CExplorerBHO::RequestHeaderGlowRepaint() const {
-    for (const auto& entry : m_glowSurfaces) {
-        if (!entry.second) {
-            continue;
-        }
-        if (entry.second->Kind() != ExplorerSurfaceKind::Header) {
-            continue;
-        }
-        entry.second->RequestRepaint();
-    }
-}
-
-ExplorerGlowSurface* CExplorerBHO::ResolveGlowSurface(HWND hwnd) {
-    auto it = m_glowSurfaces.find(hwnd);
-    if (it == m_glowSurfaces.end()) {
-        return nullptr;
-    }
-    return it->second.get();
-}
-
-const ExplorerGlowSurface* CExplorerBHO::ResolveGlowSurface(HWND hwnd) const {
-    auto it = m_glowSurfaces.find(hwnd);
-    if (it == m_glowSurfaces.end()) {
-        return nullptr;
-    }
-    return it->second.get();
-}
-
-bool CExplorerBHO::ShouldSuppressScrollbarDrawing(HWND hwnd) const {
-    if (!hwnd || !IsWindow(hwnd)) {
-        return false;
-    }
-    const ExplorerGlowSurface* surface = ResolveGlowSurface(hwnd);
-    if (!surface) {
-        return false;
-    }
-    if (surface->Kind() != ExplorerSurfaceKind::Scrollbar) {
-        return false;
-    }
-    if (!surface->IsAttached()) {
-        return false;
-    }
-    return m_glowCoordinator.ShouldRenderSurface(ExplorerSurfaceKind::Scrollbar);
-}
-
-bool CExplorerBHO::PaintScrollbarGlow(HWND hwnd, HDC existingDc, HRGN region) {
-    ExplorerGlowSurface* surface = ResolveGlowSurface(hwnd);
-    if (!surface || surface->Kind() != ExplorerSurfaceKind::Scrollbar) {
-        return false;
-    }
-    if (!surface->IsAttached()) {
-        return false;
-    }
-
-    HDC targetDc = existingDc;
-    bool releaseDc = false;
-    if (!targetDc) {
-        UINT flags = DCX_CACHE | DCX_CLIPCHILDREN | DCX_CLIPSIBLINGS | DCX_WINDOW;
-        if (region) {
-            flags |= DCX_INTERSECTRGN;
-        }
-        targetDc = GetDCEx(hwnd, region, flags);
-        if (!targetDc) {
-            return false;
-        }
-        releaseDc = true;
-    }
-
-    RECT clip{};
-    if (GetClipBox(targetDc, &clip) == ERROR || IsRectEmpty(&clip)) {
-        if (!GetClientRect(hwnd, &clip)) {
-            if (releaseDc) {
-                ReleaseDC(hwnd, targetDc);
-            }
-            return false;
-        }
-    }
-
-    if (clip.right > clip.left && clip.bottom > clip.top) {
-        surface->PaintImmediately(targetDc, clip);
-    }
-
-    if (releaseDc) {
-        ReleaseDC(hwnd, targetDc);
-    }
-
-    return true;
-}
-
-void CExplorerBHO::EnsureScrollbarTransparency(HWND hwnd) {
-    if (!hwnd || !IsWindow(hwnd)) {
-        return;
-    }
-
-    LONG_PTR styles = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-    bool updated = false;
-    if (!(styles & WS_EX_TRANSPARENT)) {
-        SetWindowLongPtr(hwnd, GWL_EXSTYLE, styles | static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
-        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        updated = true;
-    }
-
-    const bool inserted = m_transparentScrollbars.insert(hwnd).second;
-    if (inserted || updated) {
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
-}
-
-void CExplorerBHO::RestoreScrollbarTransparency(HWND hwnd) {
-    const bool wasTracked = (m_transparentScrollbars.erase(hwnd) > 0);
-    if (!hwnd || !IsWindow(hwnd)) {
-        return;
-    }
-
-    LONG_PTR styles = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-    if (styles & WS_EX_TRANSPARENT) {
-        SetWindowLongPtr(hwnd, GWL_EXSTYLE, styles & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
-        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        InvalidateRect(hwnd, nullptr, FALSE);
-        return;
-    }
-
-    if (wasTracked) {
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
-}
-
-void CExplorerBHO::RequestScrollbarGlowRepaint(HWND hwnd) {
-    ExplorerGlowSurface* surface = ResolveGlowSurface(hwnd);
-    if (!surface || surface->Kind() != ExplorerSurfaceKind::Scrollbar) {
-        return;
-    }
-    surface->RequestRepaint();
-}
-
-void CExplorerBHO::PruneGlowSurfaces(const std::unordered_set<HWND, HandleHasher>& active) {
-    for (auto it = m_glowSurfaces.begin(); it != m_glowSurfaces.end();) {
-        HWND target = it->first;
-        const bool shouldKeep = target && IsWindow(target) && active.find(target) != active.end();
-        if (!shouldKeep) {
-            if (target) {
-                UnregisterThemeSurface(target);
-            }
-            if (target && IsWindow(target)) {
-                RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc,
-                                     reinterpret_cast<UINT_PTR>(this));
-                RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc,
-                                     reinterpret_cast<UINT_PTR>(this));
-                m_scrollbarGlowSubclassed.erase(target);
-                RestoreScrollbarTransparency(target);
-                InvalidateRect(target, nullptr, FALSE);
-            }
-            if (it->second) {
-                it->second->Detach();
-            }
-            it = m_glowSurfaces.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
-void CExplorerBHO::ResetGlowSurfaces() {
-    for (auto& entry : m_glowSurfaces) {
-        HWND target = entry.first;
-        if (!target) {
-            continue;
-        }
-        UnregisterThemeSurface(target);
-        if (IsWindow(target)) {
-            RemoveWindowSubclass(target, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this));
-            RemoveWindowSubclass(target, &CExplorerBHO::ScrollbarGlowSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-            m_scrollbarGlowSubclassed.erase(target);
-            RestoreScrollbarTransparency(target);
-            InvalidateRect(target, nullptr, FALSE);
-        }
-        if (entry.second) {
-            entry.second->Detach();
-        }
-    }
-    m_glowSurfaces.clear();
-    m_scrollbarGlowSubclassed.clear();
-    m_transparentScrollbars.clear();
-}
-
-void CExplorerBHO::UpdateGlowSurfaceTargets() {
-    std::unordered_set<HWND, HandleHasher> active;
-
-    auto registerScrollbarsFor = [&](HWND owner) {
-        if (!owner || !IsWindow(owner) || !IsWindowOwnedByThisExplorer(owner)) {
-            return;
-        }
-
-        struct EnumContext {
-            CExplorerBHO* self = nullptr;
-            std::unordered_set<HWND, HandleHasher>* active = nullptr;
-            HWND parent = nullptr;
-        } context{this, &active, owner};
-
-        EnumChildWindows(
-            owner,
-            [](HWND child, LPARAM param) -> BOOL {
-                auto* ctx = reinterpret_cast<EnumContext*>(param);
-                if (!ctx || !ctx->self || !ctx->active) {
-                    return TRUE;
-                }
-                if (GetParent(child) != ctx->parent) {
-                    return TRUE;
-                }
-                if (!MatchesClass(child, L"ScrollBar")) {
-                    return TRUE;
-                }
-                if (!ctx->self->IsWindowOwnedByThisExplorer(child)) {
-                    return TRUE;
-                }
-                if (ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Scrollbar, true)) {
-                    ctx->active->insert(child);
-                }
-                return TRUE;
-            },
-            reinterpret_cast<LPARAM>(&context));
-    };
-
-    if (m_listView && IsWindow(m_listView)) {
-        if (RegisterGlowSurface(m_listView, ExplorerSurfaceKind::ListView, true)) {
-            active.insert(m_listView);
-        }
-
-        if (HWND header = ListView_GetHeader(m_listView)) {
-            if (RegisterGlowSurface(header, ExplorerSurfaceKind::Header, true)) {
-                active.insert(header);
-            }
-        }
-    }
-
-    registerScrollbarsFor(m_listView);
-    registerScrollbarsFor(m_shellViewWindow);
-
-    HWND frame = GetTopLevelExplorerWindow();
-    if (frame && IsWindow(frame)) {
-        HWND rebar = FindDescendantWindow(frame, L"ReBarWindow32");
-        if (rebar && IsWindow(rebar) && IsWindowOwnedByThisExplorer(rebar)) {
-            if (RegisterGlowSurface(rebar, ExplorerSurfaceKind::Rebar, true)) {
-                active.insert(rebar);
-            }
-
-            struct EnumContext {
-                CExplorerBHO* self = nullptr;
-                std::unordered_set<HWND, HandleHasher>* active = nullptr;
-            } context{this, &active};
-
-            EnumChildWindows(
-                rebar,
-                [](HWND child, LPARAM param) -> BOOL {
-                    auto* ctx = reinterpret_cast<EnumContext*>(param);
-                    if (!ctx || !ctx->self || !ctx->active) {
-                        return TRUE;
-                    }
-                    if (MatchesClass(child, TOOLBARCLASSNAMEW) && ctx->self->IsWindowOwnedByThisExplorer(child)) {
-                        if (HWND parent = GetParent(child); parent && MatchesClass(parent, L"ShellTabsBandWindow")) {
-                            return TRUE;
-                        }
-                        if (ctx->self->RegisterGlowSurface(child, ExplorerSurfaceKind::Toolbar, true)) {
-                            ctx->active->insert(child);
-                        }
-                    }
-                    return TRUE;
-                },
-                reinterpret_cast<LPARAM>(&context));
-        }
-
-        for (HWND edit : FindExplorerEditControls()) {
-            if (RegisterGlowSurface(edit, ExplorerSurfaceKind::Edit, true)) {
-                active.insert(edit);
-            }
-        }
-    }
-
-    PruneGlowSurfaces(active);
-}
-
-void CExplorerBHO::HandleExplorerPostPaint(HWND hwnd, UINT msg, WPARAM wParam) {
-    auto it = m_glowSurfaces.find(hwnd);
-    if (it == m_glowSurfaces.end() || !it->second) {
-        return;
-    }
-
-    ExplorerGlowSurface* surface = it->second.get();
-    if (!surface->SupportsImmediatePainting()) {
-        return;
-    }
-
-    HDC targetDc = nullptr;
-    bool releaseDc = false;
-    if (msg == WM_PAINT) {
-        if (wParam) {
-            targetDc = reinterpret_cast<HDC>(wParam);
-        } else {
-            targetDc = GetDC(hwnd);
-            releaseDc = (targetDc != nullptr);
-        }
-    } else if (msg == WM_PRINTCLIENT) {
-        targetDc = reinterpret_cast<HDC>(wParam);
-    }
-
-    if (!targetDc) {
-        if (releaseDc) {
-            ReleaseDC(hwnd, targetDc);
-        }
-        return;
-    }
-
-    RECT clipRect{0, 0, 0, 0};
-    bool hasClip = false;
-
-    if (GetClipBox(targetDc, &clipRect) != ERROR && !IsRectEmpty(&clipRect)) {
-        hasClip = true;
-    }
-
-    if (!hasClip && msg == WM_PAINT && wParam == 0) {
-        RECT update{};
-        if (GetUpdateRect(hwnd, &update, FALSE) && !IsRectEmpty(&update)) {
-            clipRect = update;
-            hasClip = true;
-        }
-    }
-
-    if (!hasClip) {
-        if (!GetClientRect(hwnd, &clipRect) || IsRectEmpty(&clipRect)) {
-            if (releaseDc) {
-                ReleaseDC(hwnd, targetDc);
-            }
-            return;
-        }
-    }
-
-    surface->PaintImmediately(targetDc, clipRect);
-
-    if (releaseDc) {
-        ReleaseDC(hwnd, targetDc);
-    }
-}
-
-bool CExplorerBHO::TryAttachListViewFromFolderView() {
-    HWND listView = ResolveListViewFromFolderView();
-    if (!listView) {
-        return false;
-    }
-
-    if (!AttachListView(listView)) {
-        return false;
-    }
-
-    RefreshListViewAccentState();
-    return true;
-}
-
-HWND CExplorerBHO::ResolveListViewFromFolderView() {
-    if (!m_folderView2 && m_shellView) {
-        Microsoft::WRL::ComPtr<IFolderView2> folderView;
-        const HRESULT hr = m_shellView->QueryInterface(IID_PPV_ARGS(&folderView));
-        if (SUCCEEDED(hr) && folderView) {
-            m_folderView2 = std::move(folderView);
-        }
-    }
-
-    if (!m_folderView2) {
-        return nullptr;
-    }
-
-    Microsoft::WRL::ComPtr<IOleWindow> oleWindow;
-    HRESULT hr = m_folderView2.As(&oleWindow);
-    if (FAILED(hr) || !oleWindow) {
-        m_folderView2.Reset();
-        return nullptr;
-    }
-
-    HWND listView = nullptr;
-    hr = oleWindow->GetWindow(&listView);
-    if (FAILED(hr) || !listView || !IsWindow(listView) || !IsWindowOwnedByThisExplorer(listView)) {
-        m_folderView2.Reset();
-        return nullptr;
-    }
-
-    return listView;
-}
-
-void CExplorerBHO::EnsureListViewSubclass() {
-    if (m_listView && m_listViewSubclassInstalled && IsWindow(m_listView)) {
-        return;
-    }
-
-    if (m_listView && !IsWindow(m_listView)) {
-        DetachListView();
-    }
-
-    if (TryAttachListViewFromFolderView()) {
-        return;
-    }
-
-    const HWND baseScopes[] = {m_shellViewWindow, m_frameWindow};
-    std::vector<HWND> hostCandidates;
-    std::unordered_set<HWND, HandleHasher> visited;
-
-    auto addCandidate = [&](HWND hwnd) {
-        if (!hwnd || !IsWindow(hwnd)) {
-            return;
-        }
-        if (visited.insert(hwnd).second) {
-            hostCandidates.push_back(hwnd);
-        }
-    };
-
-    for (HWND scope : baseScopes) {
-        addCandidate(scope);
-    }
-
-    constexpr const wchar_t* kHostClasses[] = {
-        L"UIItemsView",
-        L"ItemsViewWnd",
-        L"DirectUIHWND",
-        L"DUIViewWndClassName",
-        L"ShellTabWindowClass",
-    };
-
-    for (HWND scope : baseScopes) {
-        if (!scope || !IsWindow(scope)) {
-            continue;
-        }
-
-        for (const wchar_t* className : kHostClasses) {
-            for (HWND ancestor = scope; ancestor && IsWindow(ancestor); ancestor = GetParent(ancestor)) {
-                if (MatchesClass(ancestor, className)) {
-                    addCandidate(ancestor);
-                }
-            }
-
-            HWND descendant = FindDescendantWindow(scope, className);
-            if (descendant) {
-                addCandidate(descendant);
-            }
-        }
-    }
-
-    for (HWND candidate : hostCandidates) {
-        if (!candidate || !IsWindow(candidate)) {
-            continue;
-        }
-
-        HWND listView = nullptr;
-        if (MatchesClass(candidate, L"SysListView32")) {
-            listView = candidate;
-        } else {
-            listView = FindDescendantWindow(candidate, L"SysListView32");
-        }
-
-        if (listView && AttachListView(listView)) {
-            RefreshListViewAccentState();
-            return;
-        }
-    }
-}
-
-void CExplorerBHO::UpdateExplorerViewSubclass() {
-    RemoveExplorerViewSubclass();
-
-    if (!m_shellBrowser) {
-        return;
-    }
-
-    Microsoft::WRL::ComPtr<IShellView> shellView;
-    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
-    if (FAILED(hr) || !shellView) {
-        return;
-    }
-
-    HWND viewWindow = nullptr;
-    hr = shellView->GetWindow(&viewWindow);
-    if (FAILED(hr) || !viewWindow) {
-        return;
-    }
-
-    if (!InstallExplorerViewSubclass(viewWindow)) {
-        LogMessage(LogLevel::Warning, L"Explorer view subclass installation failed (view=%p)", viewWindow);
-        return;
-    }
-
-    m_shellView = shellView;
-    m_folderView2.Reset();
-    if (shellView) {
-        Microsoft::WRL::ComPtr<IFolderView2> folderView;
-        if (SUCCEEDED(shellView->QueryInterface(IID_PPV_ARGS(&folderView))) && folderView) {
-            m_folderView2 = std::move(folderView);
-        }
-    }
-    m_shellViewWindow = viewWindow;
-    UpdateCurrentFolderBackground();
-}
-
-bool CExplorerBHO::InstallExplorerViewSubclass(HWND viewWindow) {
-    bool installed = false;
-
-    if (viewWindow && IsWindow(viewWindow)) {
-        if (SetWindowSubclass(viewWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
-                              0)) {
-            m_shellViewWindowSubclassInstalled = true;
-            installed = true;
-            LogMessage(LogLevel::Info, L"Installed shell view window subclass (view=%p)", viewWindow);
-        } else {
-            LogLastError(L"SetWindowSubclass(shell view window)", GetLastError());
-            m_shellViewWindowSubclassInstalled = false;
-        }
-    } else {
-        m_shellViewWindowSubclassInstalled = false;
-    }
-
-    HWND frameWindow = GetTopLevelExplorerWindow();
-    if (frameWindow && frameWindow != viewWindow && IsWindow(frameWindow)) {
-        if (SetWindowSubclass(frameWindow, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(this),
-                              0)) {
-            m_frameWindow = frameWindow;
-            m_frameSubclassInstalled = true;
-            installed = true;
-            LogMessage(LogLevel::Info, L"Installed explorer frame subclass (frame=%p)", frameWindow);
-        } else {
-            LogLastError(L"SetWindowSubclass(explorer frame)", GetLastError());
-            m_frameSubclassInstalled = false;
-            m_frameWindow = nullptr;
-        }
-    } else {
-        m_frameSubclassInstalled = false;
-        m_frameWindow = nullptr;
-    }
-
-    if (installed) {
-        ClearPendingOpenInNewTabState();
-        LogMessage(LogLevel::Info, L"Explorer view base subclass ready (view=%p frame=%p)", viewWindow, m_frameWindow);
-    } else {
-        LogMessage(LogLevel::Warning,
-                   L"Explorer view subclass installation skipped: no valid targets (view=%p frame=%p)", viewWindow,
-                   frameWindow);
-    }
-
-    return installed;
-}
-
-
-
-
-void CExplorerBHO::RemoveExplorerViewSubclass() {
-
-    // Cache window handles to avoid TOCTOU races
-    // RemoveWindowSubclass will fail gracefully if window is already destroyed
-    if (m_shellViewWindow && m_shellViewWindowSubclassInstalled) {
-        RemoveWindowSubclass(m_shellViewWindow, &CExplorerBHO::ExplorerViewSubclassProc,
-                             reinterpret_cast<UINT_PTR>(this));
-    }
-    if (m_frameWindow && m_frameSubclassInstalled) {
-        RemoveWindowSubclass(m_frameWindow, &CExplorerBHO::ExplorerViewSubclassProc,
-                             reinterpret_cast<UINT_PTR>(this));
-    }
-    DetachListView();
-
-    ResetGlowSurfaces();
-
-    m_shellViewWindowSubclassInstalled = false;
-    m_frameWindow = nullptr;
-    m_frameSubclassInstalled = false;
-    m_loggedListViewMissing = false;
-    m_shellViewWindow = nullptr;
-    m_folderView2.Reset();
-    m_shellView.Reset();
-    ClearPendingOpenInNewTabState();
-}
-
 void CExplorerBHO::ClearFolderBackgrounds() {
     m_folderBackgroundEntries.clear();
     m_folderBackgroundBitmaps.clear();
@@ -3230,9 +2437,6 @@ void CExplorerBHO::ClearFolderBackgrounds() {
         DeleteObject(m_currentBackgroundBitmap);
         m_currentBackgroundBitmap = nullptr;
     }
-
-    // Clear the ListView background image
-    RefreshListViewControlBackground();
 }
 
 std::wstring CExplorerBHO::NormalizeBackgroundKey(const std::wstring& path) const {
@@ -3287,7 +2491,6 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     }
 
     InvalidateFolderBackgroundTargets();
-    RefreshListViewControlBackground();
 }
 
 bool CExplorerBHO::EnsureFolderBackgroundBitmap(const std::wstring& key) const {
@@ -3379,47 +2582,24 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
 
 Microsoft::WRL::ComPtr<IVisualProperties> CExplorerBHO::GetCurrentVisualProperties() const {
     Microsoft::WRL::ComPtr<IVisualProperties> visualProperties;
-    if (m_folderView2) {
-        m_folderView2.As(&visualProperties);
-    }
 
-    if (!visualProperties && m_shellView) {
-        m_shellView.As(&visualProperties);
+    // Try to get visual properties from the shell browser
+    if (m_shellBrowser) {
+        Microsoft::WRL::ComPtr<IShellView> shellView;
+        if (SUCCEEDED(m_shellBrowser->QueryActiveShellView(&shellView)) && shellView) {
+            Microsoft::WRL::ComPtr<IFolderView2> folderView2;
+            if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
+                folderView2.As(&visualProperties);
+            }
+            if (!visualProperties) {
+                shellView.As(&visualProperties);
+            }
+        }
     }
 
     return visualProperties;
 }
 
-void CExplorerBHO::RefreshListViewControlBackground() {
-    if (!m_listView || !IsWindow(m_listView)) {
-        return;
-    }
-
-    auto visualProperties = GetCurrentVisualProperties();
-
-    // If backgrounds are enabled, set the background image using LVM_SETBKIMAGE
-    if (m_folderBackgroundsEnabled) {
-        Gdiplus::Bitmap* background = ResolveCurrentFolderBackground();
-
-        // Set ListView background to transparent for better image rendering
-        ListView_SetBkColor(m_listView, CLR_NONE);
-        ListView_SetTextBkColor(m_listView, CLR_NONE);
-
-        // Set the background image using native ListView API (QTTabBar approach)
-        // Use watermark mode for better alpha blending on Vista+
-        SetListViewBackgroundImage(m_listView, background, &m_currentBackgroundBitmap, true,
-                                   visualProperties.Get());
-    } else {
-        // Clear background image and restore default colors
-        SetListViewBackgroundImage(m_listView, nullptr, &m_currentBackgroundBitmap, false,
-                                   visualProperties.Get());
-        ListView_SetBkColor(m_listView, CLR_DEFAULT);
-        ListView_SetTextBkColor(m_listView, CLR_DEFAULT);
-    }
-
-    // Invalidate to redraw with new background
-    InvalidateRect(m_listView, nullptr, TRUE);
-}
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
     if (!m_folderBackgroundsEnabled) {
@@ -3465,7 +2645,6 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
     }
 
     InvalidateFolderBackgroundTargets();
-    RefreshListViewControlBackground();
 }
 
 void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
@@ -3477,335 +2656,23 @@ void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
         RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE | RDW_INTERNALPAINT);
     };
 
-    requestRedraw(m_listView);
-    requestRedraw(m_shellViewWindow);
-    requestRedraw(m_frameWindow);
+    // Get shell view window from shell browser
+    if (m_shellBrowser) {
+        Microsoft::WRL::ComPtr<IShellView> shellView;
+        if (SUCCEEDED(m_shellBrowser->QueryActiveShellView(&shellView)) && shellView) {
+            HWND shellViewWindow = nullptr;
+            if (SUCCEEDED(shellView->GetWindow(&shellViewWindow))) {
+                requestRedraw(shellViewWindow);
+            }
+        }
+    }
+
+    // Redraw the top level explorer window
+    requestRedraw(GetTopLevelExplorerWindow());
 }
 
-bool CExplorerBHO::ShouldUseListViewAccentColors() const {
-    if (!m_useExplorerAccentColors) {
-        return false;
-    }
-    if (!m_listView || !IsWindow(m_listView)) {
-        return false;
-    }
-    if (IsSystemHighContrastActive()) {
-        return false;
-    }
-    return true;
-}
 
-void CExplorerBHO::ResetListViewAccentBrush() {
-    if (m_listViewAccentBrush) {
-        DeleteObject(m_listViewAccentBrush);
-        m_listViewAccentBrush = nullptr;
-    }
-    m_listViewAccentBrushColor = 0;
-}
 
-HBRUSH CExplorerBHO::GetListViewAccentBrush(COLORREF accentColor) {
-    if (!m_listViewAccentBrush || m_listViewAccentBrushColor != accentColor) {
-        ResetListViewAccentBrush();
-        m_listViewAccentBrush = CreateSolidBrush(accentColor);
-        if (m_listViewAccentBrush) {
-            m_listViewAccentBrushColor = accentColor;
-        }
-    }
-    return m_listViewAccentBrush;
-}
-
-bool CExplorerBHO::ApplyListViewSelectionAccent(NMLVCUSTOMDRAW* customDraw, bool fillBackground) {
-    if (!customDraw || !m_hasActiveListViewAccent) {
-        return false;
-    }
-
-    if ((customDraw->nmcd.uItemState & CDIS_SELECTED) == 0) {
-        return false;
-    }
-
-    customDraw->clrText = m_activeListViewTextColor;
-    customDraw->clrTextBk = m_activeListViewAccentColor;
-
-    if (fillBackground && customDraw->nmcd.hdc) {
-        if (HBRUSH brush = GetListViewAccentBrush(m_activeListViewAccentColor)) {
-            FillRect(customDraw->nmcd.hdc, &customDraw->nmcd.rc, brush);
-        }
-    }
-
-    return true;
-}
-
-bool CExplorerBHO::ResolveActiveGroupAccent(COLORREF* accent, COLORREF* text) const {
-    if (!accent || !text) {
-        return false;
-    }
-
-    // Mini hook: Override folder view selection color to red
-    const COLORREF redAccent = RGB(255, 0, 0);
-    *accent = redAccent;
-    *text = ChooseAccentTextColor(redAccent);
-    return true;
-
-    // Original implementation (commented out for mini hook override)
-    /*
-    HWND frame = GetTopLevelExplorerWindow();
-    if (!frame) {
-        return false;
-    }
-
-    TabManager::ExplorerWindowId id;
-    id.hwnd = frame;
-    if (m_webBrowser) {
-        id.frameCookie = reinterpret_cast<uintptr_t>(m_webBrowser.Get());
-    }
-
-    TabManager* manager = TabManager::Find(id);
-    if (!manager) {
-        return false;
-    }
-
-    TabLocation selected = manager->SelectedLocation();
-    if (!selected.IsValid()) {
-        return false;
-    }
-
-    const TabGroup* group = manager->GetGroup(selected.groupIndex);
-    if (!group) {
-        return false;
-    }
-
-    const COLORREF resolved = group->hasCustomOutline ? group->outlineColor : GetSysColor(COLOR_HOTLIGHT);
-    *accent = resolved;
-    *text = ChooseAccentTextColor(resolved);
-    return true;
-    */
-}
-
-void CExplorerBHO::RefreshListViewAccentState() {
-    const bool shouldUseAccentColors = ShouldUseListViewAccentColors();
-    bool accentResolved = false;
-    COLORREF accentColor = 0;
-    COLORREF textColor = 0;
-    if (shouldUseAccentColors) {
-        accentResolved = ResolveActiveGroupAccent(&accentColor, &textColor);
-    }
-
-    if (accentResolved) {
-        if (!m_hasActiveListViewAccent || m_activeListViewAccentColor != accentColor ||
-            m_activeListViewTextColor != textColor) {
-            m_activeListViewAccentColor = accentColor;
-            m_activeListViewTextColor = textColor;
-            m_hasActiveListViewAccent = true;
-            ResetListViewAccentBrush();
-        }
-    } else if (m_hasActiveListViewAccent) {
-        m_hasActiveListViewAccent = false;
-        ResetListViewAccentBrush();
-    }
-
-    if (m_listView && IsWindow(m_listView)) {
-        InvalidateRect(m_listView, nullptr, FALSE);
-    }
-}
-
-bool CExplorerBHO::HandleExplorerViewMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                             LRESULT* result) {
-    if (!result) {
-        return false;
-    }
-
-    const bool isListView = (hwnd == m_listView);
-    const bool isShellViewWindow = (hwnd == m_shellViewWindow);
-    const bool isGlowSurface = (m_glowSurfaces.find(hwnd) != m_glowSurfaces.end());
-
-    const UINT optionsChangedMessage = GetOptionsChangedMessage();
-    if (optionsChangedMessage != 0 && msg == optionsChangedMessage) {
-        UpdateBreadcrumbSubclass();
-        if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled && IsWindow(m_breadcrumbToolbar)) {
-            InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
-        }
-        UpdateCurrentFolderBackground();
-        InvalidateFolderBackgroundTargets();
-        RefreshListViewAccentState();
-        for (auto& entry : m_glowSurfaces) {
-            if (entry.second) {
-                entry.second->RequestRepaint();
-            }
-        }
-        UpdateGlowSurfaceTargets();
-        UpdateListViewDescriptor();
-        m_listViewCustomDraw.lastStageTick = CurrentTickCount();
-        m_listViewCustomDraw.forced = false;
-        if (m_listView && IsWindow(m_listView)) {
-            m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
-        }
-        *result = 0;
-        return true;
-    }
-
-    if (isShellViewWindow &&
-        (msg == WM_WINDOWPOSCHANGED || msg == WM_SHOWWINDOW || msg == WM_SIZE || msg == WM_PAINT)) {
-        EnsureListViewSubclass();
-        UpdateGlowSurfaceTargets();
-    }
-
-    switch (msg) {
-        case WM_PAINT:
-        case WM_PRINTCLIENT: {
-            if (isListView) {
-                EvaluateListViewForcedHooks(msg);
-            }
-            break;
-        }
-        case WM_ERASEBKGND: {
-            if (isListView) {
-                EvaluateListViewForcedHooks(msg);
-            }
-            // With LVM_SETBKIMAGE, no special WM_ERASEBKGND handling needed for backgrounds
-            // The ListView control handles background painting internally
-            break;
-        }
-        case WM_PARENTNOTIFY: {
-            if (isShellViewWindow && (LOWORD(wParam) == WM_CREATE || LOWORD(wParam) == WM_DESTROY)) {
-                EnsureListViewSubclass();
-                UpdateGlowSurfaceTargets();
-                if (LOWORD(wParam) == WM_CREATE) {
-                    HandleExplorerPaneCandidate(reinterpret_cast<HWND>(lParam));
-                }
-                TryResolveExplorerPanes();
-            }
-            break;
-        }
-        case WM_THEMECHANGED:
-        case WM_SETTINGCHANGE:
-        case WM_DWMCOLORIZATIONCOLORCHANGED: {
-            if (isListView) {
-                RefreshListViewAccentState();
-                if (msg != WM_DWMCOLORIZATIONCOLORCHANGED) {
-                    RefreshListViewControlBackground();
-                }
-            }
-
-            bool paletteUpdated = false;
-            if (msg == WM_THEMECHANGED) {
-                paletteUpdated = m_glowCoordinator.HandleThemeChanged();
-            } else {
-                paletteUpdated = m_glowCoordinator.HandleSettingChanged();
-            }
-
-            if (paletteUpdated) {
-                if (m_frameWindow && IsWindow(m_frameWindow)) {
-                    shelltabs::NotifyCompositionColorChange(m_frameWindow);
-                }
-                if (m_shellViewWindow && IsWindow(m_shellViewWindow)) {
-                    shelltabs::NotifyCompositionColorChange(m_shellViewWindow);
-                }
-                for (auto& entry : m_glowSurfaces) {
-                    if (entry.second) {
-                        entry.second->RequestRepaint();
-                    }
-                }
-            } else if (isGlowSurface) {
-                auto glow = m_glowSurfaces.find(hwnd);
-                if (glow != m_glowSurfaces.end() && glow->second) {
-                    glow->second->RequestRepaint();
-                }
-            }
-            break;
-        }
-        case WM_DPICHANGED: {
-            if (isGlowSurface) {
-                auto glow = m_glowSurfaces.find(hwnd);
-                if (glow != m_glowSurfaces.end() && glow->second) {
-                    glow->second->RequestRepaint();
-                }
-            }
-            break;
-        }
-        case WM_SIZE: {
-            if (isListView) {
-                // Surface caching removed with LVM_SETBKIMAGE approach
-                RefreshListViewControlBackground();
-            }
-            // DirectUI background no longer needs manual surface management
-            break;
-        }
-        case WM_NOTIFY: {
-            const NMHDR* header = reinterpret_cast<const NMHDR*>(lParam);
-            if (!header) {
-                break;
-            }
-            bool handled = false;
-
-            // FAILSAFE GRADIENT TEXT: Handle ListView custom draw notifications directly
-            if (m_listView && header->hwndFrom == m_listView && header->code == NM_CUSTOMDRAW) {
-                auto* customDraw = reinterpret_cast<NMLVCUSTOMDRAW*>(lParam);
-                if (customDraw) {
-                    LRESULT gradientResult = 0;
-                    if (HandleListViewGradientCustomDraw(customDraw, &gradientResult)) {
-                        *result = gradientResult;
-                        return true;
-                    }
-                }
-            }
-
-            auto glowSurface = m_glowSurfaces.find(header->hwndFrom);
-            if (glowSurface != m_glowSurfaces.end() && glowSurface->second) {
-                LRESULT glowResult = 0;
-                if (glowSurface->second->HandleNotify(*header, &glowResult)) {
-                    *result = glowResult;
-                    return true;
-                }
-            }
-            if (handled) {
-                return true;
-            }
-            break;
-        }
-        case WM_INITMENUPOPUP: {
-            if (HIWORD(lParam) == 0) {
-                HandleExplorerContextMenuInit(hwnd, reinterpret_cast<HMENU>(wParam));
-            }
-            break;
-        }
-        case WM_CONTEXTMENU: {
-            POINT screenPoint{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            PrepareContextMenuSelection(reinterpret_cast<HWND>(wParam), screenPoint);
-            break;
-        }
-        case WM_COMMAND: {
-            const UINT commandId = LOWORD(wParam);
-            if (commandId == kOpenInNewTabCommandId) {
-                HandleExplorerCommand(commandId);
-                *result = 0;
-                return true;
-            }
-            break;
-        }
-        case WM_MENUCOMMAND: {
-            HMENU menu = reinterpret_cast<HMENU>(lParam);
-            const UINT position = static_cast<UINT>(wParam);
-            if (menu && GetMenuItemID(menu, position) == kOpenInNewTabCommandId) {
-                HandleExplorerCommand(kOpenInNewTabCommandId);
-                *result = 0;
-                return true;
-            }
-            break;
-        }
-        case WM_UNINITMENUPOPUP: {
-            HandleExplorerMenuDismiss(reinterpret_cast<HMENU>(wParam));
-            break;
-        }
-        case WM_CANCELMODE: {
-            HandleExplorerMenuDismiss(m_trackedContextMenu);
-            break;
-        }
-        default:
-            break;
-    }
-
-    return false;
-}
 
 void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
     LogMessage(LogLevel::Info, L"Explorer context menu init (menu=%p source=%p inserted=%d tracking=%p)", menu, source,
@@ -3984,26 +2851,26 @@ bool CExplorerBHO::CollectContextMenuSelection(ContextMenuSelectionSnapshot& sel
         return true;
     }
 
-    selection.Clear();
-    if (CollectContextSelectionFromListView(selection) && !selection.items.empty()) {
-        LogMessage(LogLevel::Info, L"CollectContextMenuSelection resolved %zu item(s) from list view",
-                   selection.items.size());
-        return true;
-    }
-
     LogMessage(LogLevel::Info, L"CollectContextMenuSelection found no eligible selection");
     selection.Clear();
     return false;
 }
 
 bool CExplorerBHO::CollectContextSelectionFromShellView(ContextMenuSelectionSnapshot& selection) const {
-    if (!m_shellView) {
-        LogMessage(LogLevel::Warning, L"CollectContextSelectionFromShellView failed: shell view unavailable");
+    if (!m_shellBrowser) {
+        LogMessage(LogLevel::Warning, L"CollectContextSelectionFromShellView failed: shell browser unavailable");
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellView> shellView;
+    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
+    if (FAILED(hr) || !shellView) {
+        LogMessage(LogLevel::Warning, L"CollectContextSelectionFromShellView failed: could not get shell view (hr=0x%08lX)", hr);
         return false;
     }
 
     Microsoft::WRL::ComPtr<IShellItemArray> items;
-    HRESULT hr = m_shellView->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&items));
+    hr = shellView->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&items));
     if (FAILED(hr) || !items) {
         LogMessage(LogLevel::Info,
                    L"CollectContextSelectionFromShellView skipped: selection unavailable (hr=0x%08lX)", hr);
@@ -4014,12 +2881,18 @@ bool CExplorerBHO::CollectContextSelectionFromShellView(ContextMenuSelectionSnap
 }
 
 bool CExplorerBHO::CollectContextSelectionFromFolderView(ContextMenuSelectionSnapshot& selection) const {
-    if (!m_shellView) {
+    if (!m_shellBrowser) {
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IShellView> shellView;
+    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
+    if (FAILED(hr) || !shellView) {
         return false;
     }
 
     Microsoft::WRL::ComPtr<IFolderView2> folderView;
-    HRESULT hr = m_shellView.As(&folderView);
+    hr = shellView.As(&folderView);
     if (FAILED(hr) || !folderView) {
         return false;
     }
@@ -4065,33 +2938,6 @@ bool CExplorerBHO::CollectContextSelectionFromItemArray(IShellItemArray* items,
     return appended;
 }
 
-bool CExplorerBHO::CollectContextSelectionFromListView(ContextMenuSelectionSnapshot& selection) const {
-    if (!m_listView || !IsWindow(m_listView)) {
-        return false;
-    }
-
-    int index = -1;
-    bool appended = false;
-    while ((index = ListView_GetNextItem(m_listView, index, LVNI_SELECTED)) != -1) {
-        LVITEMW item{};
-        item.mask = LVIF_PARAM;
-        item.iItem = index;
-        if (!ListView_GetItemW(m_listView, &item)) {
-            LogLastError(L"ListView_GetItem(selection)", GetLastError());
-            continue;
-        }
-
-        if (AppendSelectionItemFromPidl(reinterpret_cast<PCIDLIST_ABSOLUTE>(item.lParam), selection)) {
-            appended = true;
-        }
-    }
-
-    if (!appended) {
-        LogMessage(LogLevel::Info, L"CollectContextSelectionFromListView found no selection");
-    }
-
-    return appended;
-}
 
 bool CExplorerBHO::AppendSelectionItemFromShellItem(IShellItem* item,
                                                     ContextMenuSelectionSnapshot& selection) const {
@@ -5946,14 +4792,11 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
         previousBreadcrumbFontGradientEnd != m_breadcrumbFontGradientEndColor ||
         previousBreadcrumbGradientStart != m_breadcrumbGradientStartColor ||
         previousBreadcrumbGradientEnd != m_breadcrumbGradientEndColor;
-    if (breadcrumbFontGradientChanged) {
-        RequestHeaderGlowRepaint();
+    if (breadcrumbFontGradientChanged && m_breadcrumbToolbar) {
+        // Trigger repaint when gradient settings change
+        InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
     }
-    const bool previousAccentSetting = m_useExplorerAccentColors;
     m_useExplorerAccentColors = options.useExplorerAccentColors;
-    if (previousAccentSetting != m_useExplorerAccentColors) {
-        RefreshListViewAccentState();
-    }
 
     m_cachedContextMenuItems = options.contextMenuItems;
 
@@ -7261,294 +6104,9 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-LRESULT CALLBACK CExplorerBHO::ExplorerViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                                       UINT_PTR subclassId, DWORD_PTR) {
-    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
-        return DefSubclassProc(hwnd, msg, wParam, lParam);
-    }
 
-    LRESULT result = 0;
-    if (self->HandleExplorerViewMessage(hwnd, msg, wParam, lParam, &result)) {
-        return result;
-    }
-
-    if (msg == WM_NCDESTROY) {
-        if (hwnd == self->m_listView) {
-            self->m_listView = nullptr;
-            self->m_listViewSubclassInstalled = false;
-        } else if (hwnd == self->m_frameWindow) {
-            self->m_frameWindow = nullptr;
-            self->m_frameSubclassInstalled = false;
-        } else if (hwnd == self->m_shellViewWindow) {
-            self->m_shellViewWindowSubclassInstalled = false;
-            self->m_shellViewWindow = nullptr;
-        }
-
-        if (!self->m_listView && !self->m_shellViewWindow) {
-            self->m_shellView.Reset();
-            self->ClearPendingOpenInNewTabState();
-        }
-
-        self->UnregisterGlowSurface(hwnd);
-        RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerViewSubclassProc, reinterpret_cast<UINT_PTR>(self));
-    }
-
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
-}
-
-LRESULT CALLBACK CExplorerBHO::ScrollbarGlowSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                                         UINT_PTR subclassId, DWORD_PTR) {
-    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
-    if (!self) {
-        return DefSubclassProc(hwnd, msg, wParam, lParam);
-    }
-
-    switch (msg) {
-        case WM_NCPAINT:
-        case WM_PRINTCLIENT: {
-            if (self->ShouldSuppressScrollbarDrawing(hwnd)) {
-                self->EnsureScrollbarTransparency(hwnd);
-            } else {
-                self->RestoreScrollbarTransparency(hwnd);
-            }
-            break;
-        }
-        case WM_THEMECHANGED:
-        case WM_SETTINGCHANGE:
-        case WM_DPICHANGED: {
-            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-            shelltabs::InvalidateScrollbarMetrics(hwnd);
-            if (self->ShouldSuppressScrollbarDrawing(hwnd)) {
-                self->EnsureScrollbarTransparency(hwnd);
-                self->RequestScrollbarGlowRepaint(hwnd);
-            } else {
-                self->RestoreScrollbarTransparency(hwnd);
-            }
-            return result;
-        }
-        case WM_NCDESTROY:
-            shelltabs::InvalidateScrollbarMetrics(hwnd);
-            self->RestoreScrollbarTransparency(hwnd);
-            self->m_scrollbarGlowSubclassed.erase(hwnd);
-            RemoveWindowSubclass(hwnd, &CExplorerBHO::ScrollbarGlowSubclassProc, reinterpret_cast<UINT_PTR>(self));
-            break;
-        default:
-            break;
-    }
-
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
-}
 
 ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
 
-// FAILSAFE GRADIENT TEXT: Direct custom draw handler for ListView items
-bool CExplorerBHO::HandleListViewGradientCustomDraw(NMLVCUSTOMDRAW* customDraw, LRESULT* result) {
-    if (!customDraw || !result) {
-        return false;
-    }
-
-    const ShellTabsOptions& options = OptionsStore::Instance().Get();
-    BreadcrumbGradientConfig gradientConfig{};
-    gradientConfig.enabled = true;
-    gradientConfig.brightness = options.breadcrumbFontBrightness;
-    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
-    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
-    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
-    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
-    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
-    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
-    BreadcrumbGradientPalette palette = ResolveBreadcrumbGradientPalette(gradientConfig);
-
-    const DWORD drawStage = customDraw->nmcd.dwDrawStage;
-
-    if (drawStage == CDDS_PREPAINT) {
-        OnListViewCustomDrawStage(drawStage);
-
-        // Background image is now set via LVM_SETBKIMAGE, no manual painting needed
-        // See RefreshListViewControlBackground() which calls SetListViewBackgroundImage()
-
-        *result = CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
-        return true;
-    }
-
-    if (drawStage == CDDS_ITEMPREPAINT) {
-        OnListViewCustomDrawStage(drawStage);
-        ApplyListViewSelectionAccent(customDraw, true);
-        *result = CDRF_NOTIFYSUBITEMDRAW | CDRF_NEWFONT;
-        return true;
-    }
-
-    if ((drawStage & CDDS_SUBITEM) == CDDS_SUBITEM) {
-        if (ApplyListViewSelectionAccent(customDraw, false)) {
-            *result = CDRF_NEWFONT;
-            return true;
-        }
-
-        // Get the item text
-        wchar_t textBuffer[MAX_PATH * 2] = {};
-        LVITEMW item{};
-        item.iItem = static_cast<int>(customDraw->nmcd.dwItemSpec);
-        item.iSubItem = customDraw->iSubItem;
-        item.pszText = textBuffer;
-        item.cchTextMax = ARRAYSIZE(textBuffer);
-        item.mask = LVIF_TEXT;
-
-        if (!SendMessageW(m_listView, LVM_GETITEMTEXTW, item.iItem,
-                         reinterpret_cast<LPARAM>(&item)) || !textBuffer[0]) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        const size_t textLen = wcslen(textBuffer);
-        if (textLen == 0) {
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        // Get the subitem rect
-        RECT textRect = customDraw->nmcd.rc;
-        if (customDraw->iSubItem > 0) {
-            RECT subItemRect{};
-            subItemRect.left = LVIR_LABEL;
-            subItemRect.top = customDraw->iSubItem;
-            if (SendMessageW(m_listView, LVM_GETSUBITEMRECT, item.iItem,
-                           reinterpret_cast<LPARAM>(&subItemRect))) {
-                textRect = subItemRect;
-            }
-        }
-
-        // Render gradient text character by character
-        HDC dc = customDraw->nmcd.hdc;
-        const int oldBkMode = SetBkMode(dc, TRANSPARENT);
-
-        // Calculate total text width for gradient mapping
-        SIZE totalSize{};
-        if (!GetTextExtentPoint32W(dc, textBuffer, static_cast<int>(textLen), &totalSize)) {
-            SetBkMode(dc, oldBkMode);
-            *result = CDRF_DODEFAULT;
-            return true;
-        }
-
-        const double gradientWidth = std::max(1.0, static_cast<double>(totalSize.cx));
-        double currentX = static_cast<double>(textRect.left) + 2.0; // Small left padding
-
-        // Draw each character with its gradient color
-        for (size_t i = 0; i < textLen; ++i) {
-            SIZE charSize{};
-            if (!GetTextExtentPoint32W(dc, &textBuffer[i], 1, &charSize)) {
-                continue;
-            }
-
-            // Calculate gradient position (0.0 to 1.0) based on character center
-            const double charCenterX = currentX + static_cast<double>(charSize.cx) * 0.5;
-            const double position = std::clamp((charCenterX - static_cast<double>(textRect.left)) / gradientWidth, 0.0, 1.0);
-            const COLORREF color = EvaluateBreadcrumbGradientColor(palette, position);
-
-            // Set the gradient color for this character
-            SetTextColor(dc, color);
-
-            // Draw the character
-            RECT charRect = textRect;
-            charRect.left = static_cast<LONG>(currentX);
-            charRect.right = charRect.left + charSize.cx;
-            DrawTextW(dc, &textBuffer[i], 1, &charRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-            // Advance position
-            currentX += static_cast<double>(charSize.cx);
-        }
-
-        SetBkMode(dc, oldBkMode);
-        *result = CDRF_SKIPDEFAULT;  // We drew the text, skip default
-        return true;
-    }
-
-    return false;
-}
-
-void CExplorerBHO::OnListViewCustomDrawStage(DWORD) {
-    m_listViewCustomDraw.lastStageTick = CurrentTickCount();
-    if (m_listViewCustomDraw.forced && m_listView && IsWindow(m_listView)) {
-        m_listViewCustomDraw.forced = false;
-        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
-        LogMessage(LogLevel::Info, L"List view custom draw restored (hwnd=%p)", m_listView);
-    }
-}
-
-void CExplorerBHO::EvaluateListViewForcedHooks(UINT) {
-    if (!m_listView || !IsWindow(m_listView)) {
-        return;
-    }
-    if (!m_glowCoordinator.ShouldRenderSurface(ExplorerSurfaceKind::ListView)) {
-        return;
-    }
-
-    const ULONGLONG now = CurrentTickCount();
-    if (m_listViewCustomDraw.lastStageTick == 0) {
-        m_listViewCustomDraw.lastStageTick = now;
-        return;
-    }
-
-    const bool expired = (now - m_listViewCustomDraw.lastStageTick) > kCustomDrawTimeoutMs;
-    if (expired && !m_listViewCustomDraw.forced) {
-        m_listViewCustomDraw.forced = true;
-        UpdateListViewDescriptor();
-        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, true);
-        LogMessage(LogLevel::Warning, L"List view custom draw timeout; forcing theme detours (hwnd=%p)", m_listView);
-        InvalidateRect(m_listView, nullptr, FALSE);
-    } else if (!expired && m_listViewCustomDraw.forced) {
-        m_listViewCustomDraw.forced = false;
-        m_glowCoordinator.SetSurfaceForcedHooks(m_listView, false);
-        LogMessage(LogLevel::Info, L"List view custom draw signals resumed (hwnd=%p)", m_listView);
-        InvalidateRect(m_listView, nullptr, FALSE);
-    }
-}
-
-void CExplorerBHO::UpdateListViewDescriptor() {
-    if (!m_listView || !IsWindow(m_listView)) {
-        return;
-    }
-
-    SurfaceColorDescriptor descriptor{};
-    descriptor.kind = ExplorerSurfaceKind::ListView;
-    descriptor.role = SurfacePaintRole::ListViewRows;
-    descriptor.fillColors = m_glowCoordinator.ResolveColors(ExplorerSurfaceKind::ListView);
-    descriptor.fillOverride = descriptor.fillColors.valid;
-    descriptor.userAccessibilityOptOut = false;
-    descriptor.textOverride = false;
-    const bool imageBackgroundMode = m_folderBackgroundsEnabled || (m_currentBackgroundBitmap != nullptr);
-    descriptor.imageBackgroundMode = imageBackgroundMode;
-    if (imageBackgroundMode) {
-        descriptor.backgroundOverride = false;
-        descriptor.backgroundColor = CLR_DEFAULT;
-        descriptor.forceOpaqueBackground = false;
-    } else {
-        descriptor.backgroundOverride = descriptor.fillOverride;
-        descriptor.backgroundColor = descriptor.fillOverride ? descriptor.fillColors.start : CLR_DEFAULT;
-        descriptor.forceOpaqueBackground = descriptor.backgroundOverride;
-    }
-
-    // Background images are now set via LVM_SETBKIMAGE, no paint callback needed
-    descriptor.backgroundPaintCallback = nullptr;
-    descriptor.backgroundPaintContext = nullptr;
-
-    // Configure gradient text - FORCED ALWAYS ENABLED
-    const ShellTabsOptions& options = OptionsStore::Instance().Get();
-    descriptor.gradientTextEnabled = true;  // FORCED: Always enable gradient text for files/folders
-    descriptor.forcedHooks = true;  // Required for ExtTextOutWDetour to activate
-    BreadcrumbGradientConfig gradientConfig{};
-    gradientConfig.enabled = true;
-    gradientConfig.brightness = options.breadcrumbFontBrightness;
-    gradientConfig.useCustomFontColors = options.useCustomBreadcrumbFontColors;
-    gradientConfig.useCustomGradientColors = options.useCustomBreadcrumbGradientColors;
-    gradientConfig.fontGradientStartColor = options.breadcrumbFontGradientStartColor;
-    gradientConfig.fontGradientEndColor = options.breadcrumbFontGradientEndColor;
-    gradientConfig.gradientStartColor = options.breadcrumbGradientStartColor;
-    gradientConfig.gradientEndColor = options.breadcrumbGradientEndColor;
-    descriptor.gradientTextPalette = ResolveBreadcrumbGradientPalette(gradientConfig);
-
-    m_glowCoordinator.UpdateSurfaceDescriptor(m_listView, descriptor);
-    m_glowCoordinator.SetSurfaceRole(m_listView, SurfacePaintRole::ListViewRows);
-}
 
 }  // namespace shelltabs
