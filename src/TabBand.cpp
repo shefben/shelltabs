@@ -2455,7 +2455,9 @@ void TabBand::StartSessionFlushTimer() {
         return;
     }
 
-    constexpr UINT kSessionFlushIntervalMs = 15000;
+    // Reduced from 15s to 3s for more frequent crash recovery updates.
+    // FILE_FLAG_WRITE_THROUGH ensures data hits disk immediately on each save.
+    constexpr UINT kSessionFlushIntervalMs = 3000;
     if (SetTimer(hwnd, TabBandWindow::SessionFlushTimerId(), kSessionFlushIntervalMs, nullptr)) {
         m_sessionFlushTimerActive = true;
         m_sessionFlushTimerPending = false;

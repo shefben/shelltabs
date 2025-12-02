@@ -4230,10 +4230,10 @@ bool CExplorerBHO::HandleTravelToolbarMouseActivate(LRESULT* result) {
         return true;
     }
 
-    if (result) {
-        *result = MA_NOACTIVATE;
-    }
-    return true;
+    // Return false to let DefSubclassProc handle activation normally.
+    // Previously we returned MA_NOACTIVATE which caused the first click to be
+    // consumed for activation without triggering the button action.
+    return false;
 }
 
 bool CExplorerBHO::HandleTravelBandNotify(NMHDR* header, LRESULT* result) {

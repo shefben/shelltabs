@@ -852,41 +852,24 @@ bool SessionStore::Save(const SessionData& data) const {
         return false;
     }
 
+    // Crash-resilient save strategy:
+    // 1. Write to temp file first with FILE_FLAG_WRITE_THROUGH for immediate disk flush
+    // 2. Replace the main file atomically
+    // This ensures we always have either the old valid file or the new valid file,
+    // never a partially written file.
+
     const std::wstring tempPath = BuildTempPath(m_storagePath);
     if (tempPath.empty()) {
         return false;
     }
 
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    bool checkpointCreated = false;
-    if (!checkpointPath.empty()) {
-        if (MoveFileExW(m_storagePath.c_str(), checkpointPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-            checkpointCreated = true;
-        } else {
-            const DWORD rotateError = GetLastError();
-            if (rotateError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to rotate %ls -> %ls (error=%lu)",
-                           m_storagePath.c_str(), checkpointPath.c_str(), rotateError);
-                return false;
-            }
-        }
-    }
-
+    // Write to temp file with write-through to ensure data hits disk immediately
     DeleteFileW(tempPath.c_str());
     HANDLE tempFile = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
+                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
     if (tempFile == INVALID_HANDLE_VALUE) {
         LogMessage(LogLevel::Warning, L"SessionStore failed to create temp file %ls (error=%lu)", tempPath.c_str(),
                    GetLastError());
-        if (checkpointCreated) {
-            if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to restore checkpoint %ls after temp creation failure (error=%lu)",
-                           checkpointPath.c_str(), GetLastError());
-                m_pendingCheckpointCleanup = true;
-            }
-        }
         return false;
     }
 
@@ -900,6 +883,7 @@ bool SessionStore::Save(const SessionData& data) const {
             writeError = GetLastError();
         }
     }
+    // FILE_FLAG_WRITE_THROUGH handles flushing, but we call FlushFileBuffers for extra safety
     if (writeSucceeded && !FlushFileBuffers(tempFile)) {
         writeSucceeded = false;
         writeError = GetLastError();
@@ -907,48 +891,28 @@ bool SessionStore::Save(const SessionData& data) const {
     CloseHandle(tempFile);
 
     if (!writeSucceeded) {
-        LogMessage(LogLevel::Warning, L"SessionStore failed to serialize temp file %ls (error=%lu)", tempPath.c_str(),
+        LogMessage(LogLevel::Warning, L"SessionStore failed to write temp file %ls (error=%lu)", tempPath.c_str(),
                    writeError);
         DeleteFileW(tempPath.c_str());
-        if (checkpointCreated) {
-            if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to restore checkpoint %ls after write failure (error=%lu)",
-                           checkpointPath.c_str(), GetLastError());
-                m_pendingCheckpointCleanup = true;
-            }
-        }
         return false;
     }
 
+    // Atomically replace the session file with the temp file
+    // MOVEFILE_WRITE_THROUGH ensures the rename is flushed to disk
     if (!MoveFileExW(tempPath.c_str(), m_storagePath.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         const DWORD promoteError = GetLastError();
         LogMessage(LogLevel::Warning, L"SessionStore failed to promote temp file %ls -> %ls (error=%lu)",
                    tempPath.c_str(), m_storagePath.c_str(), promoteError);
         DeleteFileW(tempPath.c_str());
-        if (checkpointCreated) {
-            if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to restore checkpoint %ls after promotion failure (error=%lu)",
-                           checkpointPath.c_str(), GetLastError());
-                m_pendingCheckpointCleanup = true;
-            }
-        }
         return false;
     }
 
+    // Clean up any old checkpoint file from previous versions
+    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
     if (!checkpointPath.empty() &&
-        (checkpointCreated || GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES)) {
-        if (!DeleteFileW(checkpointPath.c_str())) {
-            const DWORD checkpointError = GetLastError();
-            if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to delete checkpoint %ls (error=%lu)",
-                           checkpointPath.c_str(), checkpointError);
-                m_pendingCheckpointCleanup = true;
-            }
-        } else {
+        (m_pendingCheckpointCleanup || GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES)) {
+        if (DeleteFileW(checkpointPath.c_str())) {
             m_pendingCheckpointCleanup = false;
         }
     }

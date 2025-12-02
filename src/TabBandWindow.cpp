@@ -2878,9 +2878,10 @@ void TabBandWindow::ResetThemePalette() {
 
     COLORREF tabBase;
     if (m_darkMode) {
-        // In dark mode, use a visible gray that contrasts with the dark background
-        // Start from the rebar background and lighten it significantly for inactive tabs
-        tabBase = BlendColors(baseBackground, RGB(255, 255, 255), 0.20);
+        // In dark mode, inactive tabs need to be clearly visible against the dark/black toolbar.
+        // Use a medium gray that provides good contrast regardless of how dark the background is.
+        // RGB(60, 60, 60) is a dark gray that's visible against black but still darker than selected tabs.
+        tabBase = RGB(60, 60, 60);
     } else if (chrome.valid) {
         tabBase = BlendColors(baseBackground, windowColor, 0.12);
     } else {
