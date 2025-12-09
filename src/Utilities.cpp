@@ -1033,3 +1033,53 @@ bool BrowseForFolder(HWND parent, std::wstring* path) {
 
 }  // namespace shelltabs
 
+// Global utility functions for window discovery
+struct EnumClassSearchContext {
+    const wchar_t* className = nullptr;
+    HWND result = nullptr;
+};
+
+BOOL CALLBACK EnumDescendantsByClassProc(HWND hwnd, LPARAM lParam) {
+    auto* context = reinterpret_cast<EnumClassSearchContext*>(lParam);
+    if (!context) {
+        return FALSE;
+    }
+    if (context->result) {
+        return FALSE;
+    }
+    if (MatchesClass(hwnd, context->className)) {
+        context->result = hwnd;
+        return FALSE;
+    }
+
+    EnumChildWindows(hwnd, EnumDescendantsByClassProc, lParam);
+    return context->result == nullptr;
+}
+
+HWND FindDescendantByClassEnum(HWND root, const wchar_t* className) {
+    if (!root || !className || !IsWindow(root)) {
+        return nullptr;
+    }
+    if (MatchesClass(root, className)) {
+        return root;
+    }
+
+    EnumClassSearchContext context{};
+    context.className = className;
+    EnumChildWindows(root, EnumDescendantsByClassProc, reinterpret_cast<LPARAM>(&context));
+    return context.result;
+}
+
+bool MatchesClass(HWND hwnd, const wchar_t* className) {
+    if (!hwnd || !className) {
+        return false;
+    }
+
+    wchar_t buffer[64] = {};
+    const int length = GetClassNameW(hwnd, buffer, static_cast<int>(std::size(buffer)));
+    if (length <= 0) {
+        return false;
+    }
+    return _wcsicmp(buffer, className) == 0;
+}
+

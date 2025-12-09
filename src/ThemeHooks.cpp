@@ -902,7 +902,7 @@ HRESULT STDMETHODCALLTYPE DirectUiDrawDetour(void* element, HDC dc, const RECT* 
 
     ScopedPaintContext context(surface);
     std::call_once(g_directUiComLogged,
-                   []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI COM hook active"); });
+                   []() { LogMessage(LogLevel::Info, L"ThemeHooks: COM hook active"); });
 
     if (rect && elementInfo.registration.coordinator) {
         GlowColorSet colors = elementInfo.registration.coordinator->ResolveColors(elementInfo.registration.kind);
@@ -1092,7 +1092,7 @@ HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int s
         }
         ScopedPaintContext context(*surface);
         std::call_once(g_directUiThemeLogged,
-                       []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI theme hook active"); });
+                       []() { LogMessage(LogLevel::Info, L"ThemeHooks: theme hook active"); });
         PaintGlowSurface(dc, paintWindow, paintRect, colors, surfaceKind);
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
     }
@@ -1185,7 +1185,7 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
         }
         ScopedPaintContext context(*surface);
         std::call_once(g_directUiThemeLogged,
-                       []() { LogMessage(LogLevel::Info, L"ThemeHooks: DirectUI theme hook active"); });
+                       []() { LogMessage(LogLevel::Info, L"ThemeHooks: theme hook active"); });
         PaintGlowSurface(dc, paintWindow, *rect, colors, surfaceKind);
         return g_originalDrawThemeEdge(theme, dc, partId, stateId, rect, edge, flags, contentRect);
     }

@@ -108,4 +108,8 @@ HWND FindDescendantWindow(HWND parent, const wchar_t* className);
 // Recursively searches for a child window matching both class name and caption.
 // Passing nullptr for either parameter treats it as a wildcard.
 HWND FindDescendantWindow(HWND parent, const wchar_t* className, const wchar_t* windowText);
+// Similar to FindDescendantWindow but uses EnumChildWindows for better performance
+HWND FindDescendantByClassEnum(HWND root, const wchar_t* className);
+// Check if a window matches a specific class name (case insensitive)
+bool MatchesClass(HWND hwnd, const wchar_t* className);
 

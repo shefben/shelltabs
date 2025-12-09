@@ -1095,10 +1095,6 @@ DialogTemplatePtr CreateGlowEffectsPageTemplate() {
         kMargin + kGroupMargin, y, 200, kCheckHeight);
     y += kCheckHeight + 6;
 
-    builder.AddCheckbox(IDC_GLOW_SURF_DIRECTUI,
-        L"Enable DirectUI glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + 6;
 
     builder.AddCheckbox(IDC_GLOW_SURF_SCROLLBAR,
         L"Enable scrollbar glow",

@@ -25,6 +25,34 @@ ShellTabs is a Windows Explorer deskband extension that adds a lightweight tabbe
 - If the payload does not contain directories or no tab target is available, ShellTabs automatically falls back to Explorer's
   native handling so files are not lost.
 
+## Previews:
+<a href="https://github.com/user-attachments/assets/79bf6c67-6918-4f27-b9f6-bae69ee383b6" target="_blank">
+    <img src="https://github.com/user-attachments/assets/79bf6c67-6918-4f27-b9f6-bae69ee383b6" width="200" alt="shelltabs_island_example">
+</a>
+
+<a href="https://github.com/user-attachments/assets/c117f3e5-ddf7-478d-8f98-11cc3d40b7ba" target="_blank">
+    <img src="https://github.com/user-attachments/assets/c117f3e5-ddf7-478d-8f98-11cc3d40b7ba" width="200" alt="shelltabs_main">
+</a>
+
+<a href="https://github.com/user-attachments/assets/7f620497-967e-4fff-a7fe-076fcd5cbd09" target="_blank">
+    <img src="https://github.com/user-attachments/assets/7f620497-967e-4fff-a7fe-076fcd5cbd09" width="200" alt="shelltabs_options_appearance">
+</a>
+
+<a href="https://github.com/user-attachments/assets/3035e227-4aa5-4b30-b5cb-0725a5666d3a" target="_blank">
+    <img src="https://github.com/user-attachments/assets/3035e227-4aa5-4b30-b5cb-0725a5666d3a" width="200" alt="shelltabs_options_context_menus">
+</a>
+
+<a href="https://github.com/user-attachments/assets/da8b2866-6da6-4803-8a99-ef6c89805e0f" target="_blank">
+    <img src="https://github.com/user-attachments/assets/da8b2866-6da6-4803-8a99-ef6c89805e0f" width="200" alt="shelltabs_options_general">
+</a>
+
+<a href="https://github.com/user-attachments/assets/ccee2abe-d6d8-4918-903a-5da6b08e0ad3" target="_blank">
+    <img src="https://github.com/user-attachments/assets/ccee2abe-d6d8-4918-903a-5da6b08e0ad3" width="200" alt="shelltabs_options_groups">
+</a>
+
+<a href="https://github.com/user-attachments/assets/6dcb5df4-452e-4d3e-9427-84a331df2af4" target="_blank">
+    <img width="243" height="32" alt="tab_progressbar" src="https://github.com/user-attachments/assets/6dcb5df4-452e-4d3e-9427-84a331df2af4" />
+</a>
 ## Building
 
 The project is built as an in-process COM DLL using CMake and the Microsoft Visual C++ toolchain.

@@ -63,6 +63,7 @@ public:
     explicit SessionStore(std::wstring storagePath);
 
     bool Load(SessionData& data) const;
+    bool LoadWithRetry(SessionData& data, int maxRetries) const;
     bool Save(const SessionData& data) const;
 
     static std::wstring BuildPathForToken(const std::wstring& token);
@@ -77,6 +78,11 @@ private:
     mutable std::optional<std::wstring> m_lastSerializedSnapshot;
     mutable bool m_pendingCheckpointCleanup = false;
     mutable std::atomic<bool> m_markerReady = false;
+
+    // Helper methods for enhanced session loading
+    bool TryRestoreFromCheckpoint(SessionData& data, const wchar_t* reason) const;
+    void CleanupCheckpoint(const std::wstring& checkpointPath) const;
+    void CreateEmptySession() const;
 };
 
 }  // namespace shelltabs

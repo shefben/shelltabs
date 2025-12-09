@@ -126,6 +126,7 @@ target_link_libraries(ShellTabs PRIVATE
     runtimeobject
     wtsapi32
     dbghelp
+    gdiplus
 )
 
 set_target_properties(ShellTabs PROPERTIES

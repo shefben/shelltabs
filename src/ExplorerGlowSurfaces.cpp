@@ -2,6 +2,7 @@
 
 #include "BreadcrumbGradient.h"
 #include "EditGradientRenderer.h"
+#include "Utilities.h"
 
 #include "ExplorerThemeUtils.h"
 
@@ -64,8 +65,6 @@ Microsoft::WRL::ComPtr<IUIAutomation> GetAutomationInstance() {
 
 void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
                                 const RECT& clientRect, std::vector<RECT>& rectangles);
-
-bool MatchesClass(HWND hwnd, const wchar_t* className);
 
 void AppendDirectUiRectangle(IUIAutomationElement* element, HWND host, const RECT& clientRect,
                              std::vector<RECT>& rectangles) {
@@ -179,7 +178,7 @@ HWND FindEditHostWindow(HWND edit) {
 
     HWND current = GetParent(edit);
     while (current && IsWindow(current)) {
-        if (MatchesClass(current, L"ReBarWindow32") || MatchesClass(current, L"DirectUIHWND")) {
+        if (MatchesClass(current, L"ReBarWindow32")) {
             return current;
         }
         current = GetParent(current);
@@ -284,18 +283,6 @@ int ScaleByDpi(int value, UINT dpi) {
     return std::max(1, MulDiv(value, static_cast<int>(dpi), 96));
 }
 
-bool MatchesClass(HWND hwnd, const wchar_t* className) {
-    if (!hwnd || !className) {
-        return false;
-    }
-
-    wchar_t buffer[64] = {};
-    const int length = GetClassNameW(hwnd, buffer, static_cast<int>(std::size(buffer)));
-    if (length <= 0) {
-        return false;
-    }
-    return _wcsicmp(buffer, className) == 0;
-}
 
 RECT GetClientRectSafe(HWND hwnd) {
     RECT rect{0, 0, 0, 0};
@@ -1483,138 +1470,7 @@ protected:
     }
 };
 
-class DirectUiGlowSurface : public ExplorerGlowSurface {
-public:
-    using ExplorerGlowSurface::ExplorerGlowSurface;
-
-protected:
-    void OnPaint(HDC targetDc, const RECT& clipRect, const GlowColorSet& colors) override {
-        HWND hwnd = Handle();
-        if (!MatchesClass(hwnd, L"DirectUIHWND")) {
-            return;
-        }
-
-        RECT clientRect = GetClientRectSafe(hwnd);
-        if (clientRect.right <= clientRect.left || clientRect.bottom <= clientRect.top) {
-            return;
-        }
-
-        RECT paintRect = clipRect;
-        if (paintRect.right <= paintRect.left || paintRect.bottom <= paintRect.top) {
-            paintRect = clientRect;
-        } else {
-            RECT intersect{};
-            if (!IntersectRect(&intersect, &paintRect, &clientRect)) {
-                return;
-            }
-            paintRect = intersect;
-        }
-
-        std::vector<RECT> highlightRects;
-        if (!EnumerateDirectUiRectangles(hwnd, clientRect, highlightRects)) {
-            return;
-        }
-
-        const int toleranceX = ScaleByDpi(2, DpiX());
-        const int toleranceY = ScaleByDpi(2, DpiY());
-
-        std::vector<RECT> filteredRects;
-        filteredRects.reserve(highlightRects.size());
-        for (const RECT& rect : highlightRects) {
-            RECT intersection{};
-            if (!IntersectRect(&intersection, &rect, &paintRect)) {
-                continue;
-            }
-
-            if (ApproximatelyEqual(rect.left, clientRect.left, toleranceX) &&
-                ApproximatelyEqual(rect.top, clientRect.top, toleranceY) &&
-                ApproximatelyEqual(rect.right, clientRect.right, toleranceX) &&
-                ApproximatelyEqual(rect.bottom, clientRect.bottom, toleranceY)) {
-                continue;
-            }
-
-            filteredRects.push_back(rect);
-        }
-
-        if (filteredRects.empty()) {
-            return;
-        }
-
-        HDC bufferDc = nullptr;
-        HPAINTBUFFER buffer = BeginBufferedPaint(targetDc, &paintRect, BPBF_TOPDOWNDIB, nullptr, &bufferDc);
-        if (!buffer || !bufferDc) {
-            if (buffer) {
-                EndBufferedPaint(buffer, FALSE);
-            }
-            return;
-        }
-
-        BufferedPaintClear(buffer, nullptr);
-        Gdiplus::Graphics graphics(bufferDc);
-        graphics.TranslateTransform(-static_cast<Gdiplus::REAL>(paintRect.left),
-                                    -static_cast<Gdiplus::REAL>(paintRect.top));
-        graphics.SetSmoothingMode(Gdiplus::SmoothingModeNone);
-
-        const int frameThicknessX = ScaleByDpi(1, DpiX());
-        const int frameThicknessY = ScaleByDpi(1, DpiY());
-        const int haloThicknessX = std::max(frameThicknessX * 2, ScaleByDpi(3, DpiX()));
-        const int haloThicknessY = std::max(frameThicknessY * 2, ScaleByDpi(3, DpiY()));
-
-        for (const RECT& rect : filteredRects) {
-            RECT paintCheck{};
-            if (!IntersectRect(&paintCheck, &rect, &paintRect)) {
-                continue;
-            }
-
-            RECT inner = rect;
-            if ((rect.right - rect.left) > frameThicknessX * 2) {
-                inner.left += frameThicknessX;
-                inner.right -= frameThicknessX;
-            }
-            if ((rect.bottom - rect.top) > frameThicknessY * 2) {
-                inner.top += frameThicknessY;
-                inner.bottom -= frameThicknessY;
-            }
-
-            if (inner.right <= inner.left || inner.bottom <= inner.top) {
-                continue;
-            }
-
-            RECT frame = rect;
-            RECT halo = rect;
-            InflateRect(&halo, haloThicknessX, haloThicknessY);
-
-            RECT haloClipped = halo;
-            if (!IntersectRect(&haloClipped, &halo, &clientRect)) {
-                continue;
-            }
-            if (!IntersectRect(&haloClipped, &haloClipped, &paintRect)) {
-                continue;
-            }
-
-            RECT frameClipped = frame;
-            if (!IntersectRect(&frameClipped, &frame, &clientRect)) {
-                continue;
-            }
-            if (!IntersectRect(&frameClipped, &frameClipped, &paintRect)) {
-                continue;
-            }
-
-            RECT innerClipped = inner;
-            if (!IntersectRect(&innerClipped, &inner, &clientRect)) {
-                continue;
-            }
-            if (!IntersectRect(&innerClipped, &innerClipped, &paintRect)) {
-                continue;
-            }
-
-            FillFrameRegion(graphics, colors, haloClipped, innerClipped, kFrameHaloAlpha);
-            FillFrameRegion(graphics, colors, frameClipped, innerClipped, kFrameAlpha);
-        }
-
-        EndBufferedPaint(buffer, TRUE);
-    }
-};
+// DirectUiGlowSurface class removed - DirectUIHWND support was unstable
 
 class ScrollBarGlowSurface : public ExplorerGlowSurface {
 public:
@@ -2333,7 +2189,7 @@ std::unique_ptr<ExplorerGlowSurface> CreateGlowSurfaceWrapper(ExplorerSurfaceKin
         case ExplorerSurfaceKind::Scrollbar:
             return std::make_unique<ScrollBarGlowSurface>(kind, coordinator);
         case ExplorerSurfaceKind::DirectUi:
-            return std::make_unique<DirectUiGlowSurface>(kind, coordinator);
+            return nullptr;  // DirectUI support removed as it was unstable
         case ExplorerSurfaceKind::PopupMenu:
         case ExplorerSurfaceKind::Tooltip:
             return nullptr;

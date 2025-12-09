@@ -246,9 +246,6 @@ struct ShellTabsOptions;
                 bool RefreshAddressEditTheme();
                 bool RefreshAddressEditFont(HWND hwnd);
                 bool IsExplorerEditAncestor(HWND hwnd) const;
-                void EnumerateDirectUIEditChildren(HWND root,
-                                                   std::unordered_set<HWND, HandleHasher>& seen,
-                                                   std::vector<HWND>& edits) const;
                 void MaybeAddExplorerEdit(HWND candidate,
                                            std::unordered_set<HWND, HandleHasher>& seen,
                                            std::vector<HWND>& edits) const;

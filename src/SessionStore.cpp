@@ -625,145 +625,181 @@ bool SessionStore::Load(SessionData& data) const {
 
     CleanupStaleTemp(m_storagePath);
 
-    std::wstring content;
-    bool fileExists = false;
-    if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
-        const DWORD readError = GetLastError();
-        LogMessage(LogLevel::Warning, L"SessionStore failed to read %ls (error=%lu)", m_storagePath.c_str(),
-                   readError);
+    // Enhanced loading with multiple retry attempts
+    return LoadWithRetry(data, 3);
+}
+
+bool SessionStore::LoadWithRetry(SessionData& data, int maxRetries) const {
+    data = {};
+
+    for (int attempt = 1; attempt <= maxRetries; ++attempt) {
+        LogMessage(LogLevel::Info, L"SessionStore::LoadWithRetry attempt %d/%d for %ls",
+                   attempt, maxRetries, m_storagePath.c_str());
+
+        try {
+            std::wstring content;
+            bool fileExists = false;
+
+            // Enhanced file reading with retry on transient failures
+            if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
+                const DWORD readError = GetLastError();
+
+                // Check if this is a transient error worth retrying
+                bool isTransientError = (readError == ERROR_SHARING_VIOLATION ||
+                                       readError == ERROR_ACCESS_DENIED ||
+                                       readError == ERROR_BUSY);
+
+                if (isTransientError && attempt < maxRetries) {
+                    LogMessage(LogLevel::Warning, L"SessionStore transient read error %lu on attempt %d, retrying",
+                               readError, attempt);
+                    Sleep(50 * attempt); // Progressive backoff: 50ms, 100ms, 150ms
+                    continue;
+                }
+
+                LogMessage(LogLevel::Warning, L"SessionStore failed to read %ls (error=%lu) on attempt %d",
+                           m_storagePath.c_str(), readError, attempt);
+
+                if (!fileExists) {
+                    // File doesn't exist - try checkpoint recovery
+                    if (TryRestoreFromCheckpoint(data, L"missing session file")) {
+                        return true;
+                    }
+
+                    // Create new empty session if no checkpoint available
+                    CreateEmptySession();
+                    return true;
+                }
+
+                if (attempt >= maxRetries) {
+                    return false;
+                }
+                continue;
+            }
+
+            const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
+            SessionData parsedData;
+            std::wstring snapshot;
+            const SessionFileStatus status = ParseSessionDocument(content, parsedData, snapshot);
+
+            switch (status) {
+                case SessionFileStatus::kSuccess:
+                    data = std::move(parsedData);
+                    m_lastSerializedSnapshot = std::move(snapshot);
+
+                    // Clean up checkpoint after successful load
+                    CleanupCheckpoint(checkpointPath);
+
+                    LogMessage(LogLevel::Info, L"SessionStore::LoadWithRetry succeeded on attempt %d", attempt);
+                    return true;
+
+                case SessionFileStatus::kEmpty:
+                    data = SessionData{};
+                    m_lastSerializedSnapshot = std::move(snapshot);
+                    LogMessage(LogLevel::Info, L"SessionStore::LoadWithRetry loaded empty session on attempt %d", attempt);
+                    return true;
+
+                case SessionFileStatus::kChecksumMismatch:
+                    LogMessage(LogLevel::Warning, L"SessionStore checksum mismatch on attempt %d for %ls",
+                               attempt, m_storagePath.c_str());
+
+                    if (TryRestoreFromCheckpoint(data, L"checksum mismatch")) {
+                        return true;
+                    }
+
+                    if (attempt < maxRetries) {
+                        Sleep(100 * attempt); // Wait before retry
+                        continue;
+                    }
+                    return false;
+
+                case SessionFileStatus::kParseError:
+                    LogMessage(LogLevel::Warning, L"SessionStore parse error on attempt %d for %ls",
+                               attempt, m_storagePath.c_str());
+
+                    if (TryRestoreFromCheckpoint(data, L"parse failure")) {
+                        return true;
+                    }
+
+                    if (attempt < maxRetries) {
+                        Sleep(100 * attempt); // Wait before retry
+                        continue;
+                    }
+                    return false;
+            }
+        }
+        catch (...) {
+            LogMessage(LogLevel::Error, L"SessionStore::LoadWithRetry exception on attempt %d", attempt);
+
+            if (attempt < maxRetries) {
+                Sleep(200 * attempt); // Longer wait after exception
+                continue;
+            }
+            return false;
+        }
+    }
+
+    LogMessage(LogLevel::Error, L"SessionStore::LoadWithRetry failed after %d attempts", maxRetries);
+    return false;
+}
+
+// Helper method for checkpoint restoration
+bool SessionStore::TryRestoreFromCheckpoint(SessionData& data, const wchar_t* reason) const {
+    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
+    if (checkpointPath.empty()) {
         return false;
     }
 
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    bool checkpointChecksumMismatch = false;
-    std::wstring checkpointCorruptionPath;
+    std::wstring checkpointContent;
+    bool checkpointExists = false;
+    if (!ReadUtf8File(checkpointPath, &checkpointContent, &checkpointExists)) {
+        const DWORD checkpointError = GetLastError();
+        LogMessage(LogLevel::Warning, L"SessionStore failed to read checkpoint %ls (error=%lu) while handling %ls",
+                   checkpointPath.c_str(), checkpointError, reason);
+        return false;
+    }
 
-    auto restoreFromCheckpoint = [&](const wchar_t* reason) -> bool {
-        if (checkpointPath.empty()) {
-            return false;
-        }
-
-        std::wstring checkpointContent;
-        bool checkpointExists = false;
-        if (!ReadUtf8File(checkpointPath, &checkpointContent, &checkpointExists)) {
-            const DWORD checkpointError = GetLastError();
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore failed to read checkpoint %ls (error=%lu) while handling %ls",
-                       checkpointPath.c_str(), checkpointError, reason);
-            return false;
-        }
-        if (!checkpointExists) {
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checkpoint %ls missing while handling %ls",
-                       checkpointPath.c_str(), reason);
-            return false;
-        }
-
-        SessionData fallbackData;
-        std::wstring fallbackSnapshot;
-        const SessionFileStatus status = ParseSessionDocument(checkpointContent, fallbackData, fallbackSnapshot);
-        if (status == SessionFileStatus::kChecksumMismatch) {
-            checkpointChecksumMismatch = true;
-            checkpointCorruptionPath = checkpointPath;
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checkpoint %ls failed checksum while handling %ls",
-                       checkpointPath.c_str(), reason);
-            return false;
-        }
-        if (status == SessionFileStatus::kParseError) {
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checkpoint %ls was malformed while handling %ls",
-                       checkpointPath.c_str(), reason);
-            return false;
-        }
-
-        LogMessage(LogLevel::Warning,
-                   L"SessionStore restoring checkpoint %ls after %ls",
+    if (!checkpointExists) {
+        LogMessage(LogLevel::Warning, L"SessionStore checkpoint %ls missing while handling %ls",
                    checkpointPath.c_str(), reason);
+        return false;
+    }
 
-        data = std::move(fallbackData);
-        m_lastSerializedSnapshot = std::move(fallbackSnapshot);
+    SessionData fallbackData;
+    std::wstring fallbackSnapshot;
+    const SessionFileStatus status = ParseSessionDocument(checkpointContent, fallbackData, fallbackSnapshot);
 
-        if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(),
-                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore failed to promote checkpoint %ls -> %ls (error=%lu)",
-                       checkpointPath.c_str(), m_storagePath.c_str(), GetLastError());
-            m_pendingCheckpointCleanup = true;
-        } else {
-            m_pendingCheckpointCleanup = false;
-        }
+    if (status != SessionFileStatus::kSuccess && status != SessionFileStatus::kEmpty) {
+        LogMessage(LogLevel::Warning, L"SessionStore checkpoint %ls corrupted while handling %ls",
+                   checkpointPath.c_str(), reason);
+        return false;
+    }
 
-        return true;
-    };
+    LogMessage(LogLevel::Info, L"SessionStore restoring checkpoint %ls after %ls",
+               checkpointPath.c_str(), reason);
 
-    if (!fileExists) {
-        if (restoreFromCheckpoint(L"missing session file")) {
-            return true;
-        }
+    data = std::move(fallbackData);
+    m_lastSerializedSnapshot = std::move(fallbackSnapshot);
 
-        if (checkpointChecksumMismatch) {
-            NotifySessionChecksumMismatch(checkpointCorruptionPath);
-        }
-
-        const size_t separator = m_storagePath.find_last_of(L"\\/");
-        if (separator != std::wstring::npos) {
-            std::wstring directory = m_storagePath.substr(0, separator);
-            if (!directory.empty()) {
-                CreateDirectoryW(directory.c_str(), nullptr);
-            }
-        }
-
-        HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
-                                     FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (created != INVALID_HANDLE_VALUE) {
-            CloseHandle(created);
-        }
-        m_lastSerializedSnapshot = std::wstring();
+    // Promote checkpoint to main file
+    if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        LogMessage(LogLevel::Warning, L"SessionStore failed to promote checkpoint %ls -> %ls (error=%lu)",
+                   checkpointPath.c_str(), m_storagePath.c_str(), GetLastError());
+        m_pendingCheckpointCleanup = true;
+    } else {
         m_pendingCheckpointCleanup = false;
-        return true;
     }
 
-    SessionData parsedData;
-    std::wstring snapshot;
-    const SessionFileStatus status = ParseSessionDocument(content, parsedData, snapshot);
+    return true;
+}
 
-    switch (status) {
-        case SessionFileStatus::kSuccess:
-            data = std::move(parsedData);
-            m_lastSerializedSnapshot = std::move(snapshot);
-            break;
-        case SessionFileStatus::kEmpty:
-            data = SessionData{};
-            m_lastSerializedSnapshot = std::move(snapshot);
-            break;
-        case SessionFileStatus::kChecksumMismatch:
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore checksum mismatch detected for %ls", m_storagePath.c_str());
-            if (restoreFromCheckpoint(L"checksum mismatch")) {
-                return true;
-            }
-            NotifySessionChecksumMismatch(checkpointChecksumMismatch ? checkpointCorruptionPath : m_storagePath);
-            return false;
-        case SessionFileStatus::kParseError:
-            LogMessage(LogLevel::Warning,
-                       L"SessionStore failed to parse %ls", m_storagePath.c_str());
-            if (restoreFromCheckpoint(L"parse failure")) {
-                return true;
-            }
-            if (checkpointChecksumMismatch) {
-                NotifySessionChecksumMismatch(checkpointCorruptionPath);
-            }
-            return false;
-    }
-
-    if (!checkpointPath.empty() &&
-        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+// Helper method to clean up checkpoint files
+void SessionStore::CleanupCheckpoint(const std::wstring& checkpointPath) const {
+    if (!checkpointPath.empty() && GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
         if (!DeleteFileW(checkpointPath.c_str())) {
             const DWORD checkpointError = GetLastError();
             if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to delete checkpoint %ls (error=%lu)",
+                LogMessage(LogLevel::Warning, L"SessionStore failed to delete checkpoint %ls (error=%lu)",
                            checkpointPath.c_str(), checkpointError);
                 m_pendingCheckpointCleanup = true;
             }
@@ -771,8 +807,26 @@ bool SessionStore::Load(SessionData& data) const {
             m_pendingCheckpointCleanup = false;
         }
     }
+}
 
-    return true;
+// Helper method to create empty session file
+void SessionStore::CreateEmptySession() const {
+    const size_t separator = m_storagePath.find_last_of(L"\\/");
+    if (separator != std::wstring::npos) {
+        std::wstring directory = m_storagePath.substr(0, separator);
+        if (!directory.empty()) {
+            CreateDirectoryW(directory.c_str(), nullptr);
+        }
+    }
+
+    HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (created != INVALID_HANDLE_VALUE) {
+        CloseHandle(created);
+    }
+
+    m_lastSerializedSnapshot = std::wstring();
+    m_pendingCheckpointCleanup = false;
 }
 
 bool SessionStore::Save(const SessionData& data) const {

@@ -261,7 +261,12 @@ TabBand::TabBand() : m_refCount(1), m_processedGroupStoreGeneration(0) {
 
 TabBand::~TabBand() {
     LogMessage(LogLevel::Info, L"TabBand destroyed (this=%p)", this);
-    DisconnectSite();
+
+    // Ensure clean disconnection in destructor
+    if (!m_isDestroying.load()) {
+        DisconnectSite();
+    }
+
     ModuleRelease();
 }
 
@@ -639,6 +644,9 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             InitializeTabs();
             LogMessage(LogLevel::Info, L"TabBand::SetSite UpdateTabsUI (initial)");
             UpdateTabsUI();
+
+            // Initialize options
+            EnsureOptionsLoaded();
 
             LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
 
@@ -2093,54 +2101,119 @@ void TabBand::EnsureOptionsLoaded() const {
 }
 
 void TabBand::DisconnectSite() {
+    // Thread-safe cleanup with mutex protection
+    std::lock_guard<std::mutex> lock(m_cleanupMutex);
+
+    // Check if already destroyed to prevent double cleanup
+    if (m_isDestroying.load()) {
+        LogMessage(LogLevel::Info, L"TabBand::DisconnectSite already in progress (this=%p)", this);
+        return;
+    }
+
+    // Mark as destroying to prevent concurrent access
+    m_isDestroying = true;
+
     LogMessage(LogLevel::Info, L"TabBand::DisconnectSite (this=%p)", this);
-    CancelInitializationWorker();
-    m_backgroundInitializationActive = false;
-    m_sessionPersistenceReady = false;
-    m_pendingGroupSeed.reset();
-    m_pendingStandaloneSeed = false;
-    SaveSession();
-    StopSessionFlushTimer();
-    if (m_sessionMarkerActive && m_sessionStore) {
-        m_sessionStore->ClearSessionMarker();
+
+    // Step 1: Cancel background operations safely
+    try {
+        CancelInitializationWorker();
+        m_backgroundInitializationActive = false;
+        m_sessionPersistenceReady = false;
+        m_pendingGroupSeed.reset();
+        m_pendingStandaloneSeed = false;
     }
-    m_sessionMarkerActive = false;
-    if (m_sessionStore) {
-        m_sessionStore->SetMarkerReady(false);
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during worker cancellation");
     }
-    m_tabs.ClearWindowId();
-    for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
-        if (const TabGroup* group = m_tabs.GetGroup(groupIndex)) {
-            CancelPendingPreviewForGroup(*group);
+
+    // Step 2: Save session before cleanup (with error handling)
+    try {
+        SaveSession();
+        StopSessionFlushTimer();
+
+        // Clear session marker safely
+        if (m_sessionMarkerActive && m_sessionStore) {
+            m_sessionStore->ClearSessionMarker();
+        }
+        m_sessionMarkerActive = false;
+
+        if (m_sessionStore) {
+            m_sessionStore->SetMarkerReady(false);
         }
     }
-    if (!m_windowToken.empty()) {
-        PreviewCache::Instance().CancelPendingCapturesForOwner(m_windowToken);
-    }
-    ReleaseWindowToken();
-
-    if (m_browserEvents) {
-        m_browserEvents->Disconnect();
-        m_browserEvents.reset();
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during session cleanup");
     }
 
-    m_webBrowser.Reset();
-    m_shellBrowser.Reset();
-    m_site.Reset();
-    m_siteOleWindow.Reset();
-    m_dockingSite.Reset();
-    m_dockingFrame.Reset();
+    // Step 3: Cancel pending operations safely
+    try {
+        m_tabs.ClearWindowId();
 
-    if (m_window) {
-        m_window->SetSite(nullptr);
-        m_window->Destroy();
-        m_window.reset();
+        // Cancel previews with bounds checking
+        for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
+            if (const TabGroup* group = m_tabs.GetGroup(groupIndex)) {
+                CancelPendingPreviewForGroup(*group);
+            }
+        }
+
+        if (!m_windowToken.empty()) {
+            PreviewCache::Instance().CancelPendingCapturesForOwner(m_windowToken);
+        }
+        ReleaseWindowToken();
+    }
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during preview cleanup");
     }
 
-    m_tabs.Clear();
-    m_internalNavigation = false;
-    m_allowExternalNewWindows = 0;
-    m_sessionStore.reset();
+    // Step 4: Disconnect browser events safely
+    try {
+        if (m_browserEvents) {
+            m_browserEvents->Disconnect();
+            m_browserEvents.reset();
+        }
+    }
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during browser events disconnect");
+    }
+
+    // Step 5: Release COM interfaces safely (order is important)
+    try {
+        m_webBrowser.Reset();
+        m_shellBrowser.Reset();
+        m_site.Reset();
+        m_siteOleWindow.Reset();
+        m_dockingSite.Reset();
+        m_dockingFrame.Reset();
+    }
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during COM interface cleanup");
+    }
+
+    // Step 6: Cleanup window safely
+    try {
+        if (m_window) {
+            m_window->SetSite(nullptr);
+            m_window->Destroy();
+            m_window.reset();
+        }
+    }
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during window cleanup");
+    }
+
+    // Step 7: Final cleanup
+    try {
+        m_tabs.Clear();
+        m_internalNavigation = false;
+        m_allowExternalNewWindows = 0;
+        m_sessionStore.reset();
+    }
+    catch (...) {
+        LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during final cleanup");
+    }
+
+    LogMessage(LogLevel::Info, L"TabBand::DisconnectSite completed (this=%p)", this);
 }
 
 void TabBand::InitializeTabs() {
@@ -2664,16 +2737,27 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
     const bool glowPaletteChanged = previousOptions.glowPalette != m_options.glowPalette;
     const bool accentColorsChanged =
         previousOptions.useExplorerAccentColors != m_options.useExplorerAccentColors;
+
+    // Check for folder background changes
+    const bool folderBackgroundEnabledChanged =
+        previousOptions.enableFolderBackgrounds != m_options.enableFolderBackgrounds;
+    const bool universalBackgroundChanged =
+        previousOptions.universalFolderBackgroundImage != m_options.universalFolderBackgroundImage;
+    const bool folderBackgroundsChanged =
+        previousOptions.folderBackgroundEntries != m_options.folderBackgroundEntries;
     if (backgroundChanged || fontChanged || backgroundTransparencyChanged || fontBrightnessChanged ||
         backgroundColorsChanged || fontColorsChanged || tabColorsChanged || glowEnabledChanged ||
         glowCustomChanged || glowGradientChanged || glowColorChanged || glowPaletteChanged ||
-        accentColorsChanged) {
+        accentColorsChanged || folderBackgroundEnabledChanged || universalBackgroundChanged ||
+        folderBackgroundsChanged) {
         const UINT message = GetOptionsChangedMessage();
         if (message != 0) {
             SendNotifyMessageW(HWND_BROADCAST, message, 0, 0);
         }
+
     }
 }
+
 
 UniquePidl TabBand::QueryCurrentFolder() const {
     return GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);

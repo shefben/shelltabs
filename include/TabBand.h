@@ -10,6 +10,7 @@
 #include <vector>
 #include <thread>
 #include <stop_token>
+#include <mutex>
 
 #include <ShObjIdl_core.h>
 #include <exdisp.h>
@@ -166,6 +167,8 @@ private:
         SessionData sessionData;
     };
     std::atomic<long> m_refCount;
+    mutable std::mutex m_cleanupMutex;  // Protects cleanup operations
+    std::atomic<bool> m_isDestroying{false};  // Tracks destruction state
     DWORD m_bandId = 0;
     DWORD m_viewMode = 0;
     bool m_isComposited = false;

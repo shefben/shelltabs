@@ -114,8 +114,6 @@
 #define LVBKIF_FLAG_ALPHABLEND  0x20000000
 #endif
 
-bool MatchesClass(HWND hwnd, const wchar_t* className);
-
 namespace {
 
 using shelltabs::LogLevel;
@@ -289,97 +287,6 @@ HWND FindDescendantByClassEnum(HWND root, const wchar_t* className) {
     return context.result;
 }
 
-// Helper function to find DirectUIHWND window (critical for Vista+)
-// On Windows Vista and later, Explorer uses DirectUIHWND for folder view rendering
-HWND FindDirectUIHWND(HWND listView) {
-    if (!listView || !IsWindow(listView)) {
-        return nullptr;
-    }
-
-    auto findDefViewAncestor = [](HWND start) -> HWND {
-        for (HWND current = start; current && IsWindow(current); current = GetParent(current)) {
-            if (MatchesClass(current, L"SHELLDLL_DefView")) {
-                return current;
-            }
-        }
-        return nullptr;
-    };
-
-    HWND defView = findDefViewAncestor(listView);
-    if (defView) {
-        if (HWND direct = FindDescendantByClassEnum(defView, L"DirectUIHWND")) {
-            return direct;
-        }
-    }
-
-    bool fallbackLogged = false;
-    auto logFallbackStart = [&](const wchar_t* reason) {
-        if (fallbackLogged) {
-            return;
-        }
-        fallbackLogged = true;
-        LogMessage(LogLevel::Info,
-                   L"FindDirectUIHWND fallback triggered (%s, listView=%p, defView=%p)",
-                   reason ? reason : L"unknown",
-                   listView,
-                   defView);
-    };
-
-    constexpr const wchar_t* kAncestorClasses[] = {L"ShellTabWindowClass", L"CabinetWClass"};
-    if (!defView) {
-        logFallbackStart(L"SHELLDLL_DefView ancestor missing");
-    } else {
-        logFallbackStart(L"DirectUIHWND missing under primary SHELLDLL_DefView");
-    }
-
-    for (HWND ancestor = defView ? GetParent(defView) : GetParent(listView); ancestor && IsWindow(ancestor);
-         ancestor = GetParent(ancestor)) {
-        const wchar_t* ancestorClass = nullptr;
-        for (const wchar_t* candidate : kAncestorClasses) {
-            if (MatchesClass(ancestor, candidate)) {
-                ancestorClass = candidate;
-                break;
-            }
-        }
-
-        if (!ancestorClass) {
-            continue;
-        }
-
-        HWND fallbackDefView = FindDescendantByClassEnum(ancestor, L"SHELLDLL_DefView");
-        if (!fallbackDefView) {
-            LogMessage(LogLevel::Verbose,
-                       L"FindDirectUIHWND fallback ancestor %s (%p) lacks SHELLDLL_DefView",
-                       ancestorClass,
-                       ancestor);
-            continue;
-        }
-
-        if (HWND direct = FindDescendantByClassEnum(fallbackDefView, L"DirectUIHWND")) {
-            LogMessage(LogLevel::Info,
-                       L"FindDirectUIHWND fallback located DirectUIHWND=%p via %s ancestor=%p defView=%p",
-                       direct,
-                       ancestorClass,
-                       ancestor,
-                       fallbackDefView);
-            return direct;
-        }
-
-        LogMessage(LogLevel::Verbose,
-                   L"FindDirectUIHWND fallback ancestor %s (%p) defView=%p missing DirectUIHWND",
-                   ancestorClass,
-                   ancestor,
-                   fallbackDefView);
-    }
-
-    if (fallbackLogged) {
-        LogMessage(LogLevel::Warning,
-                   L"FindDirectUIHWND fallback exhausted without finding DirectUIHWND (listView=%p)",
-                   listView);
-    }
-
-    return nullptr;
-}
 
 // Convert GDI+ Bitmap to HBITMAP for use with LVM_SETBKIMAGE
 HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
@@ -436,14 +343,8 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
         return false;
     }
 
-    // Find the target window for the message
-    // On Vista+, DirectUIHWND is the actual rendering window
+    // Use the ListView window directly as the target
     HWND targetWindow = listView;
-    HWND directUiHwnd = FindDirectUIHWND(listView);
-    if (directUiHwnd) {
-        targetWindow = directUiHwnd;
-        LogMessage(LogLevel::Info, L"Found DirectUIHWND for background image: %p", directUiHwnd);
-    }
 
     // Clear any existing background image and delete the old bitmap
     ClearListViewBackgroundImage(targetWindow, trackedBitmap, visualProperties);
@@ -484,14 +385,13 @@ bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP*
         LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
     }
 
-    bool needsWatermarkFallback = visualProperties && (!directUiHwnd || !lvmApplied);
+    bool needsWatermarkFallback = visualProperties && !lvmApplied;
     if (needsWatermarkFallback) {
         HRESULT hr = visualProperties->SetWatermark(hBitmap, VPWF_ALPHABLEND);
         if (SUCCEEDED(hr)) {
             usedWatermarkFallback = true;
             LogMessage(LogLevel::Info,
-                       L"Applied folder view watermark fallback via IVisualProperties (DirectUI=%s, hr=0x%08X)",
-                       directUiHwnd ? L"true" : L"false", hr);
+                       L"Applied folder view watermark fallback via IVisualProperties (hr=0x%08X)", hr);
         } else {
             LogMessage(LogLevel::Warning,
                        L"Failed to apply folder view watermark fallback via IVisualProperties hr=0x%08X", hr);
@@ -977,8 +877,6 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
             return L"edit";
         case ExplorerSurfaceKind::Scrollbar:
             return L"scrollbar";
-        case ExplorerSurfaceKind::DirectUi:
-            return L"DirectUI host";
         case ExplorerSurfaceKind::PopupMenu:
             return L"popup menu";
         case ExplorerSurfaceKind::Tooltip:
@@ -990,18 +888,6 @@ const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
 
 }  // namespace
 
-// Global utility function for finding descendant windows by class name
-bool MatchesClass(HWND hwnd, const wchar_t* className) {
-    if (!hwnd || !className) {
-        return false;
-    }
-    wchar_t buffer[256];
-    const int length = GetClassNameW(hwnd, buffer, ARRAYSIZE(buffer));
-    if (length <= 0) {
-        return false;
-    }
-    return _wcsicmp(buffer, className) == 0;
-}
 
 bool MatchesWindowText(HWND hwnd, const wchar_t* text) {
     if (!text || !text[0]) {
@@ -1060,11 +946,13 @@ CExplorerBHO::CExplorerBHO() : m_refCount(1) {
         m_gdiplusToken = 0;
         LogMessage(LogLevel::Warning, L"Failed to initialize GDI+; breadcrumb gradient disabled");
     }
+
 }
 
 CExplorerBHO::~CExplorerBHO() {
     Disconnect();
     DestroyProgressGradientResources();
+
 
     // Clean up the background bitmap
     if (m_currentBackgroundBitmap) {
@@ -1776,6 +1664,14 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_DOCUMENTCOMPLETE:
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
+
+                    // Notify folder background renderer of folder change
+                    {
+                        UniquePidl currentPidl = GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
+                        if (currentPidl) {
+                            std::wstring folderPath = GetParsingName(currentPidl.get());
+                        }
+                    }
                     break;
                 case DISPID_ONQUIT:
                     Disconnect();
@@ -2242,9 +2138,6 @@ std::vector<HWND> CExplorerBHO::FindExplorerEditControls() const {
             if (!IsWindow(hwnd)) {
                 return TRUE;
             }
-            if (MatchesClass(hwnd, L"DirectUIHWND")) {
-                ctx->self->EnumerateDirectUIEditChildren(hwnd, *ctx->seen, *ctx->edits);
-            }
             return TRUE;
         },
         reinterpret_cast<LPARAM>(&context));
@@ -2252,39 +2145,6 @@ std::vector<HWND> CExplorerBHO::FindExplorerEditControls() const {
     return edits;
 }
 
-void CExplorerBHO::EnumerateDirectUIEditChildren(HWND root, std::unordered_set<HWND, HandleHasher>& seen,
-                                                 std::vector<HWND>& edits) const {
-    if (!root || !IsWindow(root)) {
-        return;
-    }
-
-    struct EnumContext {
-        const CExplorerBHO* self = nullptr;
-        std::unordered_set<HWND, HandleHasher>* seen = nullptr;
-        std::vector<HWND>* edits = nullptr;
-    } context{this, &seen, &edits};
-
-    EnumChildWindows(
-        root,
-        [](HWND child, LPARAM param) -> BOOL {
-            auto* ctx = reinterpret_cast<EnumContext*>(param);
-            if (!ctx || !ctx->self || !ctx->seen || !ctx->edits) {
-                return TRUE;
-            }
-            if (!IsWindow(child)) {
-                return TRUE;
-            }
-            if (MatchesClass(child, L"Edit")) {
-                ctx->self->MaybeAddExplorerEdit(child, *ctx->seen, *ctx->edits);
-                return TRUE;
-            }
-            if (MatchesClass(child, L"DirectUIHWND")) {
-                ctx->self->EnumerateDirectUIEditChildren(child, *ctx->seen, *ctx->edits);
-            }
-            return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&context));
-}
 
 void CExplorerBHO::MaybeAddExplorerEdit(HWND candidate, std::unordered_set<HWND, HandleHasher>& seen,
                                         std::vector<HWND>& edits) const {
@@ -2336,16 +2196,10 @@ bool CExplorerBHO::IsExplorerEditAncestor(HWND hwnd) const {
     }
 
     HWND current = hwnd;
-    bool sawDirectUI = false;
     int depth = 0;
     while (current && depth++ < 32) {
-        if (MatchesClass(current, L"DirectUIHWND")) {
-            sawDirectUI = true;
-        }
         if (MatchesClass(current, L"ReBarWindow32")) {
-            if (sawDirectUI) {
-                return true;
-            }
+            return true;
         }
         if (MatchesClass(current, L"CabinetWClass")) {
             break;
@@ -2353,7 +2207,7 @@ bool CExplorerBHO::IsExplorerEditAncestor(HWND hwnd) const {
         current = GetParent(current);
     }
 
-    return sawDirectUI;
+    return false;
 }
 
 bool CExplorerBHO::IsBreadcrumbToolbarCandidate(HWND hwnd) const {
