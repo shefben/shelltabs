@@ -4,6 +4,7 @@
 
 #include "IconCache.h"
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -210,8 +211,17 @@ public:
     bool Load(std::wstring* errorContext = nullptr);
     bool Save() const;
 
-    const ShellTabsOptions& Get() const noexcept { return m_options; }
-    void Set(const ShellTabsOptions& options) { m_options = options; m_loaded = true; }
+    // Thread-safe access - copies the options to avoid races
+    ShellTabsOptions Get() const {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        return m_options;
+    }
+
+    void Set(const ShellTabsOptions& options) {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        m_options = options;
+        m_loaded = true;
+    }
 
 private:
     OptionsStore() = default;
@@ -219,6 +229,7 @@ private:
     bool EnsureLoaded(std::wstring* errorContext = nullptr) const;
     std::wstring ResolveStoragePath() const;
 
+    mutable std::recursive_mutex m_mutex;  // Protects all mutable state
     mutable bool m_loaded = false;
     mutable std::wstring m_storagePath;
     mutable ShellTabsOptions m_options;

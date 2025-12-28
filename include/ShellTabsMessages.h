@@ -15,6 +15,7 @@ constexpr UINT WM_SHELLTABS_INITIALIZATION_COMPLETE = WM_APP + 81;
 constexpr UINT WM_SHELLTABS_SHOW_HISTORY_MENU = WM_APP + 82;
 constexpr UINT WM_SHELLTABS_NAVIGATE_BACK = WM_APP + 83;
 constexpr UINT WM_SHELLTABS_NAVIGATE_FORWARD = WM_APP + 84;
+constexpr UINT WM_SHELLTABS_QUERY_NAV_STATE = WM_APP + 85;  // Returns: LOWORD=canGoBack, HIWORD=canGoForward
 
 enum class HistoryMenuKind : uint32_t {
     kBack = 0,

@@ -164,8 +164,10 @@ IFACEMETHODIMP BrowserEvents::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DI
                 return S_OK;
             }
             break;
-        case DISPID_DOCUMENTCOMPLETE:
         case DISPID_NAVIGATECOMPLETE2:
+            // Only handle NAVIGATECOMPLETE2, not DOCUMENTCOMPLETE.
+            // Both events fire for each navigation, but we only want to process once
+            // to avoid double-recording navigation history and corrupting m_internalNavigation state.
             m_owner->OnBrowserNavigate();
             break;
         case DISPID_NEWWINDOW2:

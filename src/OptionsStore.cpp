@@ -1028,6 +1028,7 @@ OptionsStore& OptionsStore::Instance() {
 }
 
 bool OptionsStore::EnsureLoaded(std::wstring* errorContext) const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (m_loaded) {
         if (errorContext) {
             errorContext->clear();
@@ -1055,6 +1056,7 @@ std::wstring OptionsStore::ResolveStoragePath() const {
 }
 
 bool OptionsStore::Load(std::wstring* errorContext) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     m_options = {};
 
     m_storagePath = ResolveStoragePath();
@@ -1512,6 +1514,7 @@ bool OptionsStore::Load(std::wstring* errorContext) {
 }
 
 bool OptionsStore::Save() const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!EnsureLoaded()) {
         return false;
     }

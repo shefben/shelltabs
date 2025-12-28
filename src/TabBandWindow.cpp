@@ -7326,6 +7326,14 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_QUERY_NAV_STATE: {
+                if (!self->m_owner) {
+                    return 0;
+                }
+                const bool canGoBack = self->m_owner->CanNavigateBack();
+                const bool canGoForward = self->m_owner->CanNavigateForward();
+                return MAKELONG(canGoBack ? 1 : 0, canGoForward ? 1 : 0);
+            }
             case WM_SHELLTABS_SHOW_HISTORY_MENU: {
                 if (!self->m_owner) {
                     return 0;
