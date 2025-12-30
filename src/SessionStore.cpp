@@ -710,6 +710,9 @@ bool SessionStore::LoadWithRetry(SessionData& data, int maxRetries) const {
                         Sleep(100 * attempt); // Wait before retry
                         continue;
                     }
+                    // All retries exhausted - delete corrupted session
+                    NotifySessionChecksumMismatch(m_storagePath);
+                    DeleteCorruptedSession();
                     return false;
 
                 case SessionFileStatus::kParseError:
@@ -724,6 +727,8 @@ bool SessionStore::LoadWithRetry(SessionData& data, int maxRetries) const {
                         Sleep(100 * attempt); // Wait before retry
                         continue;
                     }
+                    // All retries exhausted - delete corrupted session
+                    DeleteCorruptedSession();
                     return false;
             }
         }
@@ -734,11 +739,14 @@ bool SessionStore::LoadWithRetry(SessionData& data, int maxRetries) const {
                 Sleep(200 * attempt); // Longer wait after exception
                 continue;
             }
+            // All retries exhausted - delete corrupted session
+            DeleteCorruptedSession();
             return false;
         }
     }
 
     LogMessage(LogLevel::Error, L"SessionStore::LoadWithRetry failed after %d attempts", maxRetries);
+    DeleteCorruptedSession();
     return false;
 }
 
@@ -973,6 +981,70 @@ bool SessionStore::Save(const SessionData& data) const {
 
     m_lastSerializedSnapshot = std::move(serialized);
     return true;
+}
+
+void SessionStore::DeleteCorruptedSession() const {
+    LogMessage(LogLevel::Warning, L"SessionStore::DeleteCorruptedSession deleting corrupted session files for %ls",
+               m_storagePath.c_str());
+
+    // Delete the main session file
+    if (!m_storagePath.empty()) {
+        if (DeleteFileW(m_storagePath.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionStore deleted corrupted session file %ls", m_storagePath.c_str());
+        } else {
+            const DWORD error = GetLastError();
+            if (error != ERROR_FILE_NOT_FOUND) {
+                LogMessage(LogLevel::Warning, L"SessionStore failed to delete session file %ls (error=%lu)",
+                           m_storagePath.c_str(), error);
+            }
+        }
+    }
+
+    // Delete the marker/lock file
+    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
+    if (!markerPath.empty()) {
+        if (DeleteFileW(markerPath.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionStore deleted marker file %ls", markerPath.c_str());
+        } else {
+            const DWORD error = GetLastError();
+            if (error != ERROR_FILE_NOT_FOUND) {
+                LogMessage(LogLevel::Warning, L"SessionStore failed to delete marker file %ls (error=%lu)",
+                           markerPath.c_str(), error);
+            }
+        }
+    }
+
+    // Delete the checkpoint file
+    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
+    if (!checkpointPath.empty()) {
+        if (DeleteFileW(checkpointPath.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionStore deleted checkpoint file %ls", checkpointPath.c_str());
+        } else {
+            const DWORD error = GetLastError();
+            if (error != ERROR_FILE_NOT_FOUND) {
+                LogMessage(LogLevel::Warning, L"SessionStore failed to delete checkpoint file %ls (error=%lu)",
+                           checkpointPath.c_str(), error);
+            }
+        }
+    }
+
+    // Delete the temp file
+    const std::wstring tempPath = BuildTempPath(m_storagePath);
+    if (!tempPath.empty()) {
+        if (DeleteFileW(tempPath.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionStore deleted temp file %ls", tempPath.c_str());
+        } else {
+            const DWORD error = GetLastError();
+            if (error != ERROR_FILE_NOT_FOUND) {
+                LogMessage(LogLevel::Warning, L"SessionStore failed to delete temp file %ls (error=%lu)",
+                           tempPath.c_str(), error);
+            }
+        }
+    }
+
+    // Reset internal state
+    m_lastSerializedSnapshot.reset();
+    m_pendingCheckpointCleanup = false;
 }
 
 }  // namespace shelltabs

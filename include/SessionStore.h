@@ -83,6 +83,7 @@ private:
     bool TryRestoreFromCheckpoint(SessionData& data, const wchar_t* reason) const;
     void CleanupCheckpoint(const std::wstring& checkpointPath) const;
     void CreateEmptySession() const;
+    void DeleteCorruptedSession() const;
 };
 
 }  // namespace shelltabs

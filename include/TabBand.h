@@ -280,6 +280,12 @@ private:
     std::wstring ResolveWindowToken();
     void ReleaseWindowToken();
     void CaptureActiveTabPreview();
+
+    // Scroll position preservation
+    bool GetCurrentScrollPosition(POINT& outPosition);
+    bool SetCurrentScrollPosition(const POINT& position);
+    void SaveCurrentTabScrollPosition();
+    void RestoreCurrentTabScrollPosition();
 };
 
 }  // namespace shelltabs

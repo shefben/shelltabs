@@ -88,12 +88,23 @@ void DiscoverOrphanedSessionTokens(WindowTokenState& state) {
         return;
     }
 
+    // Get current time for age comparison
+    FILETIME nowFt{};
+    GetSystemTimeAsFileTime(&nowFt);
+    const ULONGLONG now = (static_cast<ULONGLONG>(nowFt.dwHighDateTime) << 32) | nowFt.dwLowDateTime;
+
+    // 24 hours in 100-nanosecond intervals: 24 * 60 * 60 * 10,000,000
+    constexpr ULONGLONG kMaxAgeInterval = 864000000000ULL;
+    // 1 hour grace period for very recent sessions
+    constexpr ULONGLONG kMinAgeInterval = 36000000000ULL;
+
     struct CandidateToken {
         std::wstring token;
         ULONGLONG timestamp = 0;
     };
 
     std::vector<CandidateToken> candidates;
+    std::vector<std::wstring> staleFilesToDelete;
 
     constexpr size_t kPrefixLength = ARRAYSIZE(kSessionFilePrefix) - 1;
     constexpr size_t kLockSuffixLength = ARRAYSIZE(kSessionLockSuffix) - 1;
@@ -121,30 +132,72 @@ void DiscoverOrphanedSessionTokens(WindowTokenState& state) {
             continue;
         }
 
+        std::wstring lockPath = directory + fileName;
         std::wstring sessionPath = directory;
         sessionPath += kSessionFilePrefix;
         sessionPath += token;
         sessionPath += kSessionDbSuffix;
+
+        const ULONGLONG fileTime = (static_cast<ULONGLONG>(findData.ftLastWriteTime.dwHighDateTime) << 32) |
+                                   findData.ftLastWriteTime.dwLowDateTime;
+        const ULONGLONG age = (now > fileTime) ? (now - fileTime) : 0;
+
+        // Delete stale lock files (older than 24 hours)
+        if (age > kMaxAgeInterval) {
+            LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: deleting stale lock file %ls (age > 24h)",
+                       lockPath.c_str());
+            staleFilesToDelete.push_back(lockPath);
+            staleFilesToDelete.push_back(sessionPath);  // Also delete the session file
+            continue;
+        }
+
+        // Skip sessions that don't have a corresponding .db file
         if (GetFileAttributesW(sessionPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            staleFilesToDelete.push_back(lockPath);  // Clean up orphaned lock file
+            continue;
+        }
+
+        // Skip very recent sessions (less than 1 hour old) - they might still be in use
+        if (age < kMinAgeInterval) {
+            LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: skipping recent session %ls (age < 1h)",
+                       token.c_str());
             continue;
         }
 
         CandidateToken candidate;
         candidate.token = std::move(token);
-        candidate.timestamp = (static_cast<ULONGLONG>(findData.ftLastWriteTime.dwHighDateTime) << 32) |
-                              findData.ftLastWriteTime.dwLowDateTime;
+        candidate.timestamp = fileTime;
         candidates.emplace_back(std::move(candidate));
     } while (FindNextFileW(findHandle, &findData));
 
     FindClose(findHandle);
 
+    // Delete stale files
+    for (const auto& path : staleFilesToDelete) {
+        DeleteFileW(path.c_str());
+    }
+
+    // Sort by timestamp (most recent first)
     std::sort(candidates.begin(), candidates.end(), [](const CandidateToken& left, const CandidateToken& right) {
         return left.timestamp > right.timestamp;
     });
 
-    for (auto& candidate : candidates) {
-        if (!candidate.token.empty()) {
-            state.orphanTokens.emplace_back(std::move(candidate.token));
+    // Only adopt the most recent orphaned session (limit to 1 to prevent cycles)
+    // If there are multiple crashed sessions, they were probably all from the same crash
+    // and restoring just one is sufficient
+    if (!candidates.empty()) {
+        LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: found %llu orphaned sessions, adopting most recent: %ls",
+                   static_cast<unsigned long long>(candidates.size()), candidates[0].token.c_str());
+        state.orphanTokens.emplace_back(std::move(candidates[0].token));
+
+        // Clean up the rest - they're likely stale
+        for (size_t i = 1; i < candidates.size(); ++i) {
+            std::wstring lockPath = directory + kSessionFilePrefix + candidates[i].token + kSessionLockSuffix;
+            std::wstring sessionPath = directory + kSessionFilePrefix + candidates[i].token + kSessionDbSuffix;
+            LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: cleaning up extra orphaned session %ls",
+                       candidates[i].token.c_str());
+            DeleteFileW(lockPath.c_str());
+            DeleteFileW(sessionPath.c_str());
         }
     }
 }
@@ -702,6 +755,13 @@ void TabBand::OnBrowserNavigate() {
     EnsureTabForCurrentFolder();
     UpdateTabsUI();
     CaptureActiveTabPreview();
+
+    // Restore scroll position for the tab we just navigated to
+    // This is only relevant for internal navigations (tab switches)
+    if (m_internalNavigation) {
+        RestoreCurrentTabScrollPosition();
+    }
+
     m_internalNavigation = false;
 }
 
@@ -737,6 +797,7 @@ bool TabBand::OnCtrlBeforeNavigate(const std::wstring& url) {
     TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist new tab
     if (location.IsValid()) {
         QueueNavigateTo(location);
     }
@@ -784,6 +845,7 @@ void TabBand::OnNewTabRequested(int targetGroup) {
         TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, targetGroup);
         UpdateTabsUI();
         SyncAllSavedGroups();
+        SaveSession();  // Immediately persist new tab
         if (location.IsValid()) {
             NavigateToTab(location);
         }
@@ -1305,6 +1367,7 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
     }
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist tab removal
     if (!removedGroupId.empty()) {
         GroupStore::Instance().UpdateTabs(removedGroupId, {});
     }
@@ -1337,6 +1400,7 @@ void TabBand::OnCloneTabRequested(TabLocation location) {
     TabLocation newLocation = m_tabs.Add(std::move(clone), name, tooltip, true, location.groupIndex, tab->pinned);
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist cloned tab
     if (newLocation.IsValid()) {
         NavigateToTab(newLocation);
     }
@@ -1355,6 +1419,7 @@ void TabBand::OnToggleTabPinned(TabLocation location) {
     }
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist pin state change
 }
 
 void TabBand::OnNavigateBack() {
@@ -1532,16 +1597,19 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
 void TabBand::OnToggleGroupCollapsed(int groupIndex) {
     m_tabs.ToggleGroupCollapsed(groupIndex);
     UpdateTabsUI();
+    SaveSession();  // Immediately persist collapse state
 }
 
 void TabBand::OnUnhideAllInGroup(int groupIndex) {
     m_tabs.UnhideAllInGroup(groupIndex);
     UpdateTabsUI();
+    SaveSession();  // Immediately persist unhide operation
 }
 
 void TabBand::OnCreateIslandAfter(int groupIndex) {
     m_tabs.CreateGroupAfter(groupIndex);
     UpdateTabsUI();
+    SaveSession();  // Immediately persist new island
     SyncAllSavedGroups();
 }
 
@@ -1625,6 +1693,7 @@ void TabBand::OnEditGroupProperties(int groupIndex) {
 
     UpdateTabsUI();
     SyncSavedGroup(groupIndex);
+    SaveSession();  // Immediately persist group name/color changes
 
     if (!group->savedGroupId.empty() && colorChanged) {
         auto& store = GroupStore::Instance();
@@ -1655,23 +1724,27 @@ void TabBand::OnDetachGroupRequested(int groupIndex) {
     }
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist detached group
 }
 
 void TabBand::OnMoveTabRequested(TabLocation from, TabLocation to) {
     m_tabs.MoveTab(from, to);
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist tab move
 }
 
 void TabBand::OnMoveGroupRequested(int fromGroup, int toGroup) {
     m_tabs.MoveGroup(fromGroup, toGroup);
     UpdateTabsUI();
+    SaveSession();  // Immediately persist group move
 }
 
 void TabBand::OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible) {
     m_tabs.MoveTabToNewGroup(from, insertIndex, headerVisible);
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist tab move to new group
 }
 
 std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool* wasSelected,
@@ -1744,6 +1817,7 @@ TabLocation TabBand::InsertTransferredTab(TabInfo tab, int groupIndex, int tabIn
     TabLocation inserted = m_tabs.InsertTab(std::move(tab), groupIndex, tabIndex, select);
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist inserted tab
     if (select && inserted.IsValid()) {
         NavigateToTab(inserted);
     }
@@ -1771,6 +1845,7 @@ std::optional<TabGroup> TabBand::DetachGroupForTransfer(int groupIndex, bool* wa
 
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist group removal
 
     return removed;
 }
@@ -1793,6 +1868,7 @@ int TabBand::InsertTransferredGroup(TabGroup group, int insertIndex, bool select
 
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();  // Immediately persist transferred group
 
     return insertIndex;
 }
@@ -1800,6 +1876,7 @@ int TabBand::InsertTransferredGroup(TabGroup group, int insertIndex, bool select
 void TabBand::OnSetGroupHeaderVisible(int groupIndex, bool visible) {
     m_tabs.SetGroupHeaderVisible(groupIndex, visible);
     UpdateTabsUI();
+    SaveSession();  // Immediately persist group header visibility change
 }
 
 void TabBand::OnOpenTerminal(TabLocation location) {
@@ -2045,6 +2122,138 @@ void TabBand::CaptureActiveTabPreview() {
 
     PreviewCache::Instance().StorePreviewFromWindow(tab->pidl.get(), viewWindow, kPreviewImageSize,
                                                     ResolveWindowToken());
+}
+
+bool TabBand::GetCurrentScrollPosition(POINT& outPosition) {
+    outPosition = {0, 0};
+
+    if (!m_shellBrowser) {
+        return false;
+    }
+
+    IShellView* rawView = nullptr;
+    if (FAILED(m_shellBrowser->QueryActiveShellView(&rawView)) || !rawView) {
+        return false;
+    }
+
+    ComPtr<IShellView> shellView;
+    shellView.Attach(rawView);
+
+    HWND viewWindow = nullptr;
+    if (FAILED(shellView->GetWindow(&viewWindow)) || !viewWindow) {
+        return false;
+    }
+
+    // Try to find the actual scrollable window
+    // First check if the DefView window has scroll info
+    SCROLLINFO siVert = {sizeof(SCROLLINFO), SIF_ALL};
+    SCROLLINFO siHorz = {sizeof(SCROLLINFO), SIF_ALL};
+
+    // Try the view window itself
+    bool hasVertScroll = GetScrollInfo(viewWindow, SB_VERT, &siVert) != FALSE;
+    bool hasHorzScroll = GetScrollInfo(viewWindow, SB_HORZ, &siHorz) != FALSE;
+
+    // If no scroll on the view window, try to find a ListView child
+    if (!hasVertScroll && !hasHorzScroll) {
+        HWND listView = FindWindowExW(viewWindow, nullptr, WC_LISTVIEWW, nullptr);
+        if (listView) {
+            hasVertScroll = GetScrollInfo(listView, SB_VERT, &siVert) != FALSE;
+            hasHorzScroll = GetScrollInfo(listView, SB_HORZ, &siHorz) != FALSE;
+        }
+    }
+
+    if (hasVertScroll || hasHorzScroll) {
+        outPosition.x = hasHorzScroll ? siHorz.nPos : 0;
+        outPosition.y = hasVertScroll ? siVert.nPos : 0;
+        return true;
+    }
+
+    return false;
+}
+
+bool TabBand::SetCurrentScrollPosition(const POINT& position) {
+    if (!m_shellBrowser) {
+        return false;
+    }
+
+    IShellView* rawView = nullptr;
+    if (FAILED(m_shellBrowser->QueryActiveShellView(&rawView)) || !rawView) {
+        return false;
+    }
+
+    ComPtr<IShellView> shellView;
+    shellView.Attach(rawView);
+
+    HWND viewWindow = nullptr;
+    if (FAILED(shellView->GetWindow(&viewWindow)) || !viewWindow) {
+        return false;
+    }
+
+    // Find the scrollable window
+    HWND scrollableWindow = viewWindow;
+    SCROLLINFO siVert = {sizeof(SCROLLINFO), SIF_ALL};
+    if (!GetScrollInfo(viewWindow, SB_VERT, &siVert)) {
+        // Try to find a ListView child
+        HWND listView = FindWindowExW(viewWindow, nullptr, WC_LISTVIEWW, nullptr);
+        if (listView) {
+            scrollableWindow = listView;
+        }
+    }
+
+    // Set scroll positions
+    bool success = false;
+
+    if (position.y != 0) {
+        SCROLLINFO siSet = {sizeof(SCROLLINFO), SIF_POS};
+        siSet.nPos = position.y;
+        SetScrollInfo(scrollableWindow, SB_VERT, &siSet, TRUE);
+        // Also send scroll message to ensure the view updates
+        SendMessageW(scrollableWindow, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, position.y), 0);
+        SendMessageW(scrollableWindow, WM_VSCROLL, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+        success = true;
+    }
+
+    if (position.x != 0) {
+        SCROLLINFO siSet = {sizeof(SCROLLINFO), SIF_POS};
+        siSet.nPos = position.x;
+        SetScrollInfo(scrollableWindow, SB_HORZ, &siSet, TRUE);
+        SendMessageW(scrollableWindow, WM_HSCROLL, MAKEWPARAM(SB_THUMBPOSITION, position.x), 0);
+        SendMessageW(scrollableWindow, WM_HSCROLL, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+        success = true;
+    }
+
+    return success;
+}
+
+void TabBand::SaveCurrentTabScrollPosition() {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    auto* tab = m_tabs.Get(selected);
+    if (!tab) {
+        return;
+    }
+
+    POINT scrollPos;
+    if (GetCurrentScrollPosition(scrollPos)) {
+        tab->scrollPosition = scrollPos;
+        tab->hasScrollPosition = true;
+        LogMessage(LogLevel::Info, L"TabBand::SaveCurrentTabScrollPosition saved scroll position (%ld, %ld) for tab %ls",
+                   scrollPos.x, scrollPos.y, tab->name.c_str());
+    }
+}
+
+void TabBand::RestoreCurrentTabScrollPosition() {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const auto* tab = m_tabs.Get(selected);
+    if (!tab || !tab->hasScrollPosition) {
+        return;
+    }
+
+    if (tab->scrollPosition.x != 0 || tab->scrollPosition.y != 0) {
+        if (SetCurrentScrollPosition(tab->scrollPosition)) {
+            LogMessage(LogLevel::Info, L"TabBand::RestoreCurrentTabScrollPosition restored scroll position (%ld, %ld) for tab %ls",
+                       tab->scrollPosition.x, tab->scrollPosition.y, tab->name.c_str());
+        }
+    }
 }
 
 void TabBand::EnsureWindow() {
@@ -2422,15 +2631,18 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
 
 void TabBand::SaveSession() {
     if (m_restoringSession) {
+        LogMessage(LogLevel::Info, L"TabBand::SaveSession skipped - restoring session");
         return;
     }
 
     if (!m_sessionPersistenceReady) {
+        LogMessage(LogLevel::Warning, L"TabBand::SaveSession skipped - persistence not ready");
         return;
     }
 
     EnsureSessionStore();
     if (!m_sessionStore) {
+        LogMessage(LogLevel::Warning, L"TabBand::SaveSession skipped - no session store");
         return;
     }
 
@@ -2504,10 +2716,22 @@ void TabBand::SaveSession() {
     }
 
     if (data.groups.empty()) {
+        LogMessage(LogLevel::Warning, L"TabBand::SaveSession skipped - no groups to save");
         return;
     }
 
-    m_sessionStore->Save(data);
+    int totalTabs = 0;
+    for (const auto& g : data.groups) {
+        totalTabs += static_cast<int>(g.tabs.size());
+    }
+
+    if (m_sessionStore->Save(data)) {
+        LogMessage(LogLevel::Info, L"TabBand::SaveSession saved %d groups, %d tabs",
+                   static_cast<int>(data.groups.size()), totalTabs);
+    } else {
+        LogMessage(LogLevel::Error, L"TabBand::SaveSession FAILED to save %d groups, %d tabs",
+                   static_cast<int>(data.groups.size()), totalTabs);
+    }
 }
 
 void TabBand::StartSessionFlushTimer() {
@@ -2790,6 +3014,8 @@ void TabBand::NavigateToTab(TabLocation location) {
 
     const auto current = m_tabs.SelectedLocation();
     if (current.groupIndex != location.groupIndex || current.tabIndex != location.tabIndex) {
+        // Save scroll position and preview before navigating away
+        SaveCurrentTabScrollPosition();
         CaptureActiveTabPreview();
     }
 
@@ -2845,11 +3071,11 @@ void TabBand::EnsureTabForCurrentFolder() {
             }
 
             if (tab->navigationHistory.entries.empty()) {
+                // History was not initialized (shouldn't happen now that we initialize on tab creation)
+                // Record current location as a safety fallback
                 m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
-            }
-
-            // Record navigation in history if location changed
-            if (!m_internalNavigation && oldPath != tab->path) {
+            } else if (!m_internalNavigation && oldPath != tab->path) {
+                // Record navigation in history if location changed and this is not back/forward navigation
                 m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
             }
 
@@ -2891,6 +3117,12 @@ void TabBand::EnsureTabForCurrentFolder() {
     TabLocation location = m_tabs.Add(std::move(clone), name, name, true);
     if (!location.IsValid()) {
         return;
+    }
+
+    // Initialize navigation history with the starting location
+    // This ensures back/forward navigation works correctly from the first navigation
+    if (auto* newTab = m_tabs.Get(location)) {
+        m_tabs.RecordNavigation(location, ClonePidl(newTab->pidl.get()), newTab->path, newTab->name);
     }
 
     if (shouldHideIndicator) {

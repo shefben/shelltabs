@@ -104,6 +104,8 @@ struct TabInfo {
     uint64_t activationOrdinal = 0;
     uint64_t activationEpoch = 0;
     NavigationHistory navigationHistory;
+    POINT scrollPosition = {0, 0};  // Saved scroll position (x=horizontal, y=vertical)
+    bool hasScrollPosition = false; // Whether scrollPosition is valid
 
     void RefreshNormalizedLookupKey();
 };
