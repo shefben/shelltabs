@@ -2022,9 +2022,27 @@ HWND TabBand::GetFrameWindow() const {
 
 TabManager::ExplorerWindowId TabBand::BuildWindowId() const {
     TabManager::ExplorerWindowId id;
+
+    // Add validation for destroying state
+    if (m_isDestroying.load()) {
+        LogMessage(LogLevel::Warning, L"TabBand::BuildWindowId called during destruction");
+        return id; // Return invalid ID if destroying
+    }
+
     id.hwnd = GetFrameWindow();
+    if (id.hwnd && !IsWindow(id.hwnd)) {
+        LogMessage(LogLevel::Warning, L"TabBand::BuildWindowId invalid window handle");
+        id.hwnd = nullptr; // Validate window handle
+    }
+
     if (m_webBrowser) {
-        id.frameCookie = reinterpret_cast<uintptr_t>(m_webBrowser.Get());
+        // Add COM interface validation
+        Microsoft::WRL::ComPtr<IUnknown> test;
+        if (SUCCEEDED(m_webBrowser.As(&test)) && test) {
+            id.frameCookie = reinterpret_cast<uintptr_t>(m_webBrowser.Get());
+        } else {
+            LogMessage(LogLevel::Warning, L"TabBand::BuildWindowId invalid webBrowser interface");
+        }
     }
     return id;
 }
@@ -2357,7 +2375,18 @@ void TabBand::DisconnectSite() {
 
     // Step 3: Cancel pending operations safely
     try {
-        m_tabs.ClearWindowId();
+        // Add double-check for destruction state before clearing window ID
+        if (m_isDestroying.load()) {
+            LogMessage(LogLevel::Info, L"TabBand::DisconnectSite already destroying, skipping window map cleanup");
+        } else {
+            m_tabs.ClearWindowId();
+
+            // Add validation after clearing to detect concurrent destruction
+            if (m_isDestroying.load()) {
+                LogMessage(LogLevel::Warning, L"TabBand::DisconnectSite destruction started during window map cleanup");
+                return;
+            }
+        }
 
         // Cancel previews with bounds checking
         for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {

@@ -151,7 +151,7 @@ uint64_t ComputeTabViewStableId(const TabViewItem& item) noexcept {
 }
 
 std::mutex TabManager::s_windowMutex;
-std::unordered_map<TabManager::ExplorerWindowId, TabManager*, TabManager::ExplorerWindowIdHash>
+std::unordered_map<TabManager::ExplorerWindowId, std::weak_ptr<TabManager>, TabManager::ExplorerWindowIdHash>
     TabManager::s_windowMap;
 
 TabManager::TabManager() {
@@ -175,7 +175,16 @@ TabManager* TabManager::Find(ExplorerWindowId id) {
     if (it == s_windowMap.end()) {
         return nullptr;
     }
-    return it->second;
+
+    // Try to lock the weak_ptr to get a shared_ptr
+    auto shared = it->second.lock();
+    if (!shared) {
+        // Object has been destroyed, remove from map
+        s_windowMap.erase(it);
+        return nullptr;
+    }
+
+    return shared.get();
 }
 
 void TabManager::SetWindowId(ExplorerWindowId id) {
@@ -185,13 +194,23 @@ void TabManager::SetWindowId(ExplorerWindowId id) {
     }
     if (m_windowId.IsValid()) {
         auto existing = s_windowMap.find(m_windowId);
-        if (existing != s_windowMap.end() && existing->second == this) {
-            s_windowMap.erase(existing);
+        if (existing != s_windowMap.end()) {
+            // Check if the weak_ptr points to this object
+            auto shared = existing->second.lock();
+            if (!shared || shared.get() == this) {
+                s_windowMap.erase(existing);
+            }
         }
     }
     m_windowId = id;
     if (m_windowId.IsValid()) {
-        s_windowMap[m_windowId] = this;
+        // Store weak_ptr to self - requires shared_ptr context
+        try {
+            s_windowMap[m_windowId] = weak_from_this();
+        } catch (const std::bad_weak_ptr&) {
+            // If not managed by shared_ptr, skip registration
+            // This can happen for static instances
+        }
     }
 }
 
@@ -201,8 +220,11 @@ void TabManager::ClearWindowId() {
         return;
     }
     auto existing = s_windowMap.find(m_windowId);
-    if (existing != s_windowMap.end() && existing->second == this) {
-        s_windowMap.erase(existing);
+    if (existing != s_windowMap.end()) {
+        auto shared = existing->second.lock();
+        if (!shared || shared.get() == this) {
+            s_windowMap.erase(existing);
+        }
     }
     m_windowId = {};
 }
@@ -210,6 +232,22 @@ void TabManager::ClearWindowId() {
 size_t TabManager::ActiveWindowCount() {
     std::scoped_lock lock(s_windowMutex);
     return s_windowMap.size();
+}
+
+std::shared_ptr<TabManager> TabManager::GetSharedThis() {
+    try {
+        return shared_from_this();
+    } catch (const std::bad_weak_ptr&) {
+        return nullptr;
+    }
+}
+
+std::weak_ptr<TabManager> TabManager::GetWeakThis() {
+    try {
+        return weak_from_this();
+    } catch (const std::bad_weak_ptr&) {
+        return std::weak_ptr<TabManager>{};
+    }
 }
 
 int TabManager::TotalTabCount() const noexcept {

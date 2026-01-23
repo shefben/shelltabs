@@ -8,6 +8,7 @@
 #include <vector>
 #include <functional>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 
@@ -171,7 +172,7 @@ struct TabProgressUpdatePayload {
     std::vector<TabProgressSnapshotEntry> entries;
 };
 
-class TabManager {
+class TabManager : public std::enable_shared_from_this<TabManager> {
 public:
     struct ExplorerWindowId {
         HWND hwnd = nullptr;
@@ -349,7 +350,11 @@ private:
     std::unordered_map<uint64_t, ActivationList::iterator> m_activationLookup;
 
     static std::mutex s_windowMutex;
-    static std::unordered_map<ExplorerWindowId, TabManager*, ExplorerWindowIdHash> s_windowMap;
+    static std::unordered_map<ExplorerWindowId, std::weak_ptr<TabManager>, ExplorerWindowIdHash> s_windowMap;
+
+    // Enable shared_from_this for safe lifetime management
+    std::shared_ptr<TabManager> GetSharedThis();
+    std::weak_ptr<TabManager> GetWeakThis();
 };
 
 }  // namespace shelltabs

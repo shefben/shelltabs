@@ -348,6 +348,7 @@ struct ShellTabsOptions;
 		DWORD m_connectionCookie = 0;
 		bool m_bandVisible = false;
 		bool m_shouldRetryEnsure = true;
+		bool m_isDisconnecting = false;
 		HWND m_breadcrumbToolbar = nullptr;
 		bool m_breadcrumbSubclassInstalled = false;
 		bool m_breadcrumbGradientEnabled = false;

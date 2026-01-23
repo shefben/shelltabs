@@ -440,6 +440,7 @@ struct TransferPayload {
     } type = Type::None;
     TabBand* source = nullptr;
     TabBand* target = nullptr;
+    TabBandWindow* sourceWindow = nullptr;  // Added for window validation
     bool select = false;
     int targetGroupIndex = -1;
     int targetTabIndex = -1;
@@ -6468,6 +6469,7 @@ bool TabBandWindow::TryCompleteExternalDrop() {
     payload->headerVisible = !target.floating;
     payload->select = m_drag.originSelected;
     payload->source = m_owner;
+    payload->sourceWindow = this;  // Track source window for validation
     bool closeSourceWindow = false;
 
     if (m_drag.origin.type == HitType::kGroupHeader) {
@@ -6577,6 +6579,31 @@ void TabBandWindow::HandleExternalDropExecute() {
 
     if (!payload || !m_owner) {
         return;
+    }
+
+    // Validate source window is still valid before processing transfer
+    if (payload->sourceWindow) {
+        HWND sourceHwnd = payload->sourceWindow->GetHwnd();
+        if (!sourceHwnd || !IsWindow(sourceHwnd)) {
+            LogMessage(LogLevel::Warning, L"Source window invalid during drop execute - transfer cancelled");
+            return; // Source window already closed
+        }
+
+        // Additional check for source TabBand validity
+        if (payload->source) {
+            // Check if source TabBand is in destroying state
+            // Note: This accesses m_isDestroying through friend access or public method
+            try {
+                auto sourceWindowId = payload->source->BuildWindowId();
+                if (!sourceWindowId.IsValid()) {
+                    LogMessage(LogLevel::Warning, L"Source TabBand invalid during drop execute - transfer cancelled");
+                    return;
+                }
+            } catch (...) {
+                LogMessage(LogLevel::Error, L"Exception validating source TabBand during drop execute");
+                return;
+            }
+        }
     }
 
     if (payload->type == TransferPayload::Type::Tab) {

@@ -1254,19 +1254,57 @@ IFACEMETHODIMP CExplorerBHO::GetIDsOfNames(REFIID riid, LPOLESTR* rgszNames, UIN
 }
 
 void CExplorerBHO::Disconnect() {
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 1 - begin");
+    // Set disconnecting flag to skip unnecessary operations during cleanup
+    m_isDisconnecting = true;
+
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 2 - CancelAllEnsureRetries");
     CancelAllEnsureRetries();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 3 - CancelOpenInNewTabRetry");
     CancelOpenInNewTabRetry();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 4 - clear states");
     m_bandEnsureStates.clear();
     m_openInNewTabQueue.clear();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 5 - RemoveBreadcrumbHook");
     RemoveBreadcrumbHook();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 6 - RemoveBreadcrumbSubclass");
     RemoveBreadcrumbSubclass();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 7 - RemoveProgressSubclass");
     RemoveProgressSubclass();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 8 - RemoveTravelBandSubclass");
     RemoveTravelBandSubclass();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9 - RemoveAddressEditSubclass");
     RemoveAddressEditSubclass();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 10 - DisconnectEvents");
     DisconnectEvents();
-    m_webBrowser.Reset();
-    m_shellBrowser.Reset();
-    m_site.Reset();
+
+    // Use SEH to guard COM interface releases - these can crash if the
+    // underlying objects are being torn down by Explorer during window close
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 11 - m_webBrowser.Reset");
+    __try {
+        m_webBrowser.Reset();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"CExplorerBHO::Disconnect m_webBrowser.Reset() SEH exception");
+        m_webBrowser.Detach();  // Abandon without Release to avoid crash
+    }
+
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 12 - m_shellBrowser.Reset");
+    __try {
+        m_shellBrowser.Reset();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"CExplorerBHO::Disconnect m_shellBrowser.Reset() SEH exception");
+        m_shellBrowser.Detach();
+    }
+
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 13 - m_site.Reset");
+    __try {
+        m_site.Reset();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"CExplorerBHO::Disconnect m_site.Reset() SEH exception");
+        m_site.Detach();
+    }
+
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 14 - final cleanup");
     m_bandVisible = false;
     m_shouldRetryEnsure = true;
     m_breadcrumbLogState = BreadcrumbLogState::Unknown;
@@ -1274,6 +1312,9 @@ void CExplorerBHO::Disconnect() {
     m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
     ClearFolderBackgrounds();
     m_currentFolderKey.clear();
+
+    m_isDisconnecting = false;
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 15 - complete");
 }
 
 
@@ -1641,7 +1682,16 @@ HRESULT CExplorerBHO::ConnectEvents() {
 
 void CExplorerBHO::DisconnectEvents() {
     if (m_connectionPoint && m_connectionCookie != 0) {
-        m_connectionPoint->Unadvise(m_connectionCookie);
+        // Use SEH to guard against access violations when the connection point
+        // infrastructure has been partially torn down during window close.
+        // This can happen when TabBand is destroyed before CExplorerBHO disconnects.
+        __try {
+            m_connectionPoint->Unadvise(m_connectionCookie);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            LogMessage(LogLevel::Warning,
+                       L"CExplorerBHO::DisconnectEvents Unadvise failed with SEH exception (cookie=%lu)",
+                       m_connectionCookie);
+        }
     }
     m_connectionPoint.Reset();
     m_connectionCookie = 0;
@@ -3904,20 +3954,24 @@ bool CExplorerBHO::InstallTravelBandSubclass(HWND travelBand, HWND toolbar) {
 }
 
 void CExplorerBHO::RemoveTravelBandSubclass() {
-    if (m_travelBand && m_travelBandSubclassInstalled) {
-        if (IsWindow(m_travelBand)) {
-            RemoveWindowSubclass(m_travelBand, &CExplorerBHO::TravelBandSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
+    __try {
+        if (m_travelBand && m_travelBandSubclassInstalled) {
+            if (IsWindow(m_travelBand)) {
+                RemoveWindowSubclass(m_travelBand, &CExplorerBHO::TravelBandSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+            }
         }
-    }
-    if (m_travelToolbar && m_travelToolbarSubclassInstalled) {
-        if (IsWindow(m_travelToolbar)) {
-            RemoveWindowSubclass(m_travelToolbar, &CExplorerBHO::TravelToolbarSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
+        if (m_travelToolbar && m_travelToolbarSubclassInstalled) {
+            if (IsWindow(m_travelToolbar)) {
+                RemoveWindowSubclass(m_travelToolbar, &CExplorerBHO::TravelToolbarSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+            }
         }
+        ReleaseTravelToolbarCapture();
+        ResetTravelToolbarButtonState();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"RemoveTravelBandSubclass SEH exception");
     }
-    ReleaseTravelToolbarCapture();
-    ResetTravelToolbarButtonState();
     m_travelBand = nullptr;
     m_travelToolbar = nullptr;
     m_travelBandSubclassInstalled = false;
@@ -4271,9 +4325,16 @@ void CExplorerBHO::ReleaseTravelToolbarCapture() {
 void CExplorerBHO::RemoveBreadcrumbSubclass() {
     if (m_breadcrumbToolbar && m_breadcrumbSubclassInstalled) {
         if (IsWindow(m_breadcrumbToolbar)) {
-            RemoveWindowSubclass(m_breadcrumbToolbar, &CExplorerBHO::BreadcrumbSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-            InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
+            __try {
+                RemoveWindowSubclass(m_breadcrumbToolbar, &CExplorerBHO::BreadcrumbSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+                // Only invalidate if not disconnecting - window may be destroyed
+                if (!m_isDisconnecting) {
+                    InvalidateRect(m_breadcrumbToolbar, nullptr, TRUE);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                LogMessage(LogLevel::Warning, L"RemoveBreadcrumbSubclass SEH exception");
+            }
         }
     }
     m_breadcrumbToolbar = nullptr;
@@ -4290,9 +4351,16 @@ void CExplorerBHO::RemoveBreadcrumbSubclass() {
 void CExplorerBHO::RemoveProgressSubclass() {
     if (m_progressWindow && m_progressSubclassInstalled) {
         if (IsWindow(m_progressWindow)) {
-            RemoveWindowSubclass(m_progressWindow, &CExplorerBHO::ProgressSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-            InvalidateRect(m_progressWindow, nullptr, TRUE);
+            __try {
+                RemoveWindowSubclass(m_progressWindow, &CExplorerBHO::ProgressSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+                // Only invalidate if not disconnecting - window may be destroyed
+                if (!m_isDisconnecting) {
+                    InvalidateRect(m_progressWindow, nullptr, TRUE);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                LogMessage(LogLevel::Warning, L"RemoveProgressSubclass SEH exception");
+            }
         }
     }
     m_progressWindow = nullptr;
@@ -4399,9 +4467,16 @@ void CExplorerBHO::RemoveAddressEditSubclass() {
     if (m_addressEditWindow && m_addressEditSubclassInstalled) {
         ResetAddressEditStateCache();
         if (IsWindow(m_addressEditWindow)) {
-            RemoveWindowSubclass(m_addressEditWindow, &CExplorerBHO::AddressEditSubclassProc,
-                                 reinterpret_cast<UINT_PTR>(this));
-            InvalidateRect(m_addressEditWindow, nullptr, TRUE);
+            __try {
+                RemoveWindowSubclass(m_addressEditWindow, &CExplorerBHO::AddressEditSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+                // Only invalidate if not disconnecting - window may be destroyed
+                if (!m_isDisconnecting) {
+                    InvalidateRect(m_addressEditWindow, nullptr, TRUE);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                LogMessage(LogLevel::Warning, L"RemoveAddressEditSubclass SEH exception");
+            }
         }
     } else {
         ResetAddressEditStateCache();
