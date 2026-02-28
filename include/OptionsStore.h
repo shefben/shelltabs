@@ -140,6 +140,17 @@ enum class GlowSurfaceMode {
     kGradient,
 };
 
+enum class BackgroundPositionMode {
+    kBottomRight = 0,
+    kTopLeft,
+    kTopRight,
+    kBottomLeft,
+    kCenter,
+    kStretch,
+    kZoomFill,
+    kTile,
+};
+
 struct GlowSurfaceOptions {
     bool enabled = true;
     GlowSurfaceMode mode = GlowSurfaceMode::kGradient;
@@ -166,6 +177,7 @@ struct GlowSurfacePalette {
 struct ShellTabsOptions {
     bool reopenOnCrash = false;
     bool persistGroupPaths = false;
+    bool reuseExistingWindow = false;
     bool enableBreadcrumbGradient = false;
     bool enableBreadcrumbFontGradient = false;
     int breadcrumbGradientTransparency = 45;  // percentage [0, 100]
@@ -195,6 +207,8 @@ struct ShellTabsOptions {
     bool useExplorerAccentColors = true;
     GlowSurfacePalette glowPalette{};
     bool enableFolderBackgrounds = false;
+    BackgroundPositionMode backgroundPositionMode = BackgroundPositionMode::kBottomRight;
+    BYTE backgroundOpacity = 200;
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
     std::vector<ContextMenuItem> contextMenuItems;

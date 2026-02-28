@@ -137,6 +137,8 @@ void* g_extCreatePenTarget = nullptr;
 void* g_selectObjectTarget = nullptr;
 std::vector<void*> g_directUiDetourTargets;
 
+FillRectPostCallback g_fillRectPostCallback = nullptr;
+
 thread_local bool g_drawThemeBackgroundActive = false;
 thread_local bool g_drawThemeEdgeActive = false;
 thread_local bool g_fillRectActive = false;
@@ -1208,33 +1210,49 @@ HRESULT WINAPI DrawThemeEdgeDetour(HTHEME theme, HDC dc, int partId, int stateId
 int WINAPI FillRectDetour(HDC dc, const RECT* rect, HBRUSH brush) {
     ReentrancyGuard guard(g_fillRectActive);
     if (!guard.Entered()) {
+        // Re-entrant call — skip post-callback to avoid recursion
         return g_originalFillRect(dc, rect, brush);
     }
 
+    // Helper: call post-callback (folder background drawing) after each fill path.
+    const auto postCallback = [&](const RECT* r) noexcept {
+        if (g_fillRectPostCallback) g_fillRectPostCallback(dc, r);
+    };
+
     auto surface = ResolveSurfaceForPainting(dc);
     if (!surface.has_value()) {
-        return g_originalFillRect(dc, rect, brush);
+        int ret = g_originalFillRect(dc, rect, brush);
+        postCallback(rect);
+        return ret;
     }
 
     RECT paintRect{};
     if (rect) {
         paintRect = *rect;
     } else if (!surface->window || !GetClientRect(surface->window, &paintRect)) {
-        return g_originalFillRect(dc, rect, brush);
+        int ret = g_originalFillRect(dc, rect, brush);
+        postCallback(rect);
+        return ret;
     }
 
     if (TryPaintBackgroundOverride(dc, surface->window, paintRect, surface->registration)) {
+        postCallback(&paintRect);
         return 1;
     }
 
     GlowColorSet colors = ResolveSurfaceColors(surface->registration);
     if (!colors.valid) {
-        return g_originalFillRect(dc, rect, brush);
+        int ret = g_originalFillRect(dc, rect, brush);
+        postCallback(rect);
+        return ret;
     }
 
     if (!PaintGlowSurface(dc, surface->window, paintRect, colors, surface->registration.kind)) {
-        return g_originalFillRect(dc, rect, brush);
+        int ret = g_originalFillRect(dc, rect, brush);
+        postCallback(rect);
+        return ret;
     }
+    postCallback(&paintRect);
     return 1;
 }
 
@@ -2233,6 +2251,10 @@ void ShutdownThemeHooks() {
 }
 
 bool AreThemeHooksActive() noexcept { return g_hooksActive; }
+
+void SetFillRectPostCallback(FillRectPostCallback cb) noexcept {
+    g_fillRectPostCallback = cb;
+}
 
 void RegisterThemeSurface(HWND hwnd, ExplorerSurfaceKind kind, ExplorerGlowCoordinator* coordinator) noexcept {
     if (!hwnd || !coordinator) {

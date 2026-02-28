@@ -2154,6 +2154,42 @@ void TabManager::EnsureVisibleSelection() {
 // Navigation History
 //=============================================================================
 
+bool TabManager::TryMatchImplicitNavigation(TabLocation location, const std::wstring& path) {
+    if (path.empty()) {
+        return false;
+    }
+
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return false;
+    }
+
+    NavigationHistory& history = tab->navigationHistory;
+    if (history.entries.empty() || history.currentIndex < 0) {
+        return false;
+    }
+
+    // Check if path matches the previous entry (implicit back)
+    if (history.currentIndex > 0) {
+        const auto& prev = history.entries[static_cast<size_t>(history.currentIndex - 1)];
+        if (!prev.path.empty() && _wcsicmp(prev.path.c_str(), path.c_str()) == 0) {
+            --history.currentIndex;
+            return true;
+        }
+    }
+
+    // Check if path matches the next entry (implicit forward)
+    if (history.currentIndex < static_cast<int>(history.entries.size()) - 1) {
+        const auto& next = history.entries[static_cast<size_t>(history.currentIndex + 1)];
+        if (!next.path.empty() && _wcsicmp(next.path.c_str(), path.c_str()) == 0) {
+            ++history.currentIndex;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void TabManager::RecordNavigation(TabLocation location, UniquePidl pidl, std::wstring path, std::wstring name) {
     if (!pidl) {
         return;

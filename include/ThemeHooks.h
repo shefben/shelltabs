@@ -20,6 +20,11 @@ void RegisterDirectUiRenderInterface(void* element, size_t drawIndex, HWND host,
                                      ExplorerGlowCoordinator* coordinator) noexcept;
 void InvalidateScrollbarMetrics(HWND hwnd) noexcept;
 
+// Callback invoked by FillRectDetour after the fill completes (excluding re-entrant calls).
+// Used by FolderBackgroundHooks to draw over the fill without needing its own FillRect hook.
+using FillRectPostCallback = void (*)(HDC dc, const RECT* rect) noexcept;
+void SetFillRectPostCallback(FillRectPostCallback cb) noexcept;
+
 class ThemePaintOverrideGuard {
 public:
     ThemePaintOverrideGuard(HWND window, ExplorerSurfaceKind kind, GlowColorSet colors,

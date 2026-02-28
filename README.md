@@ -1,119 +1,144 @@
 # ShellTabs
 
-ShellTabs is a Windows Explorer deskband extension that adds a lightweight tabbed interface to the classic File Explorer window. The deskband hosts a custom tab control that tracks folder navigation and lets you jump between locations with a single click. A dedicated **+** button creates new tabs duplicating the current folder, and you can close tabs from the context menu.
+A Windows Explorer deskband extension that adds tabbed browsing, tab groups, session persistence, visual customization, and more to the classic File Explorer window.
 
-> **Note**
-> Deskband extensions are supported on Windows 10 and earlier. Microsoft removed the legacy toolbar surface from the Windows 11 File Explorer; on Windows 11 the extension must be hosted inside an alternative shell (e.g., [ExplorerPatcher](https://github.com/valinet/ExplorerPatcher)) to be visible.
+> **Note:** Deskband extensions require the legacy Explorer toolbar surface. On **Windows 10** this works out of the box. On **Windows 11**, use [ExplorerPatcher](https://github.com/valinet/ExplorerPatcher) or a similar tool to restore classic toolbars.
 
-## Features
+## Previews
 
-- Custom Explorer toolbar (deskband) hosting a Win32 tab control.
-- Automatic tab creation when you navigate to new folders.
-- **+** button to open a new tab that duplicates the currently selected folder.
-- Right-click a tab to close it.
-- Tabs persist for the lifetime of the Explorer window and track the active folder.
-- Session persistence reloads your tabs and islands after Explorer restarts, keeping group collapse state and ordering intact.
-- Dragging tabs or islands shows a translucent preview under the cursor so you can place them precisely before dropping.
-
-## Drag and Drop
-
-- Dropping files or folders onto an existing tab continues to delegate to Explorer's copy/move workflow. Hold **Shift** to
-  force a move, mirroring Explorer's default behavior; these drops are logged so you can confirm the fallback path was used.
-- Drag directories onto the empty portions of the tab strip to open each folder in a background tab—even when other tabs are
-  visible. Hold **Ctrl** to focus the first new tab in the foreground, or **Shift** to skip tab creation and reuse the
-  Explorer copy/move routine instead.
-- If the payload does not contain directories or no tab target is available, ShellTabs automatically falls back to Explorer's
-  native handling so files are not lost.
-
-## Previews:
 <a href="https://github.com/user-attachments/assets/79bf6c67-6918-4f27-b9f6-bae69ee383b6" target="_blank">
     <img src="https://github.com/user-attachments/assets/79bf6c67-6918-4f27-b9f6-bae69ee383b6" width="200" alt="shelltabs_island_example">
 </a>
-
 <a href="https://github.com/user-attachments/assets/c117f3e5-ddf7-478d-8f98-11cc3d40b7ba" target="_blank">
     <img src="https://github.com/user-attachments/assets/c117f3e5-ddf7-478d-8f98-11cc3d40b7ba" width="200" alt="shelltabs_main">
 </a>
-
 <a href="https://github.com/user-attachments/assets/7f620497-967e-4fff-a7fe-076fcd5cbd09" target="_blank">
     <img src="https://github.com/user-attachments/assets/7f620497-967e-4fff-a7fe-076fcd5cbd09" width="200" alt="shelltabs_options_appearance">
 </a>
-
 <a href="https://github.com/user-attachments/assets/3035e227-4aa5-4b30-b5cb-0725a5666d3a" target="_blank">
     <img src="https://github.com/user-attachments/assets/3035e227-4aa5-4b30-b5cb-0725a5666d3a" width="200" alt="shelltabs_options_context_menus">
 </a>
-
 <a href="https://github.com/user-attachments/assets/da8b2866-6da6-4803-8a99-ef6c89805e0f" target="_blank">
     <img src="https://github.com/user-attachments/assets/da8b2866-6da6-4803-8a99-ef6c89805e0f" width="200" alt="shelltabs_options_general">
 </a>
-
 <a href="https://github.com/user-attachments/assets/ccee2abe-d6d8-4918-903a-5da6b08e0ad3" target="_blank">
     <img src="https://github.com/user-attachments/assets/ccee2abe-d6d8-4918-903a-5da6b08e0ad3" width="200" alt="shelltabs_options_groups">
 </a>
-
 <a href="https://github.com/user-attachments/assets/6dcb5df4-452e-4d3e-9427-84a331df2af4" target="_blank">
     <img width="243" height="32" alt="tab_progressbar" src="https://github.com/user-attachments/assets/6dcb5df4-452e-4d3e-9427-84a331df2af4" />
 </a>
+
+## Features
+
+### Tabs
+- Create, close, clone, pin, hide/unhide, and detach tabs
+- Close other tabs, close tabs to the left/right
+- Reopen recently closed tabs with full undo history
+- Per-tab back/forward navigation history
+- Per-tab scroll position preservation across tab switches
+- Tab thumbnail previews on hover
+- Keyboard shortcuts: Ctrl+T (new tab), Ctrl+W (close), Ctrl+Tab / Ctrl+Shift+Tab (cycle), Ctrl+1-9 (jump to tab)
+
+### Tab Groups (Islands)
+- Organize tabs into named, collapsible groups
+- Customizable group outline colors and styles (solid, dashed, dotted)
+- Show/hide group headers
+- Drag tabs between groups or reorder groups themselves
+- Detach a group into a new Explorer window
+- Close all tabs in a group at once
+
+### Saved Groups
+- Save a group configuration by name for reuse across windows and sessions
+- Load saved groups from the tab strip context menu
+- Edits to a saved group sync automatically to all windows using it
+- Manage saved groups from the Options dialog
+
+### Session Persistence
+- All tabs, groups, and selection state are saved to disk continuously
+- Sessions survive both clean Explorer exits and crashes
+- Multi-window support: each Explorer window's tabs are restored independently
+- Crash detection via active-session marker file
+
+### Drag and Drop
+- Reorder tabs within and across groups by dragging
+- Drag tabs or groups between separate Explorer windows
+- Drop files/folders onto a tab to trigger Explorer's copy/move workflow (hold Shift to force move)
+- Drop directories onto empty tab strip area to open each as a new background tab (hold Ctrl to focus the first)
+- Translucent drag preview under the cursor during reorder operations
+
+### Visual Customization
+- Full light and dark theme support with automatic detection
+- Breadcrumb bar gradient overlay (customizable colors and opacity)
+- Address bar edit field gradient
+- Per-tab progress bar gradient (mirrors Explorer's file operation progress)
+- Neon glow effects on Explorer panes via DWM/DirectComposition
+- Custom folder background images per directory path
+- Configurable active/inactive tab colors, hover highlights, and close button behavior
+
+### Context Menu Integration
+- Right-click a tab for quick actions: close, clone, pin, hide, detach, open terminal, open VS Code, copy path
+- Access the full Explorer shell context menu for any tab's folder
+- Add custom context menu entries with configurable commands and arguments from the Options dialog
+
+### FTP Support
+- Built-in FTP client with a custom `IShellFolder` implementation
+- Browse FTP servers directly inside Explorer as native folder locations
+
+### Options Dialog
+- **General:** New-tab behavior, session restore settings, dock mode
+- **Appearance:** Breadcrumb gradient, glow surfaces, folder backgrounds, progress bar colors
+- **Groups:** Manage saved groups, edit names/colors/outlines
+- **Context Menus:** Add, edit, and remove custom right-click menu entries
+
 ## Building
 
-The project is built as an in-process COM DLL using CMake and the Microsoft Visual C++ toolchain.
+Requires **Visual Studio 2022** with the C++ desktop workload.
 
-1. Open a **x64 Native Tools Command Prompt for VS 2022** (or the version that matches your compiler).
-2. Configure and build the project:
+```bat
+cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+```
 
-   ```powershell
-   cd path\to\shelltabs
-   cmake -B build -S . -G "Visual Studio 17 2022" -A x64
-   cmake --build build --config Release
-   ```
+Output: `build\bin\Release\ShellTabs.dll`
 
-   The compiled `ShellTabs.dll` is generated under `build\bin\Release`.
+To build with tests:
+
+```bat
+cmake -B build -DSHELLTABS_BUILD_TESTS=ON
+cmake --build build --config Release
+```
 
 ## Installation
 
-1. Copy `ShellTabs.dll` to a permanent location (for example, `C:\Program Files\ShellTabs`).
-2. Register the deskband from an elevated Developer Command Prompt or PowerShell session:
-
-   ```powershell
-   regsvr32 "C:\Program Files\ShellTabs\ShellTabs.dll"
+1. Copy `ShellTabs.dll` to a permanent location.
+2. Register from an elevated command prompt:
+   ```bat
+   regsvr32 "C:\Path\To\ShellTabs.dll"
    ```
+3. Restart Explorer if the toolbar menu does not refresh.
+4. Right-click the Explorer toolbar area and enable **Shell Tabs** from the **Toolbars** menu.
 
-   Registration writes entries to **HKCU**, so administrator rights are not required if you keep the DLL under your user profile. Use `/u` to unregister later:
+To unregister:
+```bat
+regsvr32 /u "C:\Path\To\ShellTabs.dll"
+```
 
-   ```powershell
-   regsvr32 /u "C:\Program Files\ShellTabs\ShellTabs.dll"
-   ```
+## Architecture
 
-3. Restart Windows Explorer (e.g., from Task Manager) if the toolbar menu does not refresh automatically.
-4. In File Explorer, right-click the toolbar area and enable **Shell Tabs** from the **Toolbars** menu. The tab strip appears docked at the top of the Explorer window.
-
-An ATL-style registration script lives at `registration/ShellTabs.rgs`. You can feed it to `regsvr32 /c` or integrate it into installer tooling if you prefer declarative registration over the DLL’s self-registration entry points.
-
-## Architecture Overview
-
-- **Deskband (`TabBand`)** – Implements `IDeskBand2`, `IObjectWithSite`, and related COM interfaces. It is responsible for creating the UI window, tracking Explorer navigation events, and keeping the tab model in sync with the current folder.
-- **Tab model (`TabManager`)** – Maintains the list of open tabs, their display names, and associated PIDLs. The manager owns the shell item identifiers, ensuring proper lifetime management.
-- **UI host (`TabBandWindow`)** – Creates a Win32 child window composed of a `SysTabControl32` instance and a push button for the “new tab” action. It routes user interactions back to the band.
-- **Browser event sink (`BrowserEvents`)** – Subscribes to `DWebBrowserEvents2` emitted by Explorer’s `IWebBrowser2` object so the deskband can react to navigation changes and window teardown.
-- **Browser Helper Object (`CExplorerBHO`)** – A lightweight `IObjectWithSite` implementation that loads alongside Explorer windows and calls `IWebBrowser2::ShowBrowserBar` so the Shell Tabs deskband is surfaced automatically for each process.
-- **Utilities** – Helper functions for cloning PIDLs, resolving display names, and querying the active folder via `IShellBrowser`/`IWebBrowser2`.
-
-## Development Tips
-
-- Building the project in **Debug** mode under Visual Studio loads the extension into the Explorer process. Use the “Restart Explorer” gesture cautiously; any unhandled exception will terminate Explorer.
-- To simplify iterative development, keep a separate PowerShell window with the following aliases:
-
-  ```powershell
-  function Register-ShellTabs { regsvr32 /s "C:\Path\To\Build\bin\Debug\ShellTabs.dll" }
-  function Unregister-ShellTabs { regsvr32 /s /u "C:\Path\To\Build\bin\Debug\ShellTabs.dll" }
-  ```
-
-  Run `Unregister-ShellTabs` before rebuilding if the module is loaded by Explorer.
-- The deskband stores data only in memory. You can extend `TabManager` to persist sessions or implement advanced behaviors such as dragging tabs, reordering, or opening new folders in background tabs.
-- When experimenting with list-view coloring, remember that `LVM_SETTEXTCOLOR`/`ListView_SetTextColor` only affects non-selected rows. Explorer’s custom draw handler is still required to recolor highlighted or hot items, so keep the `NM_CUSTOMDRAW` path in place even if you also call the global color APIs to set a baseline.
+| Component | Description |
+|---|---|
+| **TabBand** | Root COM object (`IDeskBand2`). Orchestrates tab operations, session save/restore, and browser event handling. |
+| **TabBandWindow** | Win32 window that renders the tab strip. Handles mouse/keyboard input, drag-and-drop, context menus, and incremental layout diffing. |
+| **TabManager** | Pure data model for tabs and groups. No UI. Tracks selection, activation order, navigation history, scroll positions, and pinned/hidden state. |
+| **CExplorerBHO** | Browser Helper Object. Subclasses Explorer's breadcrumb bar, address edit, progress bar, travel band, status bar, and frame window. |
+| **SessionCoordinator** | Process-wide singleton managing a single session file for all Explorer windows. Handles crash detection, atomic writes, and multi-window coordination. |
+| **OptionsStore** | Thread-safe singleton for persisting user settings to JSON in AppData. |
+| **ThemeHooks** | Hooks into `uxtheme.dll` to detect light/dark theme transitions in real time. |
+| **FtpShellFolder** | Custom `IShellFolder` exposing FTP servers as browsable Explorer locations. |
 
 ## Troubleshooting
 
-- If `regsvr32` reports that the DLL is in use, ensure Explorer is not holding on to an older build. Kill and restart `explorer.exe`, unregister, then register the new version.
-- When the toolbar does not appear in the Explorer toolbar menu, confirm that **Classic toolbars** are enabled (they are hidden by default on Windows 10 with ribbon mode). Enable “Show title bar” from Folder Options or use a shell such as [OldNewExplorer](https://www.msfn.org/board/topic/170375-oldnewexplorer-119/).
-- Use the **Event Viewer** or tools like [DebugView](https://learn.microsoft.com/sysinternals/downloads/debugview) to trace diagnostics added to the project if you extend it with logging.
-
+- **DLL in use:** Kill `explorer.exe` from Task Manager, unregister the old DLL, then register the new one and restart Explorer.
+- **Toolbar not visible:** Ensure classic toolbars are enabled. On Windows 10 with ribbon mode, enable "Show title bar" from Folder Options. On Windows 11, install ExplorerPatcher.
+- **Logs:** Check `%LOCALAPPDATA%\ShellTabs\Logs\` for diagnostic output.
+- **Settings:** Stored in `%APPDATA%\ShellTabs\`. Delete this folder to reset all options and session data.

@@ -48,7 +48,7 @@ namespace {
 
 // Modern, clean dimensions with proper spacing
 constexpr int kPageWidth = 440;
-constexpr int kPageHeight = 380;
+constexpr int kPageHeight = 480;
 constexpr int kMargin = 16;
 constexpr int kSpacing = 10;
 constexpr int kGroupMargin = 12;
@@ -77,6 +77,7 @@ enum ControlIds : int {
     IDC_GEN_NEWTAB_PATH_BROWSE = 6009,
     IDC_GEN_NEWTAB_GROUP_LABEL = 6010,
     IDC_GEN_NEWTAB_GROUP = 6011,
+    IDC_GEN_REUSE_WINDOW = 6012,
 
     // Appearance Page (6100-6199)
     IDC_APP_BREADCRUMB_GROUP = 6100,
@@ -168,6 +169,15 @@ enum ControlIds : int {
     IDC_BG_FOLDER_PREVIEW = 6315,
     IDC_BG_FOLDER_NAME = 6316,
     IDC_BG_FOLDER_CLEAN = 6317,
+    IDC_BG_OPACITY_LABEL = 6320,
+    IDC_BG_OPACITY_SLIDER = 6321,
+    IDC_BG_OPACITY_VAL = 6322,
+    IDC_BG_POS_GROUP = 6330,
+    IDC_BG_POS_TILE = 6331,
+    IDC_BG_POS_STRETCH = 6332,
+    IDC_BG_POS_CENTER = 6333,
+    IDC_BG_POS_BOTTOMLEFT = 6334,
+    IDC_BG_POS_BOTTOMRIGHT = 6335,
 
     // Context Menus (6400-6499)
     IDC_CTX_TREE = 6400,
@@ -373,6 +383,12 @@ public:
     void AddCheckbox(int id, const wchar_t* text, int x, int y, int w, int h) {
         AddButton(id, text, x, y, w, h,
                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX);
+    }
+
+    void AddRadioButton(int id, const wchar_t* text, int x, int y, int w, int h, bool isGroupStart = false) {
+        DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON;
+        if (isGroupStart) style |= WS_GROUP;
+        AddButton(id, text, x, y, w, h, style);
     }
 
     void AddPushButton(int id, const wchar_t* text, int x, int y, int w, int h) {
@@ -669,6 +685,12 @@ DialogTemplatePtr CreateGeneralPageTemplate() {
     builder.AddCheckbox(IDC_GEN_PERSIST,
         L"Remember folder paths in saved groups",
         kMargin, y, 280, kCheckHeight);
+    y += kCheckHeight + kSpacing;
+
+    // Reuse existing window
+    builder.AddCheckbox(IDC_GEN_REUSE_WINDOW,
+        L"Open folders as tabs in an existing window",
+        kMargin, y, 280, kCheckHeight);
     y += kCheckHeight + kSpacing * 2;
 
     // Dock mode
@@ -719,6 +741,8 @@ void InitGeneralPage(HWND page, OptionsDialogData* data) {
         data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(page, IDC_GEN_PERSIST,
         data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(page, IDC_GEN_REUSE_WINDOW,
+        data->workingOptions.reuseExistingWindow ? BST_CHECKED : BST_UNCHECKED);
 
     // Populate dock mode combo
     HWND dockCombo = GetDlgItem(page, IDC_GEN_DOCK_COMBO);
@@ -809,6 +833,11 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
             else if (id == IDC_GEN_PERSIST && code == BN_CLICKED) {
                 data->workingOptions.persistGroupPaths =
                     (IsDlgButtonChecked(page, IDC_GEN_PERSIST) == BST_CHECKED);
+                PropSheet_Changed(GetParent(page), page);
+            }
+            else if (id == IDC_GEN_REUSE_WINDOW && code == BN_CLICKED) {
+                data->workingOptions.reuseExistingWindow =
+                    (IsDlgButtonChecked(page, IDC_GEN_REUSE_WINDOW) == BST_CHECKED);
                 PropSheet_Changed(GetParent(page), page);
             }
             else if (id == IDC_GEN_DOCK_COMBO && code == CBN_SELCHANGE) {
@@ -902,7 +931,7 @@ DialogTemplatePtr CreateAppearancePageTemplate() {
         kMargin + kGroupMargin, y, 150, kCheckHeight);
     builder.AddStatic(IDC_APP_TAB_SEL_PREVIEW, L"",
         kMargin + kGroupMargin + 160, y - 2, kColorBoxSize, kColorBoxSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
     builder.AddPushButton(IDC_APP_TAB_SEL_BTN, L"Choose...",
         kMargin + kGroupMargin + 200, y - 2, 70, kButtonHeight);
     y += kButtonHeight + kSpacing;
@@ -912,7 +941,7 @@ DialogTemplatePtr CreateAppearancePageTemplate() {
         kMargin + kGroupMargin, y, 150, kCheckHeight);
     builder.AddStatic(IDC_APP_TAB_UNSEL_PREVIEW, L"",
         kMargin + kGroupMargin + 160, y - 2, kColorBoxSize, kColorBoxSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
     builder.AddPushButton(IDC_APP_TAB_UNSEL_BTN, L"Choose...",
         kMargin + kGroupMargin + 200, y - 2, 70, kButtonHeight);
 
@@ -1017,11 +1046,12 @@ INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM l
             if (!data) break;
 
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-            if (dis->CtlID == IDC_APP_TAB_SEL_PREVIEW && data->tabSelectedBrush) {
+            if (dis->CtlType != ODT_STATIC) break;
+            if (dis->CtlID == IDC_APP_TAB_SEL_PREVIEW) {
                 DrawColorBox(dis->hDC, dis->rcItem, data->workingOptions.customTabSelectedColor);
                 return TRUE;
             }
-            else if (dis->CtlID == IDC_APP_TAB_UNSEL_PREVIEW && data->tabUnselectedBrush) {
+            else if (dis->CtlID == IDC_APP_TAB_UNSEL_PREVIEW) {
                 DrawColorBox(dis->hDC, dis->rcItem, data->workingOptions.customTabUnselectedColor);
                 return TRUE;
             }
@@ -1118,7 +1148,7 @@ DialogTemplatePtr CreateGlowEffectsPageTemplate() {
         kMargin, y, 100, kLabelHeight);
     builder.AddStatic(IDC_GLOW_PRIMARY_PREVIEW, L"",
         kMargin + 105, y - 2, kColorBoxSize, kColorBoxSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
     builder.AddPushButton(IDC_GLOW_PRIMARY_BTN, L"Choose...",
         kMargin + 145, y - 2, 80, kButtonHeight);
     y += kButtonHeight + kSpacing;
@@ -1128,7 +1158,7 @@ DialogTemplatePtr CreateGlowEffectsPageTemplate() {
         kMargin, y, 100, kLabelHeight);
     builder.AddStatic(IDC_GLOW_SECONDARY_PREVIEW, L"",
         kMargin + 105, y - 2, kColorBoxSize, kColorBoxSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
     builder.AddPushButton(IDC_GLOW_SECONDARY_BTN, L"Choose...",
         kMargin + 145, y - 2, 80, kButtonHeight);
 
@@ -1335,11 +1365,12 @@ INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
             if (!data) break;
 
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-            if (dis->CtlID == IDC_GLOW_PRIMARY_PREVIEW && data->glowPrimaryBrush) {
+            if (dis->CtlType != ODT_STATIC) break;
+            if (dis->CtlID == IDC_GLOW_PRIMARY_PREVIEW) {
                 DrawColorBox(dis->hDC, dis->rcItem, data->workingOptions.neonGlowPrimaryColor);
                 return TRUE;
             }
-            else if (dis->CtlID == IDC_GLOW_SECONDARY_PREVIEW && data->glowSecondaryBrush) {
+            else if (dis->CtlID == IDC_GLOW_SECONDARY_PREVIEW) {
                 DrawColorBox(dis->hDC, dis->rcItem, data->workingOptions.neonGlowSecondaryColor);
                 return TRUE;
             }
@@ -1456,64 +1487,186 @@ static UINT64 GenerateToken() {
     return counter.fetch_add(1, std::memory_order_relaxed);
 }
 
+// Creates a kPreviewSize x kPreviewSize HBITMAP thumbnail of the image at |path|.
+// Returns nullptr if the image can't be loaded.
+static HBITMAP CreatePreviewBitmap(const std::wstring& path, int size) {
+    if (path.empty()) return nullptr;
+
+    auto gdiBmp = LoadBackgroundBitmap(path);
+    if (!gdiBmp || gdiBmp->GetLastStatus() != Gdiplus::Ok) return nullptr;
+
+    HDC screenDC = GetDC(nullptr);
+    if (!screenDC) return nullptr;
+    HDC memDC = CreateCompatibleDC(screenDC);
+    HBITMAP hBmp = CreateCompatibleBitmap(screenDC, size, size);
+    ReleaseDC(nullptr, screenDC);
+    if (!memDC || !hBmp) {
+        if (memDC) DeleteDC(memDC);
+        if (hBmp) DeleteObject(hBmp);
+        return nullptr;
+    }
+
+    HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
+
+    // Fill background with dialog face color
+    RECT fillRect = {0, 0, size, size};
+    FillRect(memDC, &fillRect, GetSysColorBrush(COLOR_BTNFACE));
+
+    {
+        Gdiplus::Graphics g(memDC);
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+        g.DrawImage(gdiBmp.get(), 0, 0, size, size);
+    }
+
+    SelectObject(memDC, oldBmp);
+    DeleteDC(memDC);
+    return hBmp;
+}
+
+// Loads a preview bitmap for |path| and stores it in |stored|, invalidating |ctrl|.
+static void SetPreviewBitmap(HWND ctrl, HBITMAP& stored, const std::wstring& path, int size) {
+    HBITMAP newBmp = CreatePreviewBitmap(path, size);
+    if (stored) DeleteObject(stored);
+    stored = newBmp;
+    if (ctrl) InvalidateRect(ctrl, nullptr, TRUE);
+}
+
+// Draws the preview bitmap |bmp| (or a placeholder) into the DRAWITEMSTRUCT.
+static void DrawPreviewControl(const DRAWITEMSTRUCT* dis, HBITMAP bmp) {
+    RECT rc = dis->rcItem;
+    FillRect(dis->hDC, &rc, GetSysColorBrush(COLOR_BTNFACE));
+    DrawEdge(dis->hDC, &rc, EDGE_SUNKEN, BF_RECT);
+
+    if (bmp) {
+        BITMAP bmInfo = {};
+        GetObject(bmp, sizeof(bmInfo), &bmInfo);
+        HDC memDC = CreateCompatibleDC(dis->hDC);
+        HGDIOBJ old = SelectObject(memDC, bmp);
+        int x = rc.left + 2, y2 = rc.top + 2;
+        int w = rc.right - rc.left - 4;
+        int h = rc.bottom - rc.top - 4;
+        if (w > 0 && h > 0) {
+            StretchBlt(dis->hDC, x, y2, w, h, memDC, 0, 0, bmInfo.bmWidth, bmInfo.bmHeight, SRCCOPY);
+        }
+        SelectObject(memDC, old);
+        DeleteDC(memDC);
+    } else {
+        // Draw a small "no image" indicator
+        RECT inner = {rc.left + 2, rc.top + 2, rc.right - 2, rc.bottom - 2};
+        SetBkColor(dis->hDC, GetSysColor(COLOR_BTNFACE));
+        SetTextColor(dis->hDC, GetSysColor(COLOR_GRAYTEXT));
+        DrawTextW(dis->hDC, L"?", 1, &inner, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+}
+
+void UpdateBackgroundControlStates(HWND page, bool enabled) {
+    EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_BROWSE), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_CLEAR), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_LIST), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_ADD), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_OPACITY_SLIDER), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_POS_TILE), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_POS_STRETCH), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_POS_CENTER), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_POS_BOTTOMLEFT), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_POS_BOTTOMRIGHT), enabled);
+    // Edit/Remove/Clean depend on selection too
+    HWND list = GetDlgItem(page, IDC_BG_FOLDER_LIST);
+    bool hasSel = list && (SendMessageW(list, LB_GETCURSEL, 0, 0) != LB_ERR);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_EDIT), enabled && hasSel);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_REMOVE), enabled && hasSel);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_CLEAN), enabled);
+}
+
 DialogTemplatePtr CreateBackgroundsPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
+    int y = kMargin;  // 16
 
-    int y = kMargin;
-
-    // Enable checkbox
+    // Enable/disable all backgrounds
     builder.AddCheckbox(IDC_BG_ENABLE,
         L"Enable custom folder backgrounds",
         kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing * 2;
+    y += kCheckHeight + kSpacing * 2;  // 52
 
-    // Universal background group
+    // ---- Universal Background group ----
     builder.AddGroupBox(IDC_BG_UNIVERSAL_GROUP, L"Universal Background",
-        kMargin, y, kPageWidth - 2 * kMargin, 100);
-    y += 18;
+        kMargin, y, kPageWidth - 2 * kMargin, 156);
+    y += 18;  // 70
 
     builder.AddStatic(-1, L"Image:",
         kMargin + kGroupMargin, y, 60, kLabelHeight);
     builder.AddStatic(IDC_BG_UNIVERSAL_PREVIEW, L"",
         kMargin + kGroupMargin + 65, y - 2, kPreviewSize, kPreviewSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
-    y += kPreviewSize + kSpacing;
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
+    y += kPreviewSize + kSpacing;  // 144
 
     builder.AddPushButton(IDC_BG_UNIVERSAL_BROWSE, L"Browse...",
         kMargin + kGroupMargin, y, 80, kButtonHeight);
     builder.AddPushButton(IDC_BG_UNIVERSAL_CLEAR, L"Clear",
         kMargin + kGroupMargin + 90, y, 60, kButtonHeight);
-    y += kButtonHeight + 6;
+    y += kButtonHeight + 6;  // 174
 
     builder.AddStatic(IDC_BG_UNIVERSAL_NAME, L"(no image selected)",
-        kMargin + kGroupMargin, y, kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
-    y += kLabelHeight + kSpacing * 2;
+        kMargin + kGroupMargin, y,
+        kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
+    y += kLabelHeight + kSpacing * 2;  // 208 (group top=52, height=156, so bottom=208)
 
-    // Folder overrides group
+    // ---- Folder-Specific group ----
     builder.AddGroupBox(IDC_BG_FOLDER_GROUP, L"Folder-Specific Backgrounds",
-        kMargin, y, kPageWidth - 2 * kMargin, 150);
-    y += 18;
+        kMargin, y, kPageWidth - 2 * kMargin, 156);
+    y += 18;  // 226
 
     builder.AddListBox(IDC_BG_FOLDER_LIST,
         kMargin + kGroupMargin, y, 200, 80);
-
     builder.AddStatic(IDC_BG_FOLDER_PREVIEW, L"",
         kMargin + kGroupMargin + 210, y, kPreviewSize, kPreviewSize,
-        WS_CHILD | WS_VISIBLE | SS_NOTIFY);
-    y += 86;
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
+    y += 86;  // 312
 
     builder.AddStatic(IDC_BG_FOLDER_NAME, L"",
-        kMargin + kGroupMargin, y, kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
-    y += kLabelHeight + 6;
+        kMargin + kGroupMargin, y,
+        kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
+    y += kLabelHeight + 6;  // 332
 
-    builder.AddPushButton(IDC_BG_FOLDER_ADD, L"Add...",
+    builder.AddPushButton(IDC_BG_FOLDER_ADD,    L"Add...",
         kMargin + kGroupMargin, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_EDIT, L"Edit...",
+    builder.AddPushButton(IDC_BG_FOLDER_EDIT,   L"Edit...",
         kMargin + kGroupMargin + 70, y, 60, kButtonHeight);
     builder.AddPushButton(IDC_BG_FOLDER_REMOVE, L"Remove",
         kMargin + kGroupMargin + 140, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_CLEAN, L"Clean Up...",
+    builder.AddPushButton(IDC_BG_FOLDER_CLEAN,  L"Clean Up...",
         kMargin + kGroupMargin + 210, y, 80, kButtonHeight);
+    y += kButtonHeight + kSpacing * 2;
+
+    // ---- Opacity slider ----
+    builder.AddStatic(IDC_BG_OPACITY_LABEL, L"Opacity:",
+        kMargin, y + 4, 48, kLabelHeight);
+    builder.AddSlider(IDC_BG_OPACITY_SLIDER,
+        kMargin + 50, y, 200, kSliderHeight);
+    builder.AddStatic(IDC_BG_OPACITY_VAL, L"78%",
+        kMargin + 256, y + 4, 40, kLabelHeight);
+    y += kSliderHeight + kSpacing;
+
+    // ---- Position mode radio buttons ----
+    builder.AddGroupBox(IDC_BG_POS_GROUP, L"Image Position",
+        kMargin, y, kPageWidth - 2 * kMargin, 5 * kCheckHeight + 30);
+    y += 16;
+
+    builder.AddRadioButton(IDC_BG_POS_BOTTOMRIGHT, L"Bottom right (default)",
+        kMargin + kGroupMargin, y, 180, kCheckHeight, /*isGroupStart=*/true);
+    builder.AddRadioButton(IDC_BG_POS_BOTTOMLEFT, L"Bottom left",
+        kMargin + kGroupMargin + 190, y, 100, kCheckHeight);
+    y += kCheckHeight + 4;
+
+    builder.AddRadioButton(IDC_BG_POS_CENTER, L"Center",
+        kMargin + kGroupMargin, y, 180, kCheckHeight);
+    builder.AddRadioButton(IDC_BG_POS_STRETCH, L"Stretch to fill",
+        kMargin + kGroupMargin + 190, y, 100, kCheckHeight);
+    y += kCheckHeight + 4;
+
+    builder.AddRadioButton(IDC_BG_POS_TILE, L"Tile (repeat)",
+        kMargin + kGroupMargin, y, 180, kCheckHeight);
 
     return builder.Build();
 }
@@ -1525,34 +1678,130 @@ void InitBackgroundsPage(HWND page, OptionsDialogData* data) {
         data->workingOptions.enableFolderBackgrounds ? BST_CHECKED : BST_UNCHECKED);
 
     // Set universal background name
+    const auto& uni = data->workingOptions.universalFolderBackgroundImage;
     HWND nameLabel = GetDlgItem(page, IDC_BG_UNIVERSAL_NAME);
     if (nameLabel) {
-        if (data->workingOptions.universalFolderBackgroundImage.displayName.empty()) {
-            SetWindowTextW(nameLabel, L"(no image selected)");
-        } else {
-            SetWindowTextW(nameLabel, data->workingOptions.universalFolderBackgroundImage.displayName.c_str());
-        }
+        SetWindowTextW(nameLabel, uni.displayName.empty() ? L"(no image selected)" : uni.displayName.c_str());
     }
+
+    // Load universal preview
+    SetPreviewBitmap(GetDlgItem(page, IDC_BG_UNIVERSAL_PREVIEW),
+                     data->universalPreview,
+                     uni.cachedImagePath,
+                     kPreviewSize);
 
     // Populate folder list
     HWND folderList = GetDlgItem(page, IDC_BG_FOLDER_LIST);
     if (folderList) {
         SendMessageW(folderList, LB_RESETCONTENT, 0, 0);
         for (const auto& entry : data->workingOptions.folderBackgroundEntries) {
-            SendMessageW(folderList, LB_ADDSTRING, 0,
-                reinterpret_cast<LPARAM>(entry.folderPath.c_str()));
+            std::wstring display = entry.folderPath;
+            if (!entry.image.displayName.empty()) {
+                display += L"  ->  " + entry.image.displayName;
+            }
+            SendMessageW(folderList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(display.c_str()));
         }
     }
 
-    // Update control states
+    // Load folder preview for current selection (if any)
+    {
+        int sel = folderList ? (int)SendMessageW(folderList, LB_GETCURSEL, 0, 0) : LB_ERR;
+        std::wstring folderImgPath;
+        if (sel != LB_ERR && sel < (int)data->workingOptions.folderBackgroundEntries.size()) {
+            folderImgPath = data->workingOptions.folderBackgroundEntries[sel].image.cachedImagePath;
+        }
+        SetPreviewBitmap(GetDlgItem(page, IDC_BG_FOLDER_PREVIEW),
+                         data->folderPreview,
+                         folderImgPath,
+                         kPreviewSize);
+    }
+
+    // Initialize opacity slider
+    HWND opacitySlider = GetDlgItem(page, IDC_BG_OPACITY_SLIDER);
+    if (opacitySlider) {
+        SendMessageW(opacitySlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 255));
+        SendMessageW(opacitySlider, TBM_SETPOS, TRUE, data->workingOptions.backgroundOpacity);
+    }
+    {
+        wchar_t buf[32];
+        int pct = static_cast<int>(data->workingOptions.backgroundOpacity) * 100 / 255;
+        swprintf_s(buf, L"%d%%", pct);
+        SetDlgItemTextW(page, IDC_BG_OPACITY_VAL, buf);
+    }
+
+    // Initialize position radio buttons
+    {
+        int radioId = IDC_BG_POS_BOTTOMRIGHT;  // default
+        switch (data->workingOptions.backgroundPositionMode) {
+            case BackgroundPositionMode::kTile:       radioId = IDC_BG_POS_TILE; break;
+            case BackgroundPositionMode::kStretch:    radioId = IDC_BG_POS_STRETCH; break;
+            case BackgroundPositionMode::kCenter:     radioId = IDC_BG_POS_CENTER; break;
+            case BackgroundPositionMode::kBottomLeft: radioId = IDC_BG_POS_BOTTOMLEFT; break;
+            default:                                  radioId = IDC_BG_POS_BOTTOMRIGHT; break;
+        }
+        CheckRadioButton(page, IDC_BG_POS_TILE, IDC_BG_POS_BOTTOMRIGHT, radioId);
+    }
+
+    UpdateBackgroundControlStates(page, data->workingOptions.enableFolderBackgrounds);
+}
+
+// Handle list selection change - show folder info and update preview
+void OnBgFolderSelChanged(HWND page, OptionsDialogData* data) {
+    if (!data) return;
+    HWND list = GetDlgItem(page, IDC_BG_FOLDER_LIST);
+    if (!list) return;
+
+    int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    bool hasSel = (sel != LB_ERR) &&
+                  (sel < static_cast<int>(data->workingOptions.folderBackgroundEntries.size()));
+
     bool enabled = data->workingOptions.enableFolderBackgrounds;
-    EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_BROWSE), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_CLEAR), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_LIST), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_ADD), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_EDIT), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_REMOVE), enabled);
-    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_CLEAN), enabled);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_EDIT),   enabled && hasSel);
+    EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_REMOVE), enabled && hasSel);
+
+    HWND nameLabel = GetDlgItem(page, IDC_BG_FOLDER_NAME);
+    if (nameLabel) {
+        if (hasSel) {
+            const auto& entry = data->workingOptions.folderBackgroundEntries[sel];
+            std::wstring info = entry.folderPath;
+            if (!entry.image.displayName.empty()) {
+                info += L"  ->  " + entry.image.displayName;
+            }
+            SetWindowTextW(nameLabel, info.c_str());
+        } else {
+            SetWindowTextW(nameLabel, L"");
+        }
+    }
+
+    // Update folder preview
+    std::wstring folderImgPath;
+    if (hasSel) {
+        folderImgPath = data->workingOptions.folderBackgroundEntries[sel].image.cachedImagePath;
+    }
+    SetPreviewBitmap(GetDlgItem(page, IDC_BG_FOLDER_PREVIEW),
+                     data->folderPreview,
+                     folderImgPath,
+                     kPreviewSize);
+}
+
+// Refresh the folder listbox from workingOptions
+void RefreshFolderList(HWND page, OptionsDialogData* data) {
+    HWND list = GetDlgItem(page, IDC_BG_FOLDER_LIST);
+    if (!list || !data) return;
+    int prevSel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    for (const auto& entry : data->workingOptions.folderBackgroundEntries) {
+        std::wstring display = entry.folderPath;
+        if (!entry.image.displayName.empty()) {
+            display += L"  ->  " + entry.image.displayName;
+        }
+        SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(display.c_str()));
+    }
+    int count = static_cast<int>(SendMessageW(list, LB_GETCOUNT, 0, 0));
+    if (prevSel != LB_ERR && prevSel < count) {
+        SendMessageW(list, LB_SETCURSEL, prevSel, 0);
+    }
+    OnBgFolderSelChanged(page, data);
 }
 
 INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1571,30 +1820,43 @@ INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
     switch (msg) {
         case WM_COMMAND: {
             if (!data) break;
-
-            int id = LOWORD(wParam);
+            int id   = LOWORD(wParam);
             int code = HIWORD(wParam);
 
             if (id == IDC_BG_ENABLE && code == BN_CLICKED) {
                 data->workingOptions.enableFolderBackgrounds =
                     (IsDlgButtonChecked(page, IDC_BG_ENABLE) == BST_CHECKED);
-
-                bool enabled = data->workingOptions.enableFolderBackgrounds;
-                EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_BROWSE), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_UNIVERSAL_CLEAR), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_LIST), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_ADD), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_EDIT), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_REMOVE), enabled);
-                EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_CLEAN), enabled);
-
+                UpdateBackgroundControlStates(page, data->workingOptions.enableFolderBackgrounds);
                 PropSheet_Changed(GetParent(page), page);
             }
             else if (id == IDC_BG_UNIVERSAL_BROWSE && code == BN_CLICKED) {
                 std::wstring path;
                 if (BrowseForImage(page, &path, &data->lastImageDir)) {
-                    data->workingOptions.universalFolderBackgroundImage.displayName = path;
-                    SetWindowTextW(GetDlgItem(page, IDC_BG_UNIVERSAL_NAME), path.c_str());
+                    CachedImageMetadata meta;
+                    std::wstring createdPath;
+                    std::wstring errorMsg;
+                    if (CopyImageToBackgroundCache(path, path, &meta, &createdPath, &errorMsg)) {
+                        if (!createdPath.empty()) {
+                            data->createdCachedImages.push_back(createdPath);
+                        }
+                        data->workingOptions.universalFolderBackgroundImage = meta;
+                        // Use the source filename as the display name
+                        size_t slashPos = path.find_last_of(L"\\/");
+                        std::wstring fileName = (slashPos != std::wstring::npos)
+                            ? path.substr(slashPos + 1) : path;
+                        data->workingOptions.universalFolderBackgroundImage.displayName = fileName;
+                        SetWindowTextW(GetDlgItem(page, IDC_BG_UNIVERSAL_NAME), fileName.c_str());
+                    } else {
+                        // Fallback: store path directly if caching fails
+                        data->workingOptions.universalFolderBackgroundImage.cachedImagePath = path;
+                        data->workingOptions.universalFolderBackgroundImage.displayName = path;
+                        SetWindowTextW(GetDlgItem(page, IDC_BG_UNIVERSAL_NAME), path.c_str());
+                    }
+                    // Update preview
+                    SetPreviewBitmap(GetDlgItem(page, IDC_BG_UNIVERSAL_PREVIEW),
+                                     data->universalPreview,
+                                     data->workingOptions.universalFolderBackgroundImage.cachedImagePath,
+                                     kPreviewSize);
                     PropSheet_Changed(GetParent(page), page);
                 }
             }
@@ -1602,7 +1864,140 @@ INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
                 data->workingOptions.universalFolderBackgroundImage.displayName.clear();
                 data->workingOptions.universalFolderBackgroundImage.cachedImagePath.clear();
                 SetWindowTextW(GetDlgItem(page, IDC_BG_UNIVERSAL_NAME), L"(no image selected)");
+                SetPreviewBitmap(GetDlgItem(page, IDC_BG_UNIVERSAL_PREVIEW),
+                                 data->universalPreview, L"", kPreviewSize);
                 PropSheet_Changed(GetParent(page), page);
+            }
+            else if (id == IDC_BG_FOLDER_ADD && code == BN_CLICKED) {
+                // Browse for folder
+                std::wstring folderPath;
+                if (BrowseForFolder(page, &folderPath, L"Select folder to assign a background image")) {
+                    // Browse for image
+                    std::wstring imagePath;
+                    if (BrowseForImage(page, &imagePath, &data->lastImageDir)) {
+                        CachedImageMetadata meta;
+                        std::wstring createdPath;
+                        std::wstring errorMsg;
+                        if (!CopyImageToBackgroundCache(imagePath, imagePath, &meta, &createdPath, &errorMsg)) {
+                            // Use path directly as fallback
+                            meta.cachedImagePath = imagePath;
+                            meta.displayName     = imagePath;
+                        } else {
+                            if (!createdPath.empty()) {
+                                data->createdCachedImages.push_back(createdPath);
+                            }
+                            size_t slashPos = imagePath.find_last_of(L"\\/");
+                            meta.displayName = (slashPos != std::wstring::npos)
+                                ? imagePath.substr(slashPos + 1) : imagePath;
+                        }
+
+                        // Check if this folder already exists; update if so
+                        bool found = false;
+                        for (auto& entry : data->workingOptions.folderBackgroundEntries) {
+                            if (_wcsicmp(entry.folderPath.c_str(), folderPath.c_str()) == 0) {
+                                entry.image = meta;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            FolderBackgroundEntry entry;
+                            entry.folderPath = folderPath;
+                            entry.image      = meta;
+                            data->workingOptions.folderBackgroundEntries.push_back(std::move(entry));
+                        }
+
+                        RefreshFolderList(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+            }
+            else if (id == IDC_BG_FOLDER_EDIT && code == BN_CLICKED) {
+                HWND list = GetDlgItem(page, IDC_BG_FOLDER_LIST);
+                int sel = list ? static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0)) : LB_ERR;
+                if (sel != LB_ERR && sel < static_cast<int>(data->workingOptions.folderBackgroundEntries.size())) {
+                    std::wstring imagePath;
+                    if (BrowseForImage(page, &imagePath, &data->lastImageDir)) {
+                        CachedImageMetadata meta;
+                        std::wstring createdPath;
+                        std::wstring errorMsg;
+                        if (!CopyImageToBackgroundCache(imagePath, imagePath, &meta, &createdPath, &errorMsg)) {
+                            meta.cachedImagePath = imagePath;
+                            meta.displayName     = imagePath;
+                        } else {
+                            if (!createdPath.empty()) {
+                                data->createdCachedImages.push_back(createdPath);
+                            }
+                            size_t slashPos = imagePath.find_last_of(L"\\/");
+                            meta.displayName = (slashPos != std::wstring::npos)
+                                ? imagePath.substr(slashPos + 1) : imagePath;
+                        }
+                        data->workingOptions.folderBackgroundEntries[sel].image = meta;
+                        RefreshFolderList(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+            }
+            else if (id == IDC_BG_FOLDER_REMOVE && code == BN_CLICKED) {
+                HWND list = GetDlgItem(page, IDC_BG_FOLDER_LIST);
+                int sel = list ? static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0)) : LB_ERR;
+                if (sel != LB_ERR && sel < static_cast<int>(data->workingOptions.folderBackgroundEntries.size())) {
+                    auto& entry = data->workingOptions.folderBackgroundEntries[sel];
+                    if (!entry.image.cachedImagePath.empty()) {
+                        data->pendingCachedRemovals.push_back(entry.image.cachedImagePath);
+                    }
+                    data->workingOptions.folderBackgroundEntries.erase(
+                        data->workingOptions.folderBackgroundEntries.begin() + sel);
+                    RefreshFolderList(page, data);
+                    PropSheet_Changed(GetParent(page), page);
+                }
+            }
+            else if (id == IDC_BG_FOLDER_CLEAN && code == BN_CLICKED) {
+                UpdateCachedImageUsage(data->workingOptions, /*forceMaintenance=*/true);
+                MessageBoxW(page, L"Cache cleanup scheduled.", L"Clean Up", MB_OK | MB_ICONINFORMATION);
+            }
+            else if (id == IDC_BG_FOLDER_LIST && code == LBN_SELCHANGE) {
+                OnBgFolderSelChanged(page, data);
+            }
+            else if (code == BN_CLICKED && id >= IDC_BG_POS_TILE && id <= IDC_BG_POS_BOTTOMRIGHT) {
+                switch (id) {
+                    case IDC_BG_POS_TILE:        data->workingOptions.backgroundPositionMode = BackgroundPositionMode::kTile; break;
+                    case IDC_BG_POS_STRETCH:     data->workingOptions.backgroundPositionMode = BackgroundPositionMode::kStretch; break;
+                    case IDC_BG_POS_CENTER:      data->workingOptions.backgroundPositionMode = BackgroundPositionMode::kCenter; break;
+                    case IDC_BG_POS_BOTTOMLEFT:  data->workingOptions.backgroundPositionMode = BackgroundPositionMode::kBottomLeft; break;
+                    case IDC_BG_POS_BOTTOMRIGHT: data->workingOptions.backgroundPositionMode = BackgroundPositionMode::kBottomRight; break;
+                }
+                PropSheet_Changed(GetParent(page), page);
+            }
+            break;
+        }
+
+        case WM_HSCROLL: {
+            if (!data) break;
+            HWND slider = reinterpret_cast<HWND>(lParam);
+            int id = GetDlgCtrlID(slider);
+            if (id == IDC_BG_OPACITY_SLIDER) {
+                int pos = static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+                data->workingOptions.backgroundOpacity = static_cast<BYTE>(pos);
+                wchar_t buf[32];
+                swprintf_s(buf, L"%d%%", pos * 100 / 255);
+                SetDlgItemTextW(page, IDC_BG_OPACITY_VAL, buf);
+                PropSheet_Changed(GetParent(page), page);
+            }
+            break;
+        }
+
+        case WM_DRAWITEM: {
+            if (!data) break;
+            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (!dis || dis->CtlType != ODT_STATIC) break;
+            if (dis->CtlID == IDC_BG_UNIVERSAL_PREVIEW) {
+                DrawPreviewControl(dis, data->universalPreview);
+                return TRUE;
+            }
+            if (dis->CtlID == IDC_BG_FOLDER_PREVIEW) {
+                DrawPreviewControl(dis, data->folderPreview);
+                return TRUE;
             }
             break;
         }
@@ -1610,6 +2005,7 @@ INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
         case WM_NOTIFY: {
             NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
             if (nmhdr->code == PSN_APPLY && data) {
+                // Nothing special needed on apply; main dialog handles save
                 return PSNRET_NOERROR;
             }
             break;

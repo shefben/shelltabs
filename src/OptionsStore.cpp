@@ -25,6 +25,7 @@ constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
 constexpr wchar_t kPersistToken[] = L"persist_group_paths";
+constexpr wchar_t kReuseWindowToken[] = L"reuse_existing_window";
 constexpr wchar_t kNewTabTemplateToken[] = L"new_tab_template";
 constexpr wchar_t kNewTabCustomPathToken[] = L"new_tab_custom_path";
 constexpr wchar_t kNewTabSavedGroupToken[] = L"new_tab_saved_group";
@@ -50,6 +51,8 @@ constexpr wchar_t kTabSelectedColorToken[] = L"tab_selected_color";
 constexpr wchar_t kTabUnselectedColorToken[] = L"tab_unselected_color";
 constexpr wchar_t kExplorerAccentColorsToken[] = L"explorer_listview_accents";
 constexpr wchar_t kFolderBackgroundsEnabledToken[] = L"folder_backgrounds_enabled";
+constexpr wchar_t kFolderBackgroundPositionToken[] = L"folder_background_position";
+constexpr wchar_t kFolderBackgroundOpacityToken[]  = L"folder_background_opacity";
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
@@ -1127,6 +1130,13 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kReuseWindowToken) {
+            if (tokens.size() >= 2) {
+                m_options.reuseExistingWindow = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
         if (header == kNewTabTemplateToken) {
             if (tokens.size() >= 2) {
                 m_options.newTabTemplate = ParseNewTabTemplate(tokens[1]);
@@ -1361,6 +1371,23 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kFolderBackgroundPositionToken) {
+            if (tokens.size() >= 2) {
+                m_options.backgroundPositionMode =
+                    static_cast<BackgroundPositionMode>(ParseInt(tokens[1]));
+            }
+            return true;
+        }
+
+        if (header == kFolderBackgroundOpacityToken) {
+            if (tokens.size() >= 2) {
+                int val = ParseInt(tokens[1]);
+                m_options.backgroundOpacity = static_cast<BYTE>(
+                    val < 0 ? 0 : (val > 255 ? 255 : val));
+            }
+            return true;
+        }
+
         if (header == kFolderBackgroundUniversalToken) {
             if (tokens.size() >= 2) {
                 const std::wstring cachePath =
@@ -1552,6 +1579,10 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += options.persistGroupPaths ? L"1" : L"0";
     content += L"\n";
+    content += kReuseWindowToken;
+    content += L"|";
+    content += options.reuseExistingWindow ? L"1" : L"0";
+    content += L"\n";
     content += kNewTabTemplateToken;
     content += L"|";
     content += NewTabTemplateToString(options.newTabTemplate);
@@ -1679,6 +1710,16 @@ bool OptionsStore::Save() const {
     content += options.enableFolderBackgrounds ? L"1" : L"0";
     content += L"\n";
 
+    content += kFolderBackgroundPositionToken;
+    content += L"|";
+    content += std::to_wstring(static_cast<int>(options.backgroundPositionMode));
+    content += L"\n";
+
+    content += kFolderBackgroundOpacityToken;
+    content += L"|";
+    content += std::to_wstring(options.backgroundOpacity);
+    content += L"\n";
+
     const auto appendCachedImageLine = [&](const wchar_t* token, const std::wstring& path,
                                            const std::wstring& displayName) {
         const std::wstring normalizedPath = NormalizeCachePath(path, storageDirectory);
@@ -1781,6 +1822,7 @@ bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right)
 
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
     return left.reopenOnCrash == right.reopenOnCrash && left.persistGroupPaths == right.persistGroupPaths &&
+           left.reuseExistingWindow == right.reuseExistingWindow &&
            left.enableBreadcrumbGradient == right.enableBreadcrumbGradient &&
            left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
            left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&
@@ -1810,6 +1852,8 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.useExplorerAccentColors == right.useExplorerAccentColors &&
            left.glowPalette == right.glowPalette &&
            left.enableFolderBackgrounds == right.enableFolderBackgrounds &&
+           left.backgroundPositionMode == right.backgroundPositionMode &&
+           left.backgroundOpacity == right.backgroundOpacity &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
            left.contextMenuItems == right.contextMenuItems &&

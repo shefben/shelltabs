@@ -95,6 +95,8 @@ public:
         int groupIndex = -1;
         int tabIndex = -1;
         int indicatorX = -1;
+        int indicatorTop = -1;
+        int indicatorBottom = -1;
         bool newGroup = false;
         bool floating = false;
     };
@@ -113,6 +115,7 @@ private:
         TabViewItem groupHeader{};
         bool collapsedPlaceholder = false;
         bool indicatorHandle = false;
+        int indicatorWidth = 0;
         size_t index = 0;
         int row = 0;
         size_t reuseSourceIndex = std::numeric_limits<size_t>::max();
@@ -436,6 +439,17 @@ private:
         mutable std::unordered_map<COLORREF, BrushHandle> m_brushCache;
         mutable std::unordered_map<PenKey, PenHandle, PenKeyHash> m_penCache;
 
+        HFONT m_verticalFont = nullptr;
+
+        struct LabelPopup {
+            HWND popup = nullptr;
+            HWND edit = nullptr;
+            HWND okButton = nullptr;
+            HWND cancelButton = nullptr;
+            int groupIndex = -1;
+        };
+        LabelPopup m_labelPopup;
+
         // Utilities
         // Helpers
         bool FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const;
@@ -463,6 +477,7 @@ private:
                             const GlowColorSet* overrideColors = nullptr) const;
     GlowColorSet BuildRebarGlowColors(const ThemePalette& palette) const;
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
+    void DrawIndicatorLabel(HDC dc, const RECT& indicatorRect, const std::wstring& label, COLORREF bgColor) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
     void DrawTabProgress(HDC dc, const VisualItem& item, const TabPaintMetrics& metrics,
@@ -599,6 +614,13 @@ private:
     [[nodiscard]] HBRUSH GetCachedBrush(COLORREF color) const;
     [[nodiscard]] HPEN GetCachedPen(COLORREF color, int width = 1, int style = PS_SOLID) const;
     void ClearGdiCache();
+
+    void CreateVerticalFont();
+    int ComputeIndicatorWidth(HDC dc, const std::wstring& label) const;
+    void ShowLabelPopup(int groupIndex, const RECT& anchor);
+    void DestroyLabelPopup();
+    void CommitLabelPopup();
+    static LRESULT CALLBACK LabelPopupWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     void UpdateDropHoverState(const HitInfo& hit, bool hasFileData);
     void ClearDropHoverState();

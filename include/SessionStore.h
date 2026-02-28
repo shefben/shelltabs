@@ -3,10 +3,11 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
-#include <atomic>
 
 #include "OptionsStore.h"
 #include "TabManager.h"
@@ -57,33 +58,96 @@ struct SessionData {
     std::optional<SessionClosedSet> lastClosed;
 };
 
+// A single window's session within the coordinated file.
+struct WindowSession {
+    int slot = -1;
+    bool claimed = false;
+    SessionData data;
+};
+
+class TabBand;
+
+// Process-wide singleton that manages a single session.db containing ALL windows.
+// All TabBands in the same explorer.exe process register here.
+class SessionCoordinator {
+public:
+    static SessionCoordinator& Instance();
+
+    // Called from EnsureSessionStore. Returns a slot id.
+    int Register(TabBand* band);
+
+    // Called from DisconnectSite (via SessionStore destructor).
+    void Unregister(int slot);
+
+    // Dequeue the next unclaimed window block from a loaded session file.
+    bool ClaimWindowData(int slot, SessionData& outData);
+
+    // Report current window state (called from SaveSession).
+    void UpdateWindowData(int slot, const SessionData& data);
+
+    // Atomic write of all windows to disk.
+    bool SaveAll();
+
+    // Was the previous session unclean (crash marker present)?
+    bool WasCrash() const;
+
+    // Create session.active marker (first Register).
+    void MarkActive();
+
+    // Delete session.active marker (last Unregister).
+    void MarkClean();
+
+    // Number of currently registered slots.
+    int RegisteredCount() const;
+
+private:
+    SessionCoordinator();
+    ~SessionCoordinator() = default;
+    SessionCoordinator(const SessionCoordinator&) = delete;
+    SessionCoordinator& operator=(const SessionCoordinator&) = delete;
+
+    void LoadSessionFile();
+    void MigrateFromOldFormat();
+    void CleanupOldFiles();
+    std::wstring SerializeAllWindows() const;
+
+    mutable std::recursive_mutex m_mutex;
+    std::wstring m_sessionPath;       // path to session.db
+    std::wstring m_markerPath;        // path to session.active
+    bool m_loaded = false;
+    bool m_wasCrash = false;
+    int m_nextSlot = 0;
+
+    struct SlotEntry {
+        TabBand* band = nullptr;
+        SessionData data;
+        bool hasData = false;
+    };
+    std::vector<std::pair<int, SlotEntry>> m_slots;
+
+    // Unclaimed window data loaded from the session file on startup.
+    std::vector<SessionData> m_pendingWindows;
+
+    // Last serialized snapshot for dedup.
+    std::optional<std::wstring> m_lastSnapshot;
+};
+
+// Thin wrapper that holds a slot id and delegates to SessionCoordinator.
+// Each TabBand owns one SessionStore instance.
 class SessionStore {
 public:
     SessionStore();
-    explicit SessionStore(std::wstring storagePath);
+    ~SessionStore();
+
+    SessionStore(const SessionStore&) = delete;
+    SessionStore& operator=(const SessionStore&) = delete;
 
     bool Load(SessionData& data) const;
-    bool LoadWithRetry(SessionData& data, int maxRetries) const;
-    bool Save(const SessionData& data) const;
-
-    static std::wstring BuildPathForToken(const std::wstring& token);
-    bool WasPreviousSessionUnclean() const;
-    void MarkSessionActive() const;
-    void ClearSessionMarker() const;
-    void SetMarkerReady(bool ready) const;
-    bool MarkerReady() const noexcept;
+    bool Save(const SessionData& data);
+    int Slot() const noexcept { return m_slot; }
 
 private:
-    std::wstring m_storagePath;
-    mutable std::optional<std::wstring> m_lastSerializedSnapshot;
-    mutable bool m_pendingCheckpointCleanup = false;
-    mutable std::atomic<bool> m_markerReady = false;
-
-    // Helper methods for enhanced session loading
-    bool TryRestoreFromCheckpoint(SessionData& data, const wchar_t* reason) const;
-    void CleanupCheckpoint(const std::wstring& checkpointPath) const;
-    void CreateEmptySession() const;
-    void DeleteCorruptedSession() const;
+    int m_slot = -1;
 };
 
 }  // namespace shelltabs

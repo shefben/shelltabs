@@ -12,7 +12,7 @@
 
 #include "ClassFactory.h"
 #include "ComUtils.h"
-// #include "FolderBackgroundHooks.h" // TODO: Implement folder background hooks
+#include "FolderBackgroundHooks.h"
 #include "Guids.h"
 #include "Logging.h"
 #include "Module.h"
@@ -990,6 +990,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             LogMessage(LogLevel::Warning, L"Failed to initialize theme hooks; gradients will fall back to system colors");
         }
 
+        if (!shelltabs::InitializeFolderBackgroundHooks()) {
+            LogMessage(LogLevel::Warning, L"Failed to initialize folder background hooks; folder backgrounds will be unavailable");
+        }
+
         INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX)};
         icc.dwICC = ICC_BAR_CLASSES | ICC_TAB_CLASSES;
         if (!InitCommonControlsEx(&icc)) {
@@ -1000,6 +1004,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
         ShutdownCompositionIntercept();
+        shelltabs::ShutdownFolderBackgroundHooks();
         ShutdownThemeHooks();
         ShutdownLogging();
     }

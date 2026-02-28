@@ -8,7 +8,6 @@
 #include <cwchar>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <stop_token>
@@ -44,163 +43,6 @@ namespace shelltabs {
 using Microsoft::WRL::ComPtr;
 
 namespace {
-struct WindowTokenState {
-    std::mutex mutex;
-    std::unordered_map<HWND, std::wstring> tokens;
-    std::deque<std::wstring> orphanTokens;
-    bool orphanScanPerformed = false;
-};
-
-WindowTokenState& GetWindowTokenState() {
-    static auto* state = new WindowTokenState();
-    return *state;
-}
-
-constexpr wchar_t kSessionFilePrefix[] = L"session-";
-constexpr wchar_t kSessionDbSuffix[] = L".db";
-constexpr wchar_t kSessionLockSuffix[] = L".db.lock";
-constexpr wchar_t kSessionLockPattern[] = L"session-*.db.lock";
-
-bool IsTokenClaimed(const WindowTokenState& state, const std::wstring& token) {
-    return std::any_of(state.tokens.begin(), state.tokens.end(), [&](const auto& entry) {
-        return entry.second == token;
-    });
-}
-
-void DiscoverOrphanedSessionTokens(WindowTokenState& state) {
-    if (state.orphanScanPerformed) {
-        return;
-    }
-    state.orphanScanPerformed = true;
-
-    std::wstring directory = GetShellTabsDataDirectory();
-    if (directory.empty()) {
-        return;
-    }
-    if (!directory.empty() && directory.back() != L'\\') {
-        directory.push_back(L'\\');
-    }
-
-    const std::wstring pattern = directory + kSessionLockPattern;
-    WIN32_FIND_DATAW findData{};
-    HANDLE findHandle = FindFirstFileW(pattern.c_str(), &findData);
-    if (findHandle == INVALID_HANDLE_VALUE) {
-        return;
-    }
-
-    // Get current time for age comparison
-    FILETIME nowFt{};
-    GetSystemTimeAsFileTime(&nowFt);
-    const ULONGLONG now = (static_cast<ULONGLONG>(nowFt.dwHighDateTime) << 32) | nowFt.dwLowDateTime;
-
-    // 24 hours in 100-nanosecond intervals: 24 * 60 * 60 * 10,000,000
-    constexpr ULONGLONG kMaxAgeInterval = 864000000000ULL;
-    // 1 hour grace period for very recent sessions
-    constexpr ULONGLONG kMinAgeInterval = 36000000000ULL;
-
-    struct CandidateToken {
-        std::wstring token;
-        ULONGLONG timestamp = 0;
-    };
-
-    std::vector<CandidateToken> candidates;
-    std::vector<std::wstring> staleFilesToDelete;
-
-    constexpr size_t kPrefixLength = ARRAYSIZE(kSessionFilePrefix) - 1;
-    constexpr size_t kLockSuffixLength = ARRAYSIZE(kSessionLockSuffix) - 1;
-
-    auto extractToken = [&](const std::wstring& fileName) -> std::wstring {
-        if (fileName.size() <= kPrefixLength + kLockSuffixLength) {
-            return {};
-        }
-        if (fileName.rfind(kSessionFilePrefix, 0) != 0) {
-            return {};
-        }
-        if (fileName.compare(fileName.size() - kLockSuffixLength, kLockSuffixLength, kSessionLockSuffix) != 0) {
-            return {};
-        }
-        return fileName.substr(kPrefixLength, fileName.size() - kPrefixLength - kLockSuffixLength);
-    };
-
-    do {
-        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            continue;
-        }
-        const std::wstring fileName = findData.cFileName;
-        std::wstring token = extractToken(fileName);
-        if (token.empty()) {
-            continue;
-        }
-
-        std::wstring lockPath = directory + fileName;
-        std::wstring sessionPath = directory;
-        sessionPath += kSessionFilePrefix;
-        sessionPath += token;
-        sessionPath += kSessionDbSuffix;
-
-        const ULONGLONG fileTime = (static_cast<ULONGLONG>(findData.ftLastWriteTime.dwHighDateTime) << 32) |
-                                   findData.ftLastWriteTime.dwLowDateTime;
-        const ULONGLONG age = (now > fileTime) ? (now - fileTime) : 0;
-
-        // Delete stale lock files (older than 24 hours)
-        if (age > kMaxAgeInterval) {
-            LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: deleting stale lock file %ls (age > 24h)",
-                       lockPath.c_str());
-            staleFilesToDelete.push_back(lockPath);
-            staleFilesToDelete.push_back(sessionPath);  // Also delete the session file
-            continue;
-        }
-
-        // Skip sessions that don't have a corresponding .db file
-        if (GetFileAttributesW(sessionPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            staleFilesToDelete.push_back(lockPath);  // Clean up orphaned lock file
-            continue;
-        }
-
-        // Skip very recent sessions (less than 1 hour old) - they might still be in use
-        if (age < kMinAgeInterval) {
-            LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: skipping recent session %ls (age < 1h)",
-                       token.c_str());
-            continue;
-        }
-
-        CandidateToken candidate;
-        candidate.token = std::move(token);
-        candidate.timestamp = fileTime;
-        candidates.emplace_back(std::move(candidate));
-    } while (FindNextFileW(findHandle, &findData));
-
-    FindClose(findHandle);
-
-    // Delete stale files
-    for (const auto& path : staleFilesToDelete) {
-        DeleteFileW(path.c_str());
-    }
-
-    // Sort by timestamp (most recent first)
-    std::sort(candidates.begin(), candidates.end(), [](const CandidateToken& left, const CandidateToken& right) {
-        return left.timestamp > right.timestamp;
-    });
-
-    // Only adopt the most recent orphaned session (limit to 1 to prevent cycles)
-    // If there are multiple crashed sessions, they were probably all from the same crash
-    // and restoring just one is sufficient
-    if (!candidates.empty()) {
-        LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: found %llu orphaned sessions, adopting most recent: %ls",
-                   static_cast<unsigned long long>(candidates.size()), candidates[0].token.c_str());
-        state.orphanTokens.emplace_back(std::move(candidates[0].token));
-
-        // Clean up the rest - they're likely stale
-        for (size_t i = 1; i < candidates.size(); ++i) {
-            std::wstring lockPath = directory + kSessionFilePrefix + candidates[i].token + kSessionLockSuffix;
-            std::wstring sessionPath = directory + kSessionFilePrefix + candidates[i].token + kSessionDbSuffix;
-            LogMessage(LogLevel::Info, L"DiscoverOrphanedSessionTokens: cleaning up extra orphaned session %ls",
-                       candidates[i].token.c_str());
-            DeleteFileW(lockPath.c_str());
-            DeleteFileW(sessionPath.c_str());
-        }
-    }
-}
 
 enum class WindowSeedType {
     StandaloneTab,
@@ -701,6 +543,12 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             // Initialize options
             EnsureOptionsLoaded();
 
+            // If reuse-existing-window is enabled and another ShellTabs window
+            // already exists, mark this window for redirect on first navigation.
+            if (m_options.reuseExistingWindow && TabManager::ActiveWindowCount() > 1) {
+                m_pendingWindowRedirect = true;
+            }
+
             LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
 
             return S_OK;
@@ -986,7 +834,9 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
     PushClosedSet(std::move(closedSet));
 
     if (m_tabs.TotalTabCount() == 0) {
-        EnsureTabForCurrentFolder();
+        SaveSession();
+        CloseFrameWindowAsync();
+        return;
     }
 
     UpdateTabsUI();
@@ -1317,6 +1167,17 @@ bool TabBand::CanReopenClosedTabs() const {
     return !m_closedTabHistory.empty();
 }
 
+std::wstring TabBand::GetReopenClosedLabel() const {
+    if (m_closedTabHistory.empty()) {
+        return L"Reopen Closed Tab";
+    }
+    const auto& last = m_closedTabHistory.back();
+    if (last.groupRemoved && last.entries.size() > 1) {
+        return L"Reopen Closed Island (" + std::to_wstring(last.entries.size()) + L" tabs)";
+    }
+    return L"Reopen Closed Tab";
+}
+
 bool TabBand::CanNavigateBack() const {
     const TabLocation selected = m_tabs.SelectedLocation();
     return m_tabs.CanNavigateBack(selected);
@@ -1349,6 +1210,9 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
         return;
     }
 
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
+
     std::wstring removedGroupId;
     if (const auto* group = m_tabs.GetGroup(location.groupIndex)) {
         if (!group->savedGroupId.empty() && group->tabs.size() == 1) {
@@ -1367,10 +1231,18 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
     }
     UpdateTabsUI();
     SyncAllSavedGroups();
-    SaveSession();  // Immediately persist tab removal
     if (!removedGroupId.empty()) {
         GroupStore::Instance().UpdateTabs(removedGroupId, {});
     }
+
+    if (wasSelected) {
+        const TabLocation newSelection = m_tabs.SelectedLocation();
+        if (newSelection.IsValid()) {
+            NavigateToTab(newSelection);
+        }
+    }
+
+    SaveSession();  // Immediately persist tab removal
 }
 
 void TabBand::OnCloneTabRequested(TabLocation location) {
@@ -1441,7 +1313,7 @@ void TabBand::OnNavigateBack() {
     m_internalNavigation = true;
 
     // Navigate to the history entry
-    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE);
+    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE | SBSP_WRITENOHISTORY);
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"TabBand::OnNavigateBack failed to navigate (hr=0x%08X)", hr);
         m_internalNavigation = false;
@@ -1467,7 +1339,7 @@ void TabBand::OnNavigateForward() {
     m_internalNavigation = true;
 
     // Navigate to the history entry
-    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE);
+    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE | SBSP_WRITENOHISTORY);
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"TabBand::OnNavigateForward failed to navigate (hr=0x%08X)", hr);
         m_internalNavigation = false;
@@ -1585,7 +1457,7 @@ bool TabBand::OnShowHistoryMenu(const HistoryMenuRequest& request) {
     }
 
     m_internalNavigation = true;
-    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE);
+    const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE | SBSP_WRITENOHISTORY);
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"TabBand::OnShowHistoryMenu failed to navigate (hr=0x%08X)", hr);
         m_internalNavigation = false;
@@ -1703,7 +1575,20 @@ void TabBand::OnEditGroupProperties(int groupIndex) {
     }
 }
 
+void TabBand::OnSetIslandLabel(int groupIndex, const std::wstring& label) {
+    auto* group = m_tabs.GetGroup(groupIndex);
+    if (!group) return;
+
+    group->name = label;
+    UpdateTabsUI();
+    SyncSavedGroup(groupIndex);
+    SaveSession();
+}
+
 void TabBand::OnDetachGroupRequested(int groupIndex) {
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool wasSelectedInGroup = (selected.IsValid() && selected.groupIndex == groupIndex);
+
     auto removedGroup = m_tabs.TakeGroup(groupIndex);
     if (!removedGroup) {
         return;
@@ -1724,6 +1609,14 @@ void TabBand::OnDetachGroupRequested(int groupIndex) {
     }
     UpdateTabsUI();
     SyncAllSavedGroups();
+
+    if (wasSelectedInGroup) {
+        const TabLocation newSelection = m_tabs.SelectedLocation();
+        if (newSelection.IsValid()) {
+            NavigateToTab(newSelection);
+        }
+    }
+
     SaveSession();  // Immediately persist detached group
 }
 
@@ -1753,9 +1646,10 @@ std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool*
         *removedLastTab = false;
     }
 
+    const TabLocation selected = m_tabs.SelectedLocation();
+    const bool tabWasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
     if (wasSelected) {
-        const TabLocation selected = m_tabs.SelectedLocation();
-        *wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
+        *wasSelected = tabWasSelected;
     }
 
     const bool wasLastTab = (m_tabs.TotalTabCount() == 1);
@@ -1779,6 +1673,13 @@ std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool*
 
     UpdateTabsUI();
     SyncAllSavedGroups();
+
+    if (tabWasSelected) {
+        const TabLocation newSelection = m_tabs.SelectedLocation();
+        if (newSelection.IsValid()) {
+            NavigateToTab(newSelection);
+        }
+    }
 
     return removed;
 }
@@ -1825,8 +1726,9 @@ TabLocation TabBand::InsertTransferredTab(TabInfo tab, int groupIndex, int tabIn
 }
 
 std::optional<TabGroup> TabBand::DetachGroupForTransfer(int groupIndex, bool* wasSelected) {
+    const bool groupWasSelected = (m_tabs.SelectedLocation().groupIndex == groupIndex);
     if (wasSelected) {
-        *wasSelected = (m_tabs.SelectedLocation().groupIndex == groupIndex);
+        *wasSelected = groupWasSelected;
     }
 
     auto removed = m_tabs.TakeGroup(groupIndex);
@@ -1845,6 +1747,14 @@ std::optional<TabGroup> TabBand::DetachGroupForTransfer(int groupIndex, bool* wa
 
     UpdateTabsUI();
     SyncAllSavedGroups();
+
+    if (groupWasSelected) {
+        const TabLocation newSelection = m_tabs.SelectedLocation();
+        if (newSelection.IsValid()) {
+            NavigateToTab(newSelection);
+        }
+    }
+
     SaveSession();  // Immediately persist group removal
 
     return removed;
@@ -1981,6 +1891,72 @@ void TabBand::CloseFrameWindowAsync() {
     PostMessageW(frame, WM_CLOSE, 0, 0);
 }
 
+bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return false;
+    }
+
+    // Get the folder path from the PIDL
+    std::wstring path = GetCanonicalParsingName(pidl);
+    if (path.empty()) {
+        path = GetParsingName(pidl);
+    }
+    if (path.empty()) {
+        return false;
+    }
+
+    // Get our own top-level frame so we can exclude it from the search
+    HWND ourFrame = GetFrameWindow();
+    if (!ourFrame) {
+        return false;
+    }
+
+    // Search for another CabinetWClass window that has a ShellTabsBandWindow child
+    HWND candidate = nullptr;
+    HWND search = nullptr;
+    while ((search = FindWindowExW(nullptr, search, L"CabinetWClass", nullptr)) != nullptr) {
+        if (search == ourFrame) {
+            continue;
+        }
+        // Check if this Explorer window has a ShellTabsBandWindow descendant
+        HWND bandWindow = FindDescendantWindow(search, L"ShellTabsBandWindow");
+        if (bandWindow) {
+            candidate = bandWindow;
+            break;
+        }
+    }
+
+    if (!candidate) {
+        return false;
+    }
+
+    // Send the folder path via WM_COPYDATA using the existing protocol
+    COPYDATASTRUCT cds{};
+    cds.dwData = SHELLTABS_COPYDATA_OPEN_FOLDER;
+    cds.cbData = static_cast<DWORD>(path.size() * sizeof(wchar_t));
+    cds.lpData = const_cast<wchar_t*>(path.c_str());
+
+    const LRESULT result = SendMessageW(candidate, WM_COPYDATA,
+        reinterpret_cast<WPARAM>(ourFrame), reinterpret_cast<LPARAM>(&cds));
+
+    if (!result) {
+        return false;
+    }
+
+    // Bring the target window to the foreground
+    HWND targetFrame = GetAncestor(candidate, GA_ROOT);
+    if (targetFrame) {
+        if (IsIconic(targetFrame)) {
+            ShowWindow(targetFrame, SW_RESTORE);
+        }
+        SetForegroundWindow(targetFrame);
+    }
+
+    // Close this Explorer window
+    PostMessageW(ourFrame, WM_CLOSE, 0, 0);
+    return true;
+}
+
 void TabBand::EnsureTabPreview(TabLocation location) {
     if (!location.IsValid()) {
         return;
@@ -2047,72 +2023,6 @@ TabManager::ExplorerWindowId TabBand::BuildWindowId() const {
     return id;
 }
 
-std::wstring TabBand::ResolveWindowToken() {
-    if (!m_windowToken.empty()) {
-        return m_windowToken;
-    }
-
-    HWND frame = GetFrameWindow();
-    if (!frame) {
-        return {};
-    }
-
-    {
-        auto& state = GetWindowTokenState();
-        std::scoped_lock lock(state.mutex);
-        const auto existing = state.tokens.find(frame);
-        if (existing != state.tokens.end()) {
-            m_windowToken = existing->second;
-            return m_windowToken;
-        }
-
-        DiscoverOrphanedSessionTokens(state);
-        while (!state.orphanTokens.empty()) {
-            std::wstring candidate = std::move(state.orphanTokens.front());
-            state.orphanTokens.pop_front();
-            if (candidate.empty() || IsTokenClaimed(state, candidate)) {
-                continue;
-            }
-            state.tokens.emplace(frame, candidate);
-            m_windowToken = candidate;
-            LogMessage(LogLevel::Info, L"TabBand::ResolveWindowToken adopted crashed session token %ls",
-                       m_windowToken.c_str());
-            return m_windowToken;
-        }
-
-        GUID guid{};
-        std::wstring token;
-        if (SUCCEEDED(CoCreateGuid(&guid))) {
-            wchar_t buffer[64];
-            if (StringFromGUID2(guid, buffer, ARRAYSIZE(buffer)) > 0) {
-                token.assign(buffer);
-                token.erase(std::remove(token.begin(), token.end(), L'{'), token.end());
-                token.erase(std::remove(token.begin(), token.end(), L'}'), token.end());
-            }
-        }
-        if (token.empty()) {
-            token = std::to_wstring(reinterpret_cast<uintptr_t>(frame));
-        }
-        state.tokens.emplace(frame, token);
-        m_windowToken = token;
-    }
-
-    return m_windowToken;
-}
-
-void TabBand::ReleaseWindowToken() {
-    HWND frame = GetFrameWindow();
-    if (!frame) {
-        m_windowToken.clear();
-        return;
-    }
-
-    auto& state = GetWindowTokenState();
-    std::scoped_lock lock(state.mutex);
-    state.tokens.erase(frame);
-    m_windowToken.clear();
-}
-
 void TabBand::CaptureActiveTabPreview() {
     if (!m_shellBrowser) {
         return;
@@ -2138,8 +2048,11 @@ void TabBand::CaptureActiveTabPreview() {
         return;
     }
 
+    // Use frame HWND as preview owner key.
+    HWND frame = GetFrameWindow();
+    std::wstring owner = frame ? std::to_wstring(reinterpret_cast<uintptr_t>(frame)) : std::wstring();
     PreviewCache::Instance().StorePreviewFromWindow(tab->pidl.get(), viewWindow, kPreviewImageSize,
-                                                    ResolveWindowToken());
+                                                    owner);
 }
 
 bool TabBand::GetCurrentScrollPosition(POINT& outPosition) {
@@ -2358,16 +2271,6 @@ void TabBand::DisconnectSite() {
     try {
         SaveSession();
         StopSessionFlushTimer();
-
-        // Clear session marker safely
-        if (m_sessionMarkerActive && m_sessionStore) {
-            m_sessionStore->ClearSessionMarker();
-        }
-        m_sessionMarkerActive = false;
-
-        if (m_sessionStore) {
-            m_sessionStore->SetMarkerReady(false);
-        }
     }
     catch (...) {
         LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during session cleanup");
@@ -2395,10 +2298,11 @@ void TabBand::DisconnectSite() {
             }
         }
 
-        if (!m_windowToken.empty()) {
-            PreviewCache::Instance().CancelPendingCapturesForOwner(m_windowToken);
+        HWND frame = GetFrameWindow();
+        if (frame) {
+            std::wstring owner = std::to_wstring(reinterpret_cast<uintptr_t>(frame));
+            PreviewCache::Instance().CancelPendingCapturesForOwner(owner);
         }
-        ReleaseWindowToken();
     }
     catch (...) {
         LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during preview cleanup");
@@ -2460,10 +2364,6 @@ void TabBand::InitializeTabs() {
     StopSessionFlushTimer();
     m_backgroundInitializationActive = false;
     m_sessionPersistenceReady = false;
-    if (m_sessionStore) {
-        m_sessionStore->SetMarkerReady(false);
-    }
-    m_sessionMarkerActive = false;
     m_lastSessionUnclean = false;
 
     for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
@@ -2471,8 +2371,10 @@ void TabBand::InitializeTabs() {
             CancelPendingPreviewForGroup(*group);
         }
     }
-    if (!m_windowToken.empty()) {
-        PreviewCache::Instance().CancelPendingCapturesForOwner(m_windowToken);
+    HWND frame = GetFrameWindow();
+    if (frame) {
+        std::wstring owner = std::to_wstring(reinterpret_cast<uintptr_t>(frame));
+        PreviewCache::Instance().CancelPendingCapturesForOwner(owner);
     }
     m_tabs.Clear();
 
@@ -2528,29 +2430,8 @@ void TabBand::EnsureSessionStore() {
     if (m_sessionStore) {
         return;
     }
-
-    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore resolving storage (this=%p)", this);
-    const std::wstring token = ResolveWindowToken();
-    if (token.empty()) {
-        LogMessage(LogLevel::Info,
-                   L"TabBand::EnsureSessionStore window token unavailable; deferring initialization");
-        return;
-    }
-
-    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore window token %ls", token.c_str());
-    std::wstring storagePath = SessionStore::BuildPathForToken(token);
-    if (storagePath.empty()) {
-        LogMessage(LogLevel::Warning,
-                   L"TabBand::EnsureSessionStore failed to build storage path for token %ls",
-                   token.c_str());
-        return;
-    }
-
-    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore using storage path %ls", storagePath.c_str());
-    m_sessionStore = std::make_unique<SessionStore>(std::move(storagePath));
-    if (m_sessionStore) {
-        m_sessionStore->SetMarkerReady(false);
-    }
+    LogMessage(LogLevel::Info, L"TabBand::EnsureSessionStore creating store (this=%p)", this);
+    m_sessionStore = std::make_unique<SessionStore>();
 }
 
 bool TabBand::RestoreSession() {
@@ -3054,7 +2935,7 @@ void TabBand::NavigateToTab(TabLocation location) {
     m_internalNavigation = true;
     EnsureFtpNamespaceBinding(tab->pidl.get());
     LogMessage(LogLevel::Info, L"NavigateToTab: calling BrowseObject");
-    const HRESULT hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER);
+    const HRESULT hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER | SBSP_WRITENOHISTORY);
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"NavigateToTab: BrowseObject failed (hr=0x%08X)", hr);
         m_internalNavigation = false;
@@ -3067,6 +2948,13 @@ void TabBand::EnsureTabForCurrentFolder() {
     UniquePidl current = QueryCurrentFolder();
     if (!current) {
         return;
+    }
+
+    if (m_pendingWindowRedirect) {
+        m_pendingWindowRedirect = false;
+        if (TryRedirectToExistingWindow(current.get())) {
+            return;
+        }
     }
 
     std::wstring name = GetDisplayName(current.get());
@@ -3104,8 +2992,11 @@ void TabBand::EnsureTabForCurrentFolder() {
                 // Record current location as a safety fallback
                 m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
             } else if (!m_internalNavigation && oldPath != tab->path) {
-                // Record navigation in history if location changed and this is not back/forward navigation
-                m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
+                // Before recording as new navigation, check if this matches an adjacent
+                // history entry (indicating an implicit back/forward from Explorer native navigation)
+                if (!m_tabs.TryMatchImplicitNavigation(selected, tab->path)) {
+                    m_tabs.RecordNavigation(selected, ClonePidl(current.get()), tab->path, tab->name);
+                }
             }
 
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
@@ -3546,6 +3437,12 @@ void TabBand::OnShowOptionsDialog(OptionsDialogPage initialPage, const std::wstr
     if (dialog.groupsChanged) {
         auto& store = GroupStore::Instance();
         LoadGroupStoreForContext(L"TabBand::OnShowOptionsDialog failed to load saved groups", store);
+
+        // Actually remove deleted groups from persistent storage
+        for (const auto& removedId : dialog.removedGroupIds) {
+            store.Remove(removedId);
+        }
+
         std::vector<SavedGroup> updatedGroups = dialog.savedGroups;
         if (updatedGroups.empty()) {
             updatedGroups = store.Groups();
@@ -3782,33 +3679,22 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
         return;
     }
 
-    SessionStore* sessionStore = m_sessionStore.get();
-    if (sessionStore && result->groupStoreLoaded) {
-        result->sessionStoreAvailable = true;
-        sessionStore->SetMarkerReady(true);
-        result->lastSessionUnclean = sessionStore->WasPreviousSessionUnclean();
-
-        // Mark session active IMMEDIATELY to ensure crash marker exists
-        // This must happen before any restore logic in case Explorer crashes during initialization
-        if (!m_sessionMarkerActive) {
-            sessionStore->MarkSessionActive();
-            m_sessionMarkerActive = true;
-            LogMessage(LogLevel::Info, L"TabBand session crash marker created");
-        }
-
+    // Session restore: coordinator handles crash markers and file loading.
+    if (m_sessionStore && result->groupStoreLoaded) {
+        bool wasCrash = SessionCoordinator::Instance().WasCrash();
         bool reopenOnCrash = result->optionsLoaded ? optionsSnapshot.reopenOnCrash : m_options.reopenOnCrash;
         bool shouldRestore = !hasPendingSeed;
-        if (result->lastSessionUnclean && !reopenOnCrash) {
+        if (wasCrash && !reopenOnCrash) {
             shouldRestore = false;
         }
         result->shouldRestoreSession = shouldRestore;
         if (shouldRestore && !stopToken.stop_requested()) {
             SessionData data;
-            if (sessionStore->Load(data)) {
+            if (m_sessionStore->Load(data)) {
                 result->sessionData = std::move(data);
                 result->hasSessionData = true;
             } else {
-                LogMessage(LogLevel::Warning, L"TabBand::RunBackgroundInitialization failed to load session data");
+                LogMessage(LogLevel::Warning, L"TabBand::RunBackgroundInitialization no session data to claim");
             }
         }
     }
@@ -3872,11 +3758,7 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
         m_window->SetPreferredDockMode(preferred);
     }
 
-    if (result->sessionStoreAvailable) {
-        m_lastSessionUnclean = result->lastSessionUnclean;
-    } else {
-        m_lastSessionUnclean = false;
-    }
+    m_lastSessionUnclean = SessionCoordinator::Instance().WasCrash();
 
     m_tabs.Clear();
 
@@ -3927,19 +3809,12 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
         SyncAllSavedGroups();
     }
 
-    if (result->sessionStoreAvailable) {
+    // Session persistence is ready as soon as we have a session store.
+    if (m_sessionStore) {
         m_sessionPersistenceReady = true;
-        if (m_sessionStore) {
-            m_sessionStore->SetMarkerReady(true);
-            // Note: MarkSessionActive is now called earlier in RunBackgroundInitialization
-            // to ensure the crash marker exists as soon as possible
-        }
         StartSessionFlushTimer();
     } else {
         m_sessionPersistenceReady = false;
-        if (m_sessionStore) {
-            m_sessionStore->SetMarkerReady(false);
-        }
     }
 
     m_hadPendingSeed = false;

@@ -36,6 +36,7 @@
 #include <optional>
 
 #include "BackgroundCache.h"
+#include "FolderBackgroundHooks.h"
 #include "ShellTabsMessages.h"
 #include "BreadcrumbGradient.h"
 #include "ColorUtils.h"
@@ -933,6 +934,8 @@ std::mutex CExplorerBHO::s_ensureTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
 std::mutex CExplorerBHO::s_openInNewTabTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
+std::mutex CExplorerBHO::s_deferredBreadcrumbTimerLock;
+std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_deferredBreadcrumbTimers;
 
 CExplorerBHO::CExplorerBHO() : m_refCount(1) {
     ModuleAddRef();
@@ -1180,6 +1183,65 @@ void CALLBACK CExplorerBHO::OpenInNewTabTimerProc(HWND, UINT, UINT_PTR timerId, 
         instance->Release();
     }
 }
+
+void CExplorerBHO::ScheduleDeferredBreadcrumbUpdate() {
+    CancelDeferredBreadcrumbUpdate();
+
+    UINT_PTR timerId = SetTimer(nullptr, 0, 0, &CExplorerBHO::DeferredBreadcrumbTimerProc);
+    if (timerId == 0) {
+        // Timer failed — fall back to synchronous update.
+        LogMessage(LogLevel::Warning, L"BHO: deferred breadcrumb timer failed, updating synchronously");
+        UpdateBreadcrumbSubclass();
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_deferredBreadcrumbTimerLock);
+        s_deferredBreadcrumbTimers[timerId] = this;
+    }
+
+    m_deferredBreadcrumbTimerId = timerId;
+    LogMessage(LogLevel::Info, L"BHO: deferred breadcrumb update scheduled (timer=%llu)",
+               static_cast<unsigned long long>(timerId));
+}
+
+void CExplorerBHO::CancelDeferredBreadcrumbUpdate() {
+    if (m_deferredBreadcrumbTimerId == 0) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_deferredBreadcrumbTimerLock);
+        s_deferredBreadcrumbTimers.erase(m_deferredBreadcrumbTimerId);
+    }
+
+    KillTimer(nullptr, m_deferredBreadcrumbTimerId);
+    m_deferredBreadcrumbTimerId = 0;
+}
+
+void CALLBACK CExplorerBHO::DeferredBreadcrumbTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
+    CExplorerBHO* instance = nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(s_deferredBreadcrumbTimerLock);
+        auto it = s_deferredBreadcrumbTimers.find(timerId);
+        if (it != s_deferredBreadcrumbTimers.end()) {
+            instance = it->second;
+            instance->AddRef();
+            s_deferredBreadcrumbTimers.erase(it);
+        }
+    }
+
+    KillTimer(nullptr, timerId);
+
+    if (instance) {
+        instance->m_deferredBreadcrumbTimerId = 0;
+        LogMessage(LogLevel::Info, L"BHO: deferred breadcrumb timer fired — running UpdateBreadcrumbSubclass");
+        instance->UpdateBreadcrumbSubclass();
+        instance->Release();
+    }
+}
+
 IFACEMETHODIMP CExplorerBHO::QueryInterface(REFIID riid, void** object) {
     if (!object) {
         return E_POINTER;
@@ -1260,6 +1322,7 @@ void CExplorerBHO::Disconnect() {
 
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 2 - CancelAllEnsureRetries");
     CancelAllEnsureRetries();
+    CancelDeferredBreadcrumbUpdate();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 3 - CancelOpenInNewTabRetry");
     CancelOpenInNewTabRetry();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 4 - clear states");
@@ -1273,8 +1336,22 @@ void CExplorerBHO::Disconnect() {
     RemoveProgressSubclass();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 8 - RemoveTravelBandSubclass");
     RemoveTravelBandSubclass();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 8b - RemoveExplorerFrameSubclass");
+    RemoveExplorerFrameSubclass();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9 - RemoveAddressEditSubclass");
     RemoveAddressEditSubclass();
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9b - RemoveStatusBarSubclass");
+    RemoveStatusBarSubclass();
+
+    // Clear folder background hook state BEFORE releasing COM interfaces.
+    // GetTopLevelExplorerWindow() needs m_shellBrowser / m_webBrowser to resolve
+    // the frame HWND — doing this after Reset() would pass nullptr and leave a
+    // stale entry in the FolderBackgroundHooks frame-path map.
+    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9c - ClearFrameFolderPath");
+    FolderBackgroundHooks::Instance().ClearFrameFolderPath(GetTopLevelExplorerWindow());
+    ClearFolderBackgrounds();
+    m_currentFolderKey.clear();
+
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 10 - DisconnectEvents");
     DisconnectEvents();
 
@@ -1310,8 +1387,6 @@ void CExplorerBHO::Disconnect() {
     m_breadcrumbLogState = BreadcrumbLogState::Unknown;
     m_loggedBreadcrumbToolbarMissing = false;
     m_lastBreadcrumbStage = BreadcrumbDiscoveryStage::None;
-    ClearFolderBackgrounds();
-    m_currentFolderKey.clear();
 
     m_isDisconnecting = false;
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 15 - complete");
@@ -1479,7 +1554,7 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                 LogMessage(LogLevel::Info,
                            L"EnsureBandVisible: ShowBrowserBar succeeded for host=%p on attempt %zu", hostWindow,
                            attempt);
-                UpdateBreadcrumbSubclass();
+                ScheduleDeferredBreadcrumbUpdate();
                 TryDispatchQueuedOpenInNewTabRequests();
             } else {
                 m_bandVisible = false;
@@ -1573,7 +1648,13 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
                 m_shellBrowser.As(&siteProvider);
             }
             EnsureBandVisible();
-            UpdateBreadcrumbSubclass();
+            // Defer UpdateBreadcrumbSubclass to the next message loop iteration.
+            // SetSite can be called from inside a deeply nested CreateWindowExW
+            // callback (KiUserCallbackDispatcher) during Explorer initialization.
+            // Running heavy work (file I/O, GDI+ bitmap loading, COM calls) inside
+            // that nested callback causes re-entrant use-after-free crashes.
+            // A 0ms timer fires once the current call stack fully unwinds.
+            ScheduleDeferredBreadcrumbUpdate();
             return S_OK;
 
         },
@@ -1725,6 +1806,9 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
 
                     // Update back/forward button states to reflect ShellTabs per-tab history
                     UpdateTravelToolbarButtonStates();
+
+                    // Apply dark mode theme to status bar
+                    UpdateStatusBarTheme();
                     break;
                 case DISPID_ONQUIT:
                     Disconnect();
@@ -2358,13 +2442,29 @@ std::wstring CExplorerBHO::NormalizeBackgroundKey(const std::wstring& path) cons
 }
 
 void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
+    // Re-entrancy guard: SetImages loads images via GDI+/WIC (COM), which can deliver
+    // pending COM apartment messages on this thread (KiUserCallbackDispatcher →
+    // explorerframe COM window → BHO::Invoke → NavigateComplete2 → UpdateBreadcrumbSubclass
+    // → here again). Re-entrant GDI+ calls corrupt its thread-local state → crash.
+    static thread_local bool s_inReload = false;
+    if (s_inReload) {
+        LogMessage(LogLevel::Warning, L"BHO: ReloadFolderBackgrounds re-entrant call suppressed");
+        return;
+    }
+    s_inReload = true;
+    struct ReloadGuard { ~ReloadGuard() { s_inReload = false; } } reloadGuard;
+
     ClearFolderBackgrounds();
 
     if (!m_gdiplusInitialized) {
+        // GDI+ not available — disable hook backgrounds so stale images aren't drawn
+        FolderBackgroundHooks::Instance().SetImages(false, BackgroundPositionMode::kBottomRight, 200, {}, {});
         return;
     }
 
     if (!options.enableFolderBackgrounds) {
+        // Explicitly disable hook backgrounds so the subclass stops drawing
+        FolderBackgroundHooks::Instance().SetImages(false, BackgroundPositionMode::kBottomRight, 200, {}, {});
         InvalidateFolderBackgroundTargets();
         return;
     }
@@ -2398,6 +2498,19 @@ void CExplorerBHO::ReloadFolderBackgrounds(const ShellTabsOptions& options) {
     }
 
     InvalidateFolderBackgroundTargets();
+
+    // Build the folder->imagePath map for the hook system
+    std::unordered_map<std::wstring, std::wstring> hookFolderPaths;
+    for (const auto& [key, data] : m_folderBackgroundEntries) {
+        hookFolderPaths[key] = data.imagePath;
+    }
+    ShellTabsOptions currentOpts = OptionsStore::Instance().Get();
+    FolderBackgroundHooks::Instance().SetImages(
+        options.enableFolderBackgrounds,
+        currentOpts.backgroundPositionMode,
+        currentOpts.backgroundOpacity,
+        m_universalBackgroundImagePath,
+        hookFolderPaths);
 }
 
 bool CExplorerBHO::EnsureFolderBackgroundBitmap(const std::wstring& key) const {
@@ -2539,6 +2652,9 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
     }
 
     if (newKey == m_currentFolderKey) {
+        // Key unchanged — still ensure subclassing is applied for this frame
+        // (may not have happened yet if SHELLDLL_DefView didn't exist at first call).
+        FolderBackgroundHooks::Instance().SetFrameFolderPath(GetTopLevelExplorerWindow(), m_currentFolderKey);
         if (!EnsureFolderBackgroundBitmap(m_currentFolderKey)) {
             EnsureUniversalBackgroundBitmap();
         }
@@ -2546,6 +2662,8 @@ void CExplorerBHO::UpdateCurrentFolderBackground() {
     }
 
     m_currentFolderKey = std::move(newKey);
+
+    FolderBackgroundHooks::Instance().SetFrameFolderPath(GetTopLevelExplorerWindow(), m_currentFolderKey);
 
     if (!EnsureFolderBackgroundBitmap(m_currentFolderKey)) {
         EnsureUniversalBackgroundBitmap();
@@ -3920,6 +4038,7 @@ void CExplorerBHO::UpdateTravelBandSubclass() {
 
     if (m_travelBandSubclassInstalled && travelBand == m_travelBand && toolbar == m_travelToolbar) {
         ResolveTravelToolbarCommands();
+        InstallExplorerFrameSubclass();
         return;
     }
 
@@ -3927,6 +4046,7 @@ void CExplorerBHO::UpdateTravelBandSubclass() {
     if (InstallTravelBandSubclass(travelBand, toolbar)) {
         ResolveTravelToolbarCommands();
     }
+    InstallExplorerFrameSubclass();
 }
 
 bool CExplorerBHO::InstallTravelBandSubclass(HWND travelBand, HWND toolbar) {
@@ -3981,6 +4101,67 @@ void CExplorerBHO::RemoveTravelBandSubclass() {
     m_travelHistoryDropdownCommandId = 0;
     m_travelHistoryMenuVisible = false;
     m_travelToolbarPressedButton = -1;
+}
+
+void CExplorerBHO::InstallExplorerFrameSubclass() {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return;
+    }
+
+    if (m_explorerFrameSubclassInstalled && m_explorerFrame == frame) {
+        return;  // Already installed on this frame
+    }
+
+    RemoveExplorerFrameSubclass();
+
+    if (SetWindowSubclass(frame, &CExplorerBHO::ExplorerFrameSubclassProc,
+                          reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_explorerFrame = frame;
+        m_explorerFrameSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed explorer frame subclass on hwnd=%p", frame);
+    } else {
+        LogLastError(L"SetWindowSubclass(explorer frame)", GetLastError());
+    }
+}
+
+void CExplorerBHO::RemoveExplorerFrameSubclass() {
+    __try {
+        if (m_explorerFrame && m_explorerFrameSubclassInstalled) {
+            if (IsWindow(m_explorerFrame)) {
+                RemoveWindowSubclass(m_explorerFrame, &CExplorerBHO::ExplorerFrameSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"RemoveExplorerFrameSubclass SEH exception");
+    }
+    m_explorerFrame = nullptr;
+    m_explorerFrameSubclassInstalled = false;
+}
+
+LRESULT CALLBACK CExplorerBHO::ExplorerFrameSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                          UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (msg == WM_APPCOMMAND) {
+        const int command = GET_APPCOMMAND_LPARAM(lParam);
+        if (command == APPCOMMAND_BROWSER_BACKWARD) {
+            if (self->PostTravelToolbarNavigationMessage(true)) {
+                return TRUE;
+            }
+        }
+        if (command == APPCOMMAND_BROWSER_FORWARD) {
+            if (self->PostTravelToolbarNavigationMessage(false)) {
+                return TRUE;
+            }
+        }
+    } else if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerFrameSubclassProc, subclassId);
+        self->m_explorerFrame = nullptr;
+        self->m_explorerFrameSubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 void CExplorerBHO::ResolveTravelToolbarCommands() {
@@ -6138,6 +6319,30 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
             }
             break;
         }
+        case TB_SETSTATE: {
+            // Windows Explorer resets back/forward button states based on its own
+            // native travel log, which doesn't know about ShellTabs' per-tab history.
+            // Intercept TB_SETSTATE and override the enabled bit for our buttons.
+            const UINT commandId = static_cast<UINT>(wParam);
+            if (commandId != 0 &&
+                (commandId == self->m_travelBackCommandId || commandId == self->m_travelForwardCommandId)) {
+                HWND bandWindow = self->GetShellTabsBandWindow();
+                if (bandWindow && IsWindow(bandWindow)) {
+                    const LRESULT navState = SendMessageW(bandWindow, WM_SHELLTABS_QUERY_NAV_STATE, 0, 0);
+                    const bool canGo = (commandId == self->m_travelBackCommandId)
+                                           ? (LOWORD(navState) != 0)
+                                           : (HIWORD(navState) != 0);
+                    BYTE state = static_cast<BYTE>(lParam);
+                    if (canGo) {
+                        state |= TBSTATE_ENABLED;
+                    } else {
+                        state &= static_cast<BYTE>(~TBSTATE_ENABLED);
+                    }
+                    return DefSubclassProc(hwnd, msg, wParam, static_cast<LPARAM>(state));
+                }
+            }
+            break;
+        }
         default:
             break;
     }
@@ -6146,6 +6351,246 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
 }
 
 
+
+HWND CExplorerBHO::FindStatusBar() const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return nullptr;
+    }
+    return FindDescendantWindow(frame, STATUSCLASSNAMEW);
+}
+
+void CExplorerBHO::UpdateStatusBarTheme() {
+    if (m_isDisconnecting) {
+        return;
+    }
+
+    const bool darkMode = IsAppDarkModePreferred();
+    if (!darkMode) {
+        // Light mode: remove any dark theming
+        RemoveStatusBarSubclass();
+        if (m_statusBar && IsWindow(m_statusBar) && m_statusBarDarkModeApplied) {
+            SetWindowTheme(m_statusBar, nullptr, nullptr);
+            InvalidateRect(m_statusBar, nullptr, TRUE);
+            m_statusBarDarkModeApplied = false;
+        }
+        return;
+    }
+
+    HWND statusBar = FindStatusBar();
+    if (!statusBar || !IsWindow(statusBar)) {
+        RemoveStatusBarSubclass();
+        return;
+    }
+
+    // Call AllowDarkModeForWindow so theme color queries can return dark values,
+    // but always install the subclass for painting. SetWindowTheme("DarkMode_Explorer")
+    // does not reliably render the status bar dark — it returns S_OK but has no visual
+    // effect on msctls_statusbar32 controls.
+    {
+        using AllowDarkModeForWindowFn = BOOL(WINAPI*)(HWND, BOOL);
+        static AllowDarkModeForWindowFn pfnAllowDark = nullptr;
+        static bool resolved = false;
+        if (!resolved) {
+            HMODULE uxtheme = GetModuleHandleW(L"uxtheme.dll");
+            if (uxtheme) {
+                pfnAllowDark = reinterpret_cast<AllowDarkModeForWindowFn>(
+                    GetProcAddress(uxtheme, MAKEINTRESOURCEA(133)));
+            }
+            resolved = true;
+        }
+        if (pfnAllowDark) {
+            pfnAllowDark(statusBar, TRUE);
+            SetWindowTheme(statusBar, L"DarkMode_Explorer", nullptr);
+        }
+    }
+
+    // Always use subclass-based custom paint for reliable dark status bar
+    if (m_statusBar != statusBar) {
+        RemoveStatusBarSubclass();
+    }
+    m_statusBar = statusBar;
+    m_statusBarDarkModeApplied = true;
+    InstallStatusBarSubclass();
+    InvalidateRect(statusBar, nullptr, TRUE);
+}
+
+void CExplorerBHO::InstallStatusBarSubclass() {
+    if (m_statusBarSubclassInstalled) {
+        return;
+    }
+    if (!m_statusBar || !IsWindow(m_statusBar)) {
+        return;
+    }
+    if (SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+        m_statusBarSubclassInstalled = true;
+        LogMessage(LogLevel::Info, L"Installed status bar dark mode subclass on hwnd=%p", m_statusBar);
+    }
+}
+
+void CExplorerBHO::RemoveStatusBarSubclass() {
+    if (m_statusBar && m_statusBarSubclassInstalled) {
+        if (IsWindow(m_statusBar)) {
+            __try {
+                RemoveWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc,
+                                     reinterpret_cast<UINT_PTR>(this));
+                if (!m_isDisconnecting) {
+                    InvalidateRect(m_statusBar, nullptr, TRUE);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                LogMessage(LogLevel::Warning, L"RemoveStatusBarSubclass SEH exception");
+            }
+        }
+    }
+    m_statusBarSubclassInstalled = false;
+}
+
+bool CExplorerBHO::HandleStatusBarPaint(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    PAINTSTRUCT ps{};
+    HDC dc = BeginPaint(hwnd, &ps);
+    if (!dc) {
+        return false;
+    }
+
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    const int width = client.right - client.left;
+    const int height = client.bottom - client.top;
+
+    // Double-buffered paint to eliminate flicker
+    HDC memDC = CreateCompatibleDC(dc);
+    HBITMAP memBmp = CreateCompatibleBitmap(dc, width, height);
+    HGDIOBJ oldBmp = SelectObject(memDC, memBmp);
+
+    // Dark background
+    constexpr COLORREF bgColor = RGB(32, 32, 32);
+    constexpr COLORREF separatorColor = RGB(56, 56, 56);
+    HBRUSH bgBrush = CreateSolidBrush(bgColor);
+    if (bgBrush) {
+        FillRect(memDC, &client, bgBrush);
+        DeleteObject(bgBrush);
+    }
+
+    // Text color — try theme query, fall back to light gray
+    COLORREF textColor = RGB(220, 220, 220);
+    auto themeColor = QueryStatusBarThemeTextColor(hwnd);
+    if (themeColor.has_value()) {
+        textColor = themeColor.value();
+    }
+
+    // Get status bar parts
+    int partCount = static_cast<int>(SendMessageW(hwnd, SB_GETPARTS, 0, 0));
+    if (partCount > 0) {
+        HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+        HGDIOBJ oldFont = font ? SelectObject(memDC, font) : nullptr;
+        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(memDC, textColor);
+
+        for (int i = 0; i < partCount; ++i) {
+            RECT partRect{};
+            if (!SendMessageW(hwnd, SB_GETRECT, static_cast<WPARAM>(i), reinterpret_cast<LPARAM>(&partRect))) {
+                continue;
+            }
+
+            // Draw separator line between parts
+            if (i < partCount - 1) {
+                HPEN sepPen = CreatePen(PS_SOLID, 1, separatorColor);
+                HGDIOBJ oldPen = SelectObject(memDC, sepPen);
+                MoveToEx(memDC, partRect.right - 1, partRect.top + 2, nullptr);
+                LineTo(memDC, partRect.right - 1, partRect.bottom - 2);
+                SelectObject(memDC, oldPen);
+                DeleteObject(sepPen);
+            }
+
+            // Check text length and draw type before reading text
+            LRESULT lenResult = SendMessageW(hwnd, SB_GETTEXTLENGTHW, static_cast<WPARAM>(i), 0);
+            WORD textLen = LOWORD(lenResult);
+            WORD drawType = HIWORD(lenResult);
+
+            // Skip owner-draw parts — the data is not a text pointer
+            if (drawType & SBT_OWNERDRAW) {
+                continue;
+            }
+
+            if (textLen > 0 && textLen < 512) {
+                wchar_t text[512]{};
+                SendMessageW(hwnd, SB_GETTEXTW, static_cast<WPARAM>(i), reinterpret_cast<LPARAM>(text));
+
+                RECT textRect = partRect;
+                textRect.left += 4;
+                textRect.right -= 2;
+                DrawTextW(memDC, text, textLen, &textRect,
+                          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            }
+        }
+
+        if (oldFont) {
+            SelectObject(memDC, oldFont);
+        }
+    }
+
+    // Blit to screen
+    BitBlt(dc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
+
+    // Cleanup
+    SelectObject(memDC, oldBmp);
+    DeleteObject(memBmp);
+    DeleteDC(memDC);
+
+    EndPaint(hwnd, &ps);
+    return true;
+}
+
+LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                      UINT_PTR subclassId, DWORD_PTR) {
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    if (!self) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::StatusBarSubclassProc, subclassId);
+        self->m_statusBar = nullptr;
+        self->m_statusBarSubclassInstalled = false;
+        self->m_statusBarDarkModeApplied = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (!self->m_statusBarSubclassInstalled || hwnd != self->m_statusBar) {
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    switch (msg) {
+        case WM_PAINT:
+            if (self->HandleStatusBarPaint(hwnd)) {
+                return 0;
+            }
+            break;
+        case WM_ERASEBKGND:
+            // Suppress default erase — our WM_PAINT double-buffers the entire surface
+            return 1;
+        case SB_SETTEXTA:
+        case SB_SETTEXTW:
+        case SB_SETPARTS: {
+            // Let the default handler update internal state, then repaint
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return result;
+        }
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+            InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        default:
+            break;
+    }
+
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
 
 ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
 

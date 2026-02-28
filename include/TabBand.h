@@ -103,6 +103,7 @@ public:
     void OnCreateIslandAfter(int groupIndex);
     void OnCloseIslandRequested(int groupIndex);
     void OnEditGroupProperties(int groupIndex);
+    void OnSetIslandLabel(int groupIndex, const std::wstring& label);
     void OnDetachGroupRequested(int groupIndex);
     void OnMoveTabRequested(TabLocation from, TabLocation to);
     void OnMoveGroupRequested(int fromGroup, int toGroup);
@@ -130,6 +131,7 @@ public:
     bool CanCloseTabsToRight(TabLocation location) const;
     bool CanCloseTabsToLeft(TabLocation location) const;
     bool CanReopenClosedTabs() const;
+    std::wstring GetReopenClosedLabel() const;
     bool CanNavigateBack() const;
     bool CanNavigateForward() const;
 
@@ -160,8 +162,6 @@ private:
         bool groupStoreLoaded = false;
         bool optionsLoaded = false;
         ShellTabsOptions options{};
-        bool sessionStoreAvailable = false;
-        bool lastSessionUnclean = false;
         bool shouldRestoreSession = false;
         bool hasSessionData = false;
         SessionData sessionData;
@@ -184,10 +184,8 @@ private:
     TabManager m_tabs;
     std::unique_ptr<SessionStore> m_sessionStore;
     bool m_restoringSession = false;
-    std::wstring m_windowToken;
     mutable ShellTabsOptions m_options{};
     mutable bool m_optionsLoaded = false;
-    bool m_sessionMarkerActive = false;
     bool m_lastSessionUnclean = false;
     bool m_sessionFlushTimerActive = false;
     bool m_sessionFlushTimerPending = false;
@@ -202,6 +200,7 @@ private:
     std::unique_ptr<BrowserEvents> m_browserEvents;
     DWORD m_browserCookie = 0;
     bool m_internalNavigation = false;
+    bool m_pendingWindowRedirect = false;
     int m_allowExternalNewWindows = 0;
     TabLocation m_pendingNavigation;
     bool m_deferredNavigationPosted = false;
@@ -277,9 +276,9 @@ private:
                                  const std::vector<std::wstring>& removedGroupIds);
     HWND GetFrameWindow() const;
     TabManager::ExplorerWindowId BuildWindowId() const;
-    std::wstring ResolveWindowToken();
-    void ReleaseWindowToken();
     void CaptureActiveTabPreview();
+
+    bool TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl);
 
     // Scroll position preservation
     bool GetCurrentScrollPosition(POINT& outPosition);

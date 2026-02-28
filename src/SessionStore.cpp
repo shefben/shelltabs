@@ -1,18 +1,14 @@
 #include "SessionStore.h"
 
 #include "StringUtils.h"
-
 #include "ColorSerialization.h"
-
 #include "Logging.h"
 
 #include <Shlwapi.h>
 
 #include <algorithm>
 #include <cstdint>
-#include <mutex>
 #include <string_view>
-#include <unordered_map>
 #include <cwctype>
 #include <cwchar>
 #include <string>
@@ -21,7 +17,11 @@
 
 namespace shelltabs {
 namespace {
-constexpr wchar_t kStorageFile[] = L"session.db";
+
+constexpr wchar_t kSessionFile[] = L"session.db";
+constexpr wchar_t kSessionTmpFile[] = L"session.db.tmp";
+constexpr wchar_t kSessionBakFile[] = L"session.db.bak";
+constexpr wchar_t kMarkerFile[] = L"session.active";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kGroupToken[] = L"group";
 constexpr wchar_t kTabToken[] = L"tab";
@@ -30,96 +30,20 @@ constexpr wchar_t kSequenceToken[] = L"sequence";
 constexpr wchar_t kDockToken[] = L"dock";
 constexpr wchar_t kUndoToken[] = L"undo";
 constexpr wchar_t kUndoTabToken[] = L"undotab";
+constexpr wchar_t kWindowToken[] = L"window";
+constexpr wchar_t kWindowEndToken[] = L"window_end";
 constexpr wchar_t kCommentChar = L'#';
-constexpr wchar_t kCrashMarkerFile[] = L"session.lock";
-constexpr wchar_t kMarkerSuffix[] = L".lock";
-constexpr wchar_t kTempSuffix[] = L".tmp";
-constexpr wchar_t kCheckpointSuffix[] = L".previous";
 constexpr wchar_t kChecksumToken[] = L"checksum";
+constexpr int kCurrentVersion = 8;
 
-void NotifySessionChecksumMismatch(const std::wstring& corruptedPath) {
-    static std::once_flag s_corruptionNoticeOnce;
-    std::call_once(s_corruptionNoticeOnce, [&]() {
-        std::wstring message =
-            L"ShellTabs could not restore saved tabs because the session data failed an integrity check.";
-        if (!corruptedPath.empty()) {
-            message.append(L"\n\nFile: ");
-            message.append(corruptedPath);
-        }
-        message.append(L"\n\nA new session has been started.");
-
-        MessageBoxW(nullptr, message.c_str(), L"ShellTabs",
-                    MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST);
-    });
-}
-
-struct SessionMarkerState {
-    std::mutex mutex;
-    std::unordered_map<std::wstring, long> counts;
-};
-
-SessionMarkerState& GetSessionMarkerState() {
-    static SessionMarkerState state;
-    return state;
-}
-
-std::wstring ResolveStoragePath() {
-    std::wstring base = GetShellTabsDataDirectory();
-    if (base.empty()) {
-        return {};
-    }
-    if (!base.empty() && base.back() != L'\\') {
-        base.push_back(L'\\');
-    }
-    base += kStorageFile;
-    return base;
-}
-
-std::wstring BuildLegacyMarkerPath() {
-    std::wstring directory = GetShellTabsDataDirectory();
-    if (directory.empty()) {
-        return {};
-    }
-    if (!directory.empty() && directory.back() != L'\\') {
-        directory.push_back(L'\\');
-    }
-    directory += kCrashMarkerFile;
-    return directory;
-}
-
-std::wstring BuildMarkerPath(const std::wstring& storagePath) {
-    if (storagePath.empty()) {
-        return BuildLegacyMarkerPath();
-    }
-    return storagePath + kMarkerSuffix;
-}
-
-std::wstring BuildTempPath(const std::wstring& storagePath) {
-    if (storagePath.empty()) {
-        return {};
-    }
-    return storagePath + kTempSuffix;
-}
-
-std::wstring BuildCheckpointPath(const std::wstring& storagePath) {
-    if (storagePath.empty()) {
-        return {};
-    }
-
-    return storagePath + kCheckpointSuffix;
-}
-
-}  // namespace
-
-void SessionStore::SetMarkerReady(bool ready) const {
-    m_markerReady.store(ready, std::memory_order_release);
-}
-
-bool SessionStore::MarkerReady() const noexcept {
-    return m_markerReady.load(std::memory_order_acquire);
-}
-
-namespace {
+// Legacy file patterns for migration
+constexpr wchar_t kLegacySessionPrefix[] = L"session-";
+constexpr wchar_t kLegacySessionPattern[] = L"session-*.db";
+constexpr wchar_t kLegacyLockPattern[] = L"session-*.db.lock";
+constexpr wchar_t kLegacyTmpPattern[] = L"session-*.db.tmp";
+constexpr wchar_t kLegacyPreviousPattern[] = L"session-*.db.previous";
+constexpr wchar_t kGlobalSessionFile[] = L"global-session.db";
+constexpr wchar_t kGlobalSessionBak[] = L"global-session.db.bak";
 
 uint64_t ComputeChecksum(std::wstring_view payload) {
     static_assert(sizeof(wchar_t) == 2, "SessionStore assumes UTF-16 wchar_t");
@@ -135,28 +59,6 @@ uint64_t ComputeChecksum(std::wstring_view payload) {
     return hash;
 }
 
-bool CleanupStaleTemp(const std::wstring& storagePath) {
-    const std::wstring tempPath = BuildTempPath(storagePath);
-    if (tempPath.empty()) {
-        return false;
-    }
-
-    const DWORD attributes = GetFileAttributesW(tempPath.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES) {
-        return false;
-    }
-
-    LogMessage(LogLevel::Warning,
-               L"SessionStore detected stale temp file %ls; removing stale snapshot",
-               tempPath.c_str());
-    if (!DeleteFileW(tempPath.c_str())) {
-        LogMessage(LogLevel::Warning,
-                   L"SessionStore failed to delete stale temp file %ls (error=%lu)",
-                   tempPath.c_str(), GetLastError());
-    }
-    return true;
-}
-
 enum class SessionFileStatus {
     kSuccess,
     kEmpty,
@@ -164,59 +66,11 @@ enum class SessionFileStatus {
     kParseError,
 };
 
-SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData& outData,
-                                       std::wstring& snapshotOut) {
-    if (content.empty()) {
-        outData = SessionData{};
-        snapshotOut.clear();
-        return SessionFileStatus::kEmpty;
-    }
-
-    std::wstring_view contentView{content};
-    std::wstring_view payload = contentView;
-    bool checksumPresent = false;
-    bool checksumValid = true;
-
-    const size_t newline = contentView.find(L'\n');
-    if (newline != std::wstring::npos) {
-        std::wstring_view headerLine = TrimView(contentView.substr(0, newline));
-        if (!headerLine.empty()) {
-            auto headerTokens = Split(headerLine, L'|');
-            for (auto& token : headerTokens) {
-                token = TrimView(token);
-            }
-            if (!headerTokens.empty() && headerTokens.front() == kChecksumToken) {
-                checksumPresent = true;
-                payload = contentView.substr(newline + 1);
-                if (headerTokens.size() >= 2) {
-                    uint64_t expected = 0;
-                    if (!TryParseUint64(headerTokens[1], &expected)) {
-                        checksumValid = false;
-                    } else {
-                        const uint64_t actual = ComputeChecksum(payload);
-                        checksumValid = actual == expected;
-                    }
-                } else {
-                    checksumValid = false;
-                }
-            }
-        }
-    } else {
-        std::wstring_view headerLine = TrimView(contentView);
-        if (!headerLine.empty() && headerLine.rfind(kChecksumToken, 0) == 0) {
-            checksumPresent = true;
-            checksumValid = false;
-            payload = {};
-        }
-    }
-
-    if (checksumPresent && !checksumValid) {
-        return SessionFileStatus::kChecksumMismatch;
-    }
-
+// Parse a single-window session block (version 6 format).
+// This parses the content between window/window_end delimiters, or a standalone v6 file.
+SessionFileStatus ParseSingleWindowBlock(std::wstring_view payload, SessionData& outData) {
     if (payload.empty()) {
         outData = SessionData{};
-        snapshotOut = content;
         return SessionFileStatus::kEmpty;
     }
 
@@ -232,12 +86,18 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
                                              }
 
                                              const std::wstring_view header = tokens.front();
+
+                                             // Skip window/window_end tokens — handled by caller.
+                                             if (header == kWindowToken || header == kWindowEndToken) {
+                                                 return true;
+                                             }
+
                                              if (header == kVersionToken) {
                                                  if (tokens.size() < 2) {
                                                      return false;
                                                  }
                                                  version = std::max(1, ParseInt(tokens[1]));
-                                                 if (version > 6) {
+                                                 if (version > kCurrentVersion) {
                                                      return false;
                                                  }
                                                  versionSeen = true;
@@ -430,429 +290,184 @@ SessionFileStatus ParseSessionDocument(const std::wstring& content, SessionData&
         return SessionFileStatus::kParseError;
     }
 
-    if (!versionSeen) {
+    // For legacy single-window files (v1-v6), version is required.
+    // For v8 multi-window blocks, version line is in the header, not per-window.
+    // If we got groups, consider it successful even without a version line.
+    if (!versionSeen && parsedData.groups.empty()) {
         return SessionFileStatus::kParseError;
     }
 
     if (parsedData.groups.empty()) {
-        return SessionFileStatus::kParseError;
+        return SessionFileStatus::kEmpty;
     }
 
     outData = std::move(parsedData);
-    snapshotOut = content;
     return SessionFileStatus::kSuccess;
 }
 
-}  // namespace
+// Parse the v8 multi-window format: checksum header, version header, then window/window_end blocks.
+bool ParseMultiWindowFile(const std::wstring& content, std::vector<SessionData>& outWindows) {
+    outWindows.clear();
 
-SessionStore::SessionStore() : SessionStore(ResolveStoragePath()) {}
-
-SessionStore::SessionStore(std::wstring storagePath) : m_storagePath(std::move(storagePath)) {
-    if (m_storagePath.empty()) {
-        m_storagePath = ResolveStoragePath();
-    }
-}
-
-std::wstring SessionStore::BuildPathForToken(const std::wstring& token) {
-    std::wstring directory = GetShellTabsDataDirectory();
-    if (directory.empty()) {
-        return {};
-    }
-    if (!directory.empty() && directory.back() != L'\\') {
-        directory.push_back(L'\\');
-    }
-
-    std::wstring sanitized;
-    sanitized.reserve(token.size());
-    for (wchar_t ch : token) {
-        if (iswalnum(ch) || ch == L'-' || ch == L'_') {
-            sanitized.push_back(ch);
-        } else if (!iswspace(ch)) {
-            sanitized.push_back(L'_');
-        }
-    }
-    if (sanitized.empty()) {
-        sanitized = L"window";
-    }
-
-    directory += L"session-";
-    directory += sanitized;
-    directory += L".db";
-    return directory;
-}
-
-bool SessionStore::WasPreviousSessionUnclean() const {
-    if (!MarkerReady()) {
-        return false;
-    }
-
-    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
-    if (!markerPath.empty()) {
-        auto& state = GetSessionMarkerState();
-        {
-            std::scoped_lock lock(state.mutex);
-            const auto it = state.counts.find(markerPath);
-            if (it != state.counts.end() && it->second > 0) {
-                return false;
-            }
-        }
-    }
-
-    const bool staleTempDetected = CleanupStaleTemp(m_storagePath);
-
-    bool checkpointDetected = false;
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        checkpointDetected = true;
-        m_pendingCheckpointCleanup = true;
-    }
-
-    if (!markerPath.empty() && GetFileAttributesW(markerPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (content.empty()) {
         return true;
     }
 
-    const std::wstring legacyMarker = BuildLegacyMarkerPath();
-    if (!legacyMarker.empty() && legacyMarker != markerPath &&
-        GetFileAttributesW(legacyMarker.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        return true;
-    }
+    std::wstring_view contentView{content};
+    std::wstring_view payload = contentView;
 
-    return staleTempDetected || checkpointDetected;
-}
-
-void SessionStore::MarkSessionActive() const {
-    if (!MarkerReady()) {
-        return;
-    }
-
-    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
-    if (markerPath.empty()) {
-        return;
-    }
-
-    auto& state = GetSessionMarkerState();
-    bool shouldCreateMarker = false;
-    {
-        std::scoped_lock lock(state.mutex);
-        long& count = state.counts[markerPath];
-        if (count == 0) {
-            shouldCreateMarker = true;
-        }
-        ++count;
-    }
-
-    if (!shouldCreateMarker) {
-        return;
-    }
-
-    HANDLE file = CreateFileW(markerPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
-    if (file != INVALID_HANDLE_VALUE) {
-        CloseHandle(file);
-    } else {
-        LogMessage(LogLevel::Warning, L"SessionStore failed to create crash marker %ls (error=%lu)",
-                   markerPath.c_str(), GetLastError());
-    }
-
-    const std::wstring legacyMarker = BuildLegacyMarkerPath();
-    if (!legacyMarker.empty() && legacyMarker != markerPath) {
-        DeleteFileW(legacyMarker.c_str());
-    }
-
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        m_pendingCheckpointCleanup = true;
-    }
-}
-
-void SessionStore::ClearSessionMarker() const {
-    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
-    if (markerPath.empty()) {
-        return;
-    }
-
-    auto& state = GetSessionMarkerState();
-    bool shouldDeleteMarker = false;
-    {
-        std::scoped_lock lock(state.mutex);
-        auto it = state.counts.find(markerPath);
-        if (it == state.counts.end()) {
-            return;
-        }
-        long& count = it->second;
-        if (count > 0) {
-            --count;
-        }
-        if (count <= 0) {
-            state.counts.erase(it);
-            shouldDeleteMarker = true;
-        }
-    }
-
-    if (!shouldDeleteMarker) {
-        return;
-    }
-
-    if (!DeleteFileW(markerPath.c_str())) {
-        LogMessage(LogLevel::Warning, L"SessionStore failed to delete crash marker %ls (error=%lu)",
-                   markerPath.c_str(), GetLastError());
-    }
-
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        (m_pendingCheckpointCleanup ||
-         GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES)) {
-        if (!DeleteFileW(checkpointPath.c_str())) {
-            const DWORD checkpointError = GetLastError();
-            if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning,
-                           L"SessionStore failed to delete checkpoint %ls (error=%lu)",
-                           checkpointPath.c_str(), checkpointError);
+    // Check for checksum header.
+    const size_t firstNewline = contentView.find(L'\n');
+    if (firstNewline != std::wstring::npos) {
+        std::wstring_view headerLine = TrimView(contentView.substr(0, firstNewline));
+        if (!headerLine.empty()) {
+            auto headerTokens = Split(headerLine, L'|');
+            for (auto& token : headerTokens) {
+                token = TrimView(token);
             }
-        } else {
-            m_pendingCheckpointCleanup = false;
-        }
-    }
-}
-
-bool SessionStore::Load(SessionData& data) const {
-    data = {};
-    if (m_storagePath.empty()) {
-        return false;
-    }
-
-    CleanupStaleTemp(m_storagePath);
-
-    // Enhanced loading with multiple retry attempts
-    return LoadWithRetry(data, 3);
-}
-
-bool SessionStore::LoadWithRetry(SessionData& data, int maxRetries) const {
-    data = {};
-
-    for (int attempt = 1; attempt <= maxRetries; ++attempt) {
-        LogMessage(LogLevel::Info, L"SessionStore::LoadWithRetry attempt %d/%d for %ls",
-                   attempt, maxRetries, m_storagePath.c_str());
-
-        try {
-            std::wstring content;
-            bool fileExists = false;
-
-            // Enhanced file reading with retry on transient failures
-            if (!ReadUtf8File(m_storagePath, &content, &fileExists)) {
-                const DWORD readError = GetLastError();
-
-                // Check if this is a transient error worth retrying
-                bool isTransientError = (readError == ERROR_SHARING_VIOLATION ||
-                                       readError == ERROR_ACCESS_DENIED ||
-                                       readError == ERROR_BUSY);
-
-                if (isTransientError && attempt < maxRetries) {
-                    LogMessage(LogLevel::Warning, L"SessionStore transient read error %lu on attempt %d, retrying",
-                               readError, attempt);
-                    Sleep(50 * attempt); // Progressive backoff: 50ms, 100ms, 150ms
-                    continue;
-                }
-
-                LogMessage(LogLevel::Warning, L"SessionStore failed to read %ls (error=%lu) on attempt %d",
-                           m_storagePath.c_str(), readError, attempt);
-
-                if (!fileExists) {
-                    // File doesn't exist - try checkpoint recovery
-                    if (TryRestoreFromCheckpoint(data, L"missing session file")) {
-                        return true;
+            if (!headerTokens.empty() && headerTokens.front() == kChecksumToken) {
+                payload = contentView.substr(firstNewline + 1);
+                if (headerTokens.size() >= 2) {
+                    uint64_t expected = 0;
+                    if (!TryParseUint64(headerTokens[1], &expected)) {
+                        return false;
                     }
-
-                    // Create new empty session if no checkpoint available
-                    CreateEmptySession();
-                    return true;
-                }
-
-                if (attempt >= maxRetries) {
+                    const uint64_t actual = ComputeChecksum(payload);
+                    if (actual != expected) {
+                        LogMessage(LogLevel::Warning, L"SessionCoordinator checksum mismatch in session file");
+                        return false;
+                    }
+                } else {
                     return false;
                 }
-                continue;
-            }
-
-            const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-            SessionData parsedData;
-            std::wstring snapshot;
-            const SessionFileStatus status = ParseSessionDocument(content, parsedData, snapshot);
-
-            switch (status) {
-                case SessionFileStatus::kSuccess:
-                    data = std::move(parsedData);
-                    m_lastSerializedSnapshot = std::move(snapshot);
-
-                    // Clean up checkpoint after successful load
-                    CleanupCheckpoint(checkpointPath);
-
-                    LogMessage(LogLevel::Info, L"SessionStore::LoadWithRetry succeeded on attempt %d", attempt);
-                    return true;
-
-                case SessionFileStatus::kEmpty:
-                    data = SessionData{};
-                    m_lastSerializedSnapshot = std::move(snapshot);
-                    LogMessage(LogLevel::Info, L"SessionStore::LoadWithRetry loaded empty session on attempt %d", attempt);
-                    return true;
-
-                case SessionFileStatus::kChecksumMismatch:
-                    LogMessage(LogLevel::Warning, L"SessionStore checksum mismatch on attempt %d for %ls",
-                               attempt, m_storagePath.c_str());
-
-                    if (TryRestoreFromCheckpoint(data, L"checksum mismatch")) {
-                        return true;
-                    }
-
-                    if (attempt < maxRetries) {
-                        Sleep(100 * attempt); // Wait before retry
-                        continue;
-                    }
-                    // All retries exhausted - delete corrupted session
-                    NotifySessionChecksumMismatch(m_storagePath);
-                    DeleteCorruptedSession();
-                    return false;
-
-                case SessionFileStatus::kParseError:
-                    LogMessage(LogLevel::Warning, L"SessionStore parse error on attempt %d for %ls",
-                               attempt, m_storagePath.c_str());
-
-                    if (TryRestoreFromCheckpoint(data, L"parse failure")) {
-                        return true;
-                    }
-
-                    if (attempt < maxRetries) {
-                        Sleep(100 * attempt); // Wait before retry
-                        continue;
-                    }
-                    // All retries exhausted - delete corrupted session
-                    DeleteCorruptedSession();
-                    return false;
             }
         }
-        catch (...) {
-            LogMessage(LogLevel::Error, L"SessionStore::LoadWithRetry exception on attempt %d", attempt);
+    }
 
-            if (attempt < maxRetries) {
-                Sleep(200 * attempt); // Longer wait after exception
-                continue;
+    // Check version header.
+    int version = 0;
+    bool hasVersion = false;
+
+    // Split payload into lines and look for version and window blocks.
+    // We need to find the version line first, then split by window/window_end.
+    std::vector<std::wstring> windowBlocks;
+    std::wstring currentBlock;
+    bool inWindow = false;
+
+    size_t pos = 0;
+    while (pos < payload.size()) {
+        size_t lineEnd = payload.find(L'\n', pos);
+        if (lineEnd == std::wstring::npos) {
+            lineEnd = payload.size();
+        }
+
+        std::wstring_view line = TrimView(payload.substr(pos, lineEnd - pos));
+        pos = lineEnd + 1;
+
+        if (line.empty() || line[0] == kCommentChar) {
+            continue;
+        }
+
+        // Check for version line (before any window block)
+        if (!hasVersion && line.rfind(kVersionToken, 0) == 0) {
+            auto tokens = Split(line, L'|');
+            if (tokens.size() >= 2) {
+                version = ParseInt(TrimView(tokens[1]));
+                hasVersion = true;
             }
-            // All retries exhausted - delete corrupted session
-            DeleteCorruptedSession();
-            return false;
+            continue;
+        }
+
+        if (line == kWindowToken) {
+            inWindow = true;
+            currentBlock.clear();
+            continue;
+        }
+
+        if (line == kWindowEndToken) {
+            if (inWindow && !currentBlock.empty()) {
+                windowBlocks.emplace_back(std::move(currentBlock));
+                currentBlock.clear();
+            }
+            inWindow = false;
+            continue;
+        }
+
+        if (inWindow) {
+            currentBlock += line;
+            currentBlock += L'\n';
         }
     }
 
-    LogMessage(LogLevel::Error, L"SessionStore::LoadWithRetry failed after %d attempts", maxRetries);
-    DeleteCorruptedSession();
-    return false;
-}
-
-// Helper method for checkpoint restoration
-bool SessionStore::TryRestoreFromCheckpoint(SessionData& data, const wchar_t* reason) const {
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (checkpointPath.empty()) {
+    if (!hasVersion) {
         return false;
     }
 
-    std::wstring checkpointContent;
-    bool checkpointExists = false;
-    if (!ReadUtf8File(checkpointPath, &checkpointContent, &checkpointExists)) {
-        const DWORD checkpointError = GetLastError();
-        LogMessage(LogLevel::Warning, L"SessionStore failed to read checkpoint %ls (error=%lu) while handling %ls",
-                   checkpointPath.c_str(), checkpointError, reason);
+    if (version < kCurrentVersion) {
+        // Versions below 8 are legacy single-window format, shouldn't reach here.
         return false;
     }
 
-    if (!checkpointExists) {
-        LogMessage(LogLevel::Warning, L"SessionStore checkpoint %ls missing while handling %ls",
-                   checkpointPath.c_str(), reason);
-        return false;
-    }
-
-    SessionData fallbackData;
-    std::wstring fallbackSnapshot;
-    const SessionFileStatus status = ParseSessionDocument(checkpointContent, fallbackData, fallbackSnapshot);
-
-    if (status != SessionFileStatus::kSuccess && status != SessionFileStatus::kEmpty) {
-        LogMessage(LogLevel::Warning, L"SessionStore checkpoint %ls corrupted while handling %ls",
-                   checkpointPath.c_str(), reason);
-        return false;
-    }
-
-    LogMessage(LogLevel::Info, L"SessionStore restoring checkpoint %ls after %ls",
-               checkpointPath.c_str(), reason);
-
-    data = std::move(fallbackData);
-    m_lastSerializedSnapshot = std::move(fallbackSnapshot);
-
-    // Promote checkpoint to main file
-    if (!MoveFileExW(checkpointPath.c_str(), m_storagePath.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        LogMessage(LogLevel::Warning, L"SessionStore failed to promote checkpoint %ls -> %ls (error=%lu)",
-                   checkpointPath.c_str(), m_storagePath.c_str(), GetLastError());
-        m_pendingCheckpointCleanup = true;
-    } else {
-        m_pendingCheckpointCleanup = false;
+    for (const auto& block : windowBlocks) {
+        SessionData windowData;
+        // Inject a synthetic version line so the parser recognizes version-gated fields.
+        std::wstring blockWithVersion = L"version|";
+        blockWithVersion += std::to_wstring(version);
+        blockWithVersion += L'\n';
+        blockWithVersion += block;
+        SessionFileStatus status = ParseSingleWindowBlock(blockWithVersion, windowData);
+        if (status == SessionFileStatus::kSuccess) {
+            outWindows.emplace_back(std::move(windowData));
+        }
+        // Skip empty/failed blocks silently — partial recovery is better than total failure.
     }
 
     return true;
 }
 
-// Helper method to clean up checkpoint files
-void SessionStore::CleanupCheckpoint(const std::wstring& checkpointPath) const {
-    if (!checkpointPath.empty() && GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        if (!DeleteFileW(checkpointPath.c_str())) {
-            const DWORD checkpointError = GetLastError();
-            if (checkpointError != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning, L"SessionStore failed to delete checkpoint %ls (error=%lu)",
-                           checkpointPath.c_str(), checkpointError);
-                m_pendingCheckpointCleanup = true;
+// Parse a legacy single-window file (v1-v6).
+SessionFileStatus ParseLegacyFile(const std::wstring& content, SessionData& outData) {
+    if (content.empty()) {
+        outData = SessionData{};
+        return SessionFileStatus::kEmpty;
+    }
+
+    std::wstring_view contentView{content};
+    std::wstring_view payload = contentView;
+
+    // Check for checksum header.
+    const size_t newline = contentView.find(L'\n');
+    if (newline != std::wstring::npos) {
+        std::wstring_view headerLine = TrimView(contentView.substr(0, newline));
+        if (!headerLine.empty()) {
+            auto headerTokens = Split(headerLine, L'|');
+            for (auto& token : headerTokens) {
+                token = TrimView(token);
             }
-        } else {
-            m_pendingCheckpointCleanup = false;
+            if (!headerTokens.empty() && headerTokens.front() == kChecksumToken) {
+                payload = contentView.substr(newline + 1);
+                if (headerTokens.size() >= 2) {
+                    uint64_t expected = 0;
+                    if (!TryParseUint64(headerTokens[1], &expected)) {
+                        return SessionFileStatus::kChecksumMismatch;
+                    }
+                    const uint64_t actual = ComputeChecksum(payload);
+                    if (actual != expected) {
+                        return SessionFileStatus::kChecksumMismatch;
+                    }
+                } else {
+                    return SessionFileStatus::kChecksumMismatch;
+                }
+            }
         }
     }
+
+    return ParseSingleWindowBlock(payload, outData);
 }
 
-// Helper method to create empty session file
-void SessionStore::CreateEmptySession() const {
-    const size_t separator = m_storagePath.find_last_of(L"\\/");
-    if (separator != std::wstring::npos) {
-        std::wstring directory = m_storagePath.substr(0, separator);
-        if (!directory.empty()) {
-            CreateDirectoryW(directory.c_str(), nullptr);
-        }
-    }
-
-    HANDLE created = CreateFileW(m_storagePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                                CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (created != INVALID_HANDLE_VALUE) {
-        CloseHandle(created);
-    }
-
-    m_lastSerializedSnapshot = std::wstring();
-    m_pendingCheckpointCleanup = false;
-}
-
-bool SessionStore::Save(const SessionData& data) const {
-    if (m_storagePath.empty()) {
-        return false;
-    }
-
-    const size_t separator = m_storagePath.find_last_of(L"\\/");
-    if (separator != std::wstring::npos) {
-        std::wstring directory = m_storagePath.substr(0, separator);
-        if (!directory.empty()) {
-            CreateDirectoryW(directory.c_str(), nullptr);
-        }
-    }
-
+// Serialize a single window's SessionData into the body format (no checksum/version header).
+std::wstring SerializeWindowBlock(const SessionData& data) {
     std::wstring payload;
-    payload += kVersionToken;
-    payload += L"|6\n";
     payload += kSelectedToken;
     payload += L"|" + std::to_wstring(data.selectedGroup) + L"|" + std::to_wstring(data.selectedTab) + L"\n";
     payload += kSequenceToken;
@@ -896,16 +511,260 @@ bool SessionStore::Save(const SessionData& data) const {
         }
     }
 
+    return payload;
+}
+
+// Delete files matching a wildcard pattern in a directory.
+void DeleteMatchingFiles(const std::wstring& directory, const wchar_t* pattern) {
+    std::wstring searchPath = directory;
+    if (!searchPath.empty() && searchPath.back() != L'\\') {
+        searchPath.push_back(L'\\');
+    }
+    searchPath += pattern;
+
+    WIN32_FIND_DATAW findData{};
+    HANDLE findHandle = FindFirstFileW(searchPath.c_str(), &findData);
+    if (findHandle == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    std::wstring dirPrefix = directory;
+    if (!dirPrefix.empty() && dirPrefix.back() != L'\\') {
+        dirPrefix.push_back(L'\\');
+    }
+
+    do {
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        std::wstring filePath = dirPrefix + findData.cFileName;
+        if (DeleteFileW(filePath.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionCoordinator cleaned up legacy file: %ls", filePath.c_str());
+        }
+    } while (FindNextFileW(findHandle, &findData));
+
+    FindClose(findHandle);
+}
+
+// Atomic write: write to tmp, backup current, rename tmp to target.
+bool AtomicWriteFile(const std::wstring& targetPath, const std::wstring& tmpPath,
+                     const std::wstring& bakPath, const std::string& utf8Content) {
+    // Write to temp file with write-through.
+    DeleteFileW(tmpPath.c_str());
+    HANDLE tempFile = CreateFileW(tmpPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
+    if (tempFile == INVALID_HANDLE_VALUE) {
+        LogMessage(LogLevel::Warning, L"SessionCoordinator failed to create temp file %ls (error=%lu)",
+                   tmpPath.c_str(), GetLastError());
+        return false;
+    }
+
+    bool writeOk = true;
+    if (!utf8Content.empty()) {
+        DWORD bytesWritten = 0;
+        if (!WriteFile(tempFile, utf8Content.data(), static_cast<DWORD>(utf8Content.size()), &bytesWritten, nullptr) ||
+            bytesWritten != utf8Content.size()) {
+            writeOk = false;
+        }
+    }
+    if (writeOk && !FlushFileBuffers(tempFile)) {
+        writeOk = false;
+    }
+    CloseHandle(tempFile);
+
+    if (!writeOk) {
+        LogMessage(LogLevel::Warning, L"SessionCoordinator failed to write temp file %ls", tmpPath.c_str());
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    }
+
+    // Backup current session.db -> session.db.bak
+    if (GetFileAttributesW(targetPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        CopyFileW(targetPath.c_str(), bakPath.c_str(), FALSE);
+    }
+
+    // Atomic rename tmp -> target.
+    if (!MoveFileExW(tmpPath.c_str(), targetPath.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        LogMessage(LogLevel::Warning, L"SessionCoordinator failed to rename temp -> session file (error=%lu)",
+                   GetLastError());
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// SessionCoordinator
+// ---------------------------------------------------------------------------
+
+SessionCoordinator& SessionCoordinator::Instance() {
+    static SessionCoordinator instance;
+    return instance;
+}
+
+SessionCoordinator::SessionCoordinator() {
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    m_sessionPath = directory + kSessionFile;
+    m_markerPath = directory + kMarkerFile;
+}
+
+int SessionCoordinator::Register(TabBand* band) {
+    std::scoped_lock lock(m_mutex);
+
+    // Load session file on first registration.
+    if (!m_loaded) {
+        LoadSessionFile();
+        m_loaded = true;
+    }
+
+    int slot = m_nextSlot++;
+    SlotEntry entry;
+    entry.band = band;
+    m_slots.emplace_back(slot, std::move(entry));
+
+    LogMessage(LogLevel::Info, L"SessionCoordinator::Register slot=%d (total=%d)",
+               slot, static_cast<int>(m_slots.size()));
+
+    // Mark active on first registration.
+    if (m_slots.size() == 1) {
+        MarkActive();
+    }
+
+    return slot;
+}
+
+void SessionCoordinator::Unregister(int slot) {
+    std::scoped_lock lock(m_mutex);
+
+    auto it = std::find_if(m_slots.begin(), m_slots.end(),
+                           [slot](const auto& p) { return p.first == slot; });
+    if (it == m_slots.end()) {
+        return;
+    }
+
+    m_slots.erase(it);
+    LogMessage(LogLevel::Info, L"SessionCoordinator::Unregister slot=%d (remaining=%d)",
+               slot, static_cast<int>(m_slots.size()));
+
+    // Save before unregistering so the departing window's last state is captured.
+    SaveAll();
+
+    // Mark clean when last window unregisters.
+    if (m_slots.empty()) {
+        MarkClean();
+    }
+}
+
+bool SessionCoordinator::ClaimWindowData(int slot, SessionData& outData) {
+    std::scoped_lock lock(m_mutex);
+
+    if (m_pendingWindows.empty()) {
+        return false;
+    }
+
+    outData = std::move(m_pendingWindows.front());
+    m_pendingWindows.erase(m_pendingWindows.begin());
+
+    // Store it in the slot.
+    for (auto& [id, entry] : m_slots) {
+        if (id == slot) {
+            entry.data = outData;
+            entry.hasData = true;
+            break;
+        }
+    }
+
+    LogMessage(LogLevel::Info, L"SessionCoordinator::ClaimWindowData slot=%d claimed window data (%d groups, %d pending remaining)",
+               slot, static_cast<int>(outData.groups.size()), static_cast<int>(m_pendingWindows.size()));
+    return true;
+}
+
+void SessionCoordinator::UpdateWindowData(int slot, const SessionData& data) {
+    std::scoped_lock lock(m_mutex);
+
+    for (auto& [id, entry] : m_slots) {
+        if (id == slot) {
+            entry.data = data;
+            entry.hasData = true;
+            return;
+        }
+    }
+}
+
+std::wstring SessionCoordinator::SerializeAllWindows() const {
+    // Build the full multi-window file content.
+    std::wstring payload;
+    payload += kVersionToken;
+    payload += L"|";
+    payload += std::to_wstring(kCurrentVersion);
+    payload += L"\n";
+
+    for (const auto& [id, entry] : m_slots) {
+        if (!entry.hasData || entry.data.groups.empty()) {
+            continue;
+        }
+        payload += kWindowToken;
+        payload += L"\n";
+        payload += SerializeWindowBlock(entry.data);
+        payload += kWindowEndToken;
+        payload += L"\n";
+    }
+
+    // Also write pending (unclaimed) windows so they survive restarts.
+    for (const auto& pending : m_pendingWindows) {
+        if (pending.groups.empty()) {
+            continue;
+        }
+        payload += kWindowToken;
+        payload += L"\n";
+        payload += SerializeWindowBlock(pending);
+        payload += kWindowEndToken;
+        payload += L"\n";
+    }
+
+    // Add checksum header.
     const uint64_t checksum = ComputeChecksum(payload);
     std::wstring serialized;
-    serialized.reserve(payload.size() + 32);
+    serialized.reserve(payload.size() + 40);
     serialized += kChecksumToken;
     serialized += L"|";
     serialized += std::to_wstring(checksum);
     serialized += L"\n";
     serialized += payload;
 
-    if (m_lastSerializedSnapshot && *m_lastSerializedSnapshot == serialized) {
+    return serialized;
+}
+
+bool SessionCoordinator::SaveAll() {
+    std::scoped_lock lock(m_mutex);
+
+    if (m_sessionPath.empty()) {
+        return false;
+    }
+
+    // Ensure directory exists.
+    const size_t separator = m_sessionPath.find_last_of(L"\\/");
+    if (separator != std::wstring::npos) {
+        std::wstring directory = m_sessionPath.substr(0, separator);
+        if (!directory.empty()) {
+            CreateDirectoryW(directory.c_str(), nullptr);
+        }
+    }
+
+    std::wstring serialized = SerializeAllWindows();
+
+    // Dedup — skip write if nothing changed.
+    if (m_lastSnapshot && *m_lastSnapshot == serialized) {
         return true;
     }
 
@@ -914,137 +773,285 @@ bool SessionStore::Save(const SessionData& data) const {
         return false;
     }
 
-    // Crash-resilient save strategy:
-    // 1. Write to temp file first with FILE_FLAG_WRITE_THROUGH for immediate disk flush
-    // 2. Replace the main file atomically
-    // This ensures we always have either the old valid file or the new valid file,
-    // never a partially written file.
+    std::wstring directory = m_sessionPath.substr(0, m_sessionPath.find_last_of(L"\\/"));
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+    const std::wstring tmpPath = directory + kSessionTmpFile;
+    const std::wstring bakPath = directory + kSessionBakFile;
 
-    const std::wstring tempPath = BuildTempPath(m_storagePath);
-    if (tempPath.empty()) {
+    if (!AtomicWriteFile(m_sessionPath, tmpPath, bakPath, utf8)) {
         return false;
     }
 
-    // Write to temp file with write-through to ensure data hits disk immediately
-    DeleteFileW(tempPath.c_str());
-    HANDLE tempFile = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
-    if (tempFile == INVALID_HANDLE_VALUE) {
-        LogMessage(LogLevel::Warning, L"SessionStore failed to create temp file %ls (error=%lu)", tempPath.c_str(),
-                   GetLastError());
-        return false;
-    }
-
-    bool writeSucceeded = true;
-    DWORD writeError = ERROR_SUCCESS;
-    if (!utf8.empty()) {
-        DWORD bytesWritten = 0;
-        if (!WriteFile(tempFile, utf8.data(), static_cast<DWORD>(utf8.size()), &bytesWritten, nullptr) ||
-            bytesWritten != utf8.size()) {
-            writeSucceeded = false;
-            writeError = GetLastError();
-        }
-    }
-    // FILE_FLAG_WRITE_THROUGH handles flushing, but we call FlushFileBuffers for extra safety
-    if (writeSucceeded && !FlushFileBuffers(tempFile)) {
-        writeSucceeded = false;
-        writeError = GetLastError();
-    }
-    CloseHandle(tempFile);
-
-    if (!writeSucceeded) {
-        LogMessage(LogLevel::Warning, L"SessionStore failed to write temp file %ls (error=%lu)", tempPath.c_str(),
-                   writeError);
-        DeleteFileW(tempPath.c_str());
-        return false;
-    }
-
-    // Atomically replace the session file with the temp file
-    // MOVEFILE_WRITE_THROUGH ensures the rename is flushed to disk
-    if (!MoveFileExW(tempPath.c_str(), m_storagePath.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        const DWORD promoteError = GetLastError();
-        LogMessage(LogLevel::Warning, L"SessionStore failed to promote temp file %ls -> %ls (error=%lu)",
-                   tempPath.c_str(), m_storagePath.c_str(), promoteError);
-        DeleteFileW(tempPath.c_str());
-        return false;
-    }
-
-    // Clean up any old checkpoint file from previous versions
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty() &&
-        (m_pendingCheckpointCleanup || GetFileAttributesW(checkpointPath.c_str()) != INVALID_FILE_ATTRIBUTES)) {
-        if (DeleteFileW(checkpointPath.c_str())) {
-            m_pendingCheckpointCleanup = false;
-        }
-    }
-
-    m_lastSerializedSnapshot = std::move(serialized);
+    m_lastSnapshot = std::move(serialized);
     return true;
 }
 
-void SessionStore::DeleteCorruptedSession() const {
-    LogMessage(LogLevel::Warning, L"SessionStore::DeleteCorruptedSession deleting corrupted session files for %ls",
-               m_storagePath.c_str());
+bool SessionCoordinator::WasCrash() const {
+    std::scoped_lock lock(m_mutex);
+    return m_wasCrash;
+}
 
-    // Delete the main session file
-    if (!m_storagePath.empty()) {
-        if (DeleteFileW(m_storagePath.c_str())) {
-            LogMessage(LogLevel::Info, L"SessionStore deleted corrupted session file %ls", m_storagePath.c_str());
-        } else {
-            const DWORD error = GetLastError();
-            if (error != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning, L"SessionStore failed to delete session file %ls (error=%lu)",
-                           m_storagePath.c_str(), error);
+void SessionCoordinator::MarkActive() {
+    // No lock needed — only called from Register which already holds the lock.
+    if (m_markerPath.empty()) {
+        return;
+    }
+
+    HANDLE file = CreateFileW(m_markerPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+        LogMessage(LogLevel::Info, L"SessionCoordinator::MarkActive created marker %ls", m_markerPath.c_str());
+    } else {
+        LogMessage(LogLevel::Warning, L"SessionCoordinator::MarkActive failed (error=%lu)", GetLastError());
+    }
+}
+
+void SessionCoordinator::MarkClean() {
+    // No lock needed — only called from Unregister which already holds the lock.
+    if (m_markerPath.empty()) {
+        return;
+    }
+
+    if (DeleteFileW(m_markerPath.c_str())) {
+        LogMessage(LogLevel::Info, L"SessionCoordinator::MarkClean deleted marker %ls", m_markerPath.c_str());
+    } else {
+        const DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND) {
+            LogMessage(LogLevel::Warning, L"SessionCoordinator::MarkClean failed (error=%lu)", error);
+        }
+    }
+}
+
+int SessionCoordinator::RegisteredCount() const {
+    std::scoped_lock lock(m_mutex);
+    return static_cast<int>(m_slots.size());
+}
+
+void SessionCoordinator::LoadSessionFile() {
+    // Check crash marker.
+    if (!m_markerPath.empty() &&
+        GetFileAttributesW(m_markerPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        m_wasCrash = true;
+        LogMessage(LogLevel::Info, L"SessionCoordinator detected crash marker (previous session was unclean)");
+    }
+
+    // Also check for legacy crash markers (session.lock and session-*.db.lock files)
+    if (!m_wasCrash) {
+        std::wstring directory = GetShellTabsDataDirectory();
+        if (!directory.empty()) {
+            if (directory.back() != L'\\') {
+                directory.push_back(L'\\');
+            }
+            std::wstring legacyMarker = directory + L"session.lock";
+            if (GetFileAttributesW(legacyMarker.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                m_wasCrash = true;
+                LogMessage(LogLevel::Info, L"SessionCoordinator detected legacy crash marker");
             }
         }
     }
 
-    // Delete the marker/lock file
-    const std::wstring markerPath = BuildMarkerPath(m_storagePath);
-    if (!markerPath.empty()) {
-        if (DeleteFileW(markerPath.c_str())) {
-            LogMessage(LogLevel::Info, L"SessionStore deleted marker file %ls", markerPath.c_str());
-        } else {
-            const DWORD error = GetLastError();
-            if (error != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning, L"SessionStore failed to delete marker file %ls (error=%lu)",
-                           markerPath.c_str(), error);
-            }
+    // Try to load the new multi-window session.db
+    if (m_sessionPath.empty()) {
+        return;
+    }
+
+    std::wstring content;
+    bool fileExists = false;
+    if (!ReadUtf8File(m_sessionPath, &content, &fileExists) || !fileExists) {
+        // No session.db — try migrating from old per-window files.
+        MigrateFromOldFormat();
+        return;
+    }
+
+    if (content.empty()) {
+        MigrateFromOldFormat();
+        return;
+    }
+
+    // Try parsing as v8 multi-window format first.
+    std::vector<SessionData> windows;
+    if (ParseMultiWindowFile(content, windows)) {
+        m_pendingWindows = std::move(windows);
+        LogMessage(LogLevel::Info, L"SessionCoordinator loaded %d windows from session.db",
+                   static_cast<int>(m_pendingWindows.size()));
+        // Clean up any leftover old files.
+        CleanupOldFiles();
+        return;
+    }
+
+    // Fall back: try parsing as a legacy single-window file.
+    SessionData legacyData;
+    SessionFileStatus status = ParseLegacyFile(content, legacyData);
+    if (status == SessionFileStatus::kSuccess) {
+        m_pendingWindows.push_back(std::move(legacyData));
+        LogMessage(LogLevel::Info, L"SessionCoordinator loaded legacy single-window session.db");
+        CleanupOldFiles();
+        return;
+    }
+
+    // Corrupt file — try migration from per-window files.
+    LogMessage(LogLevel::Warning, L"SessionCoordinator failed to parse session.db, attempting migration");
+    MigrateFromOldFormat();
+}
+
+void SessionCoordinator::MigrateFromOldFormat() {
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+
+    // Scan for session-*.db files, sort by modification time (newest first).
+    const std::wstring pattern = directory + kLegacySessionPattern;
+    WIN32_FIND_DATAW findData{};
+    HANDLE findHandle = FindFirstFileW(pattern.c_str(), &findData);
+    if (findHandle == INVALID_HANDLE_VALUE) {
+        LogMessage(LogLevel::Info, L"SessionCoordinator no legacy session files found for migration");
+        return;
+    }
+
+    struct LegacyFile {
+        std::wstring path;
+        ULONGLONG timestamp = 0;
+    };
+    std::vector<LegacyFile> legacyFiles;
+
+    do {
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        // Skip files that are .lock, .tmp, or .previous — we only want .db files.
+        const std::wstring name = findData.cFileName;
+        if (name.size() < 4) {
+            continue;
+        }
+        // Must end with ".db" and not ".db.lock" etc.
+        if (name.size() > 8 && name.substr(name.size() - 8) == L".db.lock") {
+            continue;
+        }
+        if (name.size() > 7 && name.substr(name.size() - 7) == L".db.tmp") {
+            continue;
+        }
+        if (name.size() > 12 && name.substr(name.size() - 12) == L".db.previous") {
+            continue;
+        }
+        if (name.substr(name.size() - 3) != L".db") {
+            continue;
+        }
+
+        LegacyFile entry;
+        entry.path = directory + name;
+        entry.timestamp = (static_cast<ULONGLONG>(findData.ftLastWriteTime.dwHighDateTime) << 32) |
+                          findData.ftLastWriteTime.dwLowDateTime;
+        legacyFiles.emplace_back(std::move(entry));
+    } while (FindNextFileW(findHandle, &findData));
+
+    FindClose(findHandle);
+
+    if (legacyFiles.empty()) {
+        LogMessage(LogLevel::Info, L"SessionCoordinator no valid legacy .db files for migration");
+        return;
+    }
+
+    // Sort by modification time, newest first.
+    std::sort(legacyFiles.begin(), legacyFiles.end(),
+              [](const LegacyFile& a, const LegacyFile& b) { return a.timestamp > b.timestamp; });
+
+    // Parse each as a single-window session.
+    for (const auto& file : legacyFiles) {
+        std::wstring content;
+        bool exists = false;
+        if (!ReadUtf8File(file.path, &content, &exists) || !exists || content.empty()) {
+            continue;
+        }
+
+        SessionData data;
+        SessionFileStatus status = ParseLegacyFile(content, data);
+        if (status == SessionFileStatus::kSuccess && !data.groups.empty()) {
+            m_pendingWindows.emplace_back(std::move(data));
+            LogMessage(LogLevel::Info, L"SessionCoordinator migrated legacy session: %ls", file.path.c_str());
         }
     }
 
-    // Delete the checkpoint file
-    const std::wstring checkpointPath = BuildCheckpointPath(m_storagePath);
-    if (!checkpointPath.empty()) {
-        if (DeleteFileW(checkpointPath.c_str())) {
-            LogMessage(LogLevel::Info, L"SessionStore deleted checkpoint file %ls", checkpointPath.c_str());
-        } else {
-            const DWORD error = GetLastError();
-            if (error != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning, L"SessionStore failed to delete checkpoint file %ls (error=%lu)",
-                           checkpointPath.c_str(), error);
-            }
+    LogMessage(LogLevel::Info, L"SessionCoordinator migration: %d windows recovered from %d legacy files",
+               static_cast<int>(m_pendingWindows.size()), static_cast<int>(legacyFiles.size()));
+
+    // Write the combined session file.
+    if (!m_pendingWindows.empty()) {
+        // Temporarily put pending windows into fake slots so SerializeAllWindows picks them up.
+        // (They're already in m_pendingWindows, and SerializeAllWindows serializes those too.)
+        SaveAll();
+    }
+
+    // Clean up old files.
+    CleanupOldFiles();
+}
+
+void SessionCoordinator::CleanupOldFiles() {
+    std::wstring directory = GetShellTabsDataDirectory();
+    if (directory.empty()) {
+        return;
+    }
+    if (!directory.empty() && directory.back() != L'\\') {
+        directory.push_back(L'\\');
+    }
+
+    // Delete all session-*.db, session-*.db.lock, session-*.db.tmp, session-*.db.previous files.
+    DeleteMatchingFiles(directory, kLegacySessionPattern);
+    DeleteMatchingFiles(directory, kLegacyLockPattern);
+    DeleteMatchingFiles(directory, kLegacyTmpPattern);
+    DeleteMatchingFiles(directory, kLegacyPreviousPattern);
+
+    // Delete global-session.db and global-session.db.bak.
+    std::wstring globalSession = directory + kGlobalSessionFile;
+    if (GetFileAttributesW(globalSession.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (DeleteFileW(globalSession.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionCoordinator cleaned up %ls", globalSession.c_str());
+        }
+    }
+    std::wstring globalBak = directory + kGlobalSessionBak;
+    if (GetFileAttributesW(globalBak.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (DeleteFileW(globalBak.c_str())) {
+            LogMessage(LogLevel::Info, L"SessionCoordinator cleaned up %ls", globalBak.c_str());
         }
     }
 
-    // Delete the temp file
-    const std::wstring tempPath = BuildTempPath(m_storagePath);
-    if (!tempPath.empty()) {
-        if (DeleteFileW(tempPath.c_str())) {
-            LogMessage(LogLevel::Info, L"SessionStore deleted temp file %ls", tempPath.c_str());
-        } else {
-            const DWORD error = GetLastError();
-            if (error != ERROR_FILE_NOT_FOUND) {
-                LogMessage(LogLevel::Warning, L"SessionStore failed to delete temp file %ls (error=%lu)",
-                           tempPath.c_str(), error);
-            }
-        }
+    // Delete legacy session.lock marker.
+    std::wstring legacyMarker = directory + L"session.lock";
+    if (GetFileAttributesW(legacyMarker.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        DeleteFileW(legacyMarker.c_str());
     }
+}
 
-    // Reset internal state
-    m_lastSerializedSnapshot.reset();
-    m_pendingCheckpointCleanup = false;
+// ---------------------------------------------------------------------------
+// SessionStore — thin wrapper
+// ---------------------------------------------------------------------------
+
+SessionStore::SessionStore() {
+    m_slot = SessionCoordinator::Instance().Register(nullptr);
+    LogMessage(LogLevel::Info, L"SessionStore created (slot=%d)", m_slot);
+}
+
+SessionStore::~SessionStore() {
+    if (m_slot >= 0) {
+        SessionCoordinator::Instance().Unregister(m_slot);
+        LogMessage(LogLevel::Info, L"SessionStore destroyed (slot=%d)", m_slot);
+    }
+}
+
+bool SessionStore::Load(SessionData& data) const {
+    data = {};
+    return SessionCoordinator::Instance().ClaimWindowData(m_slot, data);
+}
+
+bool SessionStore::Save(const SessionData& data) {
+    SessionCoordinator::Instance().UpdateWindowData(m_slot, data);
+    return SessionCoordinator::Instance().SaveAll();
 }
 
 }  // namespace shelltabs

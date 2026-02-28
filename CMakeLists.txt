@@ -68,6 +68,7 @@ add_library(ShellTabs SHARED
     src/EditGradientRenderer.cpp
     src/ExplorerGlowSurfaces.cpp
     src/CompositionIntercept.cpp
+    src/FolderBackgroundHooks.cpp
     src/ThemeHooks.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
@@ -96,6 +97,14 @@ target_compile_options(ShellTabs PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/permissive->
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
     $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+    # Generate PDB even for Release builds (for crash diagnostics)
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/Zi>
+)
+
+# Generate MAP file and keep PDB for Release builds
+target_link_options(ShellTabs PRIVATE
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/MAP>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/DEBUG>
 )
 
 target_link_libraries(ShellTabs PRIVATE

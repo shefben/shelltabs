@@ -1,9 +1,6 @@
 /*
  * ShellTabs - Folder Background Hooks
- * DirectUI-based folder background rendering system using API hooking
- *
- * Based on ExplorerBgTool by Maplespe (winmoes.com)
- * Adapted for ShellTabs by integrating with existing infrastructure
+ * Folder background rendering via window subclassing on DirectUIHWND / SHELLDLL_DefView.
  */
 
 #pragma once
@@ -11,69 +8,62 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-
 #ifndef _WINSOCKAPI_
 #define _WINSOCKAPI_
 #endif
 
 #include <windows.h>
-#include <objidl.h>  // Required for IStream before gdiplus.h
+#include <commctrl.h>
+#include <objidl.h>
 #include <gdiplus.h>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <memory>
 
-#include "OptionsStore.h"  // For BackgroundPositionMode
+#include "OptionsStore.h"
 
 namespace shelltabs {
 
-// Background configuration
-struct FolderBackgroundConfig {
-    bool enabled = false;
-    BackgroundPositionMode positionMode = BackgroundPositionMode::kBottomRight;
-    BYTE opacity = 255;  // 0-255
-    std::wstring imagePath;
-};
-
-// GDI-compatible bitmap wrapper for efficient painting
+// GDI-compatible bitmap wrapper for efficient AlphaBlend painting.
 class BackgroundBitmap {
 public:
-    BackgroundBitmap(const std::wstring& path);
+    explicit BackgroundBitmap(const std::wstring& path);
     ~BackgroundBitmap();
 
-    bool IsValid() const { return m_memDC != nullptr && m_bitmap != nullptr; }
-    HDC GetMemDC() const { return m_memDC; }
-    SIZE GetSize() const { return m_size; }
-    Gdiplus::Bitmap* GetSource() const { return m_source.get(); }
+    bool    IsValid()    const { return m_bitmap != nullptr; }
+    HBITMAP GetBitmap()  const { return m_bitmap; }
+    SIZE    GetSize()    const { return m_size; }
 
 private:
-    HDC m_memDC = nullptr;
     HBITMAP m_bitmap = nullptr;
-    SIZE m_size = { 0, 0 };
-    std::unique_ptr<Gdiplus::Bitmap> m_source;
+    SIZE    m_size   = {0, 0};
 };
 
-// Main hook management class (singleton)
+// Main hook management singleton.
+// Supports per-frame (per-Explorer-window) folder-specific backgrounds with a universal fallback.
+// Uses SetWindowSubclass on SHELLDLL_DefView and DirectUIHWND to intercept WM_ERASEBKGND.
 class FolderBackgroundHooks {
 public:
     static FolderBackgroundHooks& Instance();
 
-    // Initialization and cleanup
     bool Initialize();
     void Shutdown();
     bool IsInitialized() const { return m_initialized; }
 
-    // Configuration
-    void SetConfig(const FolderBackgroundConfig& config);
-    FolderBackgroundConfig GetConfig() const;
+    // Called from CExplorerBHO when options are applied.
+    void SetImages(bool enabled,
+                   BackgroundPositionMode positionMode,
+                   BYTE opacity,
+                   const std::wstring& universalImagePath,
+                   const std::unordered_map<std::wstring, std::wstring>& folderImagePaths);
 
-    // Image loading
-    bool LoadImage(const std::wstring& path);
-    void ClearImage();
+    // Called from CExplorerBHO on each folder navigation.
+    void SetFrameFolderPath(HWND explorerFrame, const std::wstring& normalizedFolderPath);
 
-    // Refresh settings (called when options change)
-    void ReloadSettings();
+    // Called from CExplorerBHO on disconnect.
+    void ClearFrameFolderPath(HWND explorerFrame);
 
 private:
     FolderBackgroundHooks() = default;
@@ -81,52 +71,47 @@ private:
     FolderBackgroundHooks(const FolderBackgroundHooks&) = delete;
     FolderBackgroundHooks& operator=(const FolderBackgroundHooks&) = delete;
 
-    // Hook implementations (static for MinHook compatibility)
+    // Window subclassing
+    static LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                         UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    void TrySubclassFrame(HWND explorerFrame);
+    void SubclassHwnd(HWND hwnd, HWND explorerFrame, UINT_PTR id);
+    void UnsubclassAll();
+
+    // Hook implementations
     static HWND WINAPI HookedCreateWindowExW(
         DWORD dwExStyle, LPCWSTR lpClassName, LPCWSTR lpWindowName,
         DWORD dwStyle, int X, int Y, int nWidth, int nHeight,
         HWND hWndParent, HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam);
 
-    static BOOL WINAPI HookedDestroyWindow(HWND hWnd);
-    static HDC WINAPI HookedBeginPaint(HWND hWnd, LPPAINTSTRUCT lpPaint);
-    static int WINAPI HookedFillRect(HDC hDC, const RECT* lprc, HBRUSH hbr);
-    static HDC WINAPI HookedCreateCompatibleDC(HDC hDC);
-
-    // Drawing implementation
-    void DrawBackground(HDC hDC, HWND hWnd, const RECT* lprc);
+    // Drawing
+    // Returns a live shared_ptr so the caller can draw safely after releasing m_mutex.
+    std::shared_ptr<const BackgroundBitmap> ResolveBitmapForFrame(HWND explorerFrame) const;
     void CalculateImagePosition(const SIZE& wndSize, const SIZE& imgSize,
+                                BackgroundPositionMode mode,
                                 POINT& pos, SIZE& dstSize) const;
+    void DrawBackground(HDC hDC, HWND hWnd, HWND explorerFrame);
 
-    // Per-thread window tracking
-    struct WindowData {
-        HDC hdc = nullptr;
-        int imageIndex = 0;  // For future multi-image support
-    };
-
-    struct ThreadData {
-        std::unordered_map<HWND, WindowData> duiWindows;
-        SIZE lastSize = { 0, 0 };
-    };
-
-    // Get window from thread data by DC
-    HWND GetWindowByDC(const ThreadData& threadData, HDC hDC, WindowData& outData) const;
-
-    // Member variables
+    // State
     bool m_initialized = false;
     mutable std::mutex m_mutex;
-    std::unordered_map<DWORD, ThreadData> m_threadData;
-    FolderBackgroundConfig m_config;
-    std::unique_ptr<BackgroundBitmap> m_backgroundBitmap;
 
-    // Original function pointers
+    bool                  m_enabled      = false;
+    BackgroundPositionMode m_positionMode = BackgroundPositionMode::kBottomRight;
+    BYTE                  m_opacity      = 200;
+
+    std::unordered_map<std::wstring, std::shared_ptr<BackgroundBitmap>> m_folderBitmaps;
+    std::shared_ptr<BackgroundBitmap> m_universalBitmap;
+
+    // Per-frame current folder path (keyed by CabinetWClass HWND)
+    std::unordered_map<HWND, std::wstring> m_frameFolderPaths;
+
+    // Currently subclassed windows
+    std::unordered_set<HWND> m_subclassedWindows;
+
     static inline decltype(&CreateWindowExW) s_originalCreateWindowExW = nullptr;
-    static inline decltype(&DestroyWindow) s_originalDestroyWindow = nullptr;
-    static inline decltype(&BeginPaint) s_originalBeginPaint = nullptr;
-    static inline decltype(&FillRect) s_originalFillRect = nullptr;
-    static inline decltype(&CreateCompatibleDC) s_originalCreateCompatibleDC = nullptr;
 };
 
-// Initialization functions called from dllmain
 bool InitializeFolderBackgroundHooks();
 void ShutdownFolderBackgroundHooks();
 

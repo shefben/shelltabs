@@ -265,6 +265,7 @@ public:
     int NextGroupSequence() const noexcept { return m_groupSequence; }
 
     // Navigation history methods
+    bool TryMatchImplicitNavigation(TabLocation location, const std::wstring& path);
     void RecordNavigation(TabLocation location, UniquePidl pidl, std::wstring path, std::wstring name);
     std::optional<NavigationHistoryEntry> NavigateBack(TabLocation location);
     std::optional<NavigationHistoryEntry> NavigateForward(TabLocation location);

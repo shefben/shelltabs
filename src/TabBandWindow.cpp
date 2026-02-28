@@ -340,6 +340,10 @@ constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
 constexpr int kIconGap = 6;
 constexpr int kIslandIndicatorWidth = 5;
+constexpr int kIslandIndicatorMinWidth = 5;
+constexpr int kIslandIndicatorMaxWidth = 80;
+constexpr int kIslandIndicatorLabelPad = 4;
+constexpr wchar_t kLabelPopupClassName[] = L"ShellTabsLabelPopup";
 constexpr int kIslandOutlineThickness = 1;
 constexpr int kCloseButtonSize = 14;
 constexpr int kCloseButtonEdgePadding = 6;
@@ -844,6 +848,11 @@ void TabBandWindow::ScheduleDropTargetRegistrationRetry() {
 }
 
 void TabBandWindow::Destroy() {
+    DestroyLabelPopup();
+    if (m_verticalFont) {
+        DeleteObject(m_verticalFont);
+        m_verticalFont = nullptr;
+    }
     CancelDrag();
     ClearExplorerContext();
     ClearVisualItems();
@@ -1340,7 +1349,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
                 x += kGroupGap;
             }
 
-            int width = kIslandIndicatorWidth;
+            int width = ComputeIndicatorWidth(dc, item.name);
             if (x + width > maxX) {
                 if (!try_wrap()) {
                     break;
@@ -1353,6 +1362,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             visual.firstInGroup = true;
             visual.collapsedPlaceholder = collapsed;
             visual.indicatorHandle = true;
+            visual.indicatorWidth = width;
             acquireReuse(visual);
             visual.bounds = {x, rowTop(row), x + width, rowBottom(row)};
             visual.row = row;
@@ -1429,6 +1439,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             visual.hasGroupHeader = true;
             visual.groupHeader = indicatorHeader;
             visual.indicatorHandle = indicatorHeader.headerVisible;
+            visual.indicatorWidth = kIslandIndicatorMinWidth;
             pendingIndicator = false;
             headerMetadata = true;
         }
@@ -2417,7 +2428,8 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::ComputeGroupOutlines() c
 
 		RECT rect = item.bounds;
 		if (item.indicatorHandle) {
-			rect.left = std::max(m_clientRect.left, rect.left - kIslandIndicatorWidth);
+			const int iw = item.indicatorWidth > 0 ? item.indicatorWidth : kIslandIndicatorMinWidth;
+			rect.left = std::max(m_clientRect.left, rect.left - iw);
 		}
 
 		COLORREF outlineColor = ResolveIndicatorColor(item.hasGroupHeader ? &item.groupHeader : nullptr, item.data);
@@ -2436,8 +2448,9 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::ComputeGroupOutlines() c
 
 		RECT rect = item.bounds;
 		if (item.indicatorHandle) {
+			const int iw = item.indicatorWidth > 0 ? item.indicatorWidth : kIslandIndicatorMinWidth;
 			rect.left = std::max(rect.left, m_clientRect.left);
-			rect.right = std::max(rect.right, rect.left + kIslandIndicatorWidth);
+			rect.right = std::max(rect.right, rect.left + iw);
 		}
 
 		accumulate(item, rect, ResolveIndicatorColor(&item.data, item.data), item.data.headerVisible, false);
@@ -2465,8 +2478,9 @@ std::vector<TabBandWindow::GroupOutline> TabBandWindow::ComputeGroupOutlines() c
 	        }
 	        const LONG right = left + width;
 
+	        const int emptyIw = item.indicatorWidth > 0 ? item.indicatorWidth : kIslandIndicatorMinWidth;
 	        RECT rect{
-	                std::max<LONG>(m_clientRect.left,  left - kIslandIndicatorWidth),
+	                std::max<LONG>(m_clientRect.left,  left - emptyIw),
 	                std::max<LONG>(m_clientRect.top,   body.top),
 	                std::min<LONG>(m_clientRect.right, right),
 	                std::min<LONG>(m_clientRect.bottom, body.bottom)
@@ -2714,6 +2728,10 @@ void TabBandWindow::RefreshTheme() {
 
     CloseThemeHandles();
     ClearGdiCache();
+    if (m_verticalFont) {
+        DeleteObject(m_verticalFont);
+        m_verticalFont = nullptr;
+    }
     m_toolbarGripWidth = kToolbarGripWidth;
     if (!m_hwnd) { /* existing reset block unchanged */ return; }
 
@@ -3327,6 +3345,10 @@ void TabBandWindow::HandleDpiChanged(UINT dpiX, UINT dpiY, const RECT* suggested
                      SWP_NOZORDER | SWP_NOACTIVATE);
     }
     m_closeButtonSizeCached = false;
+    if (m_verticalFont) {
+        DeleteObject(m_verticalFont);
+        m_verticalFont = nullptr;
+    }
     UpdateToolbarMetrics();
     RebuildLayout();
 }
@@ -3863,14 +3885,111 @@ bool TabBandWindow::IsSystemDarkMode() const {
     return IsAppDarkModePreferred();
 }
 
+void TabBandWindow::CreateVerticalFont() {
+    if (m_verticalFont) {
+        DeleteObject(m_verticalFont);
+        m_verticalFont = nullptr;
+    }
+
+    HFONT baseFont = GetDefaultFont();
+    if (!baseFont) return;
+
+    LOGFONTW lf{};
+    if (GetObjectW(baseFont, sizeof(lf), &lf) == 0) return;
+
+    lf.lfEscapement = 900;
+    lf.lfOrientation = 900;
+    lf.lfOutPrecision = OUT_TT_ONLY_PRECIS;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+
+    m_verticalFont = CreateFontIndirectW(&lf);
+}
+
+int TabBandWindow::ComputeIndicatorWidth(HDC dc, const std::wstring& label) const {
+    if (label.empty()) {
+        return kIslandIndicatorMinWidth;
+    }
+
+    HFONT baseFont = GetDefaultFont();
+    if (!baseFont) return kIslandIndicatorMinWidth;
+
+    LOGFONTW lf{};
+    if (GetObjectW(baseFont, sizeof(lf), &lf) == 0) return kIslandIndicatorMinWidth;
+
+    // For a rotated font the text height becomes the indicator width.
+    // We measure with the non-rotated font to get the text height.
+    HFONT oldFont = static_cast<HFONT>(SelectObject(dc, baseFont));
+    SIZE textSize{};
+    GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &textSize);
+    SelectObject(dc, oldFont);
+
+    int width = std::max(kIslandIndicatorMinWidth, static_cast<int>(textSize.cy) + kIslandIndicatorLabelPad);
+    width = std::min(width, kIslandIndicatorMaxWidth);
+    return width;
+}
+
+void TabBandWindow::DrawIndicatorLabel(HDC dc, const RECT& indicatorRect, const std::wstring& label,
+                                        COLORREF bgColor) const {
+    if (label.empty()) return;
+    if (!m_verticalFont) {
+        const_cast<TabBandWindow*>(this)->CreateVerticalFont();
+    }
+    if (!m_verticalFont) return;
+
+    HFONT oldFont = static_cast<HFONT>(SelectObject(dc, m_verticalFont));
+    int oldBkMode = SetBkMode(dc, TRANSPARENT);
+
+    // Choose contrasting text color
+    double lum = ComputeLuminance(bgColor);
+    COLORREF textColor = (lum > 0.5) ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    COLORREF oldTextColor = SetTextColor(dc, textColor);
+
+    SIZE textSize{};
+    GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &textSize);
+
+    const int indicWidth = indicatorRect.right - indicatorRect.left;
+    const int indicHeight = indicatorRect.bottom - indicatorRect.top;
+
+    // For a 90-degree rotated font:
+    // textSize.cx = the string width in the rotated direction (becomes vertical extent)
+    // textSize.cy = the text height in the rotated direction (becomes horizontal extent)
+    // The origin for TextOut with 900 escapement is at bottom-left of the text.
+
+    // Clamp text length to indicator height
+    int drawLen = static_cast<int>(label.size());
+    int textLength = textSize.cx;
+    if (textLength > indicHeight - 2) {
+        textLength = indicHeight - 2;
+    }
+
+    // Center horizontally (across indicator width): origin.x = left + (width - textHeight) / 2
+    int originX = indicatorRect.left + (indicWidth - textSize.cy) / 2;
+    // Center vertically (along indicator height): origin.y = bottom - (height - textLength) / 2
+    int originY = indicatorRect.bottom - (indicHeight - textLength) / 2;
+
+    // Clip to indicator rect
+    HRGN clip = CreateRectRgnIndirect(&indicatorRect);
+    SelectClipRgn(dc, clip);
+
+    TextOutW(dc, originX, originY, label.c_str(), drawLen);
+
+    SelectClipRgn(dc, nullptr);
+    DeleteObject(clip);
+
+    SetTextColor(dc, oldTextColor);
+    SetBkMode(dc, oldBkMode);
+    SelectObject(dc, oldFont);
+}
+
 void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
     RECT rect = item.bounds;
+    const int indicWidth = item.indicatorWidth > 0 ? item.indicatorWidth : kIslandIndicatorMinWidth;
     RECT indicator = rect;
-    indicator.right = std::min(indicator.left + kIslandIndicatorWidth, indicator.right);
+    indicator.right = std::min(indicator.left + indicWidth, indicator.right);
     indicator.top = rect.top;
     indicator.bottom = rect.bottom;
+    COLORREF indicatorColor = item.data.hasCustomOutline ? item.data.outlineColor : m_accentColor;
     if (indicator.right > indicator.left) {
-        COLORREF indicatorColor = item.data.hasCustomOutline ? item.data.outlineColor : m_accentColor;
         if (m_highContrast && !item.data.hasCustomOutline) {
             indicatorColor = GetSysColor(COLOR_WINDOWTEXT);
         }
@@ -3882,6 +4001,8 @@ void TabBandWindow::DrawGroupHeader(HDC dc, const VisualItem& item) const {
             FillRect(dc, &indicator, brush);
             DeleteObject(brush);
         }
+
+        // Island indicator is drawn without a label (thin colored bar only).
     }
 
     if (!item.collapsedPlaceholder) {
@@ -3984,7 +4105,9 @@ TabBandWindow::TabPaintMetrics TabBandWindow::ComputeTabPaintMetrics(const Visua
     TabPaintMetrics metrics;
     metrics.itemBounds = item.bounds;
     metrics.tabBounds = item.bounds;
-    metrics.islandIndicator = item.indicatorHandle ? kIslandIndicatorWidth : 0;
+    metrics.islandIndicator = item.indicatorHandle
+        ? (item.indicatorWidth > 0 ? item.indicatorWidth : kIslandIndicatorMinWidth)
+        : 0;
     metrics.tabBounds.left += metrics.islandIndicator;
     metrics.closeButton = ComputeCloseButtonRect(item);
     metrics.iconLeft = metrics.itemBounds.left + metrics.islandIndicator + kPaddingX;
@@ -4108,9 +4231,10 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     }
 
     if (item.indicatorHandle) {
+        const int indicWidth = item.indicatorWidth > 0 ? item.indicatorWidth : kIslandIndicatorMinWidth;
         RECT indicatorRect = tabRect;
         indicatorRect.left = rect.left;
-        indicatorRect.right = indicatorRect.left + kIslandIndicatorWidth;
+        indicatorRect.right = indicatorRect.left + indicWidth;
         indicatorRect.top = rect.top;
         indicatorRect.bottom = rect.bottom;
         COLORREF indicatorColor = hasAccent ? accentColor
@@ -4123,6 +4247,10 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
         }
         if (HBRUSH indicatorBrush = GetCachedBrush(indicatorColor)) {
             FillRect(dc, &indicatorRect, indicatorBrush);
+        }
+
+        if (item.hasGroupHeader && !item.groupHeader.name.empty()) {
+            DrawIndicatorLabel(dc, indicatorRect, item.groupHeader.name, indicatorColor);
         }
     }
 
@@ -4449,8 +4577,10 @@ void TabBandWindow::DrawDropIndicator(HDC dc) const {
     if (HPEN pen = GetCachedPen(m_accentColor, 2)) {
         SelectObjectGuard penGuard(dc, pen);
         const int x = indicator->indicatorX;
-        MoveToEx(dc, x, m_clientRect.top + 2, nullptr);
-        LineTo(dc, x, m_clientRect.bottom - 2);
+        const int top = (indicator->indicatorTop >= 0) ? indicator->indicatorTop : (m_clientRect.top + 2);
+        const int bottom = (indicator->indicatorBottom >= 0) ? indicator->indicatorBottom : (m_clientRect.bottom - 2);
+        MoveToEx(dc, x, top, nullptr);
+        LineTo(dc, x, bottom);
     }
 }
 
@@ -5423,6 +5553,25 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
                 }
                 break;
 
+        case IDM_SET_ISLAND_LABEL:
+                if (m_contextHit.location.groupIndex >= 0) {
+                        RECT anchor{};
+                        const int gi = m_contextHit.location.groupIndex;
+                        for (const auto& vi : m_items) {
+                                if (vi.indicatorHandle && vi.data.location.groupIndex == gi) {
+                                        anchor = vi.bounds;
+                                        MapWindowPoints(m_hwnd, nullptr, reinterpret_cast<POINT*>(&anchor), 2);
+                                        break;
+                                }
+                        }
+                        if (anchor.left == 0 && anchor.right == 0) {
+                                anchor = {m_lastContextPoint.x, m_lastContextPoint.y,
+                                          m_lastContextPoint.x + 1, m_lastContextPoint.y + 1};
+                        }
+                        ShowLabelPopup(gi, anchor);
+                }
+                break;
+
         case IDM_TOGGLE_ISLAND_HEADER: {
                 if (m_contextHit.location.groupIndex >= 0) {
                         const bool visible = m_owner->IsGroupHeaderVisible(m_contextHit.location.groupIndex);
@@ -6073,6 +6222,13 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
             }
             return m_clientRect.right - 10;
         };
+        // Determine row bounds from the last relevant visual item
+        auto setRowBoundsFromItem = [&](const VisualItem* item) {
+            if (item) {
+                target.indicatorTop = item->bounds.top;
+                target.indicatorBottom = item->bounds.bottom;
+            }
+        };
         if (origin.type == HitType::kTab && m_owner) {
             target.group = false;
             target.newGroup = true;
@@ -6080,6 +6236,9 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
             target.groupIndex = m_owner->GetGroupCount();
             target.tabIndex = 0;
             target.indicatorX = trailingIndicatorX();
+            if (!m_items.empty()) {
+                setRowBoundsFromItem(&m_items.back());
+            }
         } else if (!m_items.empty()) {
             const VisualItem* lastHeader = FindLastGroupHeader();
             if (lastHeader) {
@@ -6093,12 +6252,14 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
                     target.tabIndex = static_cast<int>(lastHeader->data.totalTabs);
                     target.indicatorX = std::min<LONG>(lastHeader->bounds.right, trailingIndicatorX());
                 }
+                setRowBoundsFromItem(lastHeader);
             } else {
                 const auto& tail = m_items.back();
                 target.group = false;
                 target.groupIndex = tail.data.location.groupIndex;
                 target.tabIndex = tail.data.location.tabIndex + 1;
                 target.indicatorX = std::min<LONG>(tail.bounds.right, trailingIndicatorX());
+                setRowBoundsFromItem(&tail);
             }
         }
         return target;
@@ -6123,6 +6284,8 @@ TabBandWindow::DropTarget TabBandWindow::ComputeDropTarget(const POINT& pt, cons
             target.indicatorX = leftSide ? visual.bounds.left : visual.bounds.right;
         }
     }
+    target.indicatorTop = visual.bounds.top;
+    target.indicatorBottom = visual.bounds.bottom;
 
     AdjustDropTargetForPinned(origin, target);
     return target;
@@ -6215,6 +6378,23 @@ void TabBandWindow::AdjustDropTargetForPinned(const HitInfo& origin, DropTarget&
     const int indicator = ComputeIndicatorXForInsertion(target.groupIndex, adjustedIndex);
     if (indicator >= 0) {
         target.indicatorX = indicator;
+        // Update row bounds for the adjusted insertion point
+        for (const auto& visual : m_items) {
+            if (visual.data.location.groupIndex != target.groupIndex) {
+                continue;
+            }
+            if (visual.data.type == TabViewItemType::kTab &&
+                visual.data.location.tabIndex == adjustedIndex) {
+                target.indicatorTop = visual.bounds.top;
+                target.indicatorBottom = visual.bounds.bottom;
+                break;
+            }
+            if (visual.data.type == TabViewItemType::kTab &&
+                visual.data.location.tabIndex == adjustedIndex - 1) {
+                target.indicatorTop = visual.bounds.top;
+                target.indicatorBottom = visual.bounds.bottom;
+            }
+        }
     }
 }
 
@@ -6226,8 +6406,8 @@ RECT TabBandWindow::ComputeDropIndicatorRect(const DropTarget& target) const {
 
     rect.left = target.indicatorX;
     rect.right = target.indicatorX + 1;
-    rect.top = m_clientRect.top + 2;
-    rect.bottom = m_clientRect.bottom - 2;
+    rect.top = (target.indicatorTop >= 0) ? target.indicatorTop : (m_clientRect.top + 2);
+    rect.bottom = (target.indicatorBottom >= 0) ? target.indicatorBottom : (m_clientRect.bottom - 2);
     if (rect.bottom <= rect.top) {
         rect.top = m_clientRect.top;
         rect.bottom = m_clientRect.bottom;
@@ -6581,31 +6761,6 @@ void TabBandWindow::HandleExternalDropExecute() {
         return;
     }
 
-    // Validate source window is still valid before processing transfer
-    if (payload->sourceWindow) {
-        HWND sourceHwnd = payload->sourceWindow->GetHwnd();
-        if (!sourceHwnd || !IsWindow(sourceHwnd)) {
-            LogMessage(LogLevel::Warning, L"Source window invalid during drop execute - transfer cancelled");
-            return; // Source window already closed
-        }
-
-        // Additional check for source TabBand validity
-        if (payload->source) {
-            // Check if source TabBand is in destroying state
-            // Note: This accesses m_isDestroying through friend access or public method
-            try {
-                auto sourceWindowId = payload->source->BuildWindowId();
-                if (!sourceWindowId.IsValid()) {
-                    LogMessage(LogLevel::Warning, L"Source TabBand invalid during drop execute - transfer cancelled");
-                    return;
-                }
-            } catch (...) {
-                LogMessage(LogLevel::Error, L"Exception validating source TabBand during drop execute");
-                return;
-            }
-        }
-    }
-
     if (payload->type == TransferPayload::Type::Tab) {
         m_owner->InsertTransferredTab(std::move(payload->tab), payload->targetGroupIndex, payload->targetTabIndex,
                                       payload->createGroup, payload->headerVisible, payload->select);
@@ -6808,8 +6963,11 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
                         IDM_CLOSE_TABS_TO_RIGHT, L"Close Tabs to the Right");
             AppendMenuW(menu, (canCloseLeft ? MF_STRING : MF_STRING | MF_GRAYED),
                         IDM_CLOSE_TABS_TO_LEFT, L"Close Tabs to the Left");
-            AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
-                        L"Reopen Closed Tab");
+            {
+                const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
+                AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
+                            reopenLabel.c_str());
+            }
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
@@ -6821,6 +6979,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_OPEN_VSCODE, L"Open in VS Code");
             AppendMenuW(menu, MF_STRING, IDM_COPY_PATH, L"Copy Path");
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
+            AppendMenuW(menu, MF_STRING, IDM_SET_ISLAND_LABEL, L"Set Island Label...");
 
             HMENU explorerMenu = CreatePopupMenu();
             bool explorerInserted = false;
@@ -6862,6 +7021,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
 
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
+            AppendMenuW(menu, MF_STRING, IDM_SET_ISLAND_LABEL, L"Set Island Label...");
 
             if (item.data.hiddenTabs > 0) {
                 HMENU hiddenMenu = CreatePopupMenu();
@@ -6875,6 +7035,13 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, IDM_NEW_ISLAND, L"New Island After");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
+            {
+                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                const bool canReopen = m_owner->CanReopenClosedTabs();
+                const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
+                AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
+                            reopenLabel.c_str());
+            }
             hasItemCommands = true;
         } else if (hit.type == HitType::kGroupHeader && hit.location.groupIndex >= 0) {
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
@@ -6902,6 +7069,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
+            AppendMenuW(menu, MF_STRING, IDM_SET_ISLAND_LABEL, L"Set Island Label...");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
 
@@ -6910,6 +7078,13 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             } else {
                 AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_UNHIDE_ALL, L"Unhide All Tabs");
             }
+            {
+                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                const bool canReopen = m_owner->CanReopenClosedTabs();
+                const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
+                AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
+                            reopenLabel.c_str());
+            }
             hasItemCommands = true;
         }
     }
@@ -6917,6 +7092,12 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
     bool appendedBeforeOptions = hasItemCommands;
     if (!hit.hit) {
         AppendMenuW(menu, MF_STRING, IDM_NEW_THISPC_TAB, L"New Tab");
+        {
+            const bool canReopen = m_owner->CanReopenClosedTabs();
+            const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
+            AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
+                        reopenLabel.c_str());
+        }
         appendedBeforeOptions = true;
         hasItemCommands = true;
     }
@@ -7096,6 +7277,167 @@ const TabBandWindow::VisualItem* TabBandWindow::FindVisualForHit(const HitInfo& 
     }
     return nullptr;
 }
+
+// --- Label popup implementation ---
+
+static bool s_labelPopupClassRegistered = false;
+
+LRESULT CALLBACK TabBandWindow::LabelPopupWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    TabBandWindow* self = reinterpret_cast<TabBandWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+
+    switch (message) {
+    case WM_CREATE: {
+        auto cs = reinterpret_cast<LPCREATESTRUCTW>(lParam);
+        self = static_cast<TabBandWindow*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        return 0;
+    }
+    case WM_COMMAND:
+        if (self) {
+            if (LOWORD(wParam) == IDOK) {
+                self->CommitLabelPopup();
+                return 0;
+            }
+            if (LOWORD(wParam) == IDCANCEL) {
+                self->DestroyLabelPopup();
+                return 0;
+            }
+        }
+        break;
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) == WA_INACTIVE && self) {
+            // Defer destruction to avoid re-entrancy issues
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        if (self) {
+            self->DestroyLabelPopup();
+            return 0;
+        }
+        break;
+    case WM_DESTROY:
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+void TabBandWindow::ShowLabelPopup(int groupIndex, const RECT& anchor) {
+    DestroyLabelPopup();
+
+    if (!s_labelPopupClassRegistered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = LabelPopupWndProc;
+        wc.hInstance = GetModuleHandleInstance();
+        wc.lpszClassName = kLabelPopupClassName;
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        SetLastError(ERROR_SUCCESS);
+        ATOM atom = RegisterClassW(&wc);
+        if (atom != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
+            s_labelPopupClassRegistered = true;
+        }
+    }
+    if (!s_labelPopupClassRegistered) return;
+
+    // Get current label
+    std::wstring currentLabel;
+    if (auto* manager = ResolveManager()) {
+        auto* group = manager->GetGroup(groupIndex);
+        if (group) {
+            currentLabel = group->name;
+        }
+    }
+
+    const int popupW = 210;
+    const int popupH = 72;
+    int px = anchor.left;
+    int py = anchor.bottom + 2;
+
+    // Ensure popup is visible on screen
+    HMONITOR mon = MonitorFromPoint({px, py}, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfoW(mon, &mi)) {
+        if (px + popupW > mi.rcWork.right) px = mi.rcWork.right - popupW;
+        if (py + popupH > mi.rcWork.bottom) py = anchor.top - popupH - 2;
+        if (px < mi.rcWork.left) px = mi.rcWork.left;
+        if (py < mi.rcWork.top) py = mi.rcWork.top;
+    }
+
+    HWND popup = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        kLabelPopupClassName, L"Set Island Label",
+        WS_POPUP | WS_BORDER,
+        px, py, popupW, popupH,
+        m_hwnd, nullptr, GetModuleHandleInstance(), this);
+
+    if (!popup) return;
+
+    HFONT font = GetDefaultFont();
+
+    HWND edit = CreateWindowExW(
+        WS_EX_CLIENTEDGE, L"EDIT", currentLabel.c_str(),
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+        6, 6, popupW - 16, 22,
+        popup, nullptr, GetModuleHandleInstance(), nullptr);
+    if (font && edit) SendMessageW(edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND okBtn = CreateWindowExW(
+        0, L"BUTTON", L"OK",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+        popupW - 150, 36, 65, 26,
+        popup, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
+        GetModuleHandleInstance(), nullptr);
+    if (font && okBtn) SendMessageW(okBtn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    HWND cancelBtn = CreateWindowExW(
+        0, L"BUTTON", L"Cancel",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        popupW - 80, 36, 65, 26,
+        popup, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
+        GetModuleHandleInstance(), nullptr);
+    if (font && cancelBtn) SendMessageW(cancelBtn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+    m_labelPopup.popup = popup;
+    m_labelPopup.edit = edit;
+    m_labelPopup.okButton = okBtn;
+    m_labelPopup.cancelButton = cancelBtn;
+    m_labelPopup.groupIndex = groupIndex;
+
+    ShowWindow(popup, SW_SHOWNOACTIVATE);
+    SetForegroundWindow(popup);
+    SetFocus(edit);
+    SendMessageW(edit, EM_SETSEL, 0, -1);
+}
+
+void TabBandWindow::DestroyLabelPopup() {
+    if (m_labelPopup.popup) {
+        DestroyWindow(m_labelPopup.popup);
+    }
+    m_labelPopup = {};
+}
+
+void TabBandWindow::CommitLabelPopup() {
+    if (!m_labelPopup.popup || !m_labelPopup.edit) return;
+
+    int len = GetWindowTextLengthW(m_labelPopup.edit);
+    std::wstring label;
+    if (len > 0) {
+        label.resize(static_cast<size_t>(len));
+        GetWindowTextW(m_labelPopup.edit, label.data(), len + 1);
+    }
+
+    int groupIndex = m_labelPopup.groupIndex;
+    DestroyLabelPopup();
+
+    if (m_owner && groupIndex >= 0) {
+        m_owner->OnSetIslandLabel(groupIndex, label);
+    }
+}
+
 LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     TabBandWindow* self = reinterpret_cast<TabBandWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
