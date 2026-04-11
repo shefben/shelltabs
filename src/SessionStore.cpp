@@ -652,15 +652,29 @@ void SessionCoordinator::Unregister(int slot) {
         return;
     }
 
+    // If the departing window has session data, push it back into the pending
+    // pool so that a future window can claim it.  This handles the case where
+    // Explorer creates a transient first window that claims the crash-recovery
+    // data but closes almost immediately — without this the data would be lost.
+    // Push to FRONT so the next window gets the most-recent data, not a stale entry.
+    if (it->second.hasData && !it->second.data.groups.empty()) {
+        LogMessage(LogLevel::Info,
+                   L"SessionCoordinator::Unregister slot=%d returned %d groups to pending pool (front)",
+                   slot, static_cast<int>(it->second.data.groups.size()));
+        m_pendingWindows.insert(m_pendingWindows.begin(), std::move(it->second.data));
+        m_lastReturnTick = GetTickCount64();
+    }
+
     m_slots.erase(it);
     LogMessage(LogLevel::Info, L"SessionCoordinator::Unregister slot=%d (remaining=%d)",
                slot, static_cast<int>(m_slots.size()));
 
-    // Save before unregistering so the departing window's last state is captured.
+    // Save so the pending pool is persisted to session.db.
     SaveAll();
 
-    // Mark clean when last window unregisters.
-    if (m_slots.empty()) {
+    // Only mark clean when last window unregisters AND there is no pending
+    // session data waiting to be claimed by a future window.
+    if (m_slots.empty() && m_pendingWindows.empty()) {
         MarkClean();
     }
 }
@@ -670,6 +684,21 @@ bool SessionCoordinator::ClaimWindowData(int slot, SessionData& outData) {
 
     if (m_pendingWindows.empty()) {
         return false;
+    }
+
+    // Cooldown: if a previous window just returned data to the pending pool
+    // (likely a transient probe window that opened and closed within seconds),
+    // suppress this claim for 3 seconds.  This breaks the infinite cycle of
+    // claim → restore → navigate → probe-window-closes → return → claim.
+    if (m_lastReturnTick != 0) {
+        const ULONGLONG now = GetTickCount64();
+        const ULONGLONG elapsed = now - m_lastReturnTick;
+        if (elapsed < 3000) {
+            LogMessage(LogLevel::Info,
+                       L"SessionCoordinator::ClaimWindowData slot=%d suppressed (cooldown %llums remaining)",
+                       slot, 3000 - elapsed);
+            return false;
+        }
     }
 
     outData = std::move(m_pendingWindows.front());
@@ -825,9 +854,44 @@ void SessionCoordinator::MarkClean() {
     }
 }
 
+void SessionCoordinator::ClearCrashState() {
+    std::scoped_lock lock(m_mutex);
+    if (!m_wasCrash) {
+        return;
+    }
+    m_wasCrash = false;
+
+    // Purge trivial single-tab entries from the pending pool.  These accumulate
+    // when transient Explorer windows open, create a placeholder tab, then close
+    // immediately — pushing the placeholder session back into the pool.
+    const size_t before = m_pendingWindows.size();
+    m_pendingWindows.erase(
+        std::remove_if(m_pendingWindows.begin(), m_pendingWindows.end(),
+                        [](const SessionData& d) {
+                            if (d.groups.size() != 1) return false;
+                            const auto& group = d.groups[0];
+                            return group.tabs.size() <= 1 &&
+                                   group.savedGroupId.empty();
+                        }),
+        m_pendingWindows.end());
+
+    LogMessage(LogLevel::Info,
+               L"SessionCoordinator::ClearCrashState cleared crash flag, purged %d stale entries, %d pending remain",
+               static_cast<int>(before - m_pendingWindows.size()),
+               static_cast<int>(m_pendingWindows.size()));
+
+    // Persist the cleaned state.
+    SaveAll();
+}
+
 int SessionCoordinator::RegisteredCount() const {
     std::scoped_lock lock(m_mutex);
     return static_cast<int>(m_slots.size());
+}
+
+bool SessionCoordinator::HasPendingData() const {
+    std::scoped_lock lock(m_mutex);
+    return !m_pendingWindows.empty();
 }
 
 void SessionCoordinator::LoadSessionFile() {

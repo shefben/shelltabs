@@ -8,6 +8,7 @@ HRESULT CreateTabBandClassFactory(REFIID riid, void** object);
 HRESULT CreateBrowserHelperClassFactory(REFIID riid, void** object);
 HRESULT CreateOpenFolderCommandClassFactory(REFIID riid, void** object);
 HRESULT CreateFtpFolderClassFactory(REFIID riid, void** object);
+HRESULT CreateHttpFolderClassFactory(REFIID riid, void** object);
 
 }  // namespace shelltabs
 

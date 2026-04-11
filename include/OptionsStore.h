@@ -4,6 +4,7 @@
 
 #include "IconCache.h"
 
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -89,6 +90,13 @@ struct ContextMenuItem {
     std::wstring description;     // Tooltip/description
     std::wstring id;              // Unique identifier for reference
 
+    // Advanced features
+    std::vector<std::wstring> folderPathFilters;  // Show only in these folder paths (empty = all, supports wildcards)
+    bool confirmBeforeExecute = false;            // Show confirmation dialog before running
+    std::wstring confirmMessage;                  // Custom confirmation message
+    std::vector<std::wstring> additionalCommands; // Execute extra commands sequentially after primary
+    bool expandEnvironmentVars = true;            // Expand %USERPROFILE%, %TEMP% etc.
+
     // Legacy fields for backward compatibility
     std::wstring commandTemplate; // Legacy: combined executable + arguments
     ContextMenuSelectionRule selection; // Legacy: selection constraints
@@ -103,7 +111,8 @@ std::wstring NormalizeContextMenuExtensions(const std::vector<std::wstring>& ext
 bool MatchesContextMenuPattern(const std::wstring& filename, const std::wstring& pattern);
 bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionCount,
                                      const std::vector<std::wstring>& selectedPaths,
-                                     bool hasFiles, bool hasFolders);
+                                     bool hasFiles, bool hasFolders,
+                                     const std::wstring& currentFolderPath = L"");
 std::wstring ExpandContextMenuPlaceholders(const std::wstring& text,
                                           const std::vector<std::wstring>& selectedPaths);
 void ValidateContextMenuItem(const ContextMenuItem& item, std::vector<std::wstring>& errors);
@@ -117,6 +126,23 @@ struct CachedImageMetadata {
 struct FolderBackgroundEntry {
     std::wstring folderPath;
     CachedImageMetadata image;
+};
+
+struct WebFolderEntry {
+    std::wstring url;
+    std::wstring displayName;
+    bool enabled = true;
+    bool parallelDownloads = false;
+    int maxParallelDownloads = 4;    // 1-16
+    int downloadSpeedLimitKBps = 0;  // 0 = unlimited
+};
+
+struct FtpSiteEntry {
+    std::wstring host;
+    std::wstring displayName;
+    std::wstring userName;   // empty = anonymous
+    std::uint16_t port = 21;
+    bool enabled = true;
 };
 
 enum class TabBandDockMode {
@@ -175,7 +201,7 @@ struct GlowSurfacePalette {
 };
 
 struct ShellTabsOptions {
-    bool reopenOnCrash = false;
+    bool reopenOnCrash = true;
     bool persistGroupPaths = false;
     bool reuseExistingWindow = false;
     bool enableBreadcrumbGradient = false;
@@ -212,6 +238,8 @@ struct ShellTabsOptions {
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
     std::vector<ContextMenuItem> contextMenuItems;
+    std::vector<WebFolderEntry> webFolderEntries;
+    std::vector<FtpSiteEntry> ftpSiteEntries;
     TabBandDockMode tabDockMode = TabBandDockMode::kAutomatic;
     NewTabTemplate newTabTemplate = NewTabTemplate::kDuplicateCurrent;
     std::wstring newTabCustomPath;
@@ -281,6 +309,16 @@ inline bool operator!=(const CachedImageMetadata& left, const CachedImageMetadat
 
 bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept;
 inline bool operator!=(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const WebFolderEntry& left, const WebFolderEntry& right) noexcept;
+inline bool operator!=(const WebFolderEntry& left, const WebFolderEntry& right) noexcept {
+    return !(left == right);
+}
+
+bool operator==(const FtpSiteEntry& left, const FtpSiteEntry& right) noexcept;
+inline bool operator!=(const FtpSiteEntry& left, const FtpSiteEntry& right) noexcept {
     return !(left == right);
 }
 

@@ -339,10 +339,10 @@ constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
 constexpr int kIconGap = 6;
-constexpr int kIslandIndicatorWidth = 5;
-constexpr int kIslandIndicatorMinWidth = 5;
-constexpr int kIslandIndicatorMaxWidth = 80;
-constexpr int kIslandIndicatorLabelPad = 4;
+constexpr int kIslandIndicatorWidth = 2;
+constexpr int kIslandIndicatorMinWidth = 2;
+constexpr int kIslandIndicatorMaxWidth = 27;
+constexpr int kIslandIndicatorLabelPad = 2;
 constexpr wchar_t kLabelPopupClassName[] = L"ShellTabsLabelPopup";
 constexpr int kIslandOutlineThickness = 1;
 constexpr int kCloseButtonSize = 14;
@@ -4249,7 +4249,7 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             FillRect(dc, &indicatorRect, indicatorBrush);
         }
 
-        if (item.hasGroupHeader && !item.groupHeader.name.empty()) {
+        if (item.hasGroupHeader && !item.groupHeader.name.empty() && indicWidth >= 10) {
             DrawIndicatorLabel(dc, indicatorRect, item.groupHeader.name, indicatorColor);
         }
     }
@@ -6002,6 +6002,14 @@ bool TabBandWindow::HasFileDropData(IDataObject* dataObject) const {
         return true;
     }
 
+    // Virtual file descriptors (HTTP namespace, etc.)
+    static CLIPFORMAT cfFileDescriptor =
+        static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW));
+    FORMATETC fdFormat{cfFileDescriptor, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    if (SUCCEEDED(dataObject->QueryGetData(&fdFormat))) {
+        return true;
+    }
+
     return false;
 }
 
@@ -7643,6 +7651,13 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                     }
                     return 0;
                 }
+                if (wParam == TabBandWindow::SessionRetryTimerId()) {
+                    KillTimer(hwnd, TabBandWindow::SessionRetryTimerId());
+                    if (self->m_owner) {
+                        self->m_owner->RetrySessionClaim();
+                    }
+                    return 0;
+                }
                 return fallback();
             }
             case WM_WTSSESSION_CHANGE: {
@@ -7739,6 +7754,15 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 std::unique_ptr<TabBand::InitializationResult> result(payload);
                 if (self->m_owner && result) {
                     self->m_owner->HandleInitializationResult(std::move(result));
+                }
+                return 0;
+            }
+            case WM_SHELLTABS_SELECT_TAB: {
+                int groupIndex = static_cast<int>(wParam);
+                int tabIndex = static_cast<int>(lParam);
+                TabLocation loc{groupIndex, tabIndex};
+                if (self->m_owner) {
+                    self->m_owner->OnTabSelected(loc);
                 }
                 return 0;
             }

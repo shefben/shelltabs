@@ -90,7 +90,13 @@ private:
     void CalculateImagePosition(const SIZE& wndSize, const SIZE& imgSize,
                                 BackgroundPositionMode mode,
                                 POINT& pos, SIZE& dstSize) const;
-    void DrawBackground(HDC hDC, HWND hWnd, HWND explorerFrame);
+
+    // Overlay window management
+    void CreateOverlayForDUI(HWND duiHwnd, HWND defViewParent);
+    void DestroyOverlayForDUI(HWND duiHwnd);
+    void UpdateOverlayContent(HWND duiHwnd, HWND explorerFrame);
+    void RepositionOverlay(HWND duiHwnd);
+    void DestroyAllOverlays();
 
     // State
     bool m_initialized = false;
@@ -109,6 +115,12 @@ private:
     // Currently subclassed windows
     std::unordered_set<HWND> m_subclassedWindows;
 
+    // Overlay windows: DirectUIHWND → overlay HWND
+    std::unordered_map<HWND, HWND> m_overlayWindows;
+    // Track last overlay size per DirectUIHWND to skip redundant updates
+    std::unordered_map<HWND, SIZE> m_lastOverlaySize;
+
+    static ATOM s_overlayClass;
     static inline decltype(&CreateWindowExW) s_originalCreateWindowExW = nullptr;
 };
 

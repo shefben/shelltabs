@@ -97,8 +97,16 @@ public:
     // Delete session.active marker (last Unregister).
     void MarkClean();
 
+    // Clear crash state: delete marker and discard any unclaimed pending data
+    // that was loaded from the crashed session. Call after the first window has
+    // successfully initialized (restored or not).
+    void ClearCrashState();
+
     // Number of currently registered slots.
     int RegisteredCount() const;
+
+    // True if the pending pool has unclaimed session data.
+    bool HasPendingData() const;
 
 private:
     SessionCoordinator();
@@ -127,6 +135,13 @@ private:
 
     // Unclaimed window data loaded from the session file on startup.
     std::vector<SessionData> m_pendingWindows;
+
+    // Timestamp of the last Unregister that returned data to the pending pool.
+    // Used to implement a cooldown: if a window claims data and then closes
+    // almost immediately (returning data to pending), we suppress the next
+    // claim for a brief period so the next window doesn't enter the same
+    // claim → restore → close → return cycle.
+    ULONGLONG m_lastReturnTick = 0;
 
     // Last serialized snapshot for dedup.
     std::optional<std::wstring> m_lastSnapshot;

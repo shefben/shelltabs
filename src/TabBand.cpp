@@ -446,6 +446,9 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
             }
 
             DisconnectSite();
+            // DisconnectSite sets m_isDestroying=true to prevent re-entrancy.
+            // Reset it here — we are RE-initializing, not destroying.
+            m_isDestroying = false;
 
             Microsoft::WRL::ComPtr<IInputObjectSite> site;
             HRESULT hr = pUnkSite->QueryInterface(IID_PPV_ARGS(&site));
@@ -1520,7 +1523,7 @@ void TabBand::OnCloseIslandRequested(int groupIndex) {
     SyncAllSavedGroups();
 
     if (!removed->savedGroupId.empty()) {
-        GroupStore::Instance().UpdateTabs(removed->savedGroupId, {});
+        GroupStore::Instance().Remove(removed->savedGroupId);
     }
 
     if (removedSelectedGroup) {
@@ -2692,6 +2695,34 @@ void TabBand::OnPeriodicSessionFlush() {
     SaveSession();
 }
 
+void TabBand::RetrySessionClaim() {
+    if (!m_sessionStore) {
+        return;
+    }
+
+    auto& coordinator = SessionCoordinator::Instance();
+    if (!coordinator.HasPendingData()) {
+        LogMessage(LogLevel::Info, L"TabBand::RetrySessionClaim no pending data");
+        return;
+    }
+
+    SessionData data;
+    if (!m_sessionStore->Load(data)) {
+        LogMessage(LogLevel::Warning, L"TabBand::RetrySessionClaim claim still suppressed");
+        return;
+    }
+
+    LogMessage(LogLevel::Info, L"TabBand::RetrySessionClaim restoring %d groups",
+               static_cast<int>(data.groups.size()));
+
+    m_tabs.Clear();
+    RestoreSessionFromData(data);
+    if (m_window && m_window->GetHwnd()) {
+        InvalidateRect(m_window->GetHwnd(), nullptr, TRUE);
+    }
+    SaveSession();
+}
+
 TabBand::ClosedGroupMetadata TabBand::CaptureGroupMetadata(const TabGroup& group) const {
     ClosedGroupMetadata metadata;
     metadata.name = group.name;
@@ -3689,12 +3720,23 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
         }
         result->shouldRestoreSession = shouldRestore;
         if (shouldRestore && !stopToken.stop_requested()) {
-            SessionData data;
-            if (m_sessionStore->Load(data)) {
-                result->sessionData = std::move(data);
-                result->hasSessionData = true;
+            if (wasCrash) {
+                // After a crash, defer the claim to a timer so that transient
+                // "probe" windows (which Explorer creates and closes within
+                // ~300ms) never touch the pending pool.  The timer in
+                // HandleInitializationResult will claim after the window has
+                // proven it is long-lived.
+                LogMessage(LogLevel::Info,
+                           L"TabBand::RunBackgroundInitialization deferring crash session claim to timer");
             } else {
-                LogMessage(LogLevel::Warning, L"TabBand::RunBackgroundInitialization no session data to claim");
+                SessionData data;
+                if (m_sessionStore->Load(data)) {
+                    result->sessionData = std::move(data);
+                    result->hasSessionData = true;
+                } else {
+                    LogMessage(LogLevel::Warning,
+                               L"TabBand::RunBackgroundInitialization no session data to claim");
+                }
             }
         }
     }
@@ -3765,6 +3807,23 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
     bool restored = false;
     if (result->shouldRestoreSession && result->hasSessionData) {
         restored = RestoreSessionFromData(result->sessionData);
+    }
+
+    // Crash state has been handled (restored or not). Clear the flag so
+    // subsequent windows aren't treated as post-crash and so the crash
+    // marker can eventually be cleaned when the last window unregisters.
+    SessionCoordinator::Instance().ClearCrashState();
+
+    // If we expected to restore but couldn't claim data (cooldown suppressed),
+    // and pending data still exists, schedule a retry after the cooldown expires.
+    if (!restored && result->shouldRestoreSession && !result->hasSessionData &&
+        SessionCoordinator::Instance().HasPendingData() && m_window) {
+        HWND hwnd = m_window->GetHwnd();
+        if (hwnd) {
+            LogMessage(LogLevel::Info,
+                       L"TabBand::HandleInitializationResult scheduling session retry in 4s");
+            SetTimer(hwnd, TabBandWindow::SessionRetryTimerId(), 4000, nullptr);
+        }
     }
 
     bool handledPendingSeed = false;

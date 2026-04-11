@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <PathCch.h>
 
+#include "HttpPidl.h"
 #include "Logging.h"
 #include "Module.h"
 
@@ -309,6 +310,16 @@ UniquePidl ParseDisplayName(const std::wstring& parsingName) {
             return ftpPidl;
         }
     }
+    HttpUrlParts httpParts;
+    if (TryParseHttpUrl(parsingName, &httpParts)) {
+        if (httpParts.displayName.empty()) {
+            httpParts.displayName = httpParts.host;
+        }
+        // Always return here — never fall through to SHParseDisplayName for
+        // HTTP URLs, as the system would produce an internet PIDL that opens
+        // the browser instead of navigating the namespace extension.
+        return http::CreatePidlFromHttpUrl(httpParts);
+    }
     PIDLIST_ABSOLUTE pidl = nullptr;
     SFGAOF attributes = 0;
     if (SUCCEEDED(SHParseDisplayName(parsingName.c_str(), nullptr, &pidl, attributes, nullptr)) && pidl) {
@@ -327,6 +338,13 @@ UniquePidl ParseExplorerUrl(const std::wstring& url) {
         if (auto ftpPidl = CreateFtpPidlFromUrl(ftpParts)) {
             return ftpPidl;
         }
+    }
+    HttpUrlParts httpParts;
+    if (TryParseHttpUrl(url, &httpParts)) {
+        if (httpParts.displayName.empty()) {
+            httpParts.displayName = httpParts.host;
+        }
+        return http::CreatePidlFromHttpUrl(httpParts);
     }
 
     PIDLIST_ABSOLUTE pidl = nullptr;

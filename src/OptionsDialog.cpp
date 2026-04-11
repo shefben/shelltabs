@@ -215,6 +215,15 @@ enum ControlIds : int {
     IDC_CTX_EXCLUDE = 6446,
     IDC_CTX_ANCHOR = 6447,
 
+    IDC_CTX_FOLDER_FILTERS = 6450,
+    IDC_CTX_CONFIRM = 6451,
+    IDC_CTX_CONFIRM_MSG = 6452,
+    IDC_CTX_ADDL_CMDS = 6453,
+    IDC_CTX_ADDL_ADD = 6454,
+    IDC_CTX_ADDL_REMOVE = 6455,
+    IDC_CTX_EXPAND_ENV = 6456,
+    IDC_CTX_PROPS_PANEL = 6457,
+
     // Groups (6500-6599)
     IDC_GRP_LIST = 6500,
     IDC_GRP_NEW = 6501,
@@ -229,6 +238,19 @@ enum ControlIds : int {
     IDC_GRP_ED_COLOR_PREVIEW = 6515,
     IDC_GRP_ED_COLOR_BTN = 6516,
     IDC_GRP_ED_STYLE = 6517,
+
+    // Web Folders (6600-6699)
+    IDC_WEB_LIST = 6600,
+    IDC_WEB_ADD = 6601,
+    IDC_WEB_EDIT = 6602,
+    IDC_WEB_REMOVE = 6603,
+    IDC_WEB_URL_LABEL = 6604,
+
+    IDC_WEB_ED_NAME = 6610,
+    IDC_WEB_ED_URL = 6611,
+    IDC_WEB_ED_PARALLEL = 6612,
+    IDC_WEB_ED_MAX_CONCURRENT = 6613,
+    IDC_WEB_ED_SPEED_LIMIT = 6614,
 };
 
 // Preview bitmap async result
@@ -2022,54 +2044,126 @@ INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
 DialogTemplatePtr CreateContextMenusPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
 
+    // Layout constants for split view
+    constexpr int treeWidth = 155;
+    constexpr int treeLeft = kMargin;
+    constexpr int propLeft = treeLeft + treeWidth + 6;
+    constexpr int propWidth = kPageWidth - propLeft - kMargin;
+
     int y = kMargin;
 
-    builder.AddStatic(-1,
-        L"Context menu customization is a complex feature.",
-        kMargin, y, kPageWidth - 2 * kMargin, kLabelHeight);
-    y += kLabelHeight + 6;
-
-    builder.AddStatic(-1,
-        L"This simplified version shows basic settings.",
-        kMargin, y, kPageWidth - 2 * kMargin, kLabelHeight);
-    y += kLabelHeight + kSpacing * 2;
-
-    builder.AddStatic(-1,
-        L"Template:",
-        kMargin, y, 100, kLabelHeight);
+    // Template selector at top, full width
+    builder.AddStatic(-1, L"Template:",
+        kMargin, y + 2, 55, kLabelHeight);
     builder.AddComboBox(IDC_CTX_TEMPLATE,
-        kMargin + 105, y - 2, 200, kComboHeight);
-    y += kEditHeight + kSpacing * 2;
+        kMargin + 58, y, 140, kComboHeight);
+    y += kEditHeight + 6;
 
-    // Tree view for menu items
+    int treeTop = y;
+
+    // Left panel: Tree view
     builder.AddTreeView(IDC_CTX_TREE,
-        kMargin, y, kPageWidth - 2 * kMargin, 200);
-    y += 205;
+        treeLeft, treeTop, treeWidth, 340);
 
-    // Control buttons
-    builder.AddPushButton(IDC_CTX_ADD_COMMAND, L"Add Command",
-        kMargin, y, 90, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_ADD_SUBMENU, L"Add Submenu",
-        kMargin + 100, y, 90, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_ADD_SEPARATOR, L"Add Separator",
-        kMargin + 200, y, 90, kButtonHeight);
-    y += kButtonHeight + 6;
-
+    // Left panel: Buttons below tree
+    int btnY = treeTop + 344;
+    constexpr int btnW2 = 74;
+    builder.AddPushButton(IDC_CTX_ADD_COMMAND, L"+ Command",
+        treeLeft, btnY, btnW2, kButtonHeight);
+    builder.AddPushButton(IDC_CTX_ADD_SUBMENU, L"+ Submenu",
+        treeLeft + btnW2 + 3, btnY, btnW2, kButtonHeight);
+    btnY += kButtonHeight + 3;
+    builder.AddPushButton(IDC_CTX_ADD_SEPARATOR, L"+ Separator",
+        treeLeft, btnY, btnW2, kButtonHeight);
     builder.AddPushButton(IDC_CTX_REMOVE, L"Remove",
-        kMargin, y, 90, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_MOVE_UP, L"Move Up",
-        kMargin + 100, y, 90, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_MOVE_DOWN, L"Move Down",
-        kMargin + 200, y, 90, kButtonHeight);
+        treeLeft + btnW2 + 3, btnY, btnW2, kButtonHeight);
+    btnY += kButtonHeight + 3;
+    builder.AddPushButton(IDC_CTX_MOVE_UP, L"Up",
+        treeLeft, btnY, 50, kButtonHeight);
+    builder.AddPushButton(IDC_CTX_MOVE_DOWN, L"Down",
+        treeLeft + 53, btnY, 50, kButtonHeight);
+    builder.AddPushButton(IDC_CTX_INDENT, L">",
+        treeLeft + 106, btnY, 22, kButtonHeight);
+    builder.AddPushButton(IDC_CTX_OUTDENT, L"<",
+        treeLeft + 130, btnY, 22, kButtonHeight);
+
+    // Right panel: Properties (scrollable child window created at runtime)
+    // We create a static frame as the host; actual controls are created dynamically
+    builder.AddStatic(IDC_CTX_PROPS_PANEL, L"",
+        propLeft, treeTop, propWidth, 420,
+        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_CLIPCHILDREN);
 
     return builder.Build();
 }
 
-// Helper: Store ContextMenuItem pointer in tree item's LPARAM
-void PopulateContextMenuTree(HWND tree, const std::vector<ContextMenuItem>& items, HTREEITEM parent = TVI_ROOT) {
+// ---------------------------------------------------------------------------
+// Context Menu tree path resolution — resolves HTREEITEM to a
+// ContextMenuItem* by walking the tree parent chain to build an index path,
+// then indexing into the nested workingOptions.contextMenuItems vectors.
+// ---------------------------------------------------------------------------
+
+// Build the index path from root to the given tree item
+static bool BuildTreeIndexPath(HWND tree, HTREEITEM hItem, std::vector<size_t>& path) {
+    path.clear();
+    // Walk up to root, collecting indices
+    std::vector<size_t> reversePath;
+    HTREEITEM cur = hItem;
+    while (cur) {
+        TVITEMW tv{};
+        tv.hItem = cur;
+        tv.mask = TVIF_PARAM;
+        if (!TreeView_GetItem(tree, &tv)) return false;
+        reversePath.push_back(static_cast<size_t>(tv.lParam));
+        cur = TreeView_GetParent(tree, cur);
+    }
+    // Reverse so index[0] is the top-level index
+    path.assign(reversePath.rbegin(), reversePath.rend());
+    return !path.empty();
+}
+
+// Resolve a tree item to a ContextMenuItem pointer using the index path
+static ContextMenuItem* ResolveTreeItem(HWND tree, HTREEITEM hItem,
+                                        std::vector<ContextMenuItem>& items) {
+    std::vector<size_t> path;
+    if (!BuildTreeIndexPath(tree, hItem, path)) return nullptr;
+
+    std::vector<ContextMenuItem>* vec = &items;
+    ContextMenuItem* result = nullptr;
+    for (size_t idx : path) {
+        if (idx >= vec->size()) return nullptr;
+        result = &(*vec)[idx];
+        vec = &result->children;
+    }
+    return result;
+}
+
+// Resolve the parent vector and index for a tree item (for remove/move ops)
+static bool ResolveTreeItemParent(HWND tree, HTREEITEM hItem,
+                                  std::vector<ContextMenuItem>& items,
+                                  std::vector<ContextMenuItem>** parentVec,
+                                  size_t* index) {
+    std::vector<size_t> path;
+    if (!BuildTreeIndexPath(tree, hItem, path)) return false;
+
+    std::vector<ContextMenuItem>* vec = &items;
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        if (path[i] >= vec->size()) return false;
+        vec = &(*vec)[path[i]].children;
+    }
+    if (path.back() >= vec->size()) return false;
+    *parentVec = vec;
+    *index = path.back();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Context Menu tree population
+// ---------------------------------------------------------------------------
+
+void PopulateContextMenuTree(HWND tree, const std::vector<ContextMenuItem>& items,
+                             HTREEITEM parent = TVI_ROOT) {
     for (size_t i = 0; i < items.size(); ++i) {
         const auto& item = items[i];
-
         TVINSERTSTRUCTW insert{};
         insert.hParent = parent;
         insert.hInsertAfter = TVI_LAST;
@@ -2077,38 +2171,37 @@ void PopulateContextMenuTree(HWND tree, const std::vector<ContextMenuItem>& item
 
         std::wstring displayText;
         if (item.type == ContextMenuItemType::kSeparator) {
-            displayText = L"─────────────";
+            displayText = L"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500";
+        } else if (item.type == ContextMenuItemType::kSubmenu) {
+            displayText = L"\u25B6 " + (item.label.empty() ? L"(Submenu)" : item.label);
         } else {
             displayText = item.label.empty() ? L"(Unnamed)" : item.label;
         }
+        if (!item.enabled) displayText += L" [disabled]";
 
         insert.item.pszText = const_cast<wchar_t*>(displayText.c_str());
-        // Store index in LPARAM for retrieval
         insert.item.lParam = static_cast<LPARAM>(i);
-
         HTREEITEM hItem = TreeView_InsertItem(tree, &insert);
 
-        // Recursively add children for submenus
         if (item.type == ContextMenuItemType::kSubmenu && !item.children.empty()) {
             PopulateContextMenuTree(tree, item.children, hItem);
+            TreeView_Expand(tree, hItem, TVE_EXPAND);
         }
     }
 }
 
 void RefreshContextMenuTree(HWND page, OptionsDialogData* data) {
     if (!data) return;
-
     HWND tree = GetDlgItem(page, IDC_CTX_TREE);
     if (!tree) return;
 
     TreeView_DeleteAllItems(tree);
-
     if (data->workingOptions.contextMenuItems.empty()) {
         TVINSERTSTRUCTW insert{};
         insert.hParent = TVI_ROOT;
         insert.hInsertAfter = TVI_LAST;
         insert.item.mask = TVIF_TEXT;
-        std::wstring text = L"(No custom menu items - use buttons below to add)";
+        std::wstring text = L"(No items)";
         insert.item.pszText = text.data();
         TreeView_InsertItem(tree, &insert);
     } else {
@@ -2116,44 +2209,548 @@ void RefreshContextMenuTree(HWND page, OptionsDialogData* data) {
     }
 }
 
-void InitContextMenusPage(HWND page, OptionsDialogData* data) {
-    if (!data) return;
+// ---------------------------------------------------------------------------
+// Properties panel — dynamically created child controls hosted in a
+// scrollable child window.  We use raw CreateWindowExW for the panel
+// controls rather than a dialog template so we can scroll them.
+// ---------------------------------------------------------------------------
 
-    HWND combo = GetDlgItem(page, IDC_CTX_TEMPLATE);
-    if (combo) {
-        ComboBox_AddString(combo, L"Empty");
-        ComboBox_AddString(combo, L"Command Prompt Here");
-        ComboBox_AddString(combo, L"PowerShell Here");
-        ComboBox_AddString(combo, L"Open with VS Code");
-        ComboBox_SetCurSel(combo, 0);
+struct CtxPropsPanel {
+    HWND host = nullptr;       // The scrollable child
+    HWND parent = nullptr;     // The property sheet page
+    int contentHeight = 0;
+    int scrollY = 0;
+    bool suppressNotify = false; // Prevents feedback loop when loading item
+
+    // Control HWNDs inside the panel
+    HWND lblLabel = nullptr, edLabel = nullptr;
+    HWND lblIcon = nullptr, edIcon = nullptr, btnIconBrowse = nullptr;
+    HWND lblExe = nullptr, edExe = nullptr, btnExeBrowse = nullptr;
+    HWND lblArgs = nullptr, edArgs = nullptr;
+    HWND lblWorkDir = nullptr, edWorkDir = nullptr, btnWorkDirBrowse = nullptr;
+    HWND cbWindowState = nullptr;
+    HWND chkAdmin = nullptr, chkWait = nullptr, chkEnabled = nullptr, chkExpandEnv = nullptr;
+    HWND lblMinSel = nullptr, edMinSel = nullptr;
+    HWND lblMaxSel = nullptr, edMaxSel = nullptr;
+    HWND chkFiles = nullptr, chkFolders = nullptr, chkMultiple = nullptr;
+    HWND lblPatterns = nullptr, edPatterns = nullptr;
+    HWND lblExclude = nullptr, edExclude = nullptr;
+    HWND cbAnchor = nullptr;
+    HWND lblFolderFilters = nullptr, edFolderFilters = nullptr;
+    HWND chkConfirm = nullptr;
+    HWND lblConfirmMsg = nullptr, edConfirmMsg = nullptr;
+    HWND lblAddlCmds = nullptr, lbAddlCmds = nullptr;
+    HWND btnAddlAdd = nullptr, btnAddlRemove = nullptr;
+};
+
+static CtxPropsPanel* s_ctxProps = nullptr;
+
+static LRESULT CALLBACK CtxPropsPanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* props = reinterpret_cast<CtxPropsPanel*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+
+    switch (msg) {
+    case WM_MOUSEWHEEL: {
+        if (!props) break;
+        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        int step = 30;
+        props->scrollY -= (delta > 0) ? step : -step;
+        // Clamp
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        int maxScroll = props->contentHeight - (rc.bottom - rc.top);
+        if (maxScroll < 0) maxScroll = 0;
+        if (props->scrollY < 0) props->scrollY = 0;
+        if (props->scrollY > maxScroll) props->scrollY = maxScroll;
+        SetScrollPos(hwnd, SB_VERT, props->scrollY, TRUE);
+        ScrollWindowEx(hwnd, 0, 0, nullptr, nullptr, nullptr, nullptr,
+                       SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+        // Reposition all children
+        HDWP dwp = BeginDeferWindowPos(40);
+        HWND child = GetWindow(hwnd, GW_CHILD);
+        while (child) {
+            RECT cr;
+            GetWindowRect(child, &cr);
+            MapWindowPoints(HWND_DESKTOP, hwnd, reinterpret_cast<POINT*>(&cr), 2);
+            // We stored original Y in the child's ID user data — we'll just
+            // invalidate and rely on WM_PAINT. For simplicity, use
+            // ScrollWindow approach instead.
+            child = GetWindow(child, GW_HWNDNEXT);
+        }
+        if (dwp) EndDeferWindowPos(dwp);
+        InvalidateRect(hwnd, nullptr, TRUE);
+        return 0;
     }
-
-    // Initialize window state combo
-    HWND windowStateCombo = GetDlgItem(page, IDC_CTX_WINDOW_STATE);
-    if (windowStateCombo) {
-        ComboBox_AddString(windowStateCombo, L"Normal");
-        ComboBox_AddString(windowStateCombo, L"Minimized");
-        ComboBox_AddString(windowStateCombo, L"Maximized");
-        ComboBox_AddString(windowStateCombo, L"Hidden");
-        ComboBox_SetCurSel(windowStateCombo, 0);
+    case WM_VSCROLL: {
+        if (!props) break;
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        int maxScroll = props->contentHeight - (rc.bottom - rc.top);
+        if (maxScroll < 0) maxScroll = 0;
+        int oldY = props->scrollY;
+        switch (LOWORD(wParam)) {
+        case SB_LINEUP: props->scrollY -= 20; break;
+        case SB_LINEDOWN: props->scrollY += 20; break;
+        case SB_PAGEUP: props->scrollY -= (rc.bottom - rc.top); break;
+        case SB_PAGEDOWN: props->scrollY += (rc.bottom - rc.top); break;
+        case SB_THUMBTRACK:
+        case SB_THUMBPOSITION: props->scrollY = HIWORD(wParam); break;
+        }
+        if (props->scrollY < 0) props->scrollY = 0;
+        if (props->scrollY > maxScroll) props->scrollY = maxScroll;
+        if (props->scrollY != oldY) {
+            SetScrollPos(hwnd, SB_VERT, props->scrollY, TRUE);
+            ScrollWindowEx(hwnd, 0, -(props->scrollY - oldY), nullptr, nullptr,
+                           nullptr, nullptr, SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+        }
+        return 0;
     }
-
-    // Initialize anchor combo
-    HWND anchorCombo = GetDlgItem(page, IDC_CTX_ANCHOR);
-    if (anchorCombo) {
-        ComboBox_AddString(anchorCombo, L"Default");
-        ComboBox_AddString(anchorCombo, L"Top");
-        ComboBox_AddString(anchorCombo, L"Bottom");
-        ComboBox_AddString(anchorCombo, L"Before Shell Items");
-        ComboBox_AddString(anchorCombo, L"After Shell Items");
-        ComboBox_SetCurSel(anchorCombo, 0);
+    case WM_COMMAND: {
+        // Forward WM_COMMAND to the property sheet page so ContextMenusPageProc handles it
+        if (props && props->parent) {
+            SendMessageW(props->parent, msg, wParam, lParam);
+        }
+        return 0;
     }
-
-    RefreshContextMenuTree(page, data);
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-// Helper to create template menu items
-ContextMenuItem CreateCommandPromptMenuItem() {
+// DLU to pixel helpers (approximate for 9pt Segoe UI)
+static int DluToPixelX(int dlu, HWND hwnd) {
+    RECT r = {0, 0, dlu, 0};
+    MapDialogRect(GetParent(hwnd) ? GetParent(hwnd) : hwnd, &r);
+    return r.right;
+}
+static int DluToPixelY(int dlu, HWND hwnd) {
+    RECT r = {0, 0, 0, dlu};
+    MapDialogRect(GetParent(hwnd) ? GetParent(hwnd) : hwnd, &r);
+    return r.bottom;
+}
+
+static HWND CreateLabel(HWND parent, const wchar_t* text, int x, int y, int w, int h) {
+    return CreateWindowExW(0, L"STATIC", text,
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        x, y, w, h, parent, nullptr,
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static HWND CreateEditCtrl(HWND parent, int id, int x, int y, int w, int h,
+                           DWORD extraStyle = 0) {
+    return CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_LEFT | ES_AUTOHSCROLL | extraStyle,
+        x, y, w, h, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static HWND CreateCheckCtrl(HWND parent, int id, const wchar_t* text, int x, int y, int w, int h) {
+    return CreateWindowExW(0, L"BUTTON", text,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        x, y, w, h, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static HWND CreateBtnCtrl(HWND parent, int id, const wchar_t* text, int x, int y, int w, int h) {
+    return CreateWindowExW(0, L"BUTTON", text,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        x, y, w, h, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static HWND CreateComboCtrl(HWND parent, int id, int x, int y, int w, int dropH) {
+    return CreateWindowExW(0, L"COMBOBOX", L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+        x, y, w, dropH, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static HWND CreateListBoxCtrl(HWND parent, int id, int x, int y, int w, int h) {
+    return CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY,
+        x, y, w, h, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static HWND CreateGroupCtrl(HWND parent, const wchar_t* text, int x, int y, int w, int h) {
+    return CreateWindowExW(0, L"BUTTON", text,
+        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+        x, y, w, h, parent, nullptr,
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
+}
+
+static void SetCtrlFont(HWND ctrl, HWND page) {
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(page, WM_GETFONT, 0, 0));
+    if (font) SendMessageW(ctrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
+}
+
+static void SetAllChildFonts(HWND parent, HWND page) {
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(page, WM_GETFONT, 0, 0));
+    if (!font) return;
+    HWND child = GetWindow(parent, GW_CHILD);
+    while (child) {
+        SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
+        child = GetWindow(child, GW_HWNDNEXT);
+    }
+}
+
+static void CreatePropertiesPanel(HWND page) {
+    HWND hostFrame = GetDlgItem(page, IDC_CTX_PROPS_PANEL);
+    if (!hostFrame) return;
+
+    RECT hostRect;
+    GetClientRect(hostFrame, &hostRect);
+    int panelW = hostRect.right - hostRect.left;
+
+    // Register the scrollable panel class if not yet done
+    static ATOM sPanelClass = 0;
+    if (!sPanelClass) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = CtxPropsPanelProc;
+        wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(page, GWLP_HINSTANCE));
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"ShellTabsCtxPropsPanel";
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        sPanelClass = RegisterClassExW(&wc);
+    }
+
+    // Create scrollable child inside the static frame
+    HWND panel = CreateWindowExW(0, L"ShellTabsCtxPropsPanel", L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN,
+        0, 0, hostRect.right, hostRect.bottom,
+        hostFrame, nullptr,
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(page, GWLP_HINSTANCE)), nullptr);
+
+    auto* props = new CtxPropsPanel();
+    props->host = panel;
+    props->parent = page;
+    SetWindowLongPtrW(panel, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(props));
+    s_ctxProps = props;
+
+    // Layout constants (pixels)
+    const int pad = 6;
+    const int lblH = 14;
+    const int edH = 18;
+    const int chkH = 16;
+    const int lblW = 60;
+    const int fullW = panelW - 2 * pad;
+    const int edtLeft = pad + lblW + 2;
+    const int edtW = fullW - lblW - 2;
+    const int browseW = 28;
+    const int edtWBrowse = edtW - browseW - 2;
+
+    int y = pad;
+
+    // --- Command section ---
+    CreateGroupCtrl(panel, L"Command", pad - 2, y, fullW + 4, 7 * (edH + 4) + lblH + 8);
+    y += lblH + 2;
+
+    props->lblLabel = CreateLabel(panel, L"Label:", pad + 4, y + 2, lblW, lblH);
+    props->edLabel = CreateEditCtrl(panel, IDC_CTX_LABEL, edtLeft, y, edtW, edH);
+    y += edH + 4;
+
+    props->lblIcon = CreateLabel(panel, L"Icon:", pad + 4, y + 2, lblW, lblH);
+    props->edIcon = CreateEditCtrl(panel, IDC_CTX_ICON, edtLeft, y, edtWBrowse, edH);
+    props->btnIconBrowse = CreateBtnCtrl(panel, IDC_CTX_ICON_BROWSE, L"...",
+        edtLeft + edtWBrowse + 2, y, browseW, edH);
+    y += edH + 4;
+
+    props->lblExe = CreateLabel(panel, L"Executable:", pad + 4, y + 2, lblW, lblH);
+    props->edExe = CreateEditCtrl(panel, IDC_CTX_COMMAND, edtLeft, y, edtWBrowse, edH);
+    props->btnExeBrowse = CreateBtnCtrl(panel, IDC_CTX_COMMAND_BROWSE, L"...",
+        edtLeft + edtWBrowse + 2, y, browseW, edH);
+    y += edH + 4;
+
+    props->lblArgs = CreateLabel(panel, L"Arguments:", pad + 4, y + 2, lblW, lblH);
+    props->edArgs = CreateEditCtrl(panel, IDC_CTX_ARGS, edtLeft, y, edtW, edH);
+    y += edH + 4;
+
+    props->lblWorkDir = CreateLabel(panel, L"Work Dir:", pad + 4, y + 2, lblW, lblH);
+    props->edWorkDir = CreateEditCtrl(panel, IDC_CTX_WORKDIR, edtLeft, y, edtWBrowse, edH);
+    props->btnWorkDirBrowse = CreateBtnCtrl(panel, IDC_CTX_WORKDIR_BROWSE, L"...",
+        edtLeft + edtWBrowse + 2, y, browseW, edH);
+    y += edH + 4;
+
+    CreateLabel(panel, L"Window:", pad + 4, y + 2, lblW, lblH);
+    props->cbWindowState = CreateComboCtrl(panel, IDC_CTX_WINDOW_STATE,
+        edtLeft, y, edtW, 120);
+    ComboBox_AddString(props->cbWindowState, L"Normal");
+    ComboBox_AddString(props->cbWindowState, L"Minimized");
+    ComboBox_AddString(props->cbWindowState, L"Maximized");
+    ComboBox_AddString(props->cbWindowState, L"Hidden");
+    y += edH + 4;
+
+    CreateLabel(panel, L"Anchor:", pad + 4, y + 2, lblW, lblH);
+    props->cbAnchor = CreateComboCtrl(panel, IDC_CTX_ANCHOR, edtLeft, y, edtW, 120);
+    ComboBox_AddString(props->cbAnchor, L"Default");
+    ComboBox_AddString(props->cbAnchor, L"Top");
+    ComboBox_AddString(props->cbAnchor, L"Bottom");
+    ComboBox_AddString(props->cbAnchor, L"Before Shell Items");
+    ComboBox_AddString(props->cbAnchor, L"After Shell Items");
+    y += edH + 8;
+
+    // --- Behavior section ---
+    CreateGroupCtrl(panel, L"Behavior", pad - 2, y, fullW + 4, 4 * (chkH + 4) + lblH + 4);
+    y += lblH + 2;
+
+    props->chkEnabled = CreateCheckCtrl(panel, IDC_CTX_ENABLED, L"Enabled", pad + 4, y, fullW - 8, chkH);
+    y += chkH + 4;
+    props->chkAdmin = CreateCheckCtrl(panel, IDC_CTX_RUN_ADMIN, L"Run as administrator", pad + 4, y, fullW - 8, chkH);
+    y += chkH + 4;
+    props->chkWait = CreateCheckCtrl(panel, IDC_CTX_WAIT, L"Wait for completion", pad + 4, y, fullW - 8, chkH);
+    y += chkH + 4;
+    props->chkExpandEnv = CreateCheckCtrl(panel, IDC_CTX_EXPAND_ENV, L"Expand environment variables", pad + 4, y, fullW - 8, chkH);
+    y += chkH + 8;
+
+    // --- Visibility section ---
+    CreateGroupCtrl(panel, L"Visibility", pad - 2, y, fullW + 4, 7 * (edH + 4) + lblH + 4);
+    y += lblH + 2;
+
+    props->lblMinSel = CreateLabel(panel, L"Min sel:", pad + 4, y + 2, lblW, lblH);
+    props->edMinSel = CreateEditCtrl(panel, IDC_CTX_MIN_SEL, edtLeft, y, 40, edH, ES_NUMBER);
+    CreateLabel(panel, L"Max:", edtLeft + 45, y + 2, 30, lblH);
+    props->edMaxSel = CreateEditCtrl(panel, IDC_CTX_MAX_SEL, edtLeft + 75, y, 40, edH, ES_NUMBER);
+    y += edH + 4;
+
+    props->chkFiles = CreateCheckCtrl(panel, IDC_CTX_FILES, L"Files", pad + 4, y, 50, chkH);
+    props->chkFolders = CreateCheckCtrl(panel, IDC_CTX_FOLDERS, L"Folders", pad + 58, y, 55, chkH);
+    props->chkMultiple = CreateCheckCtrl(panel, IDC_CTX_MULTIPLE, L"Multiple", pad + 117, y, 60, chkH);
+    y += chkH + 4;
+
+    props->lblPatterns = CreateLabel(panel, L"Patterns:", pad + 4, y + 2, lblW, lblH);
+    props->edPatterns = CreateEditCtrl(panel, IDC_CTX_PATTERNS, edtLeft, y, edtW, edH);
+    y += edH + 4;
+
+    props->lblExclude = CreateLabel(panel, L"Exclude:", pad + 4, y + 2, lblW, lblH);
+    props->edExclude = CreateEditCtrl(panel, IDC_CTX_EXCLUDE, edtLeft, y, edtW, edH);
+    y += edH + 8;
+
+    // --- Advanced section ---
+    CreateGroupCtrl(panel, L"Advanced", pad - 2, y, fullW + 4, 5 * (edH + 4) + 60 + lblH + 8);
+    y += lblH + 2;
+
+    props->lblFolderFilters = CreateLabel(panel, L"Folder filters:", pad + 4, y + 2, lblW, lblH);
+    props->edFolderFilters = CreateEditCtrl(panel, IDC_CTX_FOLDER_FILTERS, edtLeft, y, edtW, edH);
+    y += edH + 4;
+
+    props->chkConfirm = CreateCheckCtrl(panel, IDC_CTX_CONFIRM, L"Confirm before execute", pad + 4, y, fullW - 8, chkH);
+    y += chkH + 4;
+
+    props->lblConfirmMsg = CreateLabel(panel, L"Message:", pad + 4, y + 2, lblW, lblH);
+    props->edConfirmMsg = CreateEditCtrl(panel, IDC_CTX_CONFIRM_MSG, edtLeft, y, edtW, edH);
+    y += edH + 4;
+
+    props->lblAddlCmds = CreateLabel(panel, L"Additional commands:", pad + 4, y + 2, fullW - 8, lblH);
+    y += lblH + 2;
+    props->lbAddlCmds = CreateListBoxCtrl(panel, IDC_CTX_ADDL_CMDS, pad + 4, y, fullW - 8 - browseW - 4, 50);
+    props->btnAddlAdd = CreateBtnCtrl(panel, IDC_CTX_ADDL_ADD, L"+",
+        fullW - browseW, y, browseW, 20);
+    props->btnAddlRemove = CreateBtnCtrl(panel, IDC_CTX_ADDL_REMOVE, L"-",
+        fullW - browseW, y + 24, browseW, 20);
+    y += 50 + 8;
+
+    props->contentHeight = y + pad;
+
+    // Set fonts for all children
+    SetAllChildFonts(panel, page);
+
+    // Set up scrollbar
+    SCROLLINFO si{};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin = 0;
+    si.nMax = props->contentHeight;
+    si.nPage = static_cast<UINT>(hostRect.bottom - hostRect.top);
+    si.nPos = 0;
+    SetScrollInfo(panel, SB_VERT, &si, TRUE);
+
+    // Initially disable all property controls until an item is selected
+    EnableWindow(panel, FALSE);
+}
+
+// ---------------------------------------------------------------------------
+// Load/Save selected item properties to/from the panel controls
+// ---------------------------------------------------------------------------
+
+static std::wstring JoinStrings(const std::vector<std::wstring>& v, const wchar_t* sep) {
+    std::wstring result;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (i > 0) result += sep;
+        result += v[i];
+    }
+    return result;
+}
+
+static std::vector<std::wstring> SplitString(const std::wstring& s, wchar_t sep) {
+    std::vector<std::wstring> result;
+    size_t start = 0;
+    for (size_t i = 0; i <= s.size(); ++i) {
+        if (i == s.size() || s[i] == sep) {
+            std::wstring token = s.substr(start, i - start);
+            // Trim whitespace
+            size_t first = token.find_first_not_of(L" \t");
+            if (first != std::wstring::npos) {
+                size_t last = token.find_last_not_of(L" \t");
+                token = token.substr(first, last - first + 1);
+            } else {
+                token.clear();
+            }
+            if (!token.empty()) result.push_back(token);
+            start = i + 1;
+        }
+    }
+    return result;
+}
+
+static std::wstring GetEditText(HWND edit) {
+    int len = GetWindowTextLengthW(edit);
+    if (len <= 0) return {};
+    std::wstring buf(static_cast<size_t>(len) + 1, L'\0');
+    GetWindowTextW(edit, buf.data(), len + 1);
+    buf.resize(static_cast<size_t>(len));
+    return buf;
+}
+
+static void LoadItemToPanel(ContextMenuItem* item) {
+    if (!s_ctxProps) return;
+    auto* p = s_ctxProps;
+    p->suppressNotify = true;
+
+    // Enable the panel
+    EnableWindow(p->host, TRUE);
+
+    bool isCommand = item && item->type == ContextMenuItemType::kCommand;
+    bool isSeparator = item && item->type == ContextMenuItemType::kSeparator;
+
+    // Command section — hide for separators
+    auto showCmd = isCommand ? SW_SHOW : SW_HIDE;
+    auto enableCmd = [&](HWND h) { if (h) { ShowWindow(h, isSeparator ? SW_HIDE : SW_SHOW); EnableWindow(h, isCommand); } };
+    enableCmd(p->edExe); enableCmd(p->btnExeBrowse); enableCmd(p->lblExe);
+    enableCmd(p->edArgs); enableCmd(p->lblArgs);
+    enableCmd(p->edWorkDir); enableCmd(p->btnWorkDirBrowse); enableCmd(p->lblWorkDir);
+    if (p->cbWindowState) { ShowWindow(p->cbWindowState, isSeparator ? SW_HIDE : showCmd); EnableWindow(p->cbWindowState, isCommand); }
+
+    // Label/Icon always visible (except separator)
+    if (p->edLabel) { ShowWindow(p->edLabel, isSeparator ? SW_HIDE : SW_SHOW); }
+    if (p->lblLabel) ShowWindow(p->lblLabel, isSeparator ? SW_HIDE : SW_SHOW);
+    if (p->edIcon) { ShowWindow(p->edIcon, isSeparator ? SW_HIDE : SW_SHOW); }
+    if (p->lblIcon) ShowWindow(p->lblIcon, isSeparator ? SW_HIDE : SW_SHOW);
+    if (p->btnIconBrowse) ShowWindow(p->btnIconBrowse, isSeparator ? SW_HIDE : SW_SHOW);
+
+    if (!item) {
+        // Clear all fields
+        SetWindowTextW(p->edLabel, L"");
+        SetWindowTextW(p->edIcon, L"");
+        SetWindowTextW(p->edExe, L"");
+        SetWindowTextW(p->edArgs, L"");
+        SetWindowTextW(p->edWorkDir, L"");
+        ComboBox_SetCurSel(p->cbWindowState, 0);
+        ComboBox_SetCurSel(p->cbAnchor, 0);
+        Button_SetCheck(p->chkEnabled, BST_UNCHECKED);
+        Button_SetCheck(p->chkAdmin, BST_UNCHECKED);
+        Button_SetCheck(p->chkWait, BST_UNCHECKED);
+        Button_SetCheck(p->chkExpandEnv, BST_CHECKED);
+        SetWindowTextW(p->edMinSel, L"0");
+        SetWindowTextW(p->edMaxSel, L"0");
+        Button_SetCheck(p->chkFiles, BST_CHECKED);
+        Button_SetCheck(p->chkFolders, BST_CHECKED);
+        Button_SetCheck(p->chkMultiple, BST_CHECKED);
+        SetWindowTextW(p->edPatterns, L"");
+        SetWindowTextW(p->edExclude, L"");
+        SetWindowTextW(p->edFolderFilters, L"");
+        Button_SetCheck(p->chkConfirm, BST_UNCHECKED);
+        SetWindowTextW(p->edConfirmMsg, L"");
+        SendMessageW(p->lbAddlCmds, LB_RESETCONTENT, 0, 0);
+        EnableWindow(p->host, FALSE);
+        p->suppressNotify = false;
+        return;
+    }
+
+    // Populate fields
+    SetWindowTextW(p->edLabel, item->label.c_str());
+    SetWindowTextW(p->edIcon, item->iconSource.c_str());
+    SetWindowTextW(p->edExe, item->executable.c_str());
+    SetWindowTextW(p->edArgs, item->arguments.c_str());
+    SetWindowTextW(p->edWorkDir, item->workingDirectory.c_str());
+    ComboBox_SetCurSel(p->cbWindowState, static_cast<int>(item->windowState));
+    ComboBox_SetCurSel(p->cbAnchor, static_cast<int>(item->anchor));
+
+    Button_SetCheck(p->chkEnabled, item->enabled ? BST_CHECKED : BST_UNCHECKED);
+    Button_SetCheck(p->chkAdmin, item->runAsAdmin ? BST_CHECKED : BST_UNCHECKED);
+    Button_SetCheck(p->chkWait, item->waitForCompletion ? BST_CHECKED : BST_UNCHECKED);
+    Button_SetCheck(p->chkExpandEnv, item->expandEnvironmentVars ? BST_CHECKED : BST_UNCHECKED);
+
+    SetWindowTextW(p->edMinSel, std::to_wstring(item->visibility.minimumSelection).c_str());
+    SetWindowTextW(p->edMaxSel, std::to_wstring(item->visibility.maximumSelection).c_str());
+    Button_SetCheck(p->chkFiles, item->visibility.showForFiles ? BST_CHECKED : BST_UNCHECKED);
+    Button_SetCheck(p->chkFolders, item->visibility.showForFolders ? BST_CHECKED : BST_UNCHECKED);
+    Button_SetCheck(p->chkMultiple, item->visibility.showForMultiple ? BST_CHECKED : BST_UNCHECKED);
+    SetWindowTextW(p->edPatterns, JoinStrings(item->visibility.filePatterns, L"; ").c_str());
+    SetWindowTextW(p->edExclude, JoinStrings(item->visibility.excludePatterns, L"; ").c_str());
+
+    SetWindowTextW(p->edFolderFilters, JoinStrings(item->folderPathFilters, L"; ").c_str());
+    Button_SetCheck(p->chkConfirm, item->confirmBeforeExecute ? BST_CHECKED : BST_UNCHECKED);
+    SetWindowTextW(p->edConfirmMsg, item->confirmMessage.c_str());
+
+    SendMessageW(p->lbAddlCmds, LB_RESETCONTENT, 0, 0);
+    for (const auto& cmd : item->additionalCommands) {
+        SendMessageW(p->lbAddlCmds, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(cmd.c_str()));
+    }
+
+    p->suppressNotify = false;
+}
+
+static void SavePanelToItem(ContextMenuItem* item) {
+    if (!s_ctxProps || !item) return;
+    auto* p = s_ctxProps;
+
+    item->label = GetEditText(p->edLabel);
+    item->iconSource = GetEditText(p->edIcon);
+    item->executable = GetEditText(p->edExe);
+    item->arguments = GetEditText(p->edArgs);
+    item->workingDirectory = GetEditText(p->edWorkDir);
+
+    int wndSel = ComboBox_GetCurSel(p->cbWindowState);
+    if (wndSel >= 0) item->windowState = static_cast<ContextMenuWindowState>(wndSel);
+    int ancSel = ComboBox_GetCurSel(p->cbAnchor);
+    if (ancSel >= 0) item->anchor = static_cast<ContextMenuInsertionAnchor>(ancSel);
+
+    item->enabled = Button_GetCheck(p->chkEnabled) == BST_CHECKED;
+    item->runAsAdmin = Button_GetCheck(p->chkAdmin) == BST_CHECKED;
+    item->waitForCompletion = Button_GetCheck(p->chkWait) == BST_CHECKED;
+    item->expandEnvironmentVars = Button_GetCheck(p->chkExpandEnv) == BST_CHECKED;
+
+    item->visibility.minimumSelection = _wtoi(GetEditText(p->edMinSel).c_str());
+    item->visibility.maximumSelection = _wtoi(GetEditText(p->edMaxSel).c_str());
+    item->visibility.showForFiles = Button_GetCheck(p->chkFiles) == BST_CHECKED;
+    item->visibility.showForFolders = Button_GetCheck(p->chkFolders) == BST_CHECKED;
+    item->visibility.showForMultiple = Button_GetCheck(p->chkMultiple) == BST_CHECKED;
+    item->visibility.filePatterns = SplitString(GetEditText(p->edPatterns), L';');
+    item->visibility.excludePatterns = SplitString(GetEditText(p->edExclude), L';');
+
+    item->folderPathFilters = SplitString(GetEditText(p->edFolderFilters), L';');
+    item->confirmBeforeExecute = Button_GetCheck(p->chkConfirm) == BST_CHECKED;
+    item->confirmMessage = GetEditText(p->edConfirmMsg);
+
+    // Read additional commands from listbox
+    item->additionalCommands.clear();
+    int count = static_cast<int>(SendMessageW(p->lbAddlCmds, LB_GETCOUNT, 0, 0));
+    for (int i = 0; i < count; ++i) {
+        int len = static_cast<int>(SendMessageW(p->lbAddlCmds, LB_GETTEXTLEN, i, 0));
+        if (len > 0) {
+            std::wstring buf(static_cast<size_t>(len) + 1, L'\0');
+            SendMessageW(p->lbAddlCmds, LB_GETTEXT, i, reinterpret_cast<LPARAM>(buf.data()));
+            buf.resize(static_cast<size_t>(len));
+            item->additionalCommands.push_back(buf);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Template menu item creators
+// ---------------------------------------------------------------------------
+
+static ContextMenuItem CreateCommandPromptMenuItem() {
     ContextMenuItem item{};
     item.type = ContextMenuItemType::kCommand;
     item.label = L"Command Prompt Here";
@@ -2171,7 +2768,7 @@ ContextMenuItem CreateCommandPromptMenuItem() {
     return item;
 }
 
-ContextMenuItem CreatePowerShellMenuItem() {
+static ContextMenuItem CreatePowerShellMenuItem() {
     ContextMenuItem item{};
     item.type = ContextMenuItemType::kCommand;
     item.label = L"PowerShell Here";
@@ -2189,7 +2786,7 @@ ContextMenuItem CreatePowerShellMenuItem() {
     return item;
 }
 
-ContextMenuItem CreateVSCodeMenuItem() {
+static ContextMenuItem CreateVSCodeMenuItem() {
     ContextMenuItem item{};
     item.type = ContextMenuItemType::kCommand;
     item.label = L"Open with VS Code";
@@ -2207,6 +2804,30 @@ ContextMenuItem CreateVSCodeMenuItem() {
     return item;
 }
 
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+static void InitContextMenusPage(HWND page, OptionsDialogData* data) {
+    if (!data) return;
+
+    HWND combo = GetDlgItem(page, IDC_CTX_TEMPLATE);
+    if (combo) {
+        ComboBox_AddString(combo, L"(Select template)");
+        ComboBox_AddString(combo, L"Command Prompt Here");
+        ComboBox_AddString(combo, L"PowerShell Here");
+        ComboBox_AddString(combo, L"Open with VS Code");
+        ComboBox_SetCurSel(combo, 0);
+    }
+
+    CreatePropertiesPanel(page);
+    RefreshContextMenuTree(page, data);
+}
+
+// ---------------------------------------------------------------------------
+// ContextMenusPageProc
+// ---------------------------------------------------------------------------
+
 INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
 
@@ -2221,178 +2842,360 @@ INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM
     data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
 
     switch (msg) {
-        case WM_COMMAND: {
-            if (!data) break;
+    case WM_COMMAND: {
+        if (!data) break;
 
-            const UINT id = LOWORD(wParam);
-            const UINT code = HIWORD(wParam);
+        const UINT id = LOWORD(wParam);
+        const UINT code = HIWORD(wParam);
 
-            // Handle template selection
-            if (id == IDC_CTX_TEMPLATE && code == CBN_SELCHANGE) {
+        // --- Property changes from the right panel ---
+        // EN_CHANGE from edit controls
+        if (code == EN_CHANGE && s_ctxProps && !s_ctxProps->suppressNotify) {
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                auto* item = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+                if (item) {
+                    SavePanelToItem(item);
+                    // Update tree text if label changed
+                    if (id == IDC_CTX_LABEL) {
+                        std::wstring displayText = item->label.empty() ? L"(Unnamed)" : item->label;
+                        if (item->type == ContextMenuItemType::kSubmenu)
+                            displayText = L"\u25B6 " + displayText;
+                        if (!item->enabled) displayText += L" [disabled]";
+                        TVITEMW tv{};
+                        tv.hItem = sel;
+                        tv.mask = TVIF_TEXT;
+                        tv.pszText = const_cast<wchar_t*>(displayText.c_str());
+                        TreeView_SetItem(tree, &tv);
+                    }
+                    PropSheet_Changed(GetParent(page), page);
+                }
+            }
+            return TRUE;
+        }
+
+        // BN_CLICKED from checkboxes and buttons
+        if (code == BN_CLICKED) {
+            // Check if it's a property checkbox
+            if (id == IDC_CTX_ENABLED || id == IDC_CTX_RUN_ADMIN || id == IDC_CTX_WAIT ||
+                id == IDC_CTX_EXPAND_ENV || id == IDC_CTX_FILES || id == IDC_CTX_FOLDERS ||
+                id == IDC_CTX_MULTIPLE || id == IDC_CTX_CONFIRM) {
+                if (s_ctxProps && !s_ctxProps->suppressNotify) {
+                    HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                    HTREEITEM sel = TreeView_GetSelection(tree);
+                    if (sel) {
+                        auto* item = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+                        if (item) {
+                            SavePanelToItem(item);
+                            if (id == IDC_CTX_ENABLED) {
+                                // Refresh tree text for enabled/disabled indicator
+                                RefreshContextMenuTree(page, data);
+                            }
+                            PropSheet_Changed(GetParent(page), page);
+                        }
+                    }
+                }
+                return TRUE;
+            }
+
+            // Browse buttons
+            if (id == IDC_CTX_ICON_BROWSE || id == IDC_CTX_COMMAND_BROWSE || id == IDC_CTX_WORKDIR_BROWSE) {
+                if (id == IDC_CTX_WORKDIR_BROWSE) {
+                    // Folder browse
+                    BROWSEINFOW bi{};
+                    bi.hwndOwner = page;
+                    bi.lpszTitle = L"Select Working Directory";
+                    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+                    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+                    if (pidl) {
+                        wchar_t path[MAX_PATH];
+                        if (SHGetPathFromIDListW(pidl, path)) {
+                            SetWindowTextW(s_ctxProps->edWorkDir, path);
+                        }
+                        CoTaskMemFree(pidl);
+                    }
+                } else {
+                    // File browse
+                    OPENFILENAMEW ofn{};
+                    wchar_t filePath[MAX_PATH] = {};
+                    ofn.lStructSize = sizeof(ofn);
+                    ofn.hwndOwner = page;
+                    ofn.lpstrFilter = (id == IDC_CTX_ICON_BROWSE)
+                        ? L"Icon Files\0*.ico;*.exe;*.dll\0All Files\0*.*\0"
+                        : L"Executables\0*.exe;*.bat;*.cmd;*.ps1\0All Files\0*.*\0";
+                    ofn.lpstrFile = filePath;
+                    ofn.nMaxFile = MAX_PATH;
+                    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                    if (GetOpenFileNameW(&ofn)) {
+                        HWND target = (id == IDC_CTX_ICON_BROWSE) ? s_ctxProps->edIcon : s_ctxProps->edExe;
+                        SetWindowTextW(target, filePath);
+                    }
+                }
+                return TRUE;
+            }
+
+            // Additional commands add/remove
+            if (id == IDC_CTX_ADDL_ADD && s_ctxProps) {
+                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                HTREEITEM sel = TreeView_GetSelection(tree);
+                // Simple input: we'll reuse a small edit dialog approach
+                // For simplicity, just add a placeholder that the user edits in the listbox
+                SendMessageW(s_ctxProps->lbAddlCmds, LB_ADDSTRING, 0,
+                    reinterpret_cast<LPARAM>(L"command.exe /args"));
+                if (sel) {
+                    auto* item = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+                    if (item) {
+                        SavePanelToItem(item);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+                return TRUE;
+            }
+            if (id == IDC_CTX_ADDL_REMOVE && s_ctxProps) {
+                int curSel = static_cast<int>(SendMessageW(s_ctxProps->lbAddlCmds, LB_GETCURSEL, 0, 0));
+                if (curSel != LB_ERR) {
+                    SendMessageW(s_ctxProps->lbAddlCmds, LB_DELETESTRING, curSel, 0);
+                    HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                    HTREEITEM sel = TreeView_GetSelection(tree);
+                    if (sel) {
+                        auto* item = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+                        if (item) {
+                            SavePanelToItem(item);
+                            PropSheet_Changed(GetParent(page), page);
+                        }
+                    }
+                }
+                return TRUE;
+            }
+        }
+
+        // CBN_SELCHANGE from combo boxes
+        if (code == CBN_SELCHANGE) {
+            if (id == IDC_CTX_WINDOW_STATE || id == IDC_CTX_ANCHOR) {
+                if (s_ctxProps && !s_ctxProps->suppressNotify) {
+                    HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                    HTREEITEM sel = TreeView_GetSelection(tree);
+                    if (sel) {
+                        auto* item = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+                        if (item) {
+                            SavePanelToItem(item);
+                            PropSheet_Changed(GetParent(page), page);
+                        }
+                    }
+                }
+                return TRUE;
+            }
+
+            // Template selection
+            if (id == IDC_CTX_TEMPLATE) {
                 HWND combo = GetDlgItem(page, IDC_CTX_TEMPLATE);
                 int sel = ComboBox_GetCurSel(combo);
-
                 ContextMenuItem newItem;
                 bool addItem = false;
-
                 switch (sel) {
-                    case 1: // Command Prompt
-                        newItem = CreateCommandPromptMenuItem();
-                        addItem = true;
-                        break;
-                    case 2: // PowerShell
-                        newItem = CreatePowerShellMenuItem();
-                        addItem = true;
-                        break;
-                    case 3: // VS Code
-                        newItem = CreateVSCodeMenuItem();
-                        addItem = true;
-                        break;
+                case 1: newItem = CreateCommandPromptMenuItem(); addItem = true; break;
+                case 2: newItem = CreatePowerShellMenuItem(); addItem = true; break;
+                case 3: newItem = CreateVSCodeMenuItem(); addItem = true; break;
                 }
-
                 if (addItem) {
                     data->workingOptions.contextMenuItems.push_back(newItem);
                     RefreshContextMenuTree(page, data);
-                    ComboBox_SetCurSel(combo, 0); // Reset to "Empty"
+                    ComboBox_SetCurSel(combo, 0);
                     PropSheet_Changed(GetParent(page), page);
                 }
                 return TRUE;
             }
-
-            // Add Command button
-            if (id == IDC_CTX_ADD_COMMAND) {
-                ContextMenuItem item{};
-                item.type = ContextMenuItemType::kCommand;
-                item.label = L"New Command";
-                item.enabled = true;
-                item.anchor = ContextMenuInsertionAnchor::kDefault;
-                item.windowState = ContextMenuWindowState::kNormal;
-                item.visibility.showForFiles = true;
-                item.visibility.showForFolders = true;
-                item.visibility.minimumSelection = 0;
-                item.visibility.maximumSelection = 100;
-
-                data->workingOptions.contextMenuItems.push_back(item);
-                RefreshContextMenuTree(page, data);
-                PropSheet_Changed(GetParent(page), page);
-                return TRUE;
-            }
-
-            // Add Submenu button
-            if (id == IDC_CTX_ADD_SUBMENU) {
-                ContextMenuItem item{};
-                item.type = ContextMenuItemType::kSubmenu;
-                item.label = L"New Submenu";
-                item.enabled = true;
-                item.anchor = ContextMenuInsertionAnchor::kDefault;
-
-                data->workingOptions.contextMenuItems.push_back(item);
-                RefreshContextMenuTree(page, data);
-                PropSheet_Changed(GetParent(page), page);
-                return TRUE;
-            }
-
-            // Add Separator button
-            if (id == IDC_CTX_ADD_SEPARATOR) {
-                ContextMenuItem item{};
-                item.type = ContextMenuItemType::kSeparator;
-                item.enabled = true;
-                item.anchor = ContextMenuInsertionAnchor::kDefault;
-
-                data->workingOptions.contextMenuItems.push_back(item);
-                RefreshContextMenuTree(page, data);
-                PropSheet_Changed(GetParent(page), page);
-                return TRUE;
-            }
-
-            // Remove button
-            if (id == IDC_CTX_REMOVE) {
-                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
-                HTREEITEM selected = TreeView_GetSelection(tree);
-
-                if (selected && !data->workingOptions.contextMenuItems.empty()) {
-                    TVITEMW item{};
-                    item.hItem = selected;
-                    item.mask = TVIF_PARAM;
-
-                    if (TreeView_GetItem(tree, &item)) {
-                        size_t index = static_cast<size_t>(item.lParam);
-                        if (index < data->workingOptions.contextMenuItems.size()) {
-                            data->workingOptions.contextMenuItems.erase(
-                                data->workingOptions.contextMenuItems.begin() + index
-                            );
-                            RefreshContextMenuTree(page, data);
-                            PropSheet_Changed(GetParent(page), page);
-                        }
-                    }
-                }
-                return TRUE;
-            }
-
-            // Move Up button
-            if (id == IDC_CTX_MOVE_UP) {
-                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
-                HTREEITEM selected = TreeView_GetSelection(tree);
-
-                if (selected && !data->workingOptions.contextMenuItems.empty()) {
-                    TVITEMW item{};
-                    item.hItem = selected;
-                    item.mask = TVIF_PARAM;
-
-                    if (TreeView_GetItem(tree, &item)) {
-                        size_t index = static_cast<size_t>(item.lParam);
-                        if (index > 0 && index < data->workingOptions.contextMenuItems.size()) {
-                            std::swap(data->workingOptions.contextMenuItems[index],
-                                    data->workingOptions.contextMenuItems[index - 1]);
-                            RefreshContextMenuTree(page, data);
-                            PropSheet_Changed(GetParent(page), page);
-                        }
-                    }
-                }
-                return TRUE;
-            }
-
-            // Move Down button
-            if (id == IDC_CTX_MOVE_DOWN) {
-                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
-                HTREEITEM selected = TreeView_GetSelection(tree);
-
-                if (selected && !data->workingOptions.contextMenuItems.empty()) {
-                    TVITEMW item{};
-                    item.hItem = selected;
-                    item.mask = TVIF_PARAM;
-
-                    if (TreeView_GetItem(tree, &item)) {
-                        size_t index = static_cast<size_t>(item.lParam);
-                        if (index < data->workingOptions.contextMenuItems.size() - 1) {
-                            std::swap(data->workingOptions.contextMenuItems[index],
-                                    data->workingOptions.contextMenuItems[index + 1]);
-                            RefreshContextMenuTree(page, data);
-                            PropSheet_Changed(GetParent(page), page);
-                        }
-                    }
-                }
-                return TRUE;
-            }
-
-            break;
         }
 
-        case WM_NOTIFY: {
-            NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+        // --- Tree management buttons ---
+        if (id == IDC_CTX_ADD_COMMAND) {
+            ContextMenuItem item{};
+            item.type = ContextMenuItemType::kCommand;
+            item.label = L"New Command";
+            item.enabled = true;
+            item.anchor = ContextMenuInsertionAnchor::kDefault;
+            item.windowState = ContextMenuWindowState::kNormal;
+            item.visibility.showForFiles = true;
+            item.visibility.showForFolders = true;
+            item.visibility.minimumSelection = 0;
+            item.visibility.maximumSelection = 100;
 
-            // Handle tree view selection changes
-            if (nmhdr->idFrom == IDC_CTX_TREE && nmhdr->code == TVN_SELCHANGED) {
-                // TODO: Load selected item properties into edit controls
-                return TRUE;
+            // Add to selected submenu or top level
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                auto* parent = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+                if (parent && parent->type == ContextMenuItemType::kSubmenu) {
+                    parent->children.push_back(item);
+                    RefreshContextMenuTree(page, data);
+                    PropSheet_Changed(GetParent(page), page);
+                    return TRUE;
+                }
             }
-
-            if (nmhdr->code == PSN_APPLY && data) {
-                // Changes are already in workingOptions, which will be saved by the main dialog
-                return PSNRET_NOERROR;
-            }
-            break;
+            data->workingOptions.contextMenuItems.push_back(item);
+            RefreshContextMenuTree(page, data);
+            PropSheet_Changed(GetParent(page), page);
+            return TRUE;
         }
+
+        if (id == IDC_CTX_ADD_SUBMENU) {
+            ContextMenuItem item{};
+            item.type = ContextMenuItemType::kSubmenu;
+            item.label = L"New Submenu";
+            item.enabled = true;
+            item.anchor = ContextMenuInsertionAnchor::kDefault;
+
+            data->workingOptions.contextMenuItems.push_back(item);
+            RefreshContextMenuTree(page, data);
+            PropSheet_Changed(GetParent(page), page);
+            return TRUE;
+        }
+
+        if (id == IDC_CTX_ADD_SEPARATOR) {
+            ContextMenuItem item{};
+            item.type = ContextMenuItemType::kSeparator;
+            item.enabled = true;
+            item.anchor = ContextMenuInsertionAnchor::kDefault;
+
+            data->workingOptions.contextMenuItems.push_back(item);
+            RefreshContextMenuTree(page, data);
+            PropSheet_Changed(GetParent(page), page);
+            return TRUE;
+        }
+
+        if (id == IDC_CTX_REMOVE) {
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                std::vector<ContextMenuItem>* parentVec = nullptr;
+                size_t idx = 0;
+                if (ResolveTreeItemParent(tree, sel, data->workingOptions.contextMenuItems,
+                                          &parentVec, &idx)) {
+                    parentVec->erase(parentVec->begin() + static_cast<ptrdiff_t>(idx));
+                    RefreshContextMenuTree(page, data);
+                    LoadItemToPanel(nullptr);
+                    PropSheet_Changed(GetParent(page), page);
+                }
+            }
+            return TRUE;
+        }
+
+        if (id == IDC_CTX_MOVE_UP) {
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                std::vector<ContextMenuItem>* parentVec = nullptr;
+                size_t idx = 0;
+                if (ResolveTreeItemParent(tree, sel, data->workingOptions.contextMenuItems,
+                                          &parentVec, &idx) && idx > 0) {
+                    std::swap((*parentVec)[idx], (*parentVec)[idx - 1]);
+                    RefreshContextMenuTree(page, data);
+                    PropSheet_Changed(GetParent(page), page);
+                }
+            }
+            return TRUE;
+        }
+
+        if (id == IDC_CTX_MOVE_DOWN) {
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                std::vector<ContextMenuItem>* parentVec = nullptr;
+                size_t idx = 0;
+                if (ResolveTreeItemParent(tree, sel, data->workingOptions.contextMenuItems,
+                                          &parentVec, &idx) && idx + 1 < parentVec->size()) {
+                    std::swap((*parentVec)[idx], (*parentVec)[idx + 1]);
+                    RefreshContextMenuTree(page, data);
+                    PropSheet_Changed(GetParent(page), page);
+                }
+            }
+            return TRUE;
+        }
+
+        // Indent (make child of previous sibling)
+        if (id == IDC_CTX_INDENT) {
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                std::vector<ContextMenuItem>* parentVec = nullptr;
+                size_t idx = 0;
+                if (ResolveTreeItemParent(tree, sel, data->workingOptions.contextMenuItems,
+                                          &parentVec, &idx) && idx > 0) {
+                    auto& prevSibling = (*parentVec)[idx - 1];
+                    if (prevSibling.type == ContextMenuItemType::kSubmenu) {
+                        prevSibling.children.push_back(std::move((*parentVec)[idx]));
+                        parentVec->erase(parentVec->begin() + static_cast<ptrdiff_t>(idx));
+                        RefreshContextMenuTree(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+            }
+            return TRUE;
+        }
+
+        // Outdent (move to parent's level)
+        if (id == IDC_CTX_OUTDENT) {
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = TreeView_GetSelection(tree);
+            if (sel) {
+                HTREEITEM treeParent = TreeView_GetParent(tree, sel);
+                if (treeParent) {
+                    // Find the parent item and the grandparent vector
+                    std::vector<ContextMenuItem>* childVec = nullptr;
+                    size_t childIdx = 0;
+                    std::vector<ContextMenuItem>* grandparentVec = nullptr;
+                    size_t parentIdx = 0;
+                    if (ResolveTreeItemParent(tree, sel, data->workingOptions.contextMenuItems,
+                                              &childVec, &childIdx) &&
+                        ResolveTreeItemParent(tree, treeParent, data->workingOptions.contextMenuItems,
+                                              &grandparentVec, &parentIdx)) {
+                        ContextMenuItem moved = std::move((*childVec)[childIdx]);
+                        childVec->erase(childVec->begin() + static_cast<ptrdiff_t>(childIdx));
+                        grandparentVec->insert(
+                            grandparentVec->begin() + static_cast<ptrdiff_t>(parentIdx + 1),
+                            std::move(moved));
+                        RefreshContextMenuTree(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+            }
+            return TRUE;
+        }
+
+        break;
+    }
+
+    case WM_NOTIFY: {
+        NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+
+        if (nmhdr->idFrom == IDC_CTX_TREE && nmhdr->code == TVN_SELCHANGEDW) {
+            if (!data) break;
+            NMTREEVIEWW* nmtv = reinterpret_cast<NMTREEVIEWW*>(lParam);
+            HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+            HTREEITEM sel = nmtv->itemNew.hItem;
+
+            ContextMenuItem* item = nullptr;
+            if (sel) {
+                item = ResolveTreeItem(tree, sel, data->workingOptions.contextMenuItems);
+            }
+            LoadItemToPanel(item);
+            return TRUE;
+        }
+
+        if (nmhdr->code == PSN_APPLY && data) {
+            return PSNRET_NOERROR;
+        }
+        break;
+    }
+
+    case WM_DESTROY: {
+        if (s_ctxProps) {
+            delete s_ctxProps;
+            s_ctxProps = nullptr;
+        }
+        break;
+    }
     }
 
     return FALSE;
@@ -2832,6 +3635,399 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
 }
 
 //=============================================================================
+// WEB FOLDERS PAGE
+//=============================================================================
+
+DialogTemplatePtr CreateWebFoldersPageTemplate() {
+    DialogBuilder builder(kPageWidth, kPageHeight);
+
+    int y = kMargin;
+
+    builder.AddStatic(-1, L"Configured web directory sites:",
+        kMargin, y, 200, kLabelHeight);
+    y += kLabelHeight + 4;
+
+    // List box for web folders
+    builder.AddListBox(IDC_WEB_LIST,
+        kMargin, y, 300, 200);
+
+    // Buttons
+    int btnX = kMargin + 310;
+    builder.AddPushButton(IDC_WEB_ADD, L"Add...",
+        btnX, y, 100, kButtonHeight);
+
+    builder.AddPushButton(IDC_WEB_EDIT, L"Edit...",
+        btnX, y + kButtonHeight + 6, 100, kButtonHeight);
+
+    builder.AddPushButton(IDC_WEB_REMOVE, L"Remove",
+        btnX, y + (kButtonHeight + 6) * 2, 100, kButtonHeight);
+
+    y += 200 + kSpacing;
+
+    // URL display label
+    builder.AddStatic(IDC_WEB_URL_LABEL, L"",
+        kMargin, y, 400, kLabelHeight);
+
+    return builder.Build();
+}
+
+void InitWebFoldersPage(HWND page, OptionsDialogData* data) {
+    if (!data) return;
+
+    HWND list = GetDlgItem(page, IDC_WEB_LIST);
+    if (list) {
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for (const auto& entry : data->workingOptions.webFolderEntries) {
+            std::wstring display = entry.displayName;
+            if (!entry.enabled) {
+                display += L" (disabled)";
+            }
+            SendMessageW(list, LB_ADDSTRING, 0,
+                reinterpret_cast<LPARAM>(display.c_str()));
+        }
+    }
+
+    // Update button states
+    bool hasSelection = list && (SendMessageW(list, LB_GETCURSEL, 0, 0) != LB_ERR);
+    EnableWindow(GetDlgItem(page, IDC_WEB_EDIT), hasSelection);
+    EnableWindow(GetDlgItem(page, IDC_WEB_REMOVE), hasSelection);
+
+    // Clear URL display
+    SetWindowTextW(GetDlgItem(page, IDC_WEB_URL_LABEL), L"");
+}
+
+void UpdateWebFolderUrlDisplay(HWND page, OptionsDialogData* data) {
+    if (!data) return;
+
+    HWND list = GetDlgItem(page, IDC_WEB_LIST);
+    int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    if (sel >= 0 && sel < static_cast<int>(data->workingOptions.webFolderEntries.size())) {
+        std::wstring label = L"URL: " + data->workingOptions.webFolderEntries[sel].url;
+        SetWindowTextW(GetDlgItem(page, IDC_WEB_URL_LABEL), label.c_str());
+    } else {
+        SetWindowTextW(GetDlgItem(page, IDC_WEB_URL_LABEL), L"");
+    }
+}
+
+// Web Folder Editor Dialog Data
+struct WebFolderEditorData {
+    WebFolderEntry* entry = nullptr;
+    bool isNew = false;
+};
+
+INT_PTR CALLBACK WebFolderEditorDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPARAM lParam) {
+    WebFolderEditorData* data = reinterpret_cast<WebFolderEditorData*>(
+        GetWindowLongPtrW(dialog, GWLP_USERDATA));
+
+    switch (msg) {
+        case WM_INITDIALOG: {
+            data = reinterpret_cast<WebFolderEditorData*>(lParam);
+            SetWindowLongPtrW(dialog, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+
+            SetWindowTextW(dialog, data->isNew ? L"Add Web Folder" : L"Edit Web Folder");
+
+            // Resize dialog
+            SetWindowPos(dialog, nullptr, 0, 0, 400, 310, SWP_NOMOVE | SWP_NOZORDER);
+
+            HFONT hFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+            int y = 14;
+            int x = 14;
+            int editWidth = 350;
+
+            // Display name
+            HWND label = CreateWindowW(L"STATIC", L"Display name:",
+                WS_CHILD | WS_VISIBLE, x, y, 120, 16, dialog, nullptr, nullptr, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 18;
+
+            HWND nameEdit = CreateWindowW(L"EDIT", data->entry->displayName.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL,
+                x, y, editWidth, 22, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_WEB_ED_NAME)),
+                nullptr, nullptr);
+            SendMessageW(nameEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 30;
+
+            // URL
+            label = CreateWindowW(L"STATIC", L"URL:",
+                WS_CHILD | WS_VISIBLE, x, y, 120, 16, dialog, nullptr, nullptr, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 18;
+
+            HWND urlEdit = CreateWindowW(L"EDIT", data->entry->url.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL,
+                x, y, editWidth, 22, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_WEB_ED_URL)),
+                nullptr, nullptr);
+            SendMessageW(urlEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 30;
+
+            // Parallel downloads checkbox
+            HWND parallelCheck = CreateWindowW(L"BUTTON", L"Enable parallel downloads",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                x, y, 200, 20, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_WEB_ED_PARALLEL)),
+                nullptr, nullptr);
+            SendMessageW(parallelCheck, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SendMessageW(parallelCheck, BM_SETCHECK,
+                data->entry->parallelDownloads ? BST_CHECKED : BST_UNCHECKED, 0);
+            y += 26;
+
+            // Max concurrent downloads
+            label = CreateWindowW(L"STATIC", L"Max concurrent:",
+                WS_CHILD | WS_VISIBLE, x, y + 2, 110, 16, dialog, nullptr, nullptr, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND maxEdit = CreateWindowW(L"EDIT",
+                std::to_wstring(data->entry->maxParallelDownloads).c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_NUMBER,
+                x + 114, y, 50, 22, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_WEB_ED_MAX_CONCURRENT)),
+                nullptr, nullptr);
+            SendMessageW(maxEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            // Speed limit
+            label = CreateWindowW(L"STATIC", L"Speed limit KB/s (0=unlimited):",
+                WS_CHILD | WS_VISIBLE, x + 180, y + 2, 200, 16, dialog, nullptr, nullptr, nullptr);
+            SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 26;
+
+            HWND speedEdit = CreateWindowW(L"EDIT",
+                std::to_wstring(data->entry->downloadSpeedLimitKBps).c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_NUMBER,
+                x, y, 80, 22, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_WEB_ED_SPEED_LIMIT)),
+                nullptr, nullptr);
+            SendMessageW(speedEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            y += 34;
+
+            // Enable/disable download settings based on parallel checkbox
+            BOOL parallelEnabled = data->entry->parallelDownloads ? TRUE : FALSE;
+            EnableWindow(maxEdit, parallelEnabled);
+            EnableWindow(speedEdit, parallelEnabled);
+
+            // OK / Cancel buttons
+            int btnWidth = 80;
+            int btnSpacing = 10;
+            int totalBtnWidth = btnWidth * 2 + btnSpacing;
+            int btnX = (400 - totalBtnWidth) / 2 - 8;  // account for window border
+
+            HWND okBtn = CreateWindowW(L"BUTTON", L"OK",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                btnX, y, btnWidth, 26, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
+                nullptr, nullptr);
+            SendMessageW(okBtn, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND cancelBtn = CreateWindowW(L"BUTTON", L"Cancel",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                btnX + btnWidth + btnSpacing, y, btnWidth, 26, dialog,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
+                nullptr, nullptr);
+            SendMessageW(cancelBtn, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            // Focus the name field
+            SetFocus(nameEdit);
+            return FALSE;  // We set focus manually
+        }
+
+        case WM_COMMAND: {
+            if (!data) break;
+
+            int id = LOWORD(wParam);
+            if (id == IDOK) {
+                std::wstring name = GetControlText(GetDlgItem(dialog, IDC_WEB_ED_NAME));
+                std::wstring url = GetControlText(GetDlgItem(dialog, IDC_WEB_ED_URL));
+
+                // Validate
+                if (name.empty()) {
+                    MessageBoxW(dialog, L"Display name cannot be empty.",
+                        L"Validation Error", MB_OK | MB_ICONWARNING);
+                    SetFocus(GetDlgItem(dialog, IDC_WEB_ED_NAME));
+                    return TRUE;
+                }
+
+                if (url.empty()) {
+                    MessageBoxW(dialog, L"URL cannot be empty.",
+                        L"Validation Error", MB_OK | MB_ICONWARNING);
+                    SetFocus(GetDlgItem(dialog, IDC_WEB_ED_URL));
+                    return TRUE;
+                }
+
+                // URL must start with http:// or https://
+                bool validScheme = false;
+                if (url.size() >= 7) {
+                    std::wstring lower = url.substr(0, 8);
+                    for (auto& ch : lower) ch = towlower(ch);
+                    if (lower.substr(0, 7) == L"http://" || lower == L"https://") {
+                        validScheme = true;
+                    }
+                }
+                if (!validScheme) {
+                    MessageBoxW(dialog,
+                        L"URL must start with http:// or https://.",
+                        L"Validation Error", MB_OK | MB_ICONWARNING);
+                    SetFocus(GetDlgItem(dialog, IDC_WEB_ED_URL));
+                    return TRUE;
+                }
+
+                data->entry->displayName = name;
+                data->entry->url = url;
+                data->entry->parallelDownloads =
+                    (SendMessageW(GetDlgItem(dialog, IDC_WEB_ED_PARALLEL), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                data->entry->maxParallelDownloads = std::clamp(
+                    GetDlgItemInt(dialog, IDC_WEB_ED_MAX_CONCURRENT, nullptr, FALSE), 1u, 16u);
+                data->entry->downloadSpeedLimitKBps = std::max(
+                    0, static_cast<int>(GetDlgItemInt(dialog, IDC_WEB_ED_SPEED_LIMIT, nullptr, FALSE)));
+                EndDialog(dialog, IDOK);
+                return TRUE;
+            }
+            else if (id == IDC_WEB_ED_PARALLEL && HIWORD(wParam) == BN_CLICKED) {
+                BOOL checked = (SendMessageW(GetDlgItem(dialog, IDC_WEB_ED_PARALLEL),
+                    BM_GETCHECK, 0, 0) == BST_CHECKED);
+                EnableWindow(GetDlgItem(dialog, IDC_WEB_ED_MAX_CONCURRENT), checked);
+                EnableWindow(GetDlgItem(dialog, IDC_WEB_ED_SPEED_LIMIT), checked);
+                return TRUE;
+            }
+            else if (id == IDCANCEL) {
+                EndDialog(dialog, IDCANCEL);
+                return TRUE;
+            }
+            break;
+        }
+
+        case WM_CLOSE:
+            EndDialog(dialog, IDCANCEL);
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+bool ShowWebFolderEditorDialog(HWND parent, WebFolderEntry& entry, bool isNew) {
+    WebFolderEditorData editorData;
+    editorData.entry = &entry;
+    editorData.isNew = isNew;
+
+    struct {
+        DLGTEMPLATE dlg;
+        WORD menu;
+        WORD windowClass;
+        WORD title;
+    } template_data = {};
+
+    template_data.dlg.style = DS_SETFONT | DS_MODALFRAME | DS_CENTER |
+                               WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    template_data.dlg.dwExtendedStyle = 0;
+    template_data.dlg.cdit = 0;
+    template_data.dlg.x = 0;
+    template_data.dlg.y = 0;
+    template_data.dlg.cx = 250;
+    template_data.dlg.cy = 130;
+
+    INT_PTR result = DialogBoxIndirectParamW(GetModuleHandleInstance(),
+                                              reinterpret_cast<LPCDLGTEMPLATEW>(&template_data),
+                                              parent, WebFolderEditorDialogProc,
+                                              reinterpret_cast<LPARAM>(&editorData));
+    return result == IDOK;
+}
+
+INT_PTR CALLBACK WebFoldersPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
+    OptionsDialogData* data = nullptr;
+
+    if (msg == WM_INITDIALOG) {
+        PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
+        data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
+        SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        InitWebFoldersPage(page, data);
+        return TRUE;
+    }
+
+    data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
+
+    switch (msg) {
+        case WM_COMMAND: {
+            if (!data) break;
+
+            int id = LOWORD(wParam);
+            int code = HIWORD(wParam);
+
+            if (id == IDC_WEB_LIST && code == LBN_SELCHANGE) {
+                HWND list = GetDlgItem(page, IDC_WEB_LIST);
+                bool hasSelection = (SendMessageW(list, LB_GETCURSEL, 0, 0) != LB_ERR);
+                EnableWindow(GetDlgItem(page, IDC_WEB_EDIT), hasSelection);
+                EnableWindow(GetDlgItem(page, IDC_WEB_REMOVE), hasSelection);
+                UpdateWebFolderUrlDisplay(page, data);
+            }
+            else if (id == IDC_WEB_ADD && code == BN_CLICKED) {
+                WebFolderEntry newEntry;
+                newEntry.displayName = L"New Site";
+                newEntry.url = L"https://";
+                newEntry.enabled = true;
+
+                if (ShowWebFolderEditorDialog(page, newEntry, true)) {
+                    data->workingOptions.webFolderEntries.push_back(newEntry);
+                    InitWebFoldersPage(page, data);
+
+                    // Select the newly added item
+                    HWND list = GetDlgItem(page, IDC_WEB_LIST);
+                    int lastIndex = static_cast<int>(data->workingOptions.webFolderEntries.size()) - 1;
+                    SendMessageW(list, LB_SETCURSEL, lastIndex, 0);
+                    UpdateWebFolderUrlDisplay(page, data);
+                    EnableWindow(GetDlgItem(page, IDC_WEB_EDIT), TRUE);
+                    EnableWindow(GetDlgItem(page, IDC_WEB_REMOVE), TRUE);
+
+                    PropSheet_Changed(GetParent(page), page);
+                }
+            }
+            else if (id == IDC_WEB_EDIT && code == BN_CLICKED) {
+                HWND list = GetDlgItem(page, IDC_WEB_LIST);
+                int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+                if (sel >= 0 && sel < static_cast<int>(data->workingOptions.webFolderEntries.size())) {
+                    WebFolderEntry entryCopy = data->workingOptions.webFolderEntries[sel];
+                    if (ShowWebFolderEditorDialog(page, entryCopy, false)) {
+                        data->workingOptions.webFolderEntries[sel] = entryCopy;
+                        InitWebFoldersPage(page, data);
+                        SendMessageW(list, LB_SETCURSEL, sel, 0);
+                        UpdateWebFolderUrlDisplay(page, data);
+                        EnableWindow(GetDlgItem(page, IDC_WEB_EDIT), TRUE);
+                        EnableWindow(GetDlgItem(page, IDC_WEB_REMOVE), TRUE);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+            }
+            else if (id == IDC_WEB_REMOVE && code == BN_CLICKED) {
+                HWND list = GetDlgItem(page, IDC_WEB_LIST);
+                int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+                if (sel >= 0 && sel < static_cast<int>(data->workingOptions.webFolderEntries.size())) {
+                    std::wstring name = data->workingOptions.webFolderEntries[sel].displayName;
+                    std::wstring confirmMsg = L"Remove web folder '" + name + L"'?";
+                    if (MessageBoxW(page, confirmMsg.c_str(), L"Confirm",
+                                    MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                        data->workingOptions.webFolderEntries.erase(
+                            data->workingOptions.webFolderEntries.begin() + sel);
+                        InitWebFoldersPage(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+            }
+            break;
+        }
+
+        case WM_NOTIFY: {
+            NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+            if (nmhdr->code == PSN_APPLY && data) {
+                return PSNRET_NOERROR;
+            }
+            break;
+        }
+    }
+
+    return FALSE;
+}
+
+//=============================================================================
 // MAIN DIALOG ENTRY POINT
 //=============================================================================
 
@@ -2877,15 +4073,17 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     auto backgroundsTemplate = CreateBackgroundsPageTemplate();
     auto contextTemplate = CreateContextMenusPageTemplate();
     auto groupsTemplate = CreateGroupsPageTemplate();
+    auto webFoldersTemplate = CreateWebFoldersPageTemplate();
 
     if (!generalTemplate || !appearanceTemplate || !glowTemplate ||
-        !backgroundsTemplate || !contextTemplate || !groupsTemplate) {
+        !backgroundsTemplate || !contextTemplate || !groupsTemplate ||
+        !webFoldersTemplate) {
         MessageBoxW(parent, L"Failed to create dialog templates.", L"Error", MB_OK | MB_ICONERROR);
         return result;
     }
 
     // Create property sheet pages
-    std::array<PROPSHEETPAGEW, 6> pages{};
+    std::array<PROPSHEETPAGEW, 7> pages{};
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
@@ -2935,6 +4133,14 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     pages[5].pszTitle = L"Groups";
     pages[5].pfnDlgProc = GroupsPageProc;
     pages[5].lParam = reinterpret_cast<LPARAM>(data.get());
+
+    pages[6].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[6].dwFlags = PSP_USETITLE | PSP_DLGINDIRECT;
+    pages[6].hInstance = hInst;
+    pages[6].pResource = webFoldersTemplate.get();
+    pages[6].pszTitle = L"Web Folders";
+    pages[6].pfnDlgProc = WebFoldersPageProc;
+    pages[6].lParam = reinterpret_cast<LPARAM>(data.get());
 
     // Create property sheet
     PROPSHEETHEADERW psh{};

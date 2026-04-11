@@ -18,6 +18,8 @@
 #include "Module.h"
 #include "ThemeHooks.h"
 #include "CompositionIntercept.h"
+#include "TaskbarPreviewHook.h"
+#include "TaskbarTabProvider.h"
 
 using namespace shelltabs;
 
@@ -56,8 +58,16 @@ constexpr wchar_t kFtpFolderFriendlyName[] = L"Shell Tabs FTP Folder";
 constexpr wchar_t kFtpNamespaceFriendlyName[] = L"Shell Tabs FTP Sites";
 constexpr wchar_t kFtpNamespaceParsingName[] = L"ftp://";
 constexpr DWORD kFtpShellFolderAttributes = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR |
-                                             SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_STREAM | SFGAO_CANLINK;
+                                             SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_STREAM | SFGAO_CANLINK |
+                                             SFGAO_BROWSABLE;
 constexpr DWORD kFtpShellFolderFlags = 0x00000028;
+constexpr wchar_t kHttpFolderFriendlyName[] = L"Shell Tabs HTTP Folder";
+constexpr wchar_t kHttpNamespaceFriendlyName[] = L"Web Folders";
+constexpr wchar_t kHttpNamespaceParsingName[] = L"";
+constexpr DWORD kHttpShellFolderAttributes = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR |
+                                              SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_STREAM | SFGAO_CANLINK |
+                                              SFGAO_BROWSABLE;
+constexpr DWORD kHttpShellFolderFlags = 0x00000028;
 
 struct ScopedRegKey {
     ScopedRegKey() = default;
@@ -752,8 +762,11 @@ HRESULT RegisterFtpShellFolderClass(const std::wstring& modulePath, const std::w
     return S_OK;
 }
 
-HRESULT RegisterNamespaceNode(const std::wstring& clsidString, const wchar_t* friendlyName,
-                              const std::wstring& parsingName) {
+HRESULT RegisterNamespaceNode(const std::wstring& modulePath, const std::wstring& clsidString,
+                              const wchar_t* friendlyName,
+                              const std::wstring& parsingName,
+                              DWORD shellFolderAttributes = kFtpShellFolderAttributes,
+                              DWORD folderValueFlags = kFtpShellFolderFlags) {
     const std::wstring baseKey = L"Software\\Classes\\CLSID\\" + clsidString;
     DeleteRegistryKeyForTargets(UserTargets(), baseKey, /*ignoreAccessDenied=*/true);
 
@@ -782,6 +795,40 @@ HRESULT RegisterNamespaceNode(const std::wstring& clsidString, const wchar_t* fr
         return hr;
     }
 
+    // Register InprocServer32 so Explorer can load the DLL for this CLSID
+    const std::wstring inprocKey = baseKey + L"\\InprocServer32";
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, inprocKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            inner = WriteRegistryStringValue(key.get(), nullptr, modulePath.c_str());
+            if (FAILED(inner)) {
+                return inner;
+            }
+            return WriteRegistryStringValue(key.get(), L"ThreadingModel", L"Apartment");
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    // DefaultIcon — standard folder icon from shell32.dll
+    const std::wstring defaultIconKey = baseKey + L"\\DefaultIcon";
+    hr = WriteWithMachinePreference(
+        [&](const RegistryTarget& target) -> HRESULT {
+            ScopedRegKey key;
+            HRESULT inner = CreateRegistryKey(target, defaultIconKey, KEY_READ | KEY_WRITE, &key);
+            if (FAILED(inner)) {
+                return inner;
+            }
+            return WriteRegistryStringValue(key.get(), nullptr, L"%SystemRoot%\\System32\\shell32.dll,3");
+        });
+    if (FAILED(hr)) {
+        return hr;
+    }
+
     const std::wstring shellFolderKey = baseKey + L"\\ShellFolder";
     hr = WriteWithMachinePreference(
         [&](const RegistryTarget& target) -> HRESULT {
@@ -790,7 +837,7 @@ HRESULT RegisterNamespaceNode(const std::wstring& clsidString, const wchar_t* fr
             if (FAILED(inner)) {
                 return inner;
             }
-            inner = WriteRegistryDwordValue(key.get(), L"Attributes", kFtpShellFolderAttributes);
+            inner = WriteRegistryDwordValue(key.get(), L"Attributes", shellFolderAttributes);
             if (FAILED(inner)) {
                 return inner;
             }
@@ -806,7 +853,7 @@ HRESULT RegisterNamespaceNode(const std::wstring& clsidString, const wchar_t* fr
             if (FAILED(inner)) {
                 return inner;
             }
-            return WriteRegistryDwordValue(key.get(), L"FolderValueFlags", kFtpShellFolderFlags);
+            return WriteRegistryDwordValue(key.get(), L"FolderValueFlags", folderValueFlags);
         });
     if (FAILED(hr)) {
         return hr;
@@ -1001,8 +1048,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         } else {
             LogMessage(LogLevel::Info, L"InitCommonControlsEx succeeded");
         }
+
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
+        shelltabs::TaskbarPreviewHook::Instance().Shutdown();
         ShutdownCompositionIntercept();
         shelltabs::ShutdownFolderBackgroundHooks();
         ShutdownThemeHooks();
@@ -1030,8 +1079,13 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** object) {
     if (rclsid == CLSID_ShellTabsOpenFolderCommand) {
         return CreateOpenFolderCommandClassFactory(riid, object);
     }
-    if (rclsid == CLSID_ShellTabsFtpFolder) {
+    if (rclsid == CLSID_ShellTabsFtpFolder || rclsid == CLSID_ShellTabsFtpRoot) {
         return CreateFtpFolderClassFactory(riid, object);
+    }
+    if (rclsid == CLSID_ShellTabsHttpFolder || rclsid == CLSID_ShellTabsHttpRoot) {
+        LogMessage(LogLevel::Info, L"[DllGetClassObject] Creating HTTP folder factory for CLSID %ls",
+                   GuidToString(rclsid).c_str());
+        return CreateHttpFolderClassFactory(riid, object);
     }
 
     return CLASS_E_CLASSNOTAVAILABLE;
@@ -1082,7 +1136,18 @@ STDAPI DllRegisterServer(void) {
 
     const std::wstring ftpNamespaceClsid = GuidToString(CLSID_ShellTabsFtpRoot);
     RETURN_IF_FAILED_LOG(L"RegisterNamespaceNode (FTP)",
-                         RegisterNamespaceNode(ftpNamespaceClsid, kFtpNamespaceFriendlyName, kFtpNamespaceParsingName));
+                         RegisterNamespaceNode(modulePath, ftpNamespaceClsid, kFtpNamespaceFriendlyName, kFtpNamespaceParsingName));
+
+    const std::wstring httpClsid = GuidToString(CLSID_ShellTabsHttpFolder);
+    RETURN_IF_FAILED_LOG(L"RegisterInprocServer (HTTP folder)",
+                         RegisterFtpShellFolderClass(modulePath, httpClsid, appIdString));
+    RETURN_IF_FAILED_LOG(L"RegisterExplorerApproved (HTTP folder)",
+                         RegisterExplorerApproved(httpClsid, kHttpFolderFriendlyName));
+
+    const std::wstring httpNamespaceClsid = GuidToString(CLSID_ShellTabsHttpRoot);
+    RETURN_IF_FAILED_LOG(L"RegisterNamespaceNode (HTTP)",
+                         RegisterNamespaceNode(modulePath, httpNamespaceClsid, kHttpNamespaceFriendlyName, kHttpNamespaceParsingName,
+                                              kHttpShellFolderAttributes, kHttpShellFolderFlags));
 
     LogMessage(LogLevel::Info, L"DllRegisterServer completed successfully");
     return S_OK;
@@ -1127,6 +1192,14 @@ STDAPI DllUnregisterServer(void) {
     RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (FTP folder)", UnregisterApprovedExtension(ftpClsid));
     const std::wstring ftpNamespaceClsid = GuidToString(CLSID_ShellTabsFtpRoot);
     RETURN_IF_FAILED_LOG(L"UnregisterNamespaceNode (FTP)", UnregisterNamespaceNode(ftpNamespaceClsid));
+
+    const std::wstring httpClsid = GuidToString(CLSID_ShellTabsHttpFolder);
+    RETURN_IF_FAILED_LOG(L"DeleteRegistryKey (HTTP folder CLSID)",
+                         DeleteRegistryKeyEverywhere(L"Software\\Classes\\CLSID\\" + httpClsid, /*ignoreAccessDenied=*/true));
+    RETURN_IF_FAILED_LOG(L"UnregisterApprovedExtension (HTTP folder)", UnregisterApprovedExtension(httpClsid));
+    const std::wstring httpNamespaceClsid = GuidToString(CLSID_ShellTabsHttpRoot);
+    RETURN_IF_FAILED_LOG(L"UnregisterNamespaceNode (HTTP)", UnregisterNamespaceNode(httpNamespaceClsid));
+
     RETURN_IF_FAILED_LOG(L"UnregisterAppId", UnregisterAppId(appIdString, moduleFileName));
 
     LogMessage(LogLevel::Info, L"DllUnregisterServer completed successfully");

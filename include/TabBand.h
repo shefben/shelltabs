@@ -251,6 +251,7 @@ private:
     void StartSessionFlushTimer();
     void StopSessionFlushTimer();
     void OnPeriodicSessionFlush();
+    void RetrySessionClaim();
     void ApplyOptionsChanges(const ShellTabsOptions& previousOptions);
     UniquePidl QueryCurrentFolder() const;
     void CancelPendingPreviewForTab(const TabInfo& tab) const;

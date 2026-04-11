@@ -64,6 +64,7 @@ public:
     TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }
     static uint32_t GetAvailableDockMask();
     static constexpr UINT_PTR SessionFlushTimerId() noexcept { return kSessionFlushTimerId; }
+    static constexpr UINT_PTR SessionRetryTimerId() noexcept { return kSessionRetryTimerId; }
 
     enum class HitType {
         kNone,
@@ -650,6 +651,7 @@ private:
     static constexpr UINT_PTR kDropHoverTimerId = 0x5348;  // 'SH'
     static constexpr UINT_PTR kSessionFlushTimerId = 0x5346;  // 'SF'
     static constexpr UINT_PTR kProgressTimerId = 0x5349;   // 'SI'
+    static constexpr UINT_PTR kSessionRetryTimerId = 0x5352;  // 'SR'
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };

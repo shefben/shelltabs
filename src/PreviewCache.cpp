@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
@@ -36,9 +37,19 @@ struct PreviewCache::AsyncRequest {
 namespace {
 constexpr size_t kMaxPendingCaptureRequests = 8;
 
+// Forward declaration — defined below LoadShellItemPreview.
+HBITMAP GenerateFolderContentPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SIZE* outSize);
+
 HBITMAP LoadShellItemPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SIZE* outSize) {
     if (!pidl) {
         return nullptr;
+    }
+
+    // Try folder content grid preview first — produces a 2x2 grid of child
+    // thumbnails for folders that would otherwise only show a generic icon.
+    HBITMAP folderPreview = GenerateFolderContentPreview(pidl, desiredSize, outSize);
+    if (folderPreview) {
+        return folderPreview;
     }
 
     Microsoft::WRL::ComPtr<IShellItem> item;
@@ -82,6 +93,156 @@ HBITMAP LoadShellItemPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SI
         outSize->cy = bmp.bmHeight;
     }
     return bitmap;
+}
+
+// Generate a 2x2 grid preview for folder items by collecting thumbnails of
+// the first 4 child items and compositing them into a single bitmap.
+HBITMAP GenerateFolderContentPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SIZE* outSize) {
+    if (!pidl) return nullptr;
+
+    Microsoft::WRL::ComPtr<IShellItem> folderItem;
+    if (FAILED(SHCreateItemFromIDList(pidl, IID_PPV_ARGS(&folderItem))) || !folderItem) {
+        return nullptr;
+    }
+
+    // Check if this is actually a folder
+    ULONG attrs = 0;
+    if (FAILED(folderItem->GetAttributes(SFGAO_FOLDER, &attrs)) || !(attrs & SFGAO_FOLDER)) {
+        return nullptr;
+    }
+
+    // Enumerate first 4 child items
+    Microsoft::WRL::ComPtr<IEnumShellItems> enumItems;
+    if (FAILED(folderItem->BindToHandler(nullptr, BHID_EnumItems, IID_PPV_ARGS(&enumItems))) || !enumItems) {
+        return nullptr;
+    }
+
+    constexpr int kGridSize = 2;
+    constexpr int kMaxChildren = kGridSize * kGridSize;
+    constexpr int kPadding = 2;
+    constexpr DWORD kChildTimeoutMs = 3000;
+
+    struct ChildThumb {
+        HBITMAP bitmap = nullptr;
+        SIZE size{};
+    };
+    ChildThumb children[kMaxChildren]{};
+    int childCount = 0;
+
+    for (int i = 0; i < kMaxChildren; ++i) {
+        Microsoft::WRL::ComPtr<IShellItem> child;
+        if (enumItems->Next(1, &child, nullptr) != S_OK || !child) break;
+
+        Microsoft::WRL::ComPtr<IShellItemImageFactory> factory;
+        if (FAILED(child.As(&factory)) || !factory) continue;
+
+        // Use a smaller size for each cell
+        SIZE cellSize = {desiredSize.cx / kGridSize - kPadding, desiredSize.cy / kGridSize - kPadding};
+        if (cellSize.cx <= 0) cellSize.cx = 48;
+        if (cellSize.cy <= 0) cellSize.cy = 48;
+
+        HBITMAP bmp = nullptr;
+        // Try to get thumbnail with a timeout by checking the current time
+        auto startTime = std::chrono::steady_clock::now();
+        HRESULT hr = factory->GetImage(cellSize, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, &bmp);
+        auto elapsed = std::chrono::steady_clock::now() - startTime;
+
+        if (FAILED(hr) || !bmp) {
+            if (bmp) DeleteObject(bmp);
+            // Skip slow items
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > kChildTimeoutMs) break;
+            continue;
+        }
+
+        BITMAP bmpInfo{};
+        if (GetObject(bmp, sizeof(bmpInfo), &bmpInfo) > 0) {
+            children[childCount].bitmap = bmp;
+            children[childCount].size = {bmpInfo.bmWidth, bmpInfo.bmHeight};
+            ++childCount;
+        } else {
+            DeleteObject(bmp);
+        }
+    }
+
+    if (childCount == 0) return nullptr;
+
+    // Create the composite bitmap
+    SIZE compositeSize = desiredSize;
+    if (compositeSize.cx <= 0 || compositeSize.cy <= 0) {
+        compositeSize = kPreviewImageSize;
+    }
+
+    HDC screenDC = GetDC(nullptr);
+    if (!screenDC) {
+        for (int i = 0; i < childCount; ++i) if (children[i].bitmap) DeleteObject(children[i].bitmap);
+        return nullptr;
+    }
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+    bmi.bmiHeader.biWidth = compositeSize.cx;
+    bmi.bmiHeader.biHeight = -compositeSize.cy;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* compositeBits = nullptr;
+    HBITMAP compositeBmp = CreateDIBSection(screenDC, &bmi, DIB_RGB_COLORS, &compositeBits, nullptr, 0);
+    if (!compositeBmp || !compositeBits) {
+        ReleaseDC(nullptr, screenDC);
+        for (int i = 0; i < childCount; ++i) if (children[i].bitmap) DeleteObject(children[i].bitmap);
+        return nullptr;
+    }
+
+    // Fill with a neutral background
+    memset(compositeBits, 0xF0, static_cast<size_t>(compositeSize.cx) * compositeSize.cy * 4);
+    // Set alpha to opaque
+    {
+        auto* p = static_cast<uint8_t*>(compositeBits);
+        for (int y = 0; y < compositeSize.cy; ++y) {
+            for (int x = 0; x < compositeSize.cx; ++x) {
+                p[(y * compositeSize.cx + x) * 4 + 3] = 0xFF;
+            }
+        }
+    }
+
+    HDC memDC = CreateCompatibleDC(screenDC);
+    HGDIOBJ oldMemBmp = SelectObject(memDC, compositeBmp);
+
+    int cellW = compositeSize.cx / kGridSize;
+    int cellH = compositeSize.cy / kGridSize;
+
+    for (int i = 0; i < childCount && i < kMaxChildren; ++i) {
+        int col = i % kGridSize;
+        int row = i / kGridSize;
+        int destX = col * cellW + kPadding;
+        int destY = row * cellH + kPadding;
+        int destW = cellW - kPadding * 2;
+        int destH = cellH - kPadding * 2;
+
+        HDC childDC = CreateCompatibleDC(screenDC);
+        HGDIOBJ oldChild = SelectObject(childDC, children[i].bitmap);
+
+        SetStretchBltMode(memDC, HALFTONE);
+        SetBrushOrgEx(memDC, 0, 0, nullptr);
+        StretchBlt(memDC, destX, destY, destW, destH,
+                   childDC, 0, 0, children[i].size.cx, children[i].size.cy, SRCCOPY);
+
+        SelectObject(childDC, oldChild);
+        DeleteDC(childDC);
+    }
+
+    SelectObject(memDC, oldMemBmp);
+    DeleteDC(memDC);
+    ReleaseDC(nullptr, screenDC);
+
+    // Clean up child bitmaps
+    for (int i = 0; i < childCount; ++i) {
+        if (children[i].bitmap) DeleteObject(children[i].bitmap);
+    }
+
+    if (outSize) *outSize = compositeSize;
+    return compositeBmp;
 }
 
 SIZE ComputeScaledSize(int srcWidth, int srcHeight, const SIZE& desiredSize) {

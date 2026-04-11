@@ -55,6 +55,8 @@ constexpr wchar_t kFolderBackgroundPositionToken[] = L"folder_background_positio
 constexpr wchar_t kFolderBackgroundOpacityToken[]  = L"folder_background_opacity";
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
+constexpr wchar_t kWebFolderEntryToken[] = L"web_folder_entry";
+constexpr wchar_t kFtpSiteEntryToken[] = L"ftp_site_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
 constexpr wchar_t kContextMenuCommandToken[] = L"context_menu_command";
 constexpr wchar_t kContextMenuSubmenuToken[] = L"context_menu_submenu";
@@ -477,6 +479,16 @@ void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenu
                 content += item.description;
                 content += L"|";
                 content += item.id;
+                content += L"|";
+                content += JoinPatterns(item.folderPathFilters, L';');
+                content += L"|";
+                content += item.confirmBeforeExecute ? L"1" : L"0";
+                content += L"|";
+                content += item.confirmMessage;
+                content += L"|";
+                content += JoinPatterns(item.additionalCommands, L';');
+                content += L"|";
+                content += item.expandEnvironmentVars ? L"1" : L"0";
                 content += L"\n";
                 break;
             }
@@ -645,7 +657,20 @@ std::wstring NormalizeContextMenuExtensions(const std::vector<std::wstring>& ext
 // Check if a context menu item matches the current selection
 bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionCount,
                                     const std::vector<std::wstring>& selectedPaths,
-                                    bool hasFiles, bool hasFolders) {
+                                    bool hasFiles, bool hasFolders,
+                                    const std::wstring& currentFolderPath) {
+    // Check folder path filters — only show if current folder matches
+    if (!item.folderPathFilters.empty() && !currentFolderPath.empty()) {
+        bool folderMatch = false;
+        for (const auto& filter : item.folderPathFilters) {
+            if (MatchesContextMenuPattern(currentFolderPath, filter)) {
+                folderMatch = true;
+                break;
+            }
+        }
+        if (!folderMatch) return false;
+    }
+
     const auto& rules = item.visibility;
 
     // Check selection count constraints
@@ -1420,6 +1445,45 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kWebFolderEntryToken) {
+            if (tokens.size() >= 3) {
+                WebFolderEntry entry;
+                entry.url = tokens[1];
+                entry.displayName = tokens[2];
+                if (tokens.size() >= 4) {
+                    entry.enabled = (tokens[3] == L"1");
+                }
+                if (tokens.size() >= 5) {
+                    entry.parallelDownloads = (tokens[4] == L"1");
+                }
+                if (tokens.size() >= 6) {
+                    entry.maxParallelDownloads = std::clamp(ParseInt(tokens[5]), 1, 16);
+                }
+                if (tokens.size() >= 7) {
+                    entry.downloadSpeedLimitKBps = std::max(0, ParseInt(tokens[6]));
+                }
+                if (!entry.url.empty() && !entry.displayName.empty()) {
+                    m_options.webFolderEntries.emplace_back(std::move(entry));
+                }
+            }
+            return true;
+        }
+
+        if (header == kFtpSiteEntryToken) {
+            if (tokens.size() >= 3) {
+                FtpSiteEntry entry;
+                entry.host = tokens[1];
+                entry.displayName = tokens[2];
+                if (tokens.size() >= 4) entry.userName = tokens[3];
+                if (tokens.size() >= 5) entry.port = static_cast<std::uint16_t>(std::clamp(ParseInt(tokens[4]), 1, 65535));
+                if (tokens.size() >= 6) entry.enabled = (tokens[5] == L"1");
+                if (!entry.host.empty() && !entry.displayName.empty()) {
+                    m_options.ftpSiteEntries.emplace_back(std::move(entry));
+                }
+            }
+            return true;
+        }
+
         if (header == kContextMenuCommandToken) {
             if (!contextMenuStack.empty()) {
                 ContextMenuItem item;
@@ -1445,6 +1509,11 @@ bool OptionsStore::Load(std::wstring* errorContext) {
                 if (tokens.size() > idx) item.visibility.excludePatterns = ParseContextMenuExtensions(tokens[idx++]);
                 if (tokens.size() > idx) item.description = Trim(tokens[idx++]);
                 if (tokens.size() > idx) item.id = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.folderPathFilters = ParseContextMenuExtensions(tokens[idx++]);
+                if (tokens.size() > idx) item.confirmBeforeExecute = ParseBool(tokens[idx++]);
+                if (tokens.size() > idx) item.confirmMessage = Trim(tokens[idx++]);
+                if (tokens.size() > idx) item.additionalCommands = ParseContextMenuExtensions(tokens[idx++]);
+                if (tokens.size() > idx) item.expandEnvironmentVars = ParseBool(tokens[idx++]);
 
                 contextMenuStack.back()->push_back(std::move(item));
             }
@@ -1531,6 +1600,15 @@ bool OptionsStore::Load(std::wstring* errorContext) {
         UpdateLegacyGlowSettingsFromPalette(m_options);
     } else {
         UpdateGlowPaletteFromLegacySettings(m_options);
+    }
+
+    // Populate default web folder entries if none were loaded.
+    if (m_options.webFolderEntries.empty()) {
+        WebFolderEntry myrient;
+        myrient.url = L"https://myrient.erista.me/files/";
+        myrient.displayName = L"Myrient";
+        myrient.enabled = true;
+        m_options.webFolderEntries.push_back(std::move(myrient));
     }
 
     m_loaded = true;
@@ -1758,6 +1836,42 @@ bool OptionsStore::Save() const {
 
     AppendContextMenuItems(content, options.contextMenuItems);
 
+    for (const auto& entry : options.webFolderEntries) {
+        if (entry.url.empty() || entry.displayName.empty()) {
+            continue;
+        }
+        content += kWebFolderEntryToken;
+        content += L"|";
+        content += entry.url;
+        content += L"|";
+        content += entry.displayName;
+        content += L"|";
+        content += entry.enabled ? L"1" : L"0";
+        content += L"|";
+        content += entry.parallelDownloads ? L"1" : L"0";
+        content += L"|";
+        content += std::to_wstring(entry.maxParallelDownloads);
+        content += L"|";
+        content += std::to_wstring(entry.downloadSpeedLimitKBps);
+        content += L"\n";
+    }
+
+    for (const auto& entry : options.ftpSiteEntries) {
+        if (entry.host.empty() || entry.displayName.empty()) continue;
+        content += kFtpSiteEntryToken;
+        content += L"|";
+        content += entry.host;
+        content += L"|";
+        content += entry.displayName;
+        content += L"|";
+        content += entry.userName;
+        content += L"|";
+        content += std::to_wstring(entry.port);
+        content += L"|";
+        content += entry.enabled ? L"1" : L"0";
+        content += L"\n";
+    }
+
     content += kTabDockingToken;
     content += L"|";
     content += DockModeToString(options.tabDockMode);
@@ -1805,6 +1919,18 @@ bool operator==(const CachedImageMetadata& left, const CachedImageMetadata& righ
 
 bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& right) noexcept {
     return left.folderPath == right.folderPath && left.image == right.image;
+}
+
+bool operator==(const WebFolderEntry& left, const WebFolderEntry& right) noexcept {
+    return left.url == right.url && left.displayName == right.displayName && left.enabled == right.enabled &&
+           left.parallelDownloads == right.parallelDownloads &&
+           left.maxParallelDownloads == right.maxParallelDownloads &&
+           left.downloadSpeedLimitKBps == right.downloadSpeedLimitKBps;
+}
+
+bool operator==(const FtpSiteEntry& left, const FtpSiteEntry& right) noexcept {
+    return left.host == right.host && left.displayName == right.displayName &&
+           left.userName == right.userName && left.port == right.port && left.enabled == right.enabled;
 }
 
 bool operator==(const GlowSurfaceOptions& left, const GlowSurfaceOptions& right) noexcept {
@@ -1857,6 +1983,8 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
            left.contextMenuItems == right.contextMenuItems &&
+           left.webFolderEntries == right.webFolderEntries &&
+           left.ftpSiteEntries == right.ftpSiteEntries &&
            left.tabDockMode == right.tabDockMode &&
            left.newTabTemplate == right.newTabTemplate &&
            left.newTabCustomPath == right.newTabCustomPath &&

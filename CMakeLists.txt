@@ -48,9 +48,15 @@ add_library(ShellTabs SHARED
     src/BrowserEvents.cpp
     src/BackgroundCache.cpp
     src/FtpClient.cpp
+    src/NamespaceContextMenu.cpp
     src/FtpShellFolder.cpp
     src/FtpPidl.cpp
     src/FtpUrl.cpp
+    src/HttpClient.cpp
+    src/HttpShellFolder.cpp
+    src/HttpPidl.cpp
+    src/HttpUrl.cpp
+    src/HtmlDirectoryParser.cpp
     src/Guids.cpp
     src/Module.cpp
     src/ColorSerialization.cpp
@@ -73,6 +79,9 @@ add_library(ShellTabs SHARED
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/ComVTableHook.cpp
+    src/TaskbarPreviewHook.cpp
+    src/TaskbarTabListPopup.cpp
+    src/ShellTabsTabProvider.cpp
     src/resource.rc
 )
 
@@ -136,6 +145,7 @@ target_link_libraries(ShellTabs PRIVATE
     wtsapi32
     dbghelp
     gdiplus
+    oleacc
 )
 
 set_target_properties(ShellTabs PROPERTIES
@@ -299,5 +309,58 @@ if (WIN32 AND SHELLTABS_BUILD_TESTS)
     target_link_libraries(ShellTabsIconCacheTests PRIVATE
         user32
         shell32
+    )
+
+    add_executable(ShellTabsHtmlParserTests
+        tests/HtmlDirectoryParserTests.cpp
+        src/HtmlDirectoryParser.cpp
+    )
+
+    target_include_directories(ShellTabsHtmlParserTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsHtmlParserTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+    )
+
+    target_link_libraries(ShellTabsHtmlParserTests PRIVATE
+        shlwapi
+        shell32
+        ole32
+        oleaut32
+        dbghelp
+    )
+
+    add_executable(ShellTabsHttpPidlTests
+        tests/HttpPidlTests.cpp
+        tests/HttpPidlTestStubs.cpp
+        src/HttpPidl.cpp
+        src/HttpUrl.cpp
+    )
+
+    target_include_directories(ShellTabsHttpPidlTests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_compile_definitions(ShellTabsHttpPidlTests PRIVATE
+        UNICODE
+        _UNICODE
+        _WIN32_WINNT=0x0A00
+        NOMINMAX
+    )
+
+    target_link_libraries(ShellTabsHttpPidlTests PRIVATE
+        shlwapi
+        urlmon
+        shell32
+        ole32
+        oleaut32
+        winhttp
+        dbghelp
     )
 endif()

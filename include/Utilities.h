@@ -42,6 +42,15 @@ struct FtpUrlParts {
     unsigned short port = 21;
 };
 
+struct HttpUrlParts {
+    std::wstring canonicalUrl;
+    std::wstring host;
+    std::wstring basePath;     // e.g. "/files/" for myrient
+    std::wstring displayName;  // user-facing label
+    unsigned short port = 443;
+    bool useHttps = true;
+};
+
 UniquePidl ClonePidl(PCIDLIST_ABSOLUTE source);
 UniquePidl CloneParent(PCIDLIST_ABSOLUTE source);
 bool ArePidlsEqual(PCIDLIST_ABSOLUTE left, PCIDLIST_ABSOLUTE right);
@@ -53,6 +62,7 @@ UniquePidl ParseDisplayName(const std::wstring& parsingName);
 UniquePidl ParseExplorerUrl(const std::wstring& url);
 bool TryParseFtpUrl(const std::wstring& url, FtpUrlParts* parts);
 UniquePidl CreateFtpPidlFromUrl(const FtpUrlParts& parts);
+bool TryParseHttpUrl(const std::wstring& url, HttpUrlParts* parts);
 std::wstring NormalizeFileSystemPath(const std::wstring& path);
 std::wstring GetShellTabsDataDirectory();
 bool TryGetFileSystemPath(IShellItem* item, std::wstring* path);

@@ -1,31 +1,34 @@
 #pragma once
 
-#include "FtpClient.h"
-#include "FtpPidl.h"
+#include "HttpClient.h"
+#include "HttpPidl.h"
 #include "Module.h"
 
 #include <atomic>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <propkey.h>
 #include <shobjidl.h>
 #include <wrl/client.h>
 
-namespace shelltabs::ftp {
+namespace shelltabs::http {
 
-class FtpShellFolder : public IShellFolder2, public IPersistFolder2 {
+class HttpShellFolder : public IShellFolder2, public IPersistFolder2 {
 public:
-    FtpShellFolder();
-    FtpShellFolder(const FtpUrlParts& root, const std::vector<std::wstring>& segments);
-    ~FtpShellFolder();
+    HttpShellFolder();
+    HttpShellFolder(const HttpUrlParts& root, const std::vector<std::wstring>& segments);
+    ~HttpShellFolder();
 
-    FtpShellFolder(const FtpShellFolder&) = delete;
-    FtpShellFolder& operator=(const FtpShellFolder&) = delete;
+    HttpShellFolder(const HttpShellFolder&) = delete;
+    HttpShellFolder& operator=(const HttpShellFolder&) = delete;
 
-    static HRESULT Create(const FtpUrlParts& root, const std::vector<std::wstring>& segments, REFIID riid, void** ppv);
-    static HRESULT CreateWithParentPidl(const FtpUrlParts& root, const std::vector<std::wstring>& segments,
+    static HRESULT Create(const HttpUrlParts& root, const std::vector<std::wstring>& segments, REFIID riid, void** ppv);
+    static HRESULT CreateWithParentPidl(const HttpUrlParts& root, const std::vector<std::wstring>& segments,
                                         PCIDLIST_ABSOLUTE parentPidl, PCUIDLIST_RELATIVE childPidl,
                                         REFIID riid, void** ppv);
 
@@ -72,23 +75,27 @@ private:
     friend class ViewCallback;
 
     std::atomic<ULONG> refCount_{1};
-    FtpUrlParts rootParts_{};
+    HttpUrlParts rootParts_{};
     std::vector<std::wstring> pathSegments_;
     UniquePidl absolutePidl_;
     bool initialized_ = false;
-    bool isNamespaceRoot_ = false;
+    bool isNamespaceRoot_ = false;  // True when this is the top-level "Web Folders" node
     std::wstring filterString_;
     Microsoft::WRL::ComPtr<IShellFolderViewCB> viewCallback_;
 
     HRESULT EnsurePidl();
-    HRESULT EnumRootEntries(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList);
-    HRESULT ParseInputToSegments(std::wstring_view input, std::vector<std::wstring>* segments, bool* isDirectory) const;
     bool ExtractRelativeSegments(PCUIDLIST_RELATIVE pidl, std::vector<std::wstring>* segments, bool* isDirectory) const;
-    std::wstring BuildFolderPath(const std::vector<std::wstring>& extra) const;
-    std::wstring BuildFileName(const std::vector<std::wstring>& segments, std::wstring* directoryOut) const;
+    std::wstring BuildRemotePath(const std::vector<std::wstring>& extra) const;
     HRESULT DownloadFileToStream(const std::vector<std::wstring>& segments, Microsoft::WRL::ComPtr<IStream>* stream) const;
     HRESULT BindToChild(const std::vector<std::wstring>& segments, REFIID riid, void** ppv) const;
+    HRESULT EnumRootEntries(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList);
+    HRESULT EnumRemoteDirectory(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList);
+
+    // Static download queue keyed by host for parallel downloads
+    static HttpDownloadQueue* GetDownloadQueue(const std::wstring& host, int maxConcurrent, int speedLimitKBps);
+
+    static std::mutex s_queueMutex;
+    static std::unordered_map<std::wstring, std::unique_ptr<HttpDownloadQueue>> s_downloadQueues;
 };
 
-}  // namespace shelltabs::ftp
-
+}  // namespace shelltabs::http

@@ -52,6 +52,8 @@
 #include "Utilities.h"
 #include "ExplorerThemeUtils.h"
 #include "TabManager.h"
+#include "TaskbarPreviewHook.h"
+#include "TaskbarTabProvider.h"
 #include "IconCache.h"
 #include "DpiUtils.h"
 #include "EditGradientRenderer.h"
@@ -1648,6 +1650,14 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
                 m_shellBrowser.As(&siteProvider);
             }
             EnsureBandVisible();
+
+            // Initialize taskbar preview hook once (deferred from DllMain to avoid loader lock)
+            static std::once_flag s_taskbarPreviewInit;
+            std::call_once(s_taskbarPreviewInit, []() {
+                TaskbarPreviewHook::Instance().Initialize(
+                    CreateShellTabsTabProvider());
+            });
+
             // Defer UpdateBreadcrumbSubclass to the next message loop iteration.
             // SetSite can be called from inside a deeply nested CreateWindowExW
             // callback (KiUserCallbackDispatcher) during Explorer initialization.
@@ -3108,22 +3118,19 @@ bool CExplorerBHO::DoesSelectionMatchScope(const ContextMenuItemScope& scope,
 
 bool CExplorerBHO::ShouldDisplayMenuItem(const ContextMenuItem& item,
                                          const ContextMenuSelectionSnapshot& selection) const {
-    const size_t selectionCount = selection.items.size();
-    if (!IsSelectionCountAllowed(item.selection, selectionCount)) {
+    if (item.type == ContextMenuItemType::kSeparator) return true;
+
+    const int count = static_cast<int>(selection.items.size());
+    std::vector<std::wstring> paths;
+    paths.reserve(selection.items.size());
+    for (const auto& s : selection.items) paths.push_back(s.path);
+
+    if (!ContextMenuItemMatchesSelection(item, count, paths,
+            selection.fileCount > 0, selection.folderCount > 0))
         return false;
-    }
 
-    if (!DoesSelectionMatchScope(item.scope, selection)) {
-        return false;
-    }
-
-    if (item.type == ContextMenuItemType::kSeparator) {
-        return true;
-    }
-
-    if (item.type == ContextMenuItemType::kCommand) {
-        return !item.label.empty() || !item.commandTemplate.empty();
-    }
+    if (item.type == ContextMenuItemType::kCommand)
+        return !item.label.empty() || !item.executable.empty() || !item.commandTemplate.empty();
 
     return true;
 }
@@ -3764,7 +3771,27 @@ bool CExplorerBHO::ExecuteCommandLine(const std::wstring& commandLine) const {
     return true;
 }
 
+static std::wstring ExpandEnvVars(const std::wstring& input) {
+    if (input.empty()) return input;
+    wchar_t expanded[MAX_PATH * 2];
+    DWORD len = ExpandEnvironmentStringsW(input.c_str(), expanded, _countof(expanded));
+    if (len > 0 && len < _countof(expanded)) return std::wstring(expanded);
+    return input;
+}
+
 void CExplorerBHO::ExecuteContextMenuCommand(const ContextMenuItem& item) const {
+    // Confirmation prompt
+    if (item.confirmBeforeExecute) {
+        std::wstring msg = item.confirmMessage.empty()
+            ? L"Are you sure you want to run \"" + item.label + L"\"?"
+            : item.confirmMessage;
+        HWND owner = GetTopLevelExplorerWindow();
+        if (MessageBoxW(owner, msg.c_str(), L"Confirm", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
+            LogMessage(LogLevel::Info, L"ExecuteContextMenuCommand cancelled by user confirmation");
+            return;
+        }
+    }
+
     const std::vector<std::wstring> commands = BuildCommandLines(item);
     if (commands.empty()) {
         LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand skipped: no command lines generated");
@@ -3772,16 +3799,30 @@ void CExplorerBHO::ExecuteContextMenuCommand(const ContextMenuItem& item) const 
     }
 
     size_t succeeded = 0;
-    for (const auto& commandLine : commands) {
-        if (commandLine.empty()) {
+    for (const auto& rawCommandLine : commands) {
+        if (rawCommandLine.empty()) {
             continue;
         }
+
+        std::wstring commandLine = item.expandEnvironmentVars ? ExpandEnvVars(rawCommandLine) : rawCommandLine;
 
         if (ExecuteCommandLine(commandLine)) {
             ++succeeded;
             LogMessage(LogLevel::Info, L"ExecuteContextMenuCommand launched: %ls", commandLine.c_str());
         } else {
             LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand failed: %ls", commandLine.c_str());
+        }
+    }
+
+    // Execute additional commands sequentially
+    for (const auto& rawAdditional : item.additionalCommands) {
+        if (rawAdditional.empty()) continue;
+        std::wstring cmd = item.expandEnvironmentVars ? ExpandEnvVars(rawAdditional) : rawAdditional;
+        if (ExecuteCommandLine(cmd)) {
+            ++succeeded;
+            LogMessage(LogLevel::Info, L"ExecuteContextMenuCommand additional: %ls", cmd.c_str());
+        } else {
+            LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand additional failed: %ls", cmd.c_str());
         }
     }
 

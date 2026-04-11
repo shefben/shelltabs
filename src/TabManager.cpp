@@ -187,6 +187,18 @@ TabManager* TabManager::Find(ExplorerWindowId id) {
     return shared.get();
 }
 
+TabManager* TabManager::FindByHwnd(HWND hwnd) {
+    if (!hwnd) return nullptr;
+    std::scoped_lock lock(s_windowMutex);
+    for (auto& [id, weakMgr] : s_windowMap) {
+        if (id.hwnd == hwnd) {
+            auto mgr = weakMgr.lock();
+            if (mgr) return mgr.get();
+        }
+    }
+    return nullptr;
+}
+
 void TabManager::SetWindowId(ExplorerWindowId id) {
     std::scoped_lock lock(s_windowMutex);
     if (m_windowId == id) {

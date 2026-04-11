@@ -9,4 +9,6 @@ extern const GUID APPID_ShellTabs;
 extern const CLSID CLSID_CBreadcrumbBar;
 extern const CLSID CLSID_ShellTabsFtpFolder;
 extern const CLSID CLSID_ShellTabsFtpRoot;
+extern const CLSID CLSID_ShellTabsHttpFolder;
+extern const CLSID CLSID_ShellTabsHttpRoot;
 

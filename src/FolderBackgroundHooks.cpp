@@ -1,5 +1,9 @@
 /*
  * ShellTabs - Folder Background Hooks Implementation
+ *
+ * Uses a WS_EX_LAYERED overlay child window on top of DirectUIHWND to display
+ * background images.  The overlay is composited by DWM, eliminating flicker,
+ * z-order issues, and opacity fade that occur when drawing directly in WM_PAINT.
  */
 
 #include "../include/FolderBackgroundHooks.h"
@@ -38,11 +42,6 @@ BackgroundBitmap::BackgroundBitmap(const std::wstring& path) {
 
     const bool hasAlpha = (src->GetPixelFormat() & PixelFormatAlpha) != 0;
 
-    // Create a screen DC just for CreateDIBSection; we do NOT keep a per-bitmap DC
-    // because GDI DCs are thread-affine: a DC created on the SetImages thread cannot
-    // be used on the window's owner thread in DrawBackground → crash.
-    // Instead we store only the HBITMAP (cross-thread safe) and create a temporary
-    // DC on the drawing thread at paint time.
     HDC screenDC = CreateDCW(L"DISPLAY", nullptr, nullptr, nullptr);
 
     BITMAPINFO bmi = {};
@@ -62,8 +61,7 @@ BackgroundBitmap::BackgroundBitmap(const std::wstring& path) {
         return;
     }
 
-    // Copy pixels: GDI+ ARGB in memory [B,G,R,A] → DIBSection BGRA [B,G,R,A].
-    // Pre-multiply alpha for AC_SRC_ALPHA; set alpha=255 for opaque formats (JPEG, etc.).
+    // Copy pixels, pre-multiplying alpha for AC_SRC_ALPHA.
     const BYTE* src_row = static_cast<const BYTE*>(bmpData.Scan0);
     BYTE*       dst_row = static_cast<BYTE*>(pBits);
     const int   dst_stride = m_size.cx * 4;
@@ -82,20 +80,12 @@ BackgroundBitmap::BackgroundBitmap(const std::wstring& path) {
                 d[0] = s[0];
                 d[1] = s[1];
                 d[2] = s[2];
-                d[3] = 255;  // fully opaque
+                d[3] = 255;
             }
         }
     }
 
     src->UnlockBits(&bmpData);
-    // Don't keep m_source alive.  The Gdiplus::Bitmap is no longer needed
-    // after pixel data has been copied into the DIBSection.  Releasing it NOW
-    // (inside the ctor, while the call stack is still shallow) is critical:
-    // Gdiplus::~Bitmap triggers WIC/COM cleanup which can pump STA messages
-    // (KiUserCallbackDispatcher) on this thread.  If the bitmap is destroyed
-    // later (e.g. at the end of SetImages during a deeply-nested re-entrant
-    // callback chain from SetSite), the message pump can re-enter
-    // explorerframe → ThemeHooks → use-after-free → crash.
     src.reset();
 
     LogMessage(LogLevel::Info, L"FolderBg: loaded %ls (%ldx%ld%ls)",
@@ -104,12 +94,13 @@ BackgroundBitmap::BackgroundBitmap(const std::wstring& path) {
 
 BackgroundBitmap::~BackgroundBitmap() {
     if (m_bitmap) { DeleteObject(m_bitmap); m_bitmap = nullptr; }
-    // No DC to delete — we don't store a per-bitmap DC (see constructor comment).
 }
 
 // ============================================================================
 // FolderBackgroundHooks
 // ============================================================================
+
+ATOM FolderBackgroundHooks::s_overlayClass = 0;
 
 FolderBackgroundHooks& FolderBackgroundHooks::Instance() {
     static FolderBackgroundHooks instance;
@@ -124,6 +115,20 @@ bool FolderBackgroundHooks::Initialize() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_initialized) return true;
 
+    // Register overlay window class (once per process).
+    if (s_overlayClass == 0) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize        = sizeof(wc);
+        wc.lpfnWndProc   = DefWindowProcW;
+        wc.hInstance      = GetModuleHandleW(nullptr);
+        wc.lpszClassName  = L"ShellTabsBgOverlay";
+        wc.style          = CS_NOCLOSE;
+        s_overlayClass = RegisterClassExW(&wc);
+        if (s_overlayClass == 0) {
+            LogMessage(LogLevel::Warning, L"FolderBg: RegisterClassExW failed for overlay (err=%lu)", GetLastError());
+        }
+    }
+
     // Hook CreateWindowExW to subclass newly-created DirectUIHWND windows.
     MH_STATUS st = MH_CreateHook(&CreateWindowExW, &HookedCreateWindowExW,
                                   (LPVOID*)&s_originalCreateWindowExW);
@@ -134,8 +139,6 @@ bool FolderBackgroundHooks::Initialize() {
             s_originalCreateWindowExW = nullptr;
         }
     }
-    // Non-fatal if CreateWindowExW hook fails (e.g. ThemeHooks already owns it).
-    // Existing windows will be subclassed via SetFrameFolderPath.
     if (st != MH_OK) {
         LogMessage(LogLevel::Warning, L"FolderBg: CreateWindowExW hook failed (st=%d), "
                    L"new windows handled via SetFrameFolderPath", (int)st);
@@ -147,8 +150,8 @@ bool FolderBackgroundHooks::Initialize() {
 }
 
 void FolderBackgroundHooks::Shutdown() {
-    // Unsubclass all windows (must be called on UI thread if windows are still alive).
     UnsubclassAll();
+    DestroyAllOverlays();
 
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_initialized) return;
@@ -169,89 +172,8 @@ void FolderBackgroundHooks::Shutdown() {
 }
 
 // ============================================================================
-// SetImages
+// Helpers (must be above SetImages / SetFrameFolderPath which use them)
 // ============================================================================
-
-void FolderBackgroundHooks::SetImages(bool enabled,
-                                       BackgroundPositionMode positionMode,
-                                       BYTE opacity,
-                                       const std::wstring& universalImagePath,
-                                       const std::unordered_map<std::wstring, std::wstring>& folderImagePaths) {
-    // Re-entrancy guard: GDI+ (used in BackgroundBitmap ctor) is NOT re-entrant.
-    // During JPEG loading, GDI+ calls into WIC (COM), which can trigger apartment
-    // message delivery (KiUserCallbackDispatcher → COM window → BHO::Invoke →
-    // NavigateComplete2 → UpdateBreadcrumbSubclass → SetImages again).
-    // A re-entrant call would call Gdiplus::Bitmap while GDI+ is already active on
-    // this thread, corrupting GDI+'s thread-local state → crash.
-    static thread_local bool s_inSetImages = false;
-    if (s_inSetImages) {
-        LogMessage(LogLevel::Warning, L"FolderBg: SetImages re-entrant call suppressed");
-        return;
-    }
-    s_inSetImages = true;
-    struct SetImagesGuard { ~SetImagesGuard() { s_inSetImages = false; } } setImGuard;
-
-    // Load bitmaps OUTSIDE the mutex: BackgroundBitmap ctor calls GDI/GDI+ operations.
-    std::shared_ptr<BackgroundBitmap> newUniversal;
-    std::unordered_map<std::wstring, std::shared_ptr<BackgroundBitmap>> newFolderBitmaps;
-
-    if (enabled) {
-        if (!universalImagePath.empty()) {
-            auto bmp = std::make_shared<BackgroundBitmap>(universalImagePath);
-            if (bmp->IsValid()) newUniversal = std::move(bmp);
-        }
-        for (const auto& [folderKey, imagePath] : folderImagePaths) {
-            if (folderKey.empty() || imagePath.empty()) continue;
-            auto bmp = std::make_shared<BackgroundBitmap>(imagePath);
-            if (bmp->IsValid()) newFolderBitmaps[folderKey] = std::move(bmp);
-        }
-    }
-
-    const size_t folderCount = newFolderBitmaps.size();
-
-    // Swap bitmaps under lock.  Old bitmaps are saved into locals and explicitly
-    // destroyed BEFORE any InvalidateRect calls, so the GDI DeleteObject runs
-    // in a controlled scope with a shallow call stack.
-    {
-        std::shared_ptr<BackgroundBitmap> oldUniversal;
-        std::unordered_map<std::wstring, std::shared_ptr<BackgroundBitmap>> oldFolderBitmaps;
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_enabled      = enabled;
-            m_positionMode = positionMode;
-            m_opacity      = opacity;
-            oldUniversal          = std::move(m_universalBitmap);
-            m_universalBitmap     = std::move(newUniversal);
-            oldFolderBitmaps      = std::move(m_folderBitmaps);
-            m_folderBitmaps       = std::move(newFolderBitmaps);
-        }
-        // Old bitmaps destroyed here at end of block — safe, mutex is not held,
-        // and since we no longer keep Gdiplus::Bitmap alive (see BackgroundBitmap ctor),
-        // destruction is just DeleteObject(HBITMAP) which doesn't pump COM messages.
-    }
-
-    LogMessage(LogLevel::Info, L"FolderBg: SetImages enabled=%d universal=%ls folders=%zu",
-               (int)enabled,
-               universalImagePath.empty() ? L"(none)" : universalImagePath.c_str(),
-               folderCount);
-
-    // Invalidate all subclassed windows so they repaint with the new settings.
-    std::unordered_set<HWND> subclassed;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        subclassed = m_subclassedWindows;
-    }
-    for (HWND hwnd : subclassed) {
-        if (IsWindow(hwnd))
-            InvalidateRect(hwnd, nullptr, TRUE);
-    }
-}
-
-// ============================================================================
-// SetFrameFolderPath / ClearFrameFolderPath
-// ============================================================================
-
-// Helpers -----------------------------------------------------------------
 
 static std::wstring GetWindowClass(HWND hWnd) {
     if (!hWnd) return L"";
@@ -271,7 +193,6 @@ static HWND FindExplorerFrame(HWND startBelow) {
     return nullptr;
 }
 
-// Find SHELLDLL_DefView (anywhere under explorerFrame) and return it + its DirectUIHWND child.
 struct DefViewInfo { HWND defView = nullptr; HWND duiHwnd = nullptr; };
 static DefViewInfo FindDefViewAndDUI(HWND explorerFrame) {
     DefViewInfo info;
@@ -291,7 +212,86 @@ static DefViewInfo FindDefViewAndDUI(HWND explorerFrame) {
     return info;
 }
 
-// -------------------------------------------------------------------------
+// ============================================================================
+// SetImages
+// ============================================================================
+
+void FolderBackgroundHooks::SetImages(bool enabled,
+                                       BackgroundPositionMode positionMode,
+                                       BYTE opacity,
+                                       const std::wstring& universalImagePath,
+                                       const std::unordered_map<std::wstring, std::wstring>& folderImagePaths) {
+    static thread_local bool s_inSetImages = false;
+    if (s_inSetImages) {
+        LogMessage(LogLevel::Warning, L"FolderBg: SetImages re-entrant call suppressed");
+        return;
+    }
+    s_inSetImages = true;
+    struct SetImagesGuard { ~SetImagesGuard() { s_inSetImages = false; } } setImGuard;
+
+    // Load bitmaps OUTSIDE the mutex.
+    std::shared_ptr<BackgroundBitmap> newUniversal;
+    std::unordered_map<std::wstring, std::shared_ptr<BackgroundBitmap>> newFolderBitmaps;
+
+    if (enabled) {
+        if (!universalImagePath.empty()) {
+            auto bmp = std::make_shared<BackgroundBitmap>(universalImagePath);
+            if (bmp->IsValid()) newUniversal = std::move(bmp);
+        }
+        for (const auto& [folderKey, imagePath] : folderImagePaths) {
+            if (folderKey.empty() || imagePath.empty()) continue;
+            auto bmp = std::make_shared<BackgroundBitmap>(imagePath);
+            if (bmp->IsValid()) newFolderBitmaps[folderKey] = std::move(bmp);
+        }
+    }
+
+    const size_t folderCount = newFolderBitmaps.size();
+
+    // Collect overlay entries before swapping bitmaps so we can update them after.
+    std::vector<std::pair<HWND, HWND>> overlayEntries;
+
+    {
+        std::shared_ptr<BackgroundBitmap> oldUniversal;
+        std::unordered_map<std::wstring, std::shared_ptr<BackgroundBitmap>> oldFolderBitmaps;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_enabled      = enabled;
+            m_positionMode = positionMode;
+            m_opacity      = opacity;
+            oldUniversal          = std::move(m_universalBitmap);
+            m_universalBitmap     = std::move(newUniversal);
+            oldFolderBitmaps      = std::move(m_folderBitmaps);
+            m_folderBitmaps       = std::move(newFolderBitmaps);
+
+            for (const auto& [duiHwnd, overlayHwnd] : m_overlayWindows) {
+                overlayEntries.push_back({duiHwnd, overlayHwnd});
+            }
+        }
+    }
+
+    LogMessage(LogLevel::Info, L"FolderBg: SetImages enabled=%d universal=%ls folders=%zu",
+               (int)enabled,
+               universalImagePath.empty() ? L"(none)" : universalImagePath.c_str(),
+               folderCount);
+
+    // Update all existing overlay windows with the new image/settings.
+    for (const auto& [duiHwnd, overlayHwnd] : overlayEntries) {
+        if (!IsWindow(duiHwnd) || !IsWindow(overlayHwnd)) continue;
+        HWND explorerFrame = FindExplorerFrame(duiHwnd);
+        if (explorerFrame) {
+            // Force size tracking to refresh
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_lastOverlaySize.erase(duiHwnd);
+            }
+            UpdateOverlayContent(duiHwnd, explorerFrame);
+        }
+    }
+}
+
+// ============================================================================
+// SetFrameFolderPath / ClearFrameFolderPath
+// ============================================================================
 
 void FolderBackgroundHooks::SetFrameFolderPath(HWND explorerFrame,
                                                 const std::wstring& normalizedFolderPath) {
@@ -302,7 +302,19 @@ void FolderBackgroundHooks::SetFrameFolderPath(HWND explorerFrame,
         if (explorerFrame) m_frameFolderPaths[explorerFrame] = normalizedFolderPath;
     }
 
-    if (explorerFrame) TrySubclassFrame(explorerFrame);
+    if (explorerFrame) {
+        TrySubclassFrame(explorerFrame);
+
+        // Update overlay content for any existing overlays in this frame.
+        auto info = FindDefViewAndDUI(explorerFrame);
+        if (info.duiHwnd) {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_lastOverlaySize.erase(info.duiHwnd);
+            }
+            UpdateOverlayContent(info.duiHwnd, explorerFrame);
+        }
+    }
 }
 
 void FolderBackgroundHooks::ClearFrameFolderPath(HWND explorerFrame) {
@@ -316,7 +328,6 @@ void FolderBackgroundHooks::ClearFrameFolderPath(HWND explorerFrame) {
 
 void FolderBackgroundHooks::TrySubclassFrame(HWND explorerFrame) {
     if (!explorerFrame || !IsWindow(explorerFrame)) return;
-    // Must be called from the UI thread (same thread that owns the windows).
     auto info = FindDefViewAndDUI(explorerFrame);
     LogMessage(LogLevel::Info, L"FolderBg: TrySubclassFrame frame=%p defView=%p dui=%p",
                explorerFrame, info.defView, info.duiHwnd);
@@ -326,13 +337,15 @@ void FolderBackgroundHooks::TrySubclassFrame(HWND explorerFrame) {
     }
     if (info.duiHwnd) {
         SubclassHwnd(info.duiHwnd, explorerFrame, /*id=*/2);
+        // Create the overlay window for this DirectUIHWND.
+        CreateOverlayForDUI(info.duiHwnd, info.defView);
     }
 }
 
 void FolderBackgroundHooks::SubclassHwnd(HWND hwnd, HWND explorerFrame, UINT_PTR id) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_subclassedWindows.count(hwnd)) return;  // already subclassed
+        if (m_subclassedWindows.count(hwnd)) return;
     }
 
     if (!SetWindowSubclass(hwnd, SubclassProc, id, reinterpret_cast<DWORD_PTR>(explorerFrame))) {
@@ -350,12 +363,6 @@ void FolderBackgroundHooks::SubclassHwnd(HWND hwnd, HWND explorerFrame, UINT_PTR
     GetClassNameW(hwnd, cls, 64);
     LogMessage(LogLevel::Info, L"FolderBg: subclassed %ls hwnd=%p frame=%p id=%llu",
                cls, hwnd, explorerFrame, (unsigned long long)id);
-
-    // Trigger deferred repaint so background is visible.
-    // Do NOT use RDW_UPDATENOW here: forcing synchronous paint immediately after
-    // SetWindowSubclass can cause DefSubclassProc to dispatch WM_ERASEBKGND with
-    // wParam=0 during window initialization, leading to a null-HDC crash in DrawBackground.
-    InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 void FolderBackgroundHooks::UnsubclassAll() {
@@ -365,13 +372,260 @@ void FolderBackgroundHooks::UnsubclassAll() {
         toRemove = m_subclassedWindows;
         m_subclassedWindows.clear();
     }
-    // Iterate and remove subclass. We try both id=1 and id=2 since each window
-    // only has one subclass installed.
     for (HWND hwnd : toRemove) {
-        if (!IsWindow(hwnd)) continue;  // Window already destroyed; skip to avoid corrupting a recycled HWND
+        if (!IsWindow(hwnd)) continue;
         RemoveWindowSubclass(hwnd, SubclassProc, 1);
         RemoveWindowSubclass(hwnd, SubclassProc, 2);
     }
+}
+
+// ============================================================================
+// Overlay Window Management
+// ============================================================================
+
+void FolderBackgroundHooks::CreateOverlayForDUI(HWND duiHwnd, HWND defViewParent) {
+    if (!duiHwnd || !defViewParent || s_overlayClass == 0) return;
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_overlayWindows.count(duiHwnd)) return;  // already exists
+    }
+
+    RECT rc;
+    if (!GetClientRect(duiHwnd, &rc)) return;
+
+    // Create as a child of SHELLDLL_DefView, positioned over DirectUIHWND.
+    // WS_EX_LAYERED: composited by DWM, persistent across DirectUI repaints.
+    // WS_EX_TRANSPARENT: passes all mouse/keyboard input through to DirectUI.
+    // WS_EX_NOACTIVATE: never steals focus.
+    HWND overlay = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
+        MAKEINTATOM(s_overlayClass),
+        nullptr,
+        WS_CHILD | WS_VISIBLE,
+        0, 0, rc.right, rc.bottom,
+        defViewParent,
+        nullptr,
+        GetModuleHandleW(nullptr),
+        nullptr);
+
+    if (!overlay) {
+        LogMessage(LogLevel::Warning, L"FolderBg: CreateOverlayForDUI failed (err=%lu)", GetLastError());
+        return;
+    }
+
+    // Place overlay above DirectUIHWND in z-order.
+    SetWindowPos(overlay, duiHwnd, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_overlayWindows[duiHwnd] = overlay;
+    }
+
+    LogMessage(LogLevel::Info, L"FolderBg: created overlay %p for DUI %p", overlay, duiHwnd);
+
+    // Populate with initial content.
+    HWND explorerFrame = FindExplorerFrame(duiHwnd);
+    if (explorerFrame) {
+        UpdateOverlayContent(duiHwnd, explorerFrame);
+    }
+}
+
+void FolderBackgroundHooks::DestroyOverlayForDUI(HWND duiHwnd) {
+    HWND overlay = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_overlayWindows.find(duiHwnd);
+        if (it == m_overlayWindows.end()) return;
+        overlay = it->second;
+        m_overlayWindows.erase(it);
+        m_lastOverlaySize.erase(duiHwnd);
+    }
+    if (overlay && IsWindow(overlay)) {
+        DestroyWindow(overlay);
+    }
+    LogMessage(LogLevel::Info, L"FolderBg: destroyed overlay for DUI %p", duiHwnd);
+}
+
+void FolderBackgroundHooks::DestroyAllOverlays() {
+    std::unordered_map<HWND, HWND> overlays;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        overlays = m_overlayWindows;
+        m_overlayWindows.clear();
+        m_lastOverlaySize.clear();
+    }
+    for (const auto& [duiHwnd, overlay] : overlays) {
+        if (overlay && IsWindow(overlay)) {
+            DestroyWindow(overlay);
+        }
+    }
+}
+
+void FolderBackgroundHooks::RepositionOverlay(HWND duiHwnd) {
+    HWND overlay = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_overlayWindows.find(duiHwnd);
+        if (it == m_overlayWindows.end()) return;
+        overlay = it->second;
+    }
+    if (!overlay || !IsWindow(overlay)) return;
+
+    RECT rc;
+    if (!GetClientRect(duiHwnd, &rc)) return;
+
+    SetWindowPos(overlay, duiHwnd,
+                 0, 0, rc.right, rc.bottom,
+                 SWP_NOACTIVATE);
+}
+
+void FolderBackgroundHooks::UpdateOverlayContent(HWND duiHwnd, HWND explorerFrame) {
+    HWND overlay = nullptr;
+    std::shared_ptr<const BackgroundBitmap> bmp;
+    BackgroundPositionMode posMode;
+    BYTE opacity;
+    bool enabled;
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_overlayWindows.find(duiHwnd);
+        if (it == m_overlayWindows.end()) return;
+        overlay = it->second;
+        enabled = m_enabled;
+        if (!enabled) {
+            // Hide overlay when disabled.
+            if (overlay && IsWindow(overlay)) {
+                // Set fully transparent to hide.
+                SIZE zero = {0, 0};
+                POINT ptZero = {0, 0};
+                BLENDFUNCTION bf = {};
+                bf.BlendOp = AC_SRC_OVER;
+                bf.SourceConstantAlpha = 0;
+                bf.AlphaFormat = AC_SRC_ALPHA;
+                UpdateLayeredWindow(overlay, nullptr, nullptr, &zero, nullptr, &ptZero, 0, &bf, ULW_ALPHA);
+            }
+            return;
+        }
+        bmp = ResolveBitmapForFrame(explorerFrame);
+        posMode = m_positionMode;
+        opacity = m_opacity;
+    }
+
+    if (!overlay || !IsWindow(overlay)) return;
+
+    RECT cr;
+    if (!GetClientRect(duiHwnd, &cr)) return;
+    SIZE wndSize = {cr.right, cr.bottom};
+    if (wndSize.cx <= 0 || wndSize.cy <= 0) return;
+
+    // Check if update is needed (size unchanged and we've already rendered).
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto sizeIt = m_lastOverlaySize.find(duiHwnd);
+        if (sizeIt != m_lastOverlaySize.end() &&
+            sizeIt->second.cx == wndSize.cx && sizeIt->second.cy == wndSize.cy) {
+            return;  // Already up to date
+        }
+        m_lastOverlaySize[duiHwnd] = wndSize;
+    }
+
+    if (!bmp || !bmp->IsValid()) {
+        // No image: make overlay fully transparent.
+        SIZE zero = {0, 0};
+        POINT ptZero = {0, 0};
+        BLENDFUNCTION bf = {};
+        bf.BlendOp = AC_SRC_OVER;
+        bf.SourceConstantAlpha = 0;
+        bf.AlphaFormat = AC_SRC_ALPHA;
+        UpdateLayeredWindow(overlay, nullptr, nullptr, &zero, nullptr, &ptZero, 0, &bf, ULW_ALPHA);
+        return;
+    }
+
+    SIZE imgSize = bmp->GetSize();
+    if (imgSize.cx <= 0 || imgSize.cy <= 0) return;
+
+    // Create 32bpp ARGB DIB section for the overlay surface.
+    HDC screenDC = GetDC(nullptr);
+    if (!screenDC) return;
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = wndSize.cx;
+    bmi.bmiHeader.biHeight      = -wndSize.cy;  // top-down
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biBitCount    = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* pBits = nullptr;
+    HBITMAP dibSection = CreateDIBSection(screenDC, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+    if (!dibSection || !pBits) {
+        ReleaseDC(nullptr, screenDC);
+        return;
+    }
+
+    // Fill with transparent (zeroed ARGB = fully transparent).
+    memset(pBits, 0, static_cast<size_t>(wndSize.cx) * wndSize.cy * 4);
+
+    HDC memDC = CreateCompatibleDC(screenDC);
+    if (!memDC) {
+        DeleteObject(dibSection);
+        ReleaseDC(nullptr, screenDC);
+        return;
+    }
+    HGDIOBJ oldMemBmp = SelectObject(memDC, dibSection);
+
+    // Draw the background image into the DIB.
+    HDC srcDC = CreateCompatibleDC(screenDC);
+    if (srcDC) {
+        HGDIOBJ oldSrcBmp = SelectObject(srcDC, bmp->GetBitmap());
+        if (oldSrcBmp && oldSrcBmp != HGDI_ERROR) {
+            // Use full opacity in the bitmap — SourceConstantAlpha in
+            // UpdateLayeredWindow will apply the user's configured opacity.
+            BLENDFUNCTION bfDraw = {};
+            bfDraw.BlendOp             = AC_SRC_OVER;
+            bfDraw.SourceConstantAlpha = 255;
+            bfDraw.AlphaFormat         = AC_SRC_ALPHA;
+
+            if (posMode == BackgroundPositionMode::kTile) {
+                for (int ty = 0; ty < wndSize.cy; ty += imgSize.cy) {
+                    for (int tx = 0; tx < wndSize.cx; tx += imgSize.cx) {
+                        AlphaBlend(memDC, tx, ty, imgSize.cx, imgSize.cy,
+                                   srcDC, 0, 0, imgSize.cx, imgSize.cy, bfDraw);
+                    }
+                }
+            } else {
+                POINT pos;
+                SIZE  dstSize;
+                CalculateImagePosition(wndSize, imgSize, posMode, pos, dstSize);
+                if (dstSize.cx > 0 && dstSize.cy > 0) {
+                    AlphaBlend(memDC, pos.x, pos.y, dstSize.cx, dstSize.cy,
+                               srcDC, 0, 0, imgSize.cx, imgSize.cy, bfDraw);
+                }
+            }
+
+            SelectObject(srcDC, oldSrcBmp);
+        }
+        DeleteDC(srcDC);
+    }
+
+    // UpdateLayeredWindow with the user's configured opacity.
+    POINT ptSrc = {0, 0};
+    BLENDFUNCTION bf = {};
+    bf.BlendOp             = AC_SRC_OVER;
+    bf.SourceConstantAlpha = opacity;
+    bf.AlphaFormat         = AC_SRC_ALPHA;
+
+    UpdateLayeredWindow(overlay, screenDC, nullptr, &wndSize, memDC, &ptSrc, 0, &bf, ULW_ALPHA);
+
+    SelectObject(memDC, oldMemBmp);
+    DeleteDC(memDC);
+    DeleteObject(dibSection);
+    ReleaseDC(nullptr, screenDC);
+
+    LogMessage(LogLevel::Verbose, L"FolderBg: updated overlay for DUI %p (%ldx%ld) opacity=%d",
+               duiHwnd, wndSize.cx, wndSize.cy, (int)opacity);
 }
 
 // ============================================================================
@@ -382,23 +636,11 @@ LRESULT CALLBACK FolderBackgroundHooks::SubclassProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
     UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
 {
-    // IMPORTANT: No global re-entrancy guard here.
-    //
-    // The previous version used a `static thread_local bool` guard that blocked
-    // ALL messages when re-entrant.  This prevented WM_ERASEBKGND from executing
-    // during the WM_PAINT cycle (DefSubclassProc → BeginPaint → WM_ERASEBKGND),
-    // which caused:
-    //   1. Background image never visible (default erase overwrites it).
-    //   2. WM_NCDESTROY cleanup skipped → stale HWNDs in m_subclassedWindows →
-    //      UnsubclassAll could corrupt a recycled HWND → crash.
-    //
-    // DrawBackground has its own thread-local re-entrancy guard (`s_drawing`)
-    // which is sufficient to prevent infinite recursion within the drawing path.
-
     // Always handle WM_NCDESTROY first — must never be skipped.
     if (msg == WM_NCDESTROY) {
-        RemoveWindowSubclass(hwnd, SubclassProc, uIdSubclass);
         FolderBackgroundHooks& inst = Instance();
+        inst.DestroyOverlayForDUI(hwnd);
+        RemoveWindowSubclass(hwnd, SubclassProc, uIdSubclass);
         {
             std::lock_guard<std::mutex> lock(inst.m_mutex);
             inst.m_subclassedWindows.erase(hwnd);
@@ -410,40 +652,11 @@ LRESULT CALLBACK FolderBackgroundHooks::SubclassProc(
     FolderBackgroundHooks& inst = Instance();
 
     switch (msg) {
-    case WM_ERASEBKGND:
-        // Do NOT draw the background image here.
-        //
-        // DirectUIHWND uses DirectUI's internal rendering pipeline, which fills
-        // its own background during WM_PAINT — overwriting anything we draw in
-        // WM_ERASEBKGND.  The result: image invisible except for brief flashes
-        // during scrolling (the gap between our draw and DirectUI's overwrite).
-        //
-        // Drawing is done after WM_PAINT instead (below).
-        break;
-
-    case WM_PAINT: {
-        // Let DirectUI's WM_PAINT handler run to completion first.  This calls
-        // BeginPaint → renders the entire visual tree (background, icons, text,
-        // selection) → EndPaint.  The update region is now validated.
-        LRESULT ret = DefSubclassProc(hwnd, msg, wParam, lParam);
-
-        // Overlay our background image AFTER DirectUI has finished painting.
-        // GetDC() returns a non-paint DC, but since EndPaint already validated
-        // the update region, this won't trigger another WM_PAINT cycle.
-        if (inst.m_enabled) {
-            HDC hDC = GetDC(hwnd);
-            if (hDC) {
-                inst.DrawBackground(hDC, hwnd, explorerFrame);
-                ReleaseDC(hwnd, hDC);
-            }
-        }
-        return ret;
-    }
-
     case WM_SIZE:
-        // Redraw so image position updates on resize.
+        // Reposition and update the overlay when the DirectUI window resizes.
         if (inst.m_enabled) {
-            InvalidateRect(hwnd, nullptr, TRUE);
+            inst.RepositionOverlay(hwnd);
+            inst.UpdateOverlayContent(hwnd, explorerFrame);
         }
         break;
     }
@@ -464,7 +677,6 @@ HWND WINAPI FolderBackgroundHooks::HookedCreateWindowExW(
                                            X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam);
     if (!hWnd) return hWnd;
 
-    // We care about DirectUIHWND whose parent is SHELLDLL_DefView inside a CabinetWClass Explorer.
     if (GetWindowClass(hWnd) != L"DirectUIHWND") return hWnd;
     if (GetWindowClass(hWndParent) != L"SHELLDLL_DefView") return hWnd;
 
@@ -472,15 +684,15 @@ HWND WINAPI FolderBackgroundHooks::HookedCreateWindowExW(
     if (!explorerFrame) return hWnd;
 
     FolderBackgroundHooks& inst = Instance();
-    // Subclass both SHELLDLL_DefView and the new DirectUIHWND.
     inst.SubclassHwnd(hWndParent, explorerFrame, /*id=*/1);
     inst.SubclassHwnd(hWnd,       explorerFrame, /*id=*/2);
+    inst.CreateOverlayForDUI(hWnd, hWndParent);
 
     return hWnd;
 }
 
 // ============================================================================
-// Drawing
+// Drawing helpers (used by overlay)
 // ============================================================================
 
 std::shared_ptr<const BackgroundBitmap>
@@ -537,75 +749,6 @@ void FolderBackgroundHooks::CalculateImagePosition(const SIZE& wndSize, const SI
         pos = {wndSize.cx - imgSize.cx, wndSize.cy - imgSize.cy};
         break;
     }
-}
-
-void FolderBackgroundHooks::DrawBackground(HDC hDC, HWND hWnd, HWND explorerFrame) {
-    if (!hDC) return;
-    // Guard against re-entrant calls (e.g. GDI operations in SetImages triggering messages).
-    static thread_local bool s_drawing = false;
-    if (s_drawing) return;
-    s_drawing = true;
-    struct DrawGuard { ~DrawGuard() { s_drawing = false; } } guard;
-
-    // Snapshot all state we need, then draw without holding the lock.
-    std::shared_ptr<const BackgroundBitmap> bmp;
-    BackgroundPositionMode posMode;
-    BYTE opacity;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_enabled) return;
-        bmp = ResolveBitmapForFrame(explorerFrame);
-        if (!bmp) return;
-        posMode = m_positionMode;
-        opacity = m_opacity;
-    }
-
-    RECT cr;
-    if (!GetClientRect(hWnd, &cr)) return;
-    SIZE wndSize = {cr.right, cr.bottom};
-    if (wndSize.cx <= 0 || wndSize.cy <= 0) return;
-
-    SIZE imgSize = bmp->GetSize();
-    if (imgSize.cx <= 0 || imgSize.cy <= 0) return;
-
-    BLENDFUNCTION bf = {};
-    bf.BlendOp             = AC_SRC_OVER;
-    bf.SourceConstantAlpha = opacity;
-    bf.AlphaFormat         = AC_SRC_ALPHA;  // source has pre-multiplied alpha
-
-    // Create a temporary DC on the current (drawing) thread.
-    // HBITMAP is cross-thread safe; HDC is not — this is why we don't cache the DC.
-    HDC srcDC = CreateCompatibleDC(hDC);
-    if (!srcDC) return;
-    HGDIOBJ oldBmp = SelectObject(srcDC, bmp->GetBitmap());
-    if (!oldBmp || oldBmp == HGDI_ERROR) {
-        DeleteDC(srcDC);
-        return;
-    }
-
-    if (posMode == BackgroundPositionMode::kTile) {
-        // Tile: repeat the image across the entire client area
-        for (int ty = 0; ty < wndSize.cy; ty += imgSize.cy) {
-            for (int tx = 0; tx < wndSize.cx; tx += imgSize.cx) {
-                AlphaBlend(hDC, tx, ty, imgSize.cx, imgSize.cy,
-                           srcDC, 0, 0, imgSize.cx, imgSize.cy, bf);
-            }
-        }
-    } else {
-        POINT pos;
-        SIZE  dstSize;
-        CalculateImagePosition(wndSize, imgSize, posMode, pos, dstSize);
-        if (dstSize.cx > 0 && dstSize.cy > 0) {
-            AlphaBlend(hDC, pos.x, pos.y, dstSize.cx, dstSize.cy,
-                       srcDC, 0, 0, imgSize.cx, imgSize.cy, bf);
-        }
-    }
-
-    SelectObject(srcDC, oldBmp);
-    DeleteDC(srcDC);
-
-    LogMessage(LogLevel::Verbose, L"FolderBg: drew background hwnd=%p frame=%p mode=%d",
-               hWnd, explorerFrame, static_cast<int>(posMode));
 }
 
 // ============================================================================

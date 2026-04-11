@@ -63,12 +63,17 @@ enum class FtpOperationKind {
     DirectoryListing,
     Download,
     Upload,
+    DeleteFile,
+    DeleteDirectory,
+    CreateDirectory,
+    RenameFile,
 };
 
 struct FtpOperationContext {
     FtpOperationKind kind = FtpOperationKind::DirectoryListing;
     std::wstring remotePath;
     std::wstring localPath;
+    std::wstring renameNewPath;
     bool useMlsd = true;
     std::vector<FtpDirectoryEntry>* directoryResults = nullptr;
     FtpTransferResult* transferResult = nullptr;
@@ -92,6 +97,19 @@ public:
     HRESULT UploadFile(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
                        const std::wstring& localPath, const std::wstring& remotePath,
                        FtpTransferResult* transferResult, HWND credentialParent = nullptr);
+
+    HRESULT DeleteFile(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                       const std::wstring& remotePath, HWND credentialParent = nullptr);
+
+    HRESULT DeleteDirectory(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                            const std::wstring& remotePath, HWND credentialParent = nullptr);
+
+    HRESULT CreateDirectory(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                            const std::wstring& remotePath, HWND credentialParent = nullptr);
+
+    HRESULT RenameFile(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                       const std::wstring& oldPath, const std::wstring& newPath,
+                       HWND credentialParent = nullptr);
 
     void ClearConnectionPool();
 

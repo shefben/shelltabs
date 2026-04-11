@@ -1,4 +1,7 @@
 #include "FtpShellFolder.h"
+#include "Guids.h"
+#include "NamespaceContextMenu.h"
+#include "OptionsStore.h"
 
 #include <shlobj.h>
 #include <shobjidl_core.h>
@@ -39,32 +42,95 @@ namespace shelltabs::ftp {
 
 namespace {
 
-struct DefContextMenuLayout {
-    HWND hwnd;
-    IContextMenuCB* pcmcb;
-    PCIDLIST_ABSOLUTE pidlFolder;
-    IShellFolder* psf;
-    UINT cidl;
-    PCUITEMID_CHILD_ARRAY apidl;
-    IUnknown* punkAssociationInfo;
-    IDataObject* pdtobj;
-    IUnknown* punkSite;
-};
-
-static_assert(sizeof(DefContextMenuLayout) == sizeof(DEFCONTEXTMENU),
-              "DEFCONTEXTMENU layout changed unexpectedly");
-
-inline void AssignContextMenuDataObject(DEFCONTEXTMENU& def, IDataObject* dataObject) noexcept {
-    auto* slot = reinterpret_cast<IDataObject**>(reinterpret_cast<unsigned char*>(&def) +
-                                                 offsetof(DefContextMenuLayout, pdtobj));
-    *slot = dataObject;
-}
-
 #ifdef SHCONTF_ALLFOLDERS
 constexpr SHCONTF kShcontfAllFolders = SHCONTF_ALLFOLDERS;
 #else
 constexpr SHCONTF kShcontfAllFolders = static_cast<SHCONTF>(0x00000080);
 #endif
+
+// Static enum for namespace root: returns pre-built PIDLs.
+class StaticEnumIDList : public IEnumIDList {
+public:
+    explicit StaticEnumIDList(std::vector<std::vector<std::uint8_t>> items)
+        : refCount_(1), items_(std::move(items)) {}
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (!object) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IEnumIDList) {
+            *object = static_cast<IEnumIDList*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return ++refCount_; }
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG count = --refCount_;
+        if (count == 0) delete this;
+        return count;
+    }
+
+    IFACEMETHODIMP Next(ULONG celt, PITEMID_CHILD* rgelt, ULONG* pceltFetched) override {
+        if (!rgelt) return E_POINTER;
+        if (celt > 1 && !pceltFetched) return E_INVALIDARG;
+        for (ULONG i = 0; i < celt; ++i) rgelt[i] = nullptr;
+        ULONG fetched = 0;
+        while (fetched < celt && currentIndex_ < items_.size()) {
+            const auto& bytes = items_[currentIndex_];
+            auto* pidl = static_cast<PITEMID_CHILD>(CoTaskMemAlloc(bytes.size()));
+            if (!pidl) return E_OUTOFMEMORY;
+            std::memcpy(pidl, bytes.data(), bytes.size());
+            rgelt[fetched] = pidl;
+            ++fetched;
+            ++currentIndex_;
+        }
+        if (pceltFetched) *pceltFetched = fetched;
+        return fetched == celt ? S_OK : S_FALSE;
+    }
+
+    IFACEMETHODIMP Skip(ULONG celt) override {
+        size_t remaining = items_.size() - currentIndex_;
+        if (celt > remaining) { currentIndex_ = items_.size(); return S_FALSE; }
+        currentIndex_ += celt;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP Reset() override { currentIndex_ = 0; return S_OK; }
+
+    IFACEMETHODIMP Clone(IEnumIDList** ppenum) override {
+        if (!ppenum) return E_POINTER;
+        auto copy = new (std::nothrow) StaticEnumIDList(items_);
+        if (!copy) return E_OUTOFMEMORY;
+        copy->currentIndex_ = currentIndex_;
+        *ppenum = copy;
+        return S_OK;
+    }
+
+private:
+    std::atomic<ULONG> refCount_;
+    std::vector<std::vector<std::uint8_t>> items_;
+    size_t currentIndex_ = 0;
+};
+
+void SaveFtpSiteIfNew(const FtpUrlParts& parts) {
+    if (parts.host.empty()) return;
+    auto options = OptionsStore::Instance().Get();
+    for (const auto& entry : options.ftpSiteEntries) {
+        if (_wcsicmp(entry.host.c_str(), parts.host.c_str()) == 0 && entry.port == parts.port) {
+            return;  // Already saved
+        }
+    }
+    FtpSiteEntry newEntry;
+    newEntry.host = parts.host;
+    newEntry.displayName = parts.host;
+    newEntry.userName = parts.userName;
+    newEntry.port = parts.port;
+    newEntry.enabled = true;
+    options.ftpSiteEntries.push_back(std::move(newEntry));
+    OptionsStore::Instance().Set(options);
+}
 
 constexpr GUID kFtpSearchProviderGuid =
     {0x9a3df3a4, 0x8d1a, 0x4a26, {0x9f, 0x48, 0xf8, 0x43, 0x61, 0x5b, 0xd9, 0x5e}};
@@ -149,71 +215,137 @@ private:
     size_t currentIndex_ = 0;
 };
 
-struct InternetHandle {
-    InternetHandle() = default;
-    explicit InternetHandle(HINTERNET value) : handle(value) {}
-    ~InternetHandle() {
-        if (handle) {
-            InternetCloseHandle(handle);
-        }
-    }
+// SFVM constants not always available in all SDK configurations
+#ifndef SFVM_MERGEMENU
+#define SFVM_MERGEMENU 1
+#endif
+#ifndef SFVM_INVOKECOMMAND
+#define SFVM_INVOKECOMMAND 2
+#endif
+#ifndef SFVM_DBLCLK
+#define SFVM_DBLCLK 19
+#endif
+#ifndef SFVM_GETNOTIFY
+#define SFVM_GETNOTIFY 49
+#endif
 
-    InternetHandle(const InternetHandle&) = delete;
-    InternetHandle& operator=(const InternetHandle&) = delete;
+constexpr UINT kFilterCommandId = 0x7F00;
 
-    InternetHandle(InternetHandle&& other) noexcept : handle(other.handle) { other.handle = nullptr; }
-    InternetHandle& operator=(InternetHandle&& other) noexcept {
-        if (this != &other) {
-            if (handle) {
-                InternetCloseHandle(handle);
-            }
-            handle = other.handle;
-            other.handle = nullptr;
-        }
-        return *this;
-    }
-
-    HINTERNET get() const noexcept { return handle; }
-    HINTERNET release() noexcept {
-        HINTERNET value = handle;
-        handle = nullptr;
-        return value;
-    }
-    void reset(HINTERNET value = nullptr) {
-        if (handle) {
-            InternetCloseHandle(handle);
-        }
-        handle = value;
-    }
-
-private:
-    HINTERNET handle = nullptr;
+struct FilterDialogData {
+    const wchar_t* prompt;
+    const wchar_t* defaultValue;
+    std::wstring result;
+    bool accepted;
 };
 
-HRESULT RenameRemoteItem(const FtpConnectionOptions& options, const FtpCredential& credential,
-                         const std::wstring& directory, const std::wstring& oldName,
-                         const std::wstring& newName) {
-    InternetHandle internet(InternetOpenW(L"ShellTabs", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0));
-    if (!internet.get()) {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    InternetHandle connection(InternetConnectW(internet.get(), options.host.c_str(), options.port,
-                                               credential.userName.c_str(), credential.password.c_str(),
-                                               INTERNET_SERVICE_FTP, 0, 0));
-    if (!connection.get()) {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    DWORD passive = options.passiveMode ? 1u : 0u;
-    InternetSetOptionW(connection.get(), INTERNET_OPTION_PASSIVE, &passive, sizeof(passive));
-    if (!directory.empty() && directory != L"/") {
-        if (!FtpSetCurrentDirectoryW(connection.get(), directory.c_str())) {
-            return HRESULT_FROM_WIN32(GetLastError());
+INT_PTR CALLBACK FilterDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            SetWindowLongPtrW(hwnd, DWLP_USER, lParam);
+            auto* data = reinterpret_cast<FilterDialogData*>(lParam);
+            if (data && data->defaultValue) {
+                SetDlgItemTextW(hwnd, 101, data->defaultValue);
+            }
+            return TRUE;
         }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDOK) {
+                auto* data = reinterpret_cast<FilterDialogData*>(GetWindowLongPtrW(hwnd, DWLP_USER));
+                if (data) {
+                    wchar_t buf[512]{};
+                    GetDlgItemTextW(hwnd, 101, buf, ARRAYSIZE(buf));
+                    data->result = buf;
+                    data->accepted = true;
+                }
+                EndDialog(hwnd, IDOK);
+                return TRUE;
+            }
+            if (LOWORD(wParam) == IDCANCEL) {
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            break;
     }
-    if (!FtpRenameFileW(connection.get(), oldName.c_str(), newName.c_str())) {
-        return HRESULT_FROM_WIN32(GetLastError());
+    return FALSE;
+}
+
+bool ShowFilterDialog(HWND parent, const wchar_t* defaultValue, std::wstring* result) {
+    if (!result) return false;
+    result->clear();
+
+    FilterDialogData data{L"Filter items by name:", defaultValue, {}, false};
+
+    alignas(4) BYTE buffer[2048]{};
+    BYTE* ptr = buffer;
+    auto WriteWord = [&](WORD v) { memcpy(ptr, &v, 2); ptr += 2; };
+    auto WriteDword = [&](DWORD v) { memcpy(ptr, &v, 4); ptr += 4; };
+    auto WriteWStr = [&](const wchar_t* s) { size_t n = (wcslen(s) + 1) * 2; memcpy(ptr, s, n); ptr += n; };
+    auto Align4 = [&]() { while ((reinterpret_cast<uintptr_t>(ptr) & 3) != 0) *ptr++ = 0; };
+    UNREFERENCED_PARAMETER(WriteDword);
+
+    auto* dlg = reinterpret_cast<DLGTEMPLATE*>(ptr);
+    dlg->style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE | DS_SETFONT;
+    dlg->cdit = 4; dlg->x = 0; dlg->y = 0; dlg->cx = 220; dlg->cy = 75;
+    ptr += sizeof(DLGTEMPLATE);
+    WriteWord(0); WriteWord(0);
+    WriteWStr(L"Filter");
+    WriteWord(8); WriteWStr(L"MS Shell Dlg");
+    Align4();
+
+    auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(ptr);
+    item->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+    item->x = 7; item->y = 7; item->cx = 206; item->cy = 12; item->id = 100;
+    ptr += sizeof(DLGITEMTEMPLATE);
+    WriteWord(0xFFFF); WriteWord(0x0082);
+    WriteWStr(L"Filter items by name (leave empty to clear):");
+    WriteWord(0); Align4();
+
+    item = reinterpret_cast<DLGITEMTEMPLATE*>(ptr);
+    item->style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL;
+    item->dwExtendedStyle = WS_EX_CLIENTEDGE;
+    item->x = 7; item->y = 22; item->cx = 206; item->cy = 14; item->id = 101;
+    ptr += sizeof(DLGITEMTEMPLATE);
+    WriteWord(0xFFFF); WriteWord(0x0081);
+    WriteWStr(defaultValue ? defaultValue : L"");
+    WriteWord(0); Align4();
+
+    item = reinterpret_cast<DLGITEMTEMPLATE*>(ptr);
+    item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON;
+    item->x = 108; item->y = 44; item->cx = 50; item->cy = 14; item->id = IDOK;
+    ptr += sizeof(DLGITEMTEMPLATE);
+    WriteWord(0xFFFF); WriteWord(0x0080);
+    WriteWStr(L"OK"); WriteWord(0); Align4();
+
+    item = reinterpret_cast<DLGITEMTEMPLATE*>(ptr);
+    item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
+    item->x = 163; item->y = 44; item->cx = 50; item->cy = 14; item->id = IDCANCEL;
+    ptr += sizeof(DLGITEMTEMPLATE);
+    WriteWord(0xFFFF); WriteWord(0x0080);
+    WriteWStr(L"Cancel"); WriteWord(0);
+
+    INT_PTR ret = DialogBoxIndirectParamW(nullptr, reinterpret_cast<DLGTEMPLATE*>(buffer),
+                                          parent, FilterDialogProc, reinterpret_cast<LPARAM>(&data));
+    if (ret == IDOK && data.accepted) {
+        *result = std::move(data.result);
+        return true;
     }
-    return S_OK;
+    return false;
+}
+
+bool ContainsIgnoreCase(const std::wstring& haystack, const std::wstring& needle) {
+    if (needle.empty()) return true;
+    if (haystack.size() < needle.size()) return false;
+    for (size_t i = 0; i <= haystack.size() - needle.size(); ++i) {
+        bool match = true;
+        for (size_t j = 0; j < needle.size(); ++j) {
+            if (towlower(haystack[i + j]) != towlower(needle[j])) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
 }
 
 template <typename>
@@ -435,7 +567,7 @@ ULONG MapFindDataToAttributes(const WIN32_FIND_DATAW& data) {
     ULONG attributes = SFGAO_STORAGE | SFGAO_CANCOPY;
     const bool isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     if (isDirectory) {
-        attributes |= SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_HASSUBFOLDER;
+        attributes |= SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
     } else {
         attributes |= SFGAO_STREAM;
     }
@@ -460,22 +592,30 @@ bool TryGetNameFromPidl(PCUIDLIST_RELATIVE pidl, std::wstring* name) {
 class EnumerationState : public std::enable_shared_from_this<EnumerationState> {
 public:
     EnumerationState(const FtpUrlParts& parts, std::vector<std::wstring> segments, std::vector<std::uint8_t> absolute,
-                     SHCONTF flags, HWND owner)
+                     SHCONTF flags, HWND owner, std::wstring filter = {})
         : rootParts_(parts),
           pathSegments_(std::move(segments)),
           absolutePidlBytes_(std::move(absolute)),
           flags_(flags),
-          ownerWindow_(owner) {}
+          ownerWindow_(owner),
+          filterString_(std::move(filter)) {}
 
     ~EnumerationState() {
         Cancel();
         if (worker_.joinable()) {
-            worker_.join();
+            if (std::this_thread::get_id() == workerThreadId_) {
+                worker_.detach();
+            } else {
+                worker_.join();
+            }
         }
     }
 
     void Start() {
-        worker_ = std::thread([self = shared_from_this()]() { self->WorkerProc(); });
+        worker_ = std::thread([self = shared_from_this()]() {
+            self->workerThreadId_ = std::this_thread::get_id();
+            self->WorkerProc();
+        });
     }
 
     void Cancel() {
@@ -628,6 +768,9 @@ private:
                 return false;
             }
         }
+        if (!filterString_.empty() && !ContainsIgnoreCase(entry.name, filterString_)) {
+            return false;
+        }
         return true;
     }
 
@@ -638,11 +781,13 @@ private:
     bool workerFinished_ = false;
     HRESULT result_ = S_OK;
     std::thread worker_;
+    std::thread::id workerThreadId_;
     FtpUrlParts rootParts_{};
     std::vector<std::wstring> pathSegments_;
     std::vector<std::uint8_t> absolutePidlBytes_;
     SHCONTF flags_ = 0;
     HWND ownerWindow_ = nullptr;
+    std::wstring filterString_;
 };
 
 class FtpEnumIDList : public IEnumIDList {
@@ -751,6 +896,93 @@ private:
 
 }  // namespace
 
+class FtpShellFolder::ViewCallback : public IShellFolderViewCB {
+public:
+    explicit ViewCallback(FtpShellFolder* owner) : owner_(owner) {
+        if (owner && owner->absolutePidl_) {
+            notifyPidl_ = ClonePidl(owner->absolutePidl_.get());
+        }
+    }
+
+    void Invalidate() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        owner_ = nullptr;
+    }
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IShellFolderViewCB) {
+            *ppv = static_cast<IShellFolderViewCB*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return ++refCount_; }
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG count = --refCount_;
+        if (count == 0) delete this;
+        return count;
+    }
+
+    IFACEMETHODIMP MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam) override {
+        switch (uMsg) {
+            case SFVM_MERGEMENU: {
+                auto* qcm = reinterpret_cast<QCMINFO*>(lParam);
+                if (qcm && qcm->hmenu) {
+                    filterCmdId_ = qcm->idCmdFirst;
+                    InsertMenuW(qcm->hmenu, static_cast<UINT>(-1), MF_BYPOSITION | MF_STRING,
+                                filterCmdId_, L"Filter...");
+                    ++qcm->idCmdFirst;
+                }
+                return S_OK;
+            }
+            case SFVM_INVOKECOMMAND: {
+                if (static_cast<UINT>(wParam) == filterCmdId_) {
+                    std::wstring filterText;
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (owner_) {
+                        if (ShowFilterDialog(nullptr, owner_->filterString_.c_str(), &filterText)) {
+                            owner_->filterString_ = filterText;
+                            if (owner_->absolutePidl_) {
+                                SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_IDLIST,
+                                               owner_->absolutePidl_.get(), nullptr);
+                            }
+                        }
+                    }
+                    return S_OK;
+                }
+                return E_FAIL;
+            }
+            case SFVM_DBLCLK:
+                // Return S_FALSE so DefView performs its default double-click handling
+                // (BrowseObject for folders, default verb for files)
+                return S_FALSE;
+            case SFVM_GETNOTIFY: {
+                if (notifyPidl_) {
+                    auto** ppidl = reinterpret_cast<PCIDLIST_ABSOLUTE*>(wParam);
+                    auto* pEvents = reinterpret_cast<LONG*>(lParam);
+                    if (ppidl) *ppidl = notifyPidl_.get();
+                    if (pEvents) *pEvents = SHCNE_UPDATEDIR | SHCNE_CREATE | SHCNE_DELETE |
+                                            SHCNE_MKDIR | SHCNE_RMDIR | SHCNE_RENAMEITEM | SHCNE_RENAMEFOLDER;
+                }
+                return S_OK;
+            }
+            default:
+                return E_NOTIMPL;
+        }
+    }
+
+private:
+    std::mutex mutex_;
+    FtpShellFolder* owner_ = nullptr;
+    UniquePidl notifyPidl_;
+    std::atomic<ULONG> refCount_{1};
+    UINT filterCmdId_ = 0;
+};
+
 FtpShellFolder::FtpShellFolder() {
     ModuleAddRef();
 }
@@ -762,6 +994,9 @@ FtpShellFolder::FtpShellFolder(const FtpUrlParts& root, const std::vector<std::w
 }
 
 FtpShellFolder::~FtpShellFolder() {
+    if (viewCallback_) {
+        static_cast<ViewCallback*>(viewCallback_.Get())->Invalidate();
+    }
     ModuleRelease();
 }
 
@@ -811,6 +1046,9 @@ IFACEMETHODIMP_(ULONG) FtpShellFolder::Release() {
 HRESULT FtpShellFolder::EnsurePidl() {
     if (initialized_ && absolutePidl_) {
         return S_OK;
+    }
+    if (isNamespaceRoot_) {
+        return absolutePidl_ ? S_OK : E_FAIL;
     }
     FtpUrlParts parts = CombineParts(rootParts_, pathSegments_);
     absolutePidl_ = CreatePidlFromFtpUrl(parts);
@@ -1041,12 +1279,16 @@ IFACEMETHODIMP FtpShellFolder::EnumObjects(HWND hwnd, SHCONTF grfFlags, IEnumIDL
         return E_POINTER;
     }
     *ppenumIDList = nullptr;
+    if (isNamespaceRoot_) {
+        return EnumRootEntries(hwnd, grfFlags, ppenumIDList);
+    }
     HRESULT hr = EnsurePidl();
     if (FAILED(hr)) {
         return hr;
     }
+    SaveFtpSiteIfNew(rootParts_);
     std::vector<std::uint8_t> absoluteBytes = SerializeFtpPidl(absolutePidl_.get());
-    auto state = std::make_shared<EnumerationState>(rootParts_, pathSegments_, std::move(absoluteBytes), grfFlags, hwnd);
+    auto state = std::make_shared<EnumerationState>(rootParts_, pathSegments_, std::move(absoluteBytes), grfFlags, hwnd, filterString_);
     if (!state) {
         return E_OUTOFMEMORY;
     }
@@ -1064,6 +1306,39 @@ IFACEMETHODIMP FtpShellFolder::BindToObject(PCUIDLIST_RELATIVE pidl, IBindCtx*, 
         return E_POINTER;
     }
     *ppv = nullptr;
+    HRESULT hrPidl = EnsurePidl();
+    if (FAILED(hrPidl)) return hrPidl;
+
+    if (isNamespaceRoot_) {
+        if (!pidl || pidl->mkid.cb == 0) return E_INVALIDARG;
+        if (IsFtpItemId(pidl->mkid) && GetItemType(pidl->mkid) == ItemType::Root) {
+            FtpUrlParts parts;
+            TryGetComponentString(pidl->mkid, ComponentType::Host, &parts.host);
+            std::uint16_t port = 21;
+            if (TryGetComponentUint16(pidl->mkid, ComponentType::Port, &port)) {
+                parts.port = port;
+            }
+            TryGetComponentString(pidl->mkid, ComponentType::UserName, &parts.userName);
+            TryGetComponentString(pidl->mkid, ComponentType::Password, &parts.password);
+
+            // Walk remaining items after Root for additional path segments
+            std::vector<std::wstring> segments;
+            const BYTE* cursor = reinterpret_cast<const BYTE*>(pidl) + pidl->mkid.cb;
+            while (true) {
+                const auto* item = reinterpret_cast<const SHITEMID*>(cursor);
+                if (item->cb == 0) break;
+                if (IsFtpItemId(*item)) {
+                    std::wstring name;
+                    if (TryGetComponentString(*item, ComponentType::Name, &name)) {
+                        segments.push_back(std::move(name));
+                    }
+                }
+                cursor += item->cb;
+            }
+            return CreateWithParentPidl(parts, segments, absolutePidl_.get(), pidl, riid, ppv);
+        }
+    }
+
     std::vector<std::wstring> segments;
     bool directory = true;
     if (!ExtractRelativeSegments(pidl, &segments, &directory)) {
@@ -1074,7 +1349,7 @@ IFACEMETHODIMP FtpShellFolder::BindToObject(PCUIDLIST_RELATIVE pidl, IBindCtx*, 
     }
     std::vector<std::wstring> combined = pathSegments_;
     combined.insert(combined.end(), segments.begin(), segments.end());
-    return BindToChild(combined, riid, ppv);
+    return CreateWithParentPidl(rootParts_, combined, absolutePidl_.get(), pidl, riid, ppv);
 }
 
 IFACEMETHODIMP FtpShellFolder::BindToStorage(PCUIDLIST_RELATIVE pidl, IBindCtx*, REFIID riid, void** ppv) {
@@ -1160,11 +1435,39 @@ IFACEMETHODIMP FtpShellFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl
     return S_OK;
 }
 
-IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
+IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND hwnd, REFIID riid, void** ppv) {
     if (!ppv) {
         return E_POINTER;
     }
     *ppv = nullptr;
+
+    if (riid == IID_IContextMenu || riid == IID_IContextMenu2 || riid == IID_IContextMenu3) {
+        HRESULT hrPidl = EnsurePidl();
+        if (FAILED(hrPidl)) return hrPidl;
+
+        NamespaceMenuContext ctx;
+        ctx.ownerWindow = hwnd;
+        ctx.folderPidl = absolutePidl_.get();
+
+        if (isNamespaceRoot_) {
+            ctx.kind = NamespaceMenuKind::FtpBackground;
+        } else {
+            ctx.kind = NamespaceMenuKind::FtpRemoteBackground;
+            ctx.ftpOptions.host = rootParts_.host;
+            ctx.ftpOptions.port = rootParts_.port;
+            ctx.ftpOptions.passiveMode = true;
+            ctx.ftpCredential.userName = rootParts_.userName.empty() ? L"anonymous" : rootParts_.userName;
+            ctx.ftpCredential.password = rootParts_.password;
+            ctx.pathSegments = pathSegments_;
+        }
+
+        auto* menu = new (std::nothrow) NamespaceContextMenu(ctx);
+        if (!menu) return E_OUTOFMEMORY;
+        HRESULT hr = menu->QueryInterface(riid, ppv);
+        menu->Release();
+        return hr;
+    }
+
     if (riid != IID_IShellView) {
         return E_NOINTERFACE;
     }
@@ -1178,6 +1481,13 @@ IFACEMETHODIMP FtpShellFolder::CreateViewObject(HWND, REFIID riid, void** ppv) {
     if (FAILED(hr)) {
         return hr;
     }
+    if (!viewCallback_) {
+        auto* cb = new (std::nothrow) ViewCallback(this);
+        if (cb) {
+            viewCallback_.Attach(cb);
+        }
+    }
+    create.psfvcb = viewCallback_.Get();
     hr = SHCreateShellFolderView(&create, reinterpret_cast<IShellView**>(ppv));
     if (create.pshf) {
         create.pshf->Release();
@@ -1203,7 +1513,7 @@ IFACEMETHODIMP FtpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY 
     ULONG mask = *rgfInOut;
     if (cidl == 0) {
         ULONG folderFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_CANCOPY |
-                            SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE;
+                            SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_BROWSABLE;
         *rgfInOut = mask == 0 ? folderFlags : (folderFlags & mask);
         return S_OK;
     }
@@ -1220,9 +1530,9 @@ IFACEMETHODIMP FtpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY 
         } else {
             const ItemType type = (apidl[index] && apidl[index]->mkid.cb != 0) ? GetItemType(apidl[index]->mkid)
                                                                                : ItemType::File;
-            if (type == ItemType::Directory) {
+            if (type == ItemType::Directory || type == ItemType::Root) {
                 itemFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER |
-                            SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE;
+                            SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_BROWSABLE;
             } else {
                 itemFlags = SFGAO_STREAM | SFGAO_STORAGE | SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME |
                             SFGAO_CANDELETE;
@@ -1256,26 +1566,77 @@ IFACEMETHODIMP FtpShellFolder::GetUIObjectOf(HWND hwnd, UINT cidl, PCUITEMID_CHI
     }
 
     if (riid == IID_IContextMenu || riid == IID_IContextMenu2 || riid == IID_IContextMenu3) {
+        // For namespace root items, provide our custom context menu
+        if (isNamespaceRoot_ && cidl == 1 && apidl && apidl[0] && apidl[0]->mkid.cb != 0 &&
+            IsFtpItemId(apidl[0]->mkid) && GetItemType(apidl[0]->mkid) == ItemType::Root) {
+            NamespaceMenuContext ctx;
+            ctx.kind = NamespaceMenuKind::FtpRootItem;
+            ctx.ownerWindow = hwnd;
+            ctx.folderPidl = absolutePidl_.get();
+
+            // Find the matching entry in OptionsStore
+            std::wstring host;
+            TryGetComponentString(apidl[0]->mkid, ComponentType::Host, &host);
+            std::uint16_t port = 21;
+            TryGetComponentUint16(apidl[0]->mkid, ComponentType::Port, &port);
+
+            auto options = OptionsStore::Instance().Get();
+            for (int i = 0; i < static_cast<int>(options.ftpSiteEntries.size()); ++i) {
+                if (_wcsicmp(options.ftpSiteEntries[i].host.c_str(), host.c_str()) == 0 &&
+                    options.ftpSiteEntries[i].port == port) {
+                    ctx.entryIndex = i;
+                    ctx.itemEnabled = options.ftpSiteEntries[i].enabled;
+                    ctx.itemName = options.ftpSiteEntries[i].displayName;
+                    break;
+                }
+            }
+
+            // Build item's absolute PIDL for in-place navigation
+            UniquePidl itemPidl(ILCombine(absolutePidl_.get(), apidl[0]));
+            if (itemPidl) {
+                ctx.itemAbsolutePidl = itemPidl.get();
+            }
+
+            auto* menu = new (std::nothrow) NamespaceContextMenu(ctx);
+            if (!menu) return E_OUTOFMEMORY;
+            hr = menu->QueryInterface(riid, ppv);
+            menu->Release();
+            return hr;
+        }
+
+        // For non-root items, provide association keys so the default context menu
+        // knows the correct verbs (e.g., "open" for folders)
+        HKEY folderKey = nullptr;
+        bool isFolder = false;
+        if (cidl == 1 && apidl && apidl[0]) {
+            WIN32_FIND_DATAW findData{};
+            if (TryGetFindData(apidl[0], &findData)) {
+                isFolder = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            } else if (apidl[0]->mkid.cb != 0) {
+                ItemType type = GetItemType(apidl[0]->mkid);
+                isFolder = (type == ItemType::Directory);
+            }
+        }
+        if (isFolder) {
+            RegOpenKeyExW(HKEY_CLASSES_ROOT, L"Folder", 0, KEY_READ, &folderKey);
+        }
+
         DEFCONTEXTMENU def{};
         def.hwnd = hwnd;
         def.pidlFolder = absolutePidl_.get();
         def.psf = this;
         def.cidl = cidl;
         def.apidl = apidl;
-
-        Microsoft::WRL::ComPtr<IDataObject> dataObject;
-        if (cidl > 0) {
-            hr = SHCreateDataObject(absolutePidl_.get(), cidl, apidl, nullptr, IID_PPV_ARGS(&dataObject));
-            if (FAILED(hr)) {
-                return hr;
-            }
-            // DEFCONTEXTMENU exposes the selected data through an anonymous union whose exact
-            // naming depends on how the Windows headers are configured. Assign the pointer using
-            // a layout-aware helper so the code remains agnostic to those details.
-            AssignContextMenuDataObject(def, dataObject.Get());
+        if (folderKey) {
+            def.aKeys = &folderKey;
+            def.cKeys = 1;
         }
 
-        return SHCreateDefaultContextMenu(&def, riid, ppv);
+        hr = SHCreateDefaultContextMenu(&def, riid, ppv);
+        if (folderKey) {
+            RegCloseKey(folderKey);
+        }
+        return hr;
     }
 
     if (riid == IID_IQueryAssociations) {
@@ -1349,6 +1710,20 @@ IFACEMETHODIMP FtpShellFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFl
             }
             return E_FAIL;
         }
+        // For namespace root items, build a full ftp:// URL from components
+        if (isNamespaceRoot_ && pidl->mkid.cb != 0 &&
+            IsFtpItemId(pidl->mkid) && GetItemType(pidl->mkid) == ItemType::Root) {
+            std::wstring host;
+            TryGetComponentString(pidl->mkid, ComponentType::Host, &host);
+            std::uint16_t port = 21;
+            TryGetComponentUint16(pidl->mkid, ComponentType::Port, &port);
+            std::wstring url = L"ftp://" + host;
+            if (port != 21) {
+                url += L":" + std::to_wstring(port);
+            }
+            url += L"/";
+            return AssignToStrRet(url, pName);
+        }
         HRESULT hr = EnsurePidl();
         if (FAILED(hr)) {
             return hr;
@@ -1363,6 +1738,13 @@ IFACEMETHODIMP FtpShellFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFl
         }
         return AssignToStrRet(url, pName);
     }
+    // For Root items (in namespace root), show the display name
+    if (pidl->mkid.cb != 0 && IsFtpItemId(pidl->mkid) && GetItemType(pidl->mkid) == ItemType::Root) {
+        std::wstring name;
+        if (TryGetComponentString(pidl->mkid, ComponentType::Name, &name)) {
+            return AssignToStrRet(name, pName);
+        }
+    }
     WIN32_FIND_DATAW findData{};
     if (TryGetFindData(pidl, &findData)) {
         return AssignToStrRet(findData.cFileName, pName);
@@ -1375,7 +1757,6 @@ IFACEMETHODIMP FtpShellFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFl
 }
 
 IFACEMETHODIMP FtpShellFolder::SetNameOf(HWND hwnd, PCUITEMID_CHILD pidl, PCWSTR pszName, SHGDNF, PIDLIST_RELATIVE* ppidlOut) {
-    UNREFERENCED_PARAMETER(hwnd);
     if (!pidl || !pszName) {
         return E_INVALIDARG;
     }
@@ -1421,7 +1802,10 @@ IFACEMETHODIMP FtpShellFolder::SetNameOf(HWND hwnd, PCUITEMID_CHILD pidl, PCWSTR
     credential.userName = rootParts_.userName.empty() ? L"anonymous" : rootParts_.userName;
     credential.password = rootParts_.password;
 
-    hr = RenameRemoteItem(options, credential, remoteDirectory, oldName, newName);
+    FtpClient client;
+    hr = client.RenameFile(options, &credential,
+                           remoteDirectory + L"/" + oldName,
+                           remoteDirectory + L"/" + newName, hwnd);
     if (FAILED(hr)) {
         return hr;
     }
@@ -1604,7 +1988,7 @@ IFACEMETHODIMP FtpShellFolder::GetClassID(CLSID* pClassID) {
     if (!pClassID) {
         return E_POINTER;
     }
-    *pClassID = CLSID_NULL;
+    *pClassID = isNamespaceRoot_ ? CLSID_ShellTabsFtpRoot : CLSID_ShellTabsFtpFolder;
     return S_OK;
 }
 
@@ -1616,7 +2000,11 @@ IFACEMETHODIMP FtpShellFolder::Initialize(PCIDLIST_ABSOLUTE pidl) {
     std::vector<std::wstring> segments;
     bool directory = true;
     if (!TryParseFtpPidl(pidl, &parts, &segments, &directory)) {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        // Namespace root — initialized with just a namespace prefix PIDL
+        isNamespaceRoot_ = true;
+        absolutePidl_ = ClonePidl(pidl);
+        initialized_ = absolutePidl_ != nullptr;
+        return initialized_ ? S_OK : E_OUTOFMEMORY;
     }
     rootParts_ = parts;
     rootParts_.path.clear();
@@ -1627,6 +2015,85 @@ IFACEMETHODIMP FtpShellFolder::Initialize(PCIDLIST_ABSOLUTE pidl) {
     absolutePidl_ = ClonePidl(pidl);
     initialized_ = absolutePidl_ != nullptr;
     return initialized_ ? S_OK : E_OUTOFMEMORY;
+}
+
+HRESULT FtpShellFolder::CreateWithParentPidl(const FtpUrlParts& root,
+                                              const std::vector<std::wstring>& segments,
+                                              PCIDLIST_ABSOLUTE parentPidl,
+                                              PCUIDLIST_RELATIVE childPidl,
+                                              REFIID riid, void** ppv) {
+    if (!ppv) {
+        return E_POINTER;
+    }
+    *ppv = nullptr;
+    auto* folder = new (std::nothrow) FtpShellFolder(root, segments);
+    if (!folder) {
+        return E_OUTOFMEMORY;
+    }
+
+    if (parentPidl && childPidl) {
+        folder->absolutePidl_ = UniquePidl(ILCombine(parentPidl, childPidl));
+    } else if (parentPidl) {
+        folder->absolutePidl_ = ClonePidl(parentPidl);
+    }
+    folder->initialized_ = folder->absolutePidl_ != nullptr;
+
+    HRESULT hr = folder->QueryInterface(riid, ppv);
+    folder->Release();
+    return hr;
+}
+
+HRESULT FtpShellFolder::EnumRootEntries(HWND, SHCONTF grfFlags, IEnumIDList** ppenumIDList) {
+    if ((grfFlags & (SHCONTF_FOLDERS | kShcontfAllFolders)) == 0) {
+        auto enumerator = new (std::nothrow) StaticEnumIDList({});
+        if (!enumerator) return E_OUTOFMEMORY;
+        *ppenumIDList = enumerator;
+        return S_OK;
+    }
+
+    auto opts = OptionsStore::Instance().Get();
+    std::vector<std::vector<std::uint8_t>> pidlBytes;
+
+    for (const auto& entry : opts.ftpSiteEntries) {
+        if (!entry.enabled) continue;
+
+        std::uint16_t port = entry.port;
+        std::vector<ComponentDefinition> components;
+
+        ComponentDefinition hostComp{ComponentType::Host, entry.host.c_str(),
+                                     entry.host.size() * sizeof(wchar_t)};
+        components.push_back(hostComp);
+
+        ComponentDefinition portComp{ComponentType::Port, &port, sizeof(port)};
+        components.push_back(portComp);
+
+        ComponentDefinition nameComp{ComponentType::Name, entry.displayName.c_str(),
+                                      entry.displayName.size() * sizeof(wchar_t)};
+        components.push_back(nameComp);
+
+        if (!entry.userName.empty()) {
+            ComponentDefinition userComp{ComponentType::UserName, entry.userName.c_str(),
+                                         entry.userName.size() * sizeof(wchar_t)};
+            components.push_back(userComp);
+        }
+
+        PidlBuilder builder;
+        HRESULT hr = builder.Append(ItemType::Root, std::span<const ComponentDefinition>(components));
+        if (FAILED(hr)) continue;
+
+        UniquePidl pidl = builder.Finalize();
+        if (!pidl) continue;
+
+        UINT size = ILGetSize(pidl.get());
+        std::vector<std::uint8_t> bytes(size);
+        std::memcpy(bytes.data(), pidl.get(), size);
+        pidlBytes.push_back(std::move(bytes));
+    }
+
+    auto enumerator = new (std::nothrow) StaticEnumIDList(std::move(pidlBytes));
+    if (!enumerator) return E_OUTOFMEMORY;
+    *ppenumIDList = enumerator;
+    return S_OK;
 }
 
 IFACEMETHODIMP FtpShellFolder::GetCurFolder(PIDLIST_ABSOLUTE* ppidl) {

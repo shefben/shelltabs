@@ -9,6 +9,7 @@
 #include "TabBand.h"
 #include "CExplorerBHO.h"
 #include "FtpShellFolder.h"
+#include "HttpShellFolder.h"
 
 namespace shelltabs {
 
@@ -317,6 +318,81 @@ HRESULT CreateFtpFolderClassFactory(REFIID riid, void** object) {
     }
 
     FtpFolderClassFactory* factory = new (std::nothrow) FtpFolderClassFactory();
+    if (!factory) {
+        return E_OUTOFMEMORY;
+    }
+
+    const HRESULT hr = factory->QueryInterface(riid, object);
+    factory->Release();
+    return hr;
+}
+
+class HttpFolderClassFactory : public IClassFactory {
+public:
+    HttpFolderClassFactory() : m_refCount(1) { ModuleAddRef(); }
+    ~HttpFolderClassFactory() { ModuleRelease(); }
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IClassFactory) {
+            *object = static_cast<IClassFactory*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override { return static_cast<ULONG>(++m_refCount); }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        const ULONG count = static_cast<ULONG>(--m_refCount);
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    IFACEMETHODIMP CreateInstance(IUnknown* outer, REFIID riid, void** object) override {
+        if (!object) {
+            return E_POINTER;
+        }
+        if (outer) {
+            return CLASS_E_NOAGGREGATION;
+        }
+
+        auto folder = std::make_unique<http::HttpShellFolder>();
+        if (!folder) {
+            return E_OUTOFMEMORY;
+        }
+
+        http::HttpShellFolder* raw = folder.release();
+        const HRESULT hr = raw->QueryInterface(riid, object);
+        raw->Release();
+        return hr;
+    }
+
+    IFACEMETHODIMP LockServer(BOOL lock) override {
+        if (lock) {
+            ModuleAddRef();
+        } else {
+            ModuleRelease();
+        }
+        return S_OK;
+    }
+
+private:
+    std::atomic<long> m_refCount;
+};
+
+HRESULT CreateHttpFolderClassFactory(REFIID riid, void** object) {
+    if (!object) {
+        return E_POINTER;
+    }
+
+    HttpFolderClassFactory* factory = new (std::nothrow) HttpFolderClassFactory();
     if (!factory) {
         return E_OUTOFMEMORY;
     }

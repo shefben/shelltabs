@@ -555,6 +555,10 @@ public:
         Mlsd,
         Retrieve,
         Store,
+        Delete,
+        RemoveDir,
+        MakeDir,
+        Rename,
         Complete,
     };
 
@@ -592,8 +596,17 @@ private:
         if (!context_.remotePath.empty() && context_.kind == FtpOperationKind::DirectoryListing) {
             steps_.push_back({Command::ChangeDirectory, NormalizeRemotePath(context_.remotePath)});
         }
+        // Only enter passive mode for data-channel operations
         if (options_.passiveMode) {
-            steps_.push_back({Command::EnterPassive, L""});
+            switch (context_.kind) {
+                case FtpOperationKind::DirectoryListing:
+                case FtpOperationKind::Download:
+                case FtpOperationKind::Upload:
+                    steps_.push_back({Command::EnterPassive, L""});
+                    break;
+                default:
+                    break;
+            }
         }
         switch (context_.kind) {
             case FtpOperationKind::DirectoryListing:
@@ -608,6 +621,18 @@ private:
                 break;
             case FtpOperationKind::Upload:
                 steps_.push_back({Command::Store, NormalizeRemotePath(context_.remotePath)});
+                break;
+            case FtpOperationKind::DeleteFile:
+                steps_.push_back({Command::Delete, NormalizeRemotePath(context_.remotePath)});
+                break;
+            case FtpOperationKind::DeleteDirectory:
+                steps_.push_back({Command::RemoveDir, NormalizeRemotePath(context_.remotePath)});
+                break;
+            case FtpOperationKind::CreateDirectory:
+                steps_.push_back({Command::MakeDir, NormalizeRemotePath(context_.remotePath)});
+                break;
+            case FtpOperationKind::RenameFile:
+                steps_.push_back({Command::Rename, NormalizeRemotePath(context_.remotePath)});
                 break;
         }
         steps_.push_back({Command::Complete, L""});
@@ -636,6 +661,10 @@ public:
                               FtpTransferResult* result) = 0;
     virtual HRESULT CompleteOperation() = 0;
     virtual bool IsAlive() const = 0;
+    virtual HRESULT DeleteFile(const std::wstring& remotePath) = 0;
+    virtual HRESULT RemoveDirectory(const std::wstring& remotePath) = 0;
+    virtual HRESULT MakeDirectory(const std::wstring& remotePath) = 0;
+    virtual HRESULT RenameFile(const std::wstring& oldPath, const std::wstring& newPath) = 0;
 };
 
 class WinInetFtpSession : public FtpClient::FtpTransportSession {
@@ -781,6 +810,22 @@ public:
 
     bool IsAlive() const override { return connection_.Get() != nullptr; }
 
+    HRESULT DeleteFile(const std::wstring& remotePath) override {
+        return FtpDeleteFileW(connection_.Get(), remotePath.c_str()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    HRESULT RemoveDirectory(const std::wstring& remotePath) override {
+        return FtpRemoveDirectoryW(connection_.Get(), remotePath.c_str()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    HRESULT MakeDirectory(const std::wstring& remotePath) override {
+        return FtpCreateDirectoryW(connection_.Get(), remotePath.c_str()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    HRESULT RenameFile(const std::wstring& oldPath, const std::wstring& newPath) override {
+        return FtpRenameFileW(connection_.Get(), oldPath.c_str(), newPath.c_str()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+
 private:
     void Close() {
         connection_.Reset();
@@ -817,6 +862,11 @@ public:
     }
     HRESULT CompleteOperation() override { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
     bool IsAlive() const override { return false; }
+
+    HRESULT DeleteFile(const std::wstring&) override { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
+    HRESULT RemoveDirectory(const std::wstring&) override { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
+    HRESULT MakeDirectory(const std::wstring&) override { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
+    HRESULT RenameFile(const std::wstring&, const std::wstring&) override { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
 
 private:
     void Close() {}
@@ -1045,6 +1095,23 @@ public:
 
     bool IsAlive() const override { return controlSocket_.Get() != INVALID_SOCKET; }
 
+    HRESULT DeleteFile(const std::wstring& remotePath) override {
+        return ExecuteSimpleCommand(L"DELE " + remotePath);
+    }
+
+    HRESULT RemoveDirectory(const std::wstring& remotePath) override {
+        return ExecuteSimpleCommand(L"RMD " + remotePath);
+    }
+
+    HRESULT MakeDirectory(const std::wstring& remotePath) override {
+        return ExecuteSimpleCommand(L"MKD " + remotePath);
+    }
+
+    HRESULT RenameFile(const std::wstring& oldPath, const std::wstring& newPath) override {
+        RETURN_IF_FAILED(ExecuteSimpleCommand(L"RNFR " + oldPath));
+        return ExecuteSimpleCommand(L"RNTO " + newPath);
+    }
+
 private:
     HRESULT Login(const FtpCredential& credentials) {
         SocketResponse response;
@@ -1184,6 +1251,40 @@ HRESULT FtpClient::UploadFile(const FtpConnectionOptions& options, const FtpCred
     return ExecuteOperation(options, explicitCredential, credentialParent, &context);
 }
 
+HRESULT FtpClient::DeleteFile(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                               const std::wstring& remotePath, HWND credentialParent) {
+    FtpOperationContext context;
+    context.kind = FtpOperationKind::DeleteFile;
+    context.remotePath = remotePath;
+    return ExecuteOperation(options, explicitCredential, credentialParent, &context);
+}
+
+HRESULT FtpClient::DeleteDirectory(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                                    const std::wstring& remotePath, HWND credentialParent) {
+    FtpOperationContext context;
+    context.kind = FtpOperationKind::DeleteDirectory;
+    context.remotePath = remotePath;
+    return ExecuteOperation(options, explicitCredential, credentialParent, &context);
+}
+
+HRESULT FtpClient::CreateDirectory(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                                    const std::wstring& remotePath, HWND credentialParent) {
+    FtpOperationContext context;
+    context.kind = FtpOperationKind::CreateDirectory;
+    context.remotePath = remotePath;
+    return ExecuteOperation(options, explicitCredential, credentialParent, &context);
+}
+
+HRESULT FtpClient::RenameFile(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
+                               const std::wstring& oldPath, const std::wstring& newPath,
+                               HWND credentialParent) {
+    FtpOperationContext context;
+    context.kind = FtpOperationKind::RenameFile;
+    context.remotePath = oldPath;
+    context.renameNewPath = newPath;
+    return ExecuteOperation(options, explicitCredential, credentialParent, &context);
+}
+
 void FtpClient::ClearConnectionPool() {
     std::lock_guard<std::mutex> guard(impl_->mutex);
     impl_->pool.clear();
@@ -1197,6 +1298,14 @@ std::wstring FtpClient::BuildCommandDescription(FtpOperationContext& context) co
             return L"download";
         case FtpOperationKind::Upload:
             return L"upload";
+        case FtpOperationKind::DeleteFile:
+            return L"delete";
+        case FtpOperationKind::DeleteDirectory:
+            return L"delete directory";
+        case FtpOperationKind::CreateDirectory:
+            return L"create directory";
+        case FtpOperationKind::RenameFile:
+            return L"rename";
     }
     return L"operation";
 }
@@ -1477,6 +1586,18 @@ FtpClient::ExecuteResult FtpClient::ExecuteStateMachine(FtpTransportSession& ses
                 break;
             case FtpCommandStateMachine::Command::Store:
                 result.hr = session.StoreFile(context.localPath, step.argument, context.transferResult);
+                break;
+            case FtpCommandStateMachine::Command::Delete:
+                result.hr = session.DeleteFile(step.argument);
+                break;
+            case FtpCommandStateMachine::Command::RemoveDir:
+                result.hr = session.RemoveDirectory(step.argument);
+                break;
+            case FtpCommandStateMachine::Command::MakeDir:
+                result.hr = session.MakeDirectory(step.argument);
+                break;
+            case FtpCommandStateMachine::Command::Rename:
+                result.hr = session.RenameFile(step.argument, NormalizeRemotePath(context.renameNewPath));
                 break;
             case FtpCommandStateMachine::Command::Complete:
                 result.hr = session.CompleteOperation();
