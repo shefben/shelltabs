@@ -28,6 +28,9 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
     <img width="243" height="32" alt="tab_progressbar" src="https://github.com/user-attachments/assets/6dcb5df4-452e-4d3e-9427-84a331df2af4" />
 </a>
 
+<a href="https://github.com/shefben/shelltabs/blob/main/images/shelltabs_2026_04_26.png?raw=true" target="_blank">
+    <img width="243" height="32" alt="tab_progressbar" src="https://github.com/shefben/shelltabs/blob/main/images/shelltabs_2026_04_26.png?raw=true" />
+</a>
 ## Features
 
 ### Tabs
