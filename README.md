@@ -35,32 +35,38 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
 
 ### Tabs
 - Create, close, clone, pin, hide/unhide, and detach tabs
-- Close other tabs, close tabs to the left/right
-- Reopen recently closed tabs with full undo history
-- Per-tab back/forward navigation history
-- Per-tab scroll position preservation across tab switches
-- Tab thumbnail previews on hover
+- Close other tabs, close tabs to the left, close tabs to the right
+- Reopen recently closed tabs with full undo history (groups can be undone too)
+- Per-tab back/forward navigation history with dropdown history menus on the toolbar travel buttons
+- Per-tab scroll position preservation across tab switches and across session restore
+- Tab thumbnail previews on hover, captured from the live shell view
 - Keyboard shortcuts: Ctrl+T (new tab), Ctrl+W (close), Ctrl+Tab / Ctrl+Shift+Tab (cycle), Ctrl+1-9 (jump to tab)
+- Configurable new-tab template: duplicate current folder, This PC, custom path, or load a saved group
+- Configurable tab strip dock mode: top, bottom, left, right, or automatic
+- Per-tab progress indicator that mirrors Explorer's active file operation on that tab's folder
 
 ### Tab Groups (Islands)
-- Organize tabs into named, collapsible groups
+- Organize tabs into named, collapsible groups (islands)
 - Customizable group outline colors and styles (solid, dashed, dotted)
-- Show/hide group headers
-- Drag tabs between groups or reorder groups themselves
+- Show/hide group headers per group
+- Drag tabs between groups, reorder tabs within a group, or reorder groups themselves
+- Move a tab into a brand new island in one drop
 - Detach a group into a new Explorer window
-- Close all tabs in a group at once
+- Close all tabs in a group at once with a single undo entry
 
 ### Saved Groups
 - Save a group configuration by name for reuse across windows and sessions
-- Load saved groups from the tab strip context menu
-- Edits to a saved group sync automatically to all windows using it
-- Manage saved groups from the Options dialog
+- Load saved groups from the tab strip context menu or via the new-tab template
+- Edits to a saved group (rename, color, outline style, member folders) sync automatically to all windows using it
+- Member folders are mirrored into `groups.db` whenever you add or remove a tab from a saved group, so the saved group always reflects its current contents
+- Manage saved groups from the Options dialog: add, edit, remove, and edit the folder list directly
 
 ### Session Persistence
-- All tabs, groups, and selection state are saved to disk continuously
+- All tabs, groups, selection state, and per-tab scroll positions are saved to disk continuously
 - Sessions survive both clean Explorer exits and crashes
 - Multi-window support: each Explorer window's tabs are restored independently
-- Crash detection via active-session marker file
+- Crash detection via active-session marker file with safe checkpoint-based recovery
+- "Reuse existing window" option: when launching a new Explorer window, redirect the navigation to an already-open ShellTabs window as a new tab
 
 ### Drag and Drop
 - Reorder tabs within and across groups by dragging
@@ -70,28 +76,58 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
 - Translucent drag preview under the cursor during reorder operations
 
 ### Visual Customization
-- Full light and dark theme support with automatic detection
-- Breadcrumb bar gradient overlay (customizable colors and opacity)
-- Address bar edit field gradient
-- Per-tab progress bar gradient (mirrors Explorer's file operation progress)
-- Neon glow effects on Explorer panes via DWM/DirectComposition
-- Custom folder background images per directory path
+- Full light and dark theme support with automatic detection that follows the Windows app theme
+- Breadcrumb bar gradient overlay with customizable colors, opacity, font color gradient, highlight intensity, and dropdown alpha multiplier
+- Address bar edit field gradient that matches the breadcrumb theme
+- Per-tab progress bar gradient that mirrors Explorer's file operation progress (customizable colors)
+- Neon glow effects rendered on Explorer panes via DWM / DirectComposition, with per-surface toggles for list view, column header, rebar, toolbar, address bar, scrollbars, popup menus, and tooltips
+- Per-surface glow color modes: Explorer accent, solid, or gradient
 - Configurable active/inactive tab colors, hover highlights, and close button behavior
+- Status bar dark theming for the bottom status strip plus the container directly above it
+- Bitmap interception toggle for advanced glow rendering paths (can be disabled if it impacts performance)
+- File / folder gradient font option for the listview labels
 
-### Context Menu Integration
-- Right-click a tab for quick actions: close, clone, pin, hide, detach, open terminal, open VS Code, copy path
-- Access the full Explorer shell context menu for any tab's folder
-- Add custom context menu entries with configurable commands and arguments from the Options dialog
+### Folder Background Images
+- Render a custom background image inside any Explorer folder view (composited above the default chrome via a layered overlay over `DirectUIHWND`)
+- **Universal background:** one image used as a fallback for every folder
+- **Per-folder backgrounds:** assign a different image to each folder path; managed from the Backgrounds page in the Options dialog
+- Adjustable opacity (0-100%) shared across both universal and per-folder backgrounds
+- Image position modes: bottom right (default), bottom left, top left, top right, center, stretch to fill, zoom-fill, and tile
+- Built-in cache manager and a "Clean Up" button to remove cached image copies for entries that have been deleted
+- Light and dark theme aware so the overlay does not wash out the underlying file labels
+
+### Web / HTTP Folders
+- Browse remote HTTP/HTTPS directory listings as native Explorer folders via a custom `IShellFolder`
+- HTML directory parser handles Apache `mod_autoindex`, Nginx `autoindex`, and table-based custom autoindex layouts (e.g. Myrient)
+- Per-site display name, enable/disable toggle, optional parallel downloads (1-16 concurrent), and an optional per-site download speed limit (KB/s)
+- Configure web folder sites from the Web Folders page in the Options dialog
 
 ### FTP Support
 - Built-in FTP client with a custom `IShellFolder` implementation
 - Browse FTP servers directly inside Explorer as native folder locations
+- Configurable FTP site list with per-site display name, host, user, port, and enable/disable toggle
+- Anonymous and credentialed connections (credentials managed via Windows Credential Manager)
+
+### Context Menu Integration
+- Right-click a tab for quick actions: close, clone, pin, hide, detach, open terminal, open VS Code, copy path
+- Access the full Explorer shell context menu for any tab's folder, with `IContextMenu2` / `IContextMenu3` message forwarding for owner-drawn shell extensions
+- Add custom context menu entries from the Options dialog with configurable executables, arguments, working directory, run-as-admin, window state, and confirmation prompts
+- Submenus, separators, icons (file path or `shell32.dll,index` style), and selection-based visibility rules (file vs folder, count constraints, wildcard file patterns, folder path filters)
+- Custom items can be anchored to specific positions in the shell menu (top, bottom, before/after shell items, default)
+
+### Taskbar Integration
+- Custom taskbar tab list popup that appears when hovering an Explorer taskbar button, showing each window's tabs with icons and titles instead of (or alongside) the default thumbnail
+- Click a tab in the popup to switch to that window and activate the tab in one step
+- Light/dark themed to match the system theme
 
 ### Options Dialog
-- **General:** New-tab behavior, session restore settings, dock mode
-- **Appearance:** Breadcrumb gradient, glow surfaces, folder backgrounds, progress bar colors
-- **Groups:** Manage saved groups, edit names/colors/outlines
-- **Context Menus:** Add, edit, and remove custom right-click menu entries
+- **General:** New-tab behavior, session restore settings, dock mode, reuse-existing-window toggle, persist-group-paths toggle
+- **Appearance:** Breadcrumb gradient (font + background, custom colors, transparency, highlight/dropdown alpha), progress bar gradient colors, custom tab selected/unselected colors
+- **Glow Effects:** Master enable, per-surface toggles, custom primary/secondary glow colors, gradient blend, Explorer accent override, bitmap intercept and gradient font toggles
+- **Backgrounds:** Enable/disable, universal image picker, per-folder image list (add/edit/remove/clean up), opacity slider, position mode radio buttons
+- **Context Menus:** Add, edit, remove, and reorder custom right-click menu entries with full visibility and command configuration
+- **Groups:** Manage saved groups (add/edit/remove), edit each group's name, color, outline style, and folder list
+- **Web Folders:** Add, edit, remove HTTP/HTTPS directory sites with per-site download settings
 
 ## Building
 
