@@ -1,5 +1,0 @@
-LIBRARY "DesktopToasts.dll"
-
-EXPORTS
-	Initialize
-	DisplaySimpleToast

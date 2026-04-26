@@ -1,6 +1,0 @@
-LIBRARY	"InstallerHelper"
-EXPORTS
-    HideBars
-    CloseAndReopen
-	CloseAndReopenAndDeletePlugins
-    CheckOldVersion

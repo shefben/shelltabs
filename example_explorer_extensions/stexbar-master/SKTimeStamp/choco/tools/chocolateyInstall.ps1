@@ -1,1 +1,0 @@
-Install-ChocolateyPackage 'SKTimeStamp' 'msi' '/quiet' 'https://stexbar.googlecode.com/files/SKTimeStamp-1.3.4.msi' 'https://stexbar.googlecode.com/files/SKTimeStamp64-1.3.4.msi' 
