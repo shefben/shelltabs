@@ -616,7 +616,7 @@ void DrawColorBox(HDC hdc, RECT rect, COLORREF color) {
     FrameRect(hdc, &rect, static_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
 }
 
-bool BrowseForFolder(HWND parent, std::wstring* path, const wchar_t* title = nullptr) {
+bool BrowseForFolderImpl(HWND parent, std::wstring* path, const wchar_t* title, bool allowVirtual) {
     if (!path) return false;
 
     Microsoft::WRL::ComPtr<IFileDialog> dialog;
@@ -626,22 +626,27 @@ bool BrowseForFolder(HWND parent, std::wstring* path, const wchar_t* title = nul
 
     DWORD options = 0;
     dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    options |= FOS_PICKFOLDERS;
+    if (!allowVirtual) {
+        options |= FOS_FORCEFILESYSTEM;
+    }
+    dialog->SetOptions(options);
 
     if (title) dialog->SetTitle(title);
 
     if (SUCCEEDED(dialog->Show(parent))) {
         Microsoft::WRL::ComPtr<IShellItem> item;
         if (SUCCEEDED(dialog->GetResult(&item))) {
-            wchar_t* filePath = nullptr;
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath))) {
-                *path = filePath;
-                CoTaskMemFree(filePath);
+            if (TryGetShellLocationPath(item.Get(), path, allowVirtual)) {
                 return true;
             }
         }
     }
     return false;
+}
+
+bool BrowseForFolder(HWND parent, std::wstring* path, const wchar_t* title = nullptr) {
+    return BrowseForFolderImpl(parent, path, title, false);
 }
 
 bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* dir) {
@@ -3210,7 +3215,7 @@ DialogTemplatePtr CreateGroupsPageTemplate() {
 
     int y = kMargin;
 
-    builder.AddStatic(-1, L"Saved Groups:",
+    builder.AddStatic(-1, L"Saved Groups / Islands:",
         kMargin, y, 120, kLabelHeight);
     y += kLabelHeight + 4;
 
@@ -3278,7 +3283,7 @@ INT_PTR CALLBACK GroupEditorDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPA
             y += 34;
 
             // Paths label and listbox
-            label = CreateWindowW(L"STATIC", L"Folder Paths:",
+            label = CreateWindowW(L"STATIC", L"Folders / Locations:",
                 WS_CHILD | WS_VISIBLE, x, y, labelWidth, 16,
                 dialog, nullptr, hInst, nullptr);
             SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
@@ -3298,14 +3303,14 @@ INT_PTR CALLBACK GroupEditorDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPA
 
             // Path buttons
             int btnX = x;
-            HWND btnAdd = CreateWindowW(L"BUTTON", L"Add Path...",
+            HWND btnAdd = CreateWindowW(L"BUTTON", L"Add...",
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 btnX, y, 100, 24,
                 dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_ADD), hInst, nullptr);
             SendMessageW(btnAdd, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
             btnX += 105;
 
-            HWND btnEdit = CreateWindowW(L"BUTTON", L"Edit Path...",
+            HWND btnEdit = CreateWindowW(L"BUTTON", L"Edit...",
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 btnX, y, 100, 24,
                 dialog, reinterpret_cast<HMENU>(IDC_GRP_ED_EDIT_PATH), hInst, nullptr);
@@ -3399,42 +3404,23 @@ INT_PTR CALLBACK GroupEditorDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPA
                 EnableWindow(GetDlgItem(dialog, IDC_GRP_ED_REMOVE_PATH), hasSelection);
             }
             else if (id == IDC_GRP_ED_ADD && code == BN_CLICKED) {
-                // Browse for folder
-                BROWSEINFOW bi{};
-                bi.hwndOwner = dialog;
-                bi.lpszTitle = L"Select folder to add to group:";
-                bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
-
-                PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
-                if (pidl) {
-                    wchar_t path[MAX_PATH];
-                    if (SHGetPathFromIDListW(pidl, path)) {
-                        HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
-                        data->group->tabPaths.push_back(path);
-                        SendMessageW(pathList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(path));
-                    }
-                    CoTaskMemFree(pidl);
+                std::wstring path;
+                if (BrowseForFolderImpl(dialog, &path, L"Select folder or shell location to add:", true)) {
+                    HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
+                    data->group->tabPaths.push_back(path);
+                    SendMessageW(pathList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(path.c_str()));
                 }
             }
             else if (id == IDC_GRP_ED_EDIT_PATH && code == BN_CLICKED) {
                 HWND pathList = GetDlgItem(dialog, IDC_GRP_ED_PATHS);
                 int sel = static_cast<int>(SendMessageW(pathList, LB_GETCURSEL, 0, 0));
                 if (sel >= 0 && sel < static_cast<int>(data->group->tabPaths.size())) {
-                    BROWSEINFOW bi{};
-                    bi.hwndOwner = dialog;
-                    bi.lpszTitle = L"Select folder:";
-                    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
-
-                    PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
-                    if (pidl) {
-                        wchar_t path[MAX_PATH];
-                        if (SHGetPathFromIDListW(pidl, path)) {
-                            data->group->tabPaths[sel] = path;
-                            SendMessageW(pathList, LB_DELETESTRING, sel, 0);
-                            SendMessageW(pathList, LB_INSERTSTRING, sel, reinterpret_cast<LPARAM>(path));
-                            SendMessageW(pathList, LB_SETCURSEL, sel, 0);
-                        }
-                        CoTaskMemFree(pidl);
+                    std::wstring path = data->group->tabPaths[sel];
+                    if (BrowseForFolderImpl(dialog, &path, L"Select folder or shell location:", true)) {
+                        data->group->tabPaths[sel] = path;
+                        SendMessageW(pathList, LB_DELETESTRING, sel, 0);
+                        SendMessageW(pathList, LB_INSERTSTRING, sel, reinterpret_cast<LPARAM>(path.c_str()));
+                        SendMessageW(pathList, LB_SETCURSEL, sel, 0);
                     }
                 }
             }
@@ -3550,6 +3536,28 @@ void InitGroupsPage(HWND page, OptionsDialogData* data) {
     bool hasSelection = (SendMessageW(list, LB_GETCURSEL, 0, 0) != LB_ERR);
     EnableWindow(GetDlgItem(page, IDC_GRP_EDIT), hasSelection);
     EnableWindow(GetDlgItem(page, IDC_GRP_REMOVE), hasSelection);
+
+    if (!data->focusHandled && !data->focusGroupId.empty() && list) {
+        for (size_t i = 0; i < data->workingGroups.size(); ++i) {
+            const std::wstring& currentId =
+                (i < data->workingGroupIds.size() && !data->workingGroupIds[i].empty())
+                    ? data->workingGroupIds[i]
+                    : data->workingGroups[i].name;
+            if (_wcsicmp(currentId.c_str(), data->focusGroupId.c_str()) != 0 &&
+                _wcsicmp(data->workingGroups[i].name.c_str(), data->focusGroupId.c_str()) != 0) {
+                continue;
+            }
+
+            SendMessageW(list, LB_SETCURSEL, static_cast<WPARAM>(i), 0);
+            EnableWindow(GetDlgItem(page, IDC_GRP_EDIT), TRUE);
+            EnableWindow(GetDlgItem(page, IDC_GRP_REMOVE), TRUE);
+            data->focusHandled = true;
+            if (data->focusGroupEdit) {
+                PostMessageW(page, WM_COMMAND, MAKEWPARAM(IDC_GRP_EDIT, BN_CLICKED), 0);
+            }
+            break;
+        }
+    }
 }
 
 INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -3586,6 +3594,7 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
 
                 if (ShowGroupEditorDialog(page, newGroup, true, data)) {
                     data->workingGroups.push_back(newGroup);
+                    data->workingGroupIds.push_back(std::wstring());
                     data->groupsChanged = true;
                     InitGroupsPage(page, data);
                     PropSheet_Changed(GetParent(page), page);
@@ -3611,7 +3620,12 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
                     std::wstring name = data->workingGroups[sel].name;
                     std::wstring confirmMsg = L"Remove group '" + name + L"'?";
                     if (MessageBoxW(page, confirmMsg.c_str(), L"Confirm", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                        data->removedGroupIds.push_back(name);
+                        if (sel < static_cast<int>(data->workingGroupIds.size())) {
+                            if (!data->workingGroupIds[sel].empty()) {
+                                data->removedGroupIds.push_back(data->workingGroupIds[sel]);
+                            }
+                            data->workingGroupIds.erase(data->workingGroupIds.begin() + sel);
+                        }
                         data->workingGroups.erase(data->workingGroups.begin() + sel);
                         data->groupsChanged = true;
                         InitGroupsPage(page, data);
@@ -4169,6 +4183,13 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
 
         if (result.groupsChanged) {
             result.savedGroups = data->workingGroups;
+            for (size_t i = 0; i < data->workingGroups.size() && i < data->workingGroupIds.size(); ++i) {
+                const std::wstring& originalId = data->workingGroupIds[i];
+                const std::wstring& newName = data->workingGroups[i].name;
+                if (!originalId.empty() && _wcsicmp(originalId.c_str(), newName.c_str()) != 0) {
+                    result.renamedGroups.emplace_back(originalId, newName);
+                }
+            }
             result.removedGroupIds = data->removedGroupIds;
         }
     }

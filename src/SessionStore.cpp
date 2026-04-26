@@ -34,7 +34,7 @@ constexpr wchar_t kWindowToken[] = L"window";
 constexpr wchar_t kWindowEndToken[] = L"window_end";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kChecksumToken[] = L"checksum";
-constexpr int kCurrentVersion = 8;
+constexpr int kCurrentVersion = 9;
 
 // Legacy file patterns for migration
 constexpr wchar_t kLegacySessionPrefix[] = L"session-";
@@ -278,6 +278,14 @@ SessionFileStatus ParseSingleWindowBlock(std::wstring_view payload, SessionData&
                                                          tab.pinned = ParseBool(tokens[index]);
                                                          ++index;
                                                      }
+                                                     if (version >= 9 && tokens.size() > index + 2) {
+                                                         tab.hasScrollPosition = ParseBool(tokens[index]);
+                                                         ++index;
+                                                         tab.scrollX = ParseInt(tokens[index]);
+                                                         ++index;
+                                                         tab.scrollY = ParseInt(tokens[index]);
+                                                         ++index;
+                                                     }
                                                  }
                                                  currentGroup->tabs.emplace_back(std::move(tab));
                                                  return true;
@@ -486,7 +494,8 @@ std::wstring SerializeWindowBlock(const SessionData& data) {
             payload += L"|" + tab.name + L"|" + tab.tooltip + L"|" + (tab.hidden ? L"1" : L"0") + L"|" + tab.path +
                        L"|" + std::to_wstring(static_cast<unsigned long long>(tab.lastActivatedTick)) + L"|" +
                        std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"|" +
-                       (tab.pinned ? L"1" : L"0") + L"\n";
+                       (tab.pinned ? L"1" : L"0") + L"|" + (tab.hasScrollPosition ? L"1" : L"0") + L"|" +
+                       std::to_wstring(tab.scrollX) + L"|" + std::to_wstring(tab.scrollY) + L"\n";
         }
     }
 

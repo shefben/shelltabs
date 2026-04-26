@@ -22,6 +22,9 @@ struct SessionTab {
     bool pinned = false;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
+    bool hasScrollPosition = false;
+    int32_t scrollX = 0;
+    int32_t scrollY = 0;
 };
 
 struct SessionGroup {

@@ -66,10 +66,12 @@ bool TryParseHttpUrl(const std::wstring& url, HttpUrlParts* parts);
 std::wstring NormalizeFileSystemPath(const std::wstring& path);
 std::wstring GetShellTabsDataDirectory();
 bool TryGetFileSystemPath(IShellItem* item, std::wstring* path);
+bool TryGetShellLocationPath(IShellItem* item, std::wstring* path, bool allowVirtual = true);
 bool IsLikelyFileSystemPath(const std::wstring& path);
 UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser,
                                 const Microsoft::WRL::ComPtr<IWebBrowser2>& webBrowser);
 std::vector<UniquePidl> GetSelectedItemsPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& shellBrowser);
+HWND FindShellTabsBandWindow(HWND preferredFrame = nullptr, HWND excludeFrame = nullptr);
 
 std::wstring Utf8ToWide(std::string_view utf8);
 std::string WideToUtf8(std::wstring_view wide);
@@ -122,4 +124,3 @@ HWND FindDescendantWindow(HWND parent, const wchar_t* className, const wchar_t* 
 HWND FindDescendantByClassEnum(HWND root, const wchar_t* className);
 // Check if a window matches a specific class name (case insensitive)
 bool MatchesClass(HWND hwnd, const wchar_t* className);
-

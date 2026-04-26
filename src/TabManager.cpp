@@ -1710,6 +1710,27 @@ void TabManager::TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<do
     }
 }
 
+void TabManager::TouchFolderOperation(const std::wstring& folderPath, std::optional<double> fraction) {
+    if (folderPath.empty()) {
+        return;
+    }
+
+    const ULONGLONG now = GetTickCount64();
+    const TabLocation location = FindByPath(folderPath);
+    if (!location.IsValid()) {
+        return;
+    }
+
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return;
+    }
+
+    if (ApplyProgress(location, tab, fraction, now)) {
+        NotifyProgressListeners();
+    }
+}
+
 void TabManager::ClearFolderOperation(PCIDLIST_ABSOLUTE folder) {
     TabLocation location = Find(folder);
     if (!location.IsValid() && folder) {
@@ -1723,6 +1744,26 @@ void TabManager::ClearFolderOperation(PCIDLIST_ABSOLUTE folder) {
     if (!tab) {
         return;
     }
+    if (ClearProgress(location, tab)) {
+        NotifyProgressListeners();
+    }
+}
+
+void TabManager::ClearFolderOperation(const std::wstring& folderPath) {
+    if (folderPath.empty()) {
+        return;
+    }
+
+    const TabLocation location = FindByPath(folderPath);
+    if (!location.IsValid()) {
+        return;
+    }
+
+    TabInfo* tab = Get(location);
+    if (!tab) {
+        return;
+    }
+
     if (ClearProgress(location, tab)) {
         NotifyProgressListeners();
     }

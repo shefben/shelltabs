@@ -242,10 +242,12 @@ struct ShellTabsOptions;
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
                 HWND FindStatusBar() const;
+                std::vector<HWND> FindAllStatusBars() const;
                 void UpdateStatusBarTheme();
                 void InstallStatusBarSubclass();
                 void RemoveStatusBarSubclass();
                 bool HandleStatusBarPaint(HWND hwnd);
+                bool HandleRebarPaint(HWND hwnd);
                 void RequestAddressEditRedraw(HWND hwnd) const;
                 void ResetAddressEditStateCache();
                 bool RefreshAddressEditState(HWND hwnd, bool updateText, bool updateSelection,
@@ -402,6 +404,8 @@ struct ShellTabsOptions;
                 HWND m_statusBar = nullptr;
                 bool m_statusBarSubclassInstalled = false;
                 bool m_statusBarDarkModeApplied = false;
+                std::vector<HWND> m_statusBars;       // all msctls_statusbar32 in the frame
+                std::vector<HWND> m_statusBarRebars;  // rebars / containers above each status bar
                 HWND m_addressEditWindow = nullptr;
                 bool m_addressEditSubclassInstalled = false;
                 mutable bool m_addressEditRedrawPending = false;

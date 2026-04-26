@@ -30,7 +30,6 @@ namespace shelltabs {
 namespace {
 constexpr wchar_t kCommandLabel[] = L"Open in new tab";
 constexpr wchar_t kCommandTooltip[] = L"Open the selected folder in a new ShellTabs tab.";
-constexpr wchar_t kBandWindowClassName[] = L"ShellTabsBandWindow";
 }
 
 OpenFolderCommand::OpenFolderCommand() { ModuleAddRef(); }
@@ -244,11 +243,13 @@ bool OpenFolderCommand::HasOpenableFolder(IShellItemArray* items) const {
         }
         SFGAOF attributes = 0;
         if (FAILED(item->GetAttributes(SFGAO_FILESYSTEM | SFGAO_FOLDER, &attributes))) {
+            attributes = 0;
+            item->GetAttributes(SFGAO_FOLDER, &attributes);
+        }
+        if ((attributes & SFGAO_FOLDER) == 0) {
             continue;
         }
-        if ((attributes & (SFGAO_FILESYSTEM | SFGAO_FOLDER)) == (SFGAO_FILESYSTEM | SFGAO_FOLDER)) {
-            return true;
-        }
+        return true;
     }
     return false;
 }
@@ -273,14 +274,17 @@ bool OpenFolderCommand::CollectOpenablePaths(IShellItemArray* items, std::vector
         }
         SFGAOF attributes = 0;
         if (FAILED(item->GetAttributes(SFGAO_FILESYSTEM | SFGAO_FOLDER, &attributes))) {
-            continue;
+            attributes = 0;
+            if (FAILED(item->GetAttributes(SFGAO_FOLDER, &attributes))) {
+                continue;
+            }
         }
-        if ((attributes & (SFGAO_FILESYSTEM | SFGAO_FOLDER)) != (SFGAO_FILESYSTEM | SFGAO_FOLDER)) {
+        if ((attributes & SFGAO_FOLDER) == 0) {
             continue;
         }
 
         std::wstring path;
-        if (!TryGetFileSystemPath(item.Get(), &path) || path.empty()) {
+        if (!TryGetShellLocationPath(item.Get(), &path) || path.empty()) {
             continue;
         }
 
@@ -317,10 +321,7 @@ bool OpenFolderCommand::OpenPathsInNewTabs(const std::vector<std::wstring>& path
 }
 
 HWND OpenFolderCommand::FindBandWindow() const {
-    if (!m_frameWindow) {
-        return nullptr;
-    }
-    return FindBandWindowRecursive(m_frameWindow);
+    return FindShellTabsBandWindow(m_frameWindow);
 }
 
 HWND OpenFolderCommand::FindBandWindowRecursive(HWND parent) const {
@@ -332,7 +333,7 @@ HWND OpenFolderCommand::FindBandWindowRecursive(HWND parent) const {
     while (child) {
         wchar_t className[64] = {};
         if (GetClassNameW(child, className, ARRAYSIZE(className))) {
-            if (wcscmp(className, kBandWindowClassName) == 0) {
+            if (wcscmp(className, L"ShellTabsBandWindow") == 0) {
                 return child;
             }
         }
@@ -348,4 +349,3 @@ HWND OpenFolderCommand::FindBandWindowRecursive(HWND parent) const {
 }
 
 }  // namespace shelltabs
-

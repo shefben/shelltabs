@@ -57,6 +57,23 @@ HRESULT CreateShellItemFromPidl(PCIDLIST_ABSOLUTE pidl, ComPtr<IShellItem2>* ite
     return hr;
 }
 
+bool TryGetPidlLocationPath(PCIDLIST_ABSOLUTE pidl, std::wstring* path) {
+    if (!pidl || !path) {
+        return false;
+    }
+
+    std::wstring value = GetCanonicalParsingName(pidl);
+    if (value.empty()) {
+        value = GetParsingName(pidl);
+    }
+    if (value.empty()) {
+        return false;
+    }
+
+    *path = std::move(value);
+    return true;
+}
+
 }  // namespace
 
 std::wstring Utf8ToWide(std::string_view utf8) {
@@ -322,6 +339,13 @@ UniquePidl ParseDisplayName(const std::wstring& parsingName) {
     }
     PIDLIST_ABSOLUTE pidl = nullptr;
     SFGAOF attributes = 0;
+    // Some virtual folders (Recycle Bin, Control Panel) refuse SHParseDisplayName
+    // when the SFGAO_FOLDER hint is provided. Try without attributes first so that
+    // shell:: and ::{CLSID} forms always succeed.
+    if (SUCCEEDED(SHParseDisplayName(parsingName.c_str(), nullptr, &pidl, attributes, nullptr)) && pidl) {
+        return UniquePidl(pidl);
+    }
+    attributes = SFGAO_FOLDER;
     if (SUCCEEDED(SHParseDisplayName(parsingName.c_str(), nullptr, &pidl, attributes, nullptr)) && pidl) {
         return UniquePidl(pidl);
     }
@@ -443,6 +467,40 @@ bool TryGetFileSystemPath(IShellItem* item, std::wstring* path) {
 
     *path = std::move(normalized);
     return true;
+}
+
+bool TryGetShellLocationPath(IShellItem* item, std::wstring* path, bool allowVirtual) {
+    if (!item || !path) {
+        return false;
+    }
+
+    if (TryGetFileSystemPath(item, path)) {
+        return true;
+    }
+
+    if (!allowVirtual) {
+        return false;
+    }
+
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (SUCCEEDED(SHGetIDListFromObject(item, &pidl)) && pidl) {
+        UniquePidl holder(pidl);
+        if (TryGetPidlLocationPath(holder.get(), path)) {
+            return true;
+        }
+    }
+
+    PWSTR parsingName = nullptr;
+    if (SUCCEEDED(item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingName)) && parsingName) {
+        *path = parsingName;
+        CoTaskMemFree(parsingName);
+        return !path->empty();
+    }
+    if (parsingName) {
+        CoTaskMemFree(parsingName);
+    }
+
+    return false;
 }
 
 bool IsLikelyFileSystemPath(const std::wstring& path) {
@@ -608,14 +666,34 @@ UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& she
                 Microsoft::WRL::ComPtr<IFolderView> folderView;
                 folderView.Attach(rawFolderView);
 
-                IPersistFolder2* rawPersist = nullptr;
-                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&rawPersist))) && rawPersist) {
-                    Microsoft::WRL::ComPtr<IPersistFolder2> persist;
-                    persist.Attach(rawPersist);
+                Microsoft::WRL::ComPtr<IUnknown> folderUnknown;
+                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&folderUnknown))) && folderUnknown) {
+                    PIDLIST_ABSOLUTE pidl = nullptr;
+                    if (SUCCEEDED(SHGetIDListFromObject(folderUnknown.Get(), &pidl)) && pidl) {
+                        return UniquePidl(pidl);
+                    }
+                }
 
+                Microsoft::WRL::ComPtr<IPersistIDList> persistIdList;
+                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&persistIdList))) && persistIdList) {
+                    PIDLIST_ABSOLUTE pidl = nullptr;
+                    if (SUCCEEDED(persistIdList->GetIDList(&pidl)) && pidl) {
+                        return UniquePidl(pidl);
+                    }
+                }
+
+                Microsoft::WRL::ComPtr<IPersistFolder2> persist;
+                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&persist))) && persist) {
                     PIDLIST_ABSOLUTE pidl = nullptr;
                     if (SUCCEEDED(persist->GetCurFolder(&pidl)) && pidl) {
                         return UniquePidl(pidl);
+                    }
+                }
+
+                Microsoft::WRL::ComPtr<IShellItem> shellItem;
+                if (SUCCEEDED(folderView->GetFolder(IID_PPV_ARGS(&shellItem))) && shellItem) {
+                    if (auto pidl = ShellItemToPidl(shellItem.Get())) {
+                        return pidl;
                     }
                 }
             }
@@ -633,6 +711,32 @@ UniquePidl GetCurrentFolderPidL(const Microsoft::WRL::ComPtr<IShellBrowser>& she
                     return pidl;
                 }
             }
+        }
+    }
+
+    return nullptr;
+}
+
+HWND FindShellTabsBandWindow(HWND preferredFrame, HWND excludeFrame) {
+    const auto tryFrame = [](HWND frame) -> HWND {
+        if (!frame || !IsWindow(frame)) {
+            return nullptr;
+        }
+        HWND band = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+        return (band && IsWindow(band)) ? band : nullptr;
+    };
+
+    if (HWND band = tryFrame(preferredFrame)) {
+        return band;
+    }
+
+    HWND search = nullptr;
+    while ((search = FindWindowExW(nullptr, search, L"CabinetWClass", nullptr)) != nullptr) {
+        if (search == excludeFrame || search == preferredFrame) {
+            continue;
+        }
+        if (HWND band = tryFrame(search)) {
+            return band;
         }
     }
 
@@ -1100,4 +1204,3 @@ bool MatchesClass(HWND hwnd, const wchar_t* className) {
     }
     return _wcsicmp(buffer, className) == 0;
 }
-

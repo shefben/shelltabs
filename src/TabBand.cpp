@@ -614,6 +614,11 @@ void TabBand::OnBrowserNavigate() {
     }
 
     m_internalNavigation = false;
+
+    // Persist navigation so that re-opening Explorer reproduces the current tab
+    // pointing at the folder the user actually ended up on (including virtual
+    // folders like Control Panel that the user navigated to in-place).
+    SaveSession();
 }
 
 void TabBand::OnBrowserQuit() {
@@ -1859,12 +1864,17 @@ void TabBand::OnOpenFolderInNewTab(const std::wstring& path, bool select) {
         return;
     }
 
-    const DWORD attributes = GetFileAttributesW(path.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-        return;
-    }
-
     UniquePidl pidl = ParseDisplayName(path);
+    if (!pidl) {
+        pidl = ParseExplorerUrl(path);
+    }
+    if (!pidl && IsLikelyFileSystemPath(path)) {
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            return;
+        }
+        pidl = ParseDisplayName(path);
+    }
     if (!pidl) {
         return;
     }
@@ -1873,13 +1883,21 @@ void TabBand::OnOpenFolderInNewTab(const std::wstring& path, bool select) {
     if (name.empty()) {
         name = path;
     }
+    std::wstring tooltip = GetCanonicalParsingName(pidl.get());
+    if (tooltip.empty()) {
+        tooltip = GetParsingName(pidl.get());
+    }
+    if (tooltip.empty()) {
+        tooltip = name;
+    }
 
     const TabLocation selected = m_tabs.SelectedLocation();
     const int targetGroup = selected.groupIndex >= 0 ? selected.groupIndex : 0;
-    TabLocation location = m_tabs.Add(std::move(pidl), name, name, select, targetGroup);
+    TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, select, targetGroup);
 
     UpdateTabsUI();
     SyncAllSavedGroups();
+    SaveSession();
 
     if (select && location.IsValid()) {
         NavigateToTab(location);
@@ -1914,20 +1932,7 @@ bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
         return false;
     }
 
-    // Search for another CabinetWClass window that has a ShellTabsBandWindow child
-    HWND candidate = nullptr;
-    HWND search = nullptr;
-    while ((search = FindWindowExW(nullptr, search, L"CabinetWClass", nullptr)) != nullptr) {
-        if (search == ourFrame) {
-            continue;
-        }
-        // Check if this Explorer window has a ShellTabsBandWindow descendant
-        HWND bandWindow = FindDescendantWindow(search, L"ShellTabsBandWindow");
-        if (bandWindow) {
-            candidate = bandWindow;
-            break;
-        }
-    }
+    HWND candidate = FindShellTabsBandWindow(nullptr, ourFrame);
 
     if (!candidate) {
         return false;
@@ -2058,6 +2063,26 @@ void TabBand::CaptureActiveTabPreview() {
                                                     owner);
 }
 
+namespace {
+
+// Walk the view tree and find the scrollable list/grid window. Modern Explorer hosts
+// either a SysListView32 or a UIItemsView (under DirectUIHWND). Fall back to the
+// view window itself if neither is found.
+HWND FindExplorerScrollable(HWND viewWindow) {
+    if (!viewWindow) {
+        return nullptr;
+    }
+    if (HWND lv = FindWindowExW(viewWindow, nullptr, WC_LISTVIEWW, nullptr)) {
+        return lv;
+    }
+    if (HWND lvDescendant = FindDescendantByClassEnum(viewWindow, WC_LISTVIEWW)) {
+        return lvDescendant;
+    }
+    return viewWindow;
+}
+
+}  // namespace
+
 bool TabBand::GetCurrentScrollPosition(POINT& outPosition) {
     outPosition = {0, 0};
 
@@ -2073,36 +2098,41 @@ bool TabBand::GetCurrentScrollPosition(POINT& outPosition) {
     ComPtr<IShellView> shellView;
     shellView.Attach(rawView);
 
-    HWND viewWindow = nullptr;
-    if (FAILED(shellView->GetWindow(&viewWindow)) || !viewWindow) {
-        return false;
-    }
+    bool captured = false;
 
-    // Try to find the actual scrollable window
-    // First check if the DefView window has scroll info
-    SCROLLINFO siVert = {sizeof(SCROLLINFO), SIF_ALL};
-    SCROLLINFO siHorz = {sizeof(SCROLLINFO), SIF_ALL};
-
-    // Try the view window itself
-    bool hasVertScroll = GetScrollInfo(viewWindow, SB_VERT, &siVert) != FALSE;
-    bool hasHorzScroll = GetScrollInfo(viewWindow, SB_HORZ, &siHorz) != FALSE;
-
-    // If no scroll on the view window, try to find a ListView child
-    if (!hasVertScroll && !hasHorzScroll) {
-        HWND listView = FindWindowExW(viewWindow, nullptr, WC_LISTVIEWW, nullptr);
-        if (listView) {
-            hasVertScroll = GetScrollInfo(listView, SB_VERT, &siVert) != FALSE;
-            hasHorzScroll = GetScrollInfo(listView, SB_HORZ, &siHorz) != FALSE;
+    // Strategy 1: Use IFolderView2::GetVisibleItem for a stable, view-agnostic
+    // anchor. The encoded value is the topmost visible item index, stored in
+    // outPosition.y so that the existing POINT plumbing carries it through.
+    ComPtr<IFolderView2> folderView2;
+    if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
+        int firstVisible = -1;
+        HRESULT hr = folderView2->GetVisibleItem(-1, FALSE, &firstVisible);
+        if (SUCCEEDED(hr) && firstVisible >= 0) {
+            outPosition.x = -1;            // marker: y holds an item index
+            outPosition.y = firstVisible;  // index of first visible item
+            captured = true;
         }
     }
 
-    if (hasVertScroll || hasHorzScroll) {
-        outPosition.x = hasHorzScroll ? siHorz.nPos : 0;
-        outPosition.y = hasVertScroll ? siVert.nPos : 0;
-        return true;
+    // Strategy 2: Fallback to scroll info from the listview / view window.
+    if (!captured) {
+        HWND viewWindow = nullptr;
+        if (FAILED(shellView->GetWindow(&viewWindow)) || !viewWindow) {
+            return false;
+        }
+        HWND scrollWindow = FindExplorerScrollable(viewWindow);
+        SCROLLINFO siVert = {sizeof(SCROLLINFO), SIF_POS, 0, 0, 0, 0, 0};
+        SCROLLINFO siHorz = {sizeof(SCROLLINFO), SIF_POS, 0, 0, 0, 0, 0};
+        const bool vert = GetScrollInfo(scrollWindow, SB_VERT, &siVert) != FALSE;
+        const bool horz = GetScrollInfo(scrollWindow, SB_HORZ, &siHorz) != FALSE;
+        if (vert || horz) {
+            outPosition.x = horz ? siHorz.nPos : 0;
+            outPosition.y = vert ? siVert.nPos : 0;
+            captured = true;
+        }
     }
 
-    return false;
+    return captured;
 }
 
 bool TabBand::SetCurrentScrollPosition(const POINT& position) {
@@ -2118,45 +2148,53 @@ bool TabBand::SetCurrentScrollPosition(const POINT& position) {
     ComPtr<IShellView> shellView;
     shellView.Attach(rawView);
 
+    bool restored = false;
+
+    // The x == -1 sentinel indicates that y carries an IFolderView item index.
+    if (position.x == -1) {
+        ComPtr<IFolderView> folderView;
+        if (SUCCEEDED(shellView.As(&folderView)) && folderView) {
+            const int index = position.y;
+            int itemCount = 0;
+            if (SUCCEEDED(folderView->ItemCount(SVGIO_ALLVIEW, &itemCount)) && index >= 0 &&
+                index < itemCount) {
+                // SVSI_POSITIONITEM scrolls the view so the item is visible.
+                // SVSI_NOSTATECHANGE keeps focus / selection where they were.
+                const HRESULT hr = folderView->SelectItem(
+                    index, SVSI_POSITIONITEM | SVSI_NOSTATECHANGE);
+                if (SUCCEEDED(hr)) {
+                    restored = true;
+                }
+            }
+        }
+    }
+
+    if (restored) {
+        return true;
+    }
+
+    // Fallback: drive scroll bars directly.
     HWND viewWindow = nullptr;
     if (FAILED(shellView->GetWindow(&viewWindow)) || !viewWindow) {
         return false;
     }
-
-    // Find the scrollable window
-    HWND scrollableWindow = viewWindow;
-    SCROLLINFO siVert = {sizeof(SCROLLINFO), SIF_ALL};
-    if (!GetScrollInfo(viewWindow, SB_VERT, &siVert)) {
-        // Try to find a ListView child
-        HWND listView = FindWindowExW(viewWindow, nullptr, WC_LISTVIEWW, nullptr);
-        if (listView) {
-            scrollableWindow = listView;
-        }
-    }
-
-    // Set scroll positions
-    bool success = false;
+    HWND scrollWindow = FindExplorerScrollable(viewWindow);
 
     if (position.y != 0) {
-        SCROLLINFO siSet = {sizeof(SCROLLINFO), SIF_POS};
-        siSet.nPos = position.y;
-        SetScrollInfo(scrollableWindow, SB_VERT, &siSet, TRUE);
-        // Also send scroll message to ensure the view updates
-        SendMessageW(scrollableWindow, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, position.y), 0);
-        SendMessageW(scrollableWindow, WM_VSCROLL, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
-        success = true;
+        SCROLLINFO siSet = {sizeof(SCROLLINFO), SIF_POS, 0, 0, 0, position.y, 0};
+        SetScrollInfo(scrollWindow, SB_VERT, &siSet, TRUE);
+        SendMessageW(scrollWindow, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, position.y), 0);
+        SendMessageW(scrollWindow, WM_VSCROLL, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+        restored = true;
     }
-
-    if (position.x != 0) {
-        SCROLLINFO siSet = {sizeof(SCROLLINFO), SIF_POS};
-        siSet.nPos = position.x;
-        SetScrollInfo(scrollableWindow, SB_HORZ, &siSet, TRUE);
-        SendMessageW(scrollableWindow, WM_HSCROLL, MAKEWPARAM(SB_THUMBPOSITION, position.x), 0);
-        SendMessageW(scrollableWindow, WM_HSCROLL, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
-        success = true;
+    if (position.x > 0) {
+        SCROLLINFO siSet = {sizeof(SCROLLINFO), SIF_POS, 0, 0, 0, position.x, 0};
+        SetScrollInfo(scrollWindow, SB_HORZ, &siSet, TRUE);
+        SendMessageW(scrollWindow, WM_HSCROLL, MAKEWPARAM(SB_THUMBPOSITION, position.x), 0);
+        SendMessageW(scrollWindow, WM_HSCROLL, MAKEWPARAM(SB_ENDSCROLL, 0), 0);
+        restored = true;
     }
-
-    return success;
+    return restored;
 }
 
 void TabBand::SaveCurrentTabScrollPosition() {
@@ -2166,11 +2204,12 @@ void TabBand::SaveCurrentTabScrollPosition() {
         return;
     }
 
-    POINT scrollPos;
+    POINT scrollPos{};
     if (GetCurrentScrollPosition(scrollPos)) {
         tab->scrollPosition = scrollPos;
         tab->hasScrollPosition = true;
-        LogMessage(LogLevel::Info, L"TabBand::SaveCurrentTabScrollPosition saved scroll position (%ld, %ld) for tab %ls",
+        LogMessage(LogLevel::Info,
+                   L"TabBand::SaveCurrentTabScrollPosition saved (%ld, %ld) for tab %ls",
                    scrollPos.x, scrollPos.y, tab->name.c_str());
     }
 }
@@ -2182,11 +2221,15 @@ void TabBand::RestoreCurrentTabScrollPosition() {
         return;
     }
 
-    if (tab->scrollPosition.x != 0 || tab->scrollPosition.y != 0) {
-        if (SetCurrentScrollPosition(tab->scrollPosition)) {
-            LogMessage(LogLevel::Info, L"TabBand::RestoreCurrentTabScrollPosition restored scroll position (%ld, %ld) for tab %ls",
-                       tab->scrollPosition.x, tab->scrollPosition.y, tab->name.c_str());
-        }
+    // Skip if we have nothing meaningful to restore (default zeros).
+    if (tab->scrollPosition.x == 0 && tab->scrollPosition.y == 0) {
+        return;
+    }
+
+    if (SetCurrentScrollPosition(tab->scrollPosition)) {
+        LogMessage(LogLevel::Info,
+                   L"TabBand::RestoreCurrentTabScrollPosition restored (%ld, %ld) for tab %ls",
+                   tab->scrollPosition.x, tab->scrollPosition.y, tab->name.c_str());
     }
 }
 
@@ -2510,6 +2553,9 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
             tab.path = tabData.path;
             tab.lastActivatedTick = tabData.lastActivatedTick;
             tab.activationOrdinal = tabData.activationOrdinal;
+            tab.hasScrollPosition = tabData.hasScrollPosition;
+            tab.scrollPosition.x = tabData.scrollX;
+            tab.scrollPosition.y = tabData.scrollY;
             tab.RefreshNormalizedLookupKey();
             group.tabs.emplace_back(std::move(tab));
         };
@@ -2602,6 +2648,9 @@ void TabBand::SaveSession() {
             storedTab.pinned = tab.pinned;
             storedTab.lastActivatedTick = tab.lastActivatedTick;
             storedTab.activationOrdinal = tab.activationOrdinal;
+            storedTab.hasScrollPosition = tab.hasScrollPosition;
+            storedTab.scrollX = tab.scrollPosition.x;
+            storedTab.scrollY = tab.scrollPosition.y;
             storedGroup.tabs.emplace_back(std::move(storedTab));
             return true;
         };
@@ -2966,7 +3015,18 @@ void TabBand::NavigateToTab(TabLocation location) {
     m_internalNavigation = true;
     EnsureFtpNamespaceBinding(tab->pidl.get());
     LogMessage(LogLevel::Info, L"NavigateToTab: calling BrowseObject");
-    const HRESULT hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER | SBSP_WRITENOHISTORY);
+    HRESULT hr = E_FAIL;
+    // Removable media (USB sticks, network drives) can be yanked between tab
+    // creation and tab activation. Navigating to a stale PIDL into the shell
+    // can produce structured exceptions deep inside Explorer/COM — guard the
+    // call so the deskband does not bring down the host.
+    __try {
+        hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER | SBSP_WRITENOHISTORY);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning,
+                   L"NavigateToTab: BrowseObject SEH exception (likely stale PIDL after device removal)");
+        hr = E_FAIL;
+    }
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"NavigateToTab: BrowseObject failed (hr=0x%08X)", hr);
         m_internalNavigation = false;
@@ -2978,7 +3038,32 @@ void TabBand::NavigateToTab(TabLocation location) {
 void TabBand::EnsureTabForCurrentFolder() {
     UniquePidl current = QueryCurrentFolder();
     if (!current) {
-        return;
+        // Fallback for virtual namespaces (Control Panel, Network, Recycle Bin)
+        // where IFolderView::GetFolder may not produce a usable PIDL. Re-parse the
+        // browser's location URL — this almost always succeeds for shell:: paths.
+        if (m_webBrowser) {
+            BSTR location = nullptr;
+            if (SUCCEEDED(m_webBrowser->get_LocationURL(&location)) && location) {
+                std::wstring url(location, SysStringLen(location));
+                SysFreeString(location);
+                if (!url.empty()) {
+                    current = ParseExplorerUrl(url);
+                }
+            }
+            if (!current) {
+                BSTR name = nullptr;
+                if (SUCCEEDED(m_webBrowser->get_LocationName(&name)) && name) {
+                    std::wstring locationName(name, SysStringLen(name));
+                    SysFreeString(name);
+                    if (!locationName.empty()) {
+                        current = ParseDisplayName(locationName);
+                    }
+                }
+            }
+        }
+        if (!current) {
+            return;
+        }
     }
 
     if (m_pendingWindowRedirect) {
@@ -3469,16 +3554,22 @@ void TabBand::OnShowOptionsDialog(OptionsDialogPage initialPage, const std::wstr
         auto& store = GroupStore::Instance();
         LoadGroupStoreForContext(L"TabBand::OnShowOptionsDialog failed to load saved groups", store);
 
-        // Actually remove deleted groups from persistent storage
         for (const auto& removedId : dialog.removedGroupIds) {
             store.Remove(removedId);
         }
 
-        std::vector<SavedGroup> updatedGroups = dialog.savedGroups;
-        if (updatedGroups.empty()) {
-            updatedGroups = store.Groups();
+        for (const auto& rename : dialog.renamedGroups) {
+            if (_wcsicmp(rename.first.c_str(), rename.second.c_str()) != 0) {
+                store.Remove(rename.first);
+            }
         }
 
+        for (const auto& savedGroup : dialog.savedGroups) {
+            store.Upsert(savedGroup);
+        }
+
+        store.RecordChanges(dialog.renamedGroups, dialog.removedGroupIds);
+        const std::vector<SavedGroup> updatedGroups = store.Groups();
         const bool metadataUpdated =
             ApplySavedGroupMetadata(updatedGroups, dialog.renamedGroups, dialog.removedGroupIds);
 
@@ -3634,10 +3725,11 @@ void TabBand::OnSavedGroupsChanged() {
 }
 
 void TabBand::SyncSavedGroup(int groupIndex) const {
-    EnsureOptionsLoaded();
-    if (!m_options.persistGroupPaths) {
-        return;
-    }
+    // Saved groups (those with a non-empty savedGroupId) are intentionally promoted
+    // to durable storage by the user; their current tab set should always be
+    // mirrored back to groups.db so that re-loading the saved group reproduces
+    // the state the user last left it in. Unsaved islands are skipped entirely
+    // because they have no savedGroupId.
     const auto* group = m_tabs.GetGroup(groupIndex);
     if (!group || group->savedGroupId.empty()) {
         return;
@@ -3882,4 +3974,3 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
 }
 
 }  // namespace shelltabs
-

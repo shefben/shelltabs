@@ -4793,15 +4793,23 @@ IconCache::Reference TabBandWindow::LoadItemIcon(const TabViewItem& item, UINT i
     auto loader = [pidl, path, resolvedFlags]() -> HICON {
         SHFILEINFOW info{};
         const UINT flags = SHGFI_ICON | SHGFI_ADDOVERLAYS | resolvedFlags;
-        if (pidl) {
-            if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(pidl), 0, &info, sizeof(info), flags | SHGFI_PIDL)) {
-                return info.hIcon;
+        // SHGetFileInfoW can faulth into removable devices that have been yanked
+        // (USB sticks, network shares); guard the call so the icon thread does
+        // not propagate a structured exception into Explorer.
+        __try {
+            if (pidl) {
+                if (SHGetFileInfoW(reinterpret_cast<PCWSTR>(pidl), 0, &info, sizeof(info),
+                                   flags | SHGFI_PIDL)) {
+                    return info.hIcon;
+                }
             }
-        }
-        if (!path.empty()) {
-            if (SHGetFileInfoW(path.c_str(), 0, &info, sizeof(info), flags)) {
-                return info.hIcon;
+            if (!path.empty()) {
+                if (SHGetFileInfoW(path.c_str(), 0, &info, sizeof(info), flags)) {
+                    return info.hIcon;
+                }
             }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return nullptr;
         }
         return nullptr;
     };
@@ -5272,66 +5280,101 @@ void TabBandWindow::UnregisterShellNotifications() {
 }
 
 void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
-    // With SHCNRF_NewDelivery, wParam is a notification handle and lParam contains event flags.
-    // We must use SHChangeNotification_Lock to get the actual PIDLs.
-    LONG eventId = 0;
-    PIDLIST_ABSOLUTE* pidls = nullptr;
-    HANDLE lock = SHChangeNotification_Lock(
-        reinterpret_cast<HANDLE>(wParam), static_cast<DWORD>(lParam), &pidls, &eventId);
-    if (!lock) {
-        return;
-    }
+    __try {
+        // With SHCNRF_NewDelivery, wParam is a notification handle and lParam contains event flags.
+        // We must use SHChangeNotification_Lock to get the actual PIDLs.
+        LONG eventId = 0;
+        PIDLIST_ABSOLUTE* pidls = nullptr;
+        HANDLE lock = SHChangeNotification_Lock(
+            reinterpret_cast<HANDLE>(wParam), static_cast<DWORD>(lParam), &pidls, &eventId);
+        if (!lock) {
+            return;
+        }
 
-    auto* manager = ResolveManager();
-    if (!manager) {
+        auto* manager = ResolveManager();
+        if (!manager) {
+            SHChangeNotification_Unlock(lock);
+            return;
+        }
+
+        PCIDLIST_ABSOLUTE from = pidls ? pidls[0] : nullptr;
+        PCIDLIST_ABSOLUTE to = pidls ? pidls[1] : nullptr;
+
+        auto resolveLocationPath = [](PCIDLIST_ABSOLUTE pidl) -> std::wstring {
+            if (!pidl) {
+                return {};
+            }
+
+            UniquePidl target = CloneParent(pidl);
+            PCIDLIST_ABSOLUTE resolved = target ? target.get() : pidl;
+
+            std::wstring path = GetCanonicalParsingName(resolved);
+            if (path.empty()) {
+                path = GetParsingName(resolved);
+            }
+            return path;
+        };
+
+        auto touch = [manager, &resolveLocationPath](PCIDLIST_ABSOLUTE pidl) {
+            if (!pidl) {
+                return;
+            }
+
+            std::wstring path = resolveLocationPath(pidl);
+            if (!path.empty()) {
+                manager->TouchFolderOperation(path);
+                return;
+            }
+
+            if (auto parent = CloneParent(pidl)) {
+                manager->TouchFolderOperation(parent.get());
+            } else {
+                manager->TouchFolderOperation(pidl);
+            }
+        };
+        auto clear = [manager, &resolveLocationPath](PCIDLIST_ABSOLUTE pidl) {
+            if (!pidl) {
+                return;
+            }
+
+            std::wstring path = resolveLocationPath(pidl);
+            if (!path.empty()) {
+                manager->ClearFolderOperation(path);
+                return;
+            }
+
+            if (auto parent = CloneParent(pidl)) {
+                manager->ClearFolderOperation(parent.get());
+            } else {
+                manager->ClearFolderOperation(pidl);
+            }
+        };
+
+        switch (eventId) {
+            case SHCNE_CREATE:
+            case SHCNE_DELETE:
+            case SHCNE_MKDIR:
+            case SHCNE_RMDIR:
+            case SHCNE_RENAMEITEM:
+            case SHCNE_RENAMEFOLDER:
+            case SHCNE_UPDATEITEM:
+                touch(from);
+                touch(to);
+                break;
+            case SHCNE_UPDATEDIR:
+            case SHCNE_DRIVEREMOVED:
+            case SHCNE_MEDIAREMOVED:
+                clear(from);
+                clear(to);
+                break;
+            default:
+                break;
+        }
+
         SHChangeNotification_Unlock(lock);
-        return;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"TabBandWindow::OnShellNotify ignored SEH exception during shell change handling");
     }
-
-    PCIDLIST_ABSOLUTE from = pidls ? pidls[0] : nullptr;
-    PCIDLIST_ABSOLUTE to = pidls ? pidls[1] : nullptr;
-
-    auto touch = [manager](PCIDLIST_ABSOLUTE pidl) {
-        if (!pidl) {
-            return;
-        }
-        if (auto parent = CloneParent(pidl)) {
-            manager->TouchFolderOperation(parent.get());
-        } else {
-            manager->TouchFolderOperation(pidl);
-        }
-    };
-    auto clear = [manager](PCIDLIST_ABSOLUTE pidl) {
-        if (!pidl) {
-            return;
-        }
-        if (auto parent = CloneParent(pidl)) {
-            manager->ClearFolderOperation(parent.get());
-        } else {
-            manager->ClearFolderOperation(pidl);
-        }
-    };
-
-    switch (eventId) {
-        case SHCNE_CREATE:
-        case SHCNE_DELETE:
-        case SHCNE_MKDIR:
-        case SHCNE_RMDIR:
-        case SHCNE_RENAMEITEM:
-        case SHCNE_RENAMEFOLDER:
-        case SHCNE_UPDATEITEM:
-            touch(from);
-            touch(to);
-            break;
-        case SHCNE_UPDATEDIR:
-            clear(from);
-            clear(to);
-            break;
-        default:
-            break;
-    }
-
-    SHChangeNotification_Unlock(lock);
 }
 
 void TabBandWindow::UpdateCloseButtonHover(const POINT& pt) {

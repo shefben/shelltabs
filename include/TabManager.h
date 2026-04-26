@@ -239,7 +239,9 @@ public:
     void RegisterProgressListener(HWND hwnd);
     void UnregisterProgressListener(HWND hwnd);
     void TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<double> fraction = std::nullopt);
+    void TouchFolderOperation(const std::wstring& folderPath, std::optional<double> fraction = std::nullopt);
     void ClearFolderOperation(PCIDLIST_ABSOLUTE folder);
+    void ClearFolderOperation(const std::wstring& folderPath);
     std::vector<TabLocation> ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
     bool HasActiveProgress() const;
 
@@ -360,4 +362,3 @@ private:
 };
 
 }  // namespace shelltabs
-

@@ -1874,16 +1874,7 @@ HWND CExplorerBHO::GetTopLevelExplorerWindow() const {
 
 HWND CExplorerBHO::GetShellTabsBandWindow() const {
     HWND frame = GetTopLevelExplorerWindow();
-    if (!frame || !IsWindow(frame)) {
-        return nullptr;
-    }
-
-    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
-    if (!bandWindow || !IsWindow(bandWindow)) {
-        return nullptr;
-    }
-
-    return bandWindow;
+    return FindShellTabsBandWindow(frame);
 }
 
 bool CExplorerBHO::PostTravelToolbarNavigationMessage(bool navigateBack) const {
@@ -3945,15 +3936,7 @@ void CExplorerBHO::TryDispatchQueuedOpenInNewTabRequests() {
     }
 
     HWND frame = GetTopLevelExplorerWindow();
-    if (!frame) {
-        LogMessage(LogLevel::Warning,
-                   L"Open In New Tab dispatch deferred: explorer frame not found (%zu request(s) pending)",
-                   m_openInNewTabQueue.size());
-        ScheduleOpenInNewTabRetry();
-        return;
-    }
-
-    HWND bandWindow = FindDescendantWindow(frame, L"ShellTabsBandWindow");
+    HWND bandWindow = FindShellTabsBandWindow(frame);
     if (!bandWindow || !IsWindow(bandWindow)) {
         LogMessage(LogLevel::Info,
                    L"Open In New Tab dispatch deferred: ShellTabs band window missing (frame=%p, pending=%zu)",
@@ -6401,6 +6384,73 @@ HWND CExplorerBHO::FindStatusBar() const {
     return FindDescendantWindow(frame, STATUSCLASSNAMEW);
 }
 
+namespace {
+
+struct StatusBarCollector {
+    std::vector<HWND> bars;
+};
+
+BOOL CALLBACK CollectStatusBarsProc(HWND hwnd, LPARAM lp) {
+    auto* collector = reinterpret_cast<StatusBarCollector*>(lp);
+    wchar_t cls[64] = {};
+    if (GetClassNameW(hwnd, cls, ARRAYSIZE(cls))) {
+        if (_wcsicmp(cls, STATUSCLASSNAMEW) == 0) {
+            collector->bars.push_back(hwnd);
+        }
+    }
+    EnumChildWindows(hwnd, CollectStatusBarsProc, lp);
+    return TRUE;
+}
+
+// Wrapper that lets us use __try inside a function with no C++ unwinding —
+// callers with destructible state can invoke this without conflict.
+void SafeRemoveWindowSubclassRaw(HWND hwnd, SUBCLASSPROC proc, UINT_PTR id) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+    __try {
+        RemoveWindowSubclass(hwnd, proc, id);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+// Walk up from the status bar looking for the rebar / container that paints
+// the strip immediately above it. We stop when we hit a window whose top is
+// significantly higher than the status bar's top (i.e. a real container) or
+// when we hit a class we shouldn't repaint (CabinetWClass = the explorer
+// frame itself).
+HWND FindRebarAbove(HWND statusBar) {
+    if (!statusBar || !IsWindow(statusBar)) {
+        return nullptr;
+    }
+    HWND parent = GetParent(statusBar);
+    if (!parent || !IsWindow(parent)) {
+        return nullptr;
+    }
+    wchar_t cls[64] = {};
+    if (!GetClassNameW(parent, cls, ARRAYSIZE(cls))) {
+        return nullptr;
+    }
+    // Don't repaint the explorer frame itself.
+    if (_wcsicmp(cls, L"CabinetWClass") == 0 ||
+        _wcsicmp(cls, L"ExploreWClass") == 0) {
+        return nullptr;
+    }
+    return parent;
+}
+
+}  // namespace
+
+std::vector<HWND> CExplorerBHO::FindAllStatusBars() const {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return {};
+    }
+    StatusBarCollector collector;
+    EnumChildWindows(frame, CollectStatusBarsProc, reinterpret_cast<LPARAM>(&collector));
+    return std::move(collector.bars);
+}
+
 void CExplorerBHO::UpdateStatusBarTheme() {
     if (m_isDisconnecting) {
         return;
@@ -6418,42 +6468,93 @@ void CExplorerBHO::UpdateStatusBarTheme() {
         return;
     }
 
-    HWND statusBar = FindStatusBar();
-    if (!statusBar || !IsWindow(statusBar)) {
+    std::vector<HWND> bars = FindAllStatusBars();
+    if (bars.empty()) {
         RemoveStatusBarSubclass();
         return;
     }
 
-    // Call AllowDarkModeForWindow so theme color queries can return dark values,
-    // but always install the subclass for painting. SetWindowTheme("DarkMode_Explorer")
-    // does not reliably render the status bar dark — it returns S_OK but has no visual
-    // effect on msctls_statusbar32 controls.
-    {
-        using AllowDarkModeForWindowFn = BOOL(WINAPI*)(HWND, BOOL);
-        static AllowDarkModeForWindowFn pfnAllowDark = nullptr;
-        static bool resolved = false;
-        if (!resolved) {
-            HMODULE uxtheme = GetModuleHandleW(L"uxtheme.dll");
-            if (uxtheme) {
-                pfnAllowDark = reinterpret_cast<AllowDarkModeForWindowFn>(
-                    GetProcAddress(uxtheme, MAKEINTRESOURCEA(133)));
-            }
-            resolved = true;
+    // Resolve AllowDarkModeForWindow once
+    using AllowDarkModeForWindowFn = BOOL(WINAPI*)(HWND, BOOL);
+    static AllowDarkModeForWindowFn pfnAllowDark = nullptr;
+    static bool resolved = false;
+    if (!resolved) {
+        HMODULE uxtheme = GetModuleHandleW(L"uxtheme.dll");
+        if (uxtheme) {
+            pfnAllowDark = reinterpret_cast<AllowDarkModeForWindowFn>(
+                GetProcAddress(uxtheme, MAKEINTRESOURCEA(133)));
         }
-        if (pfnAllowDark) {
-            pfnAllowDark(statusBar, TRUE);
-            SetWindowTheme(statusBar, L"DarkMode_Explorer", nullptr);
+        resolved = true;
+    }
+
+    // First clear any subclass we previously installed on bars no longer present.
+    for (HWND prior : m_statusBars) {
+        if (!prior) continue;
+        bool stillPresent = false;
+        for (HWND current : bars) {
+            if (current == prior) { stillPresent = true; break; }
+        }
+        if (!stillPresent) {
+            SafeRemoveWindowSubclassRaw(prior, &CExplorerBHO::StatusBarSubclassProc,
+                                         reinterpret_cast<UINT_PTR>(this));
+        }
+    }
+    for (HWND priorRebar : m_statusBarRebars) {
+        if (!priorRebar) continue;
+        bool stillNeeded = false;
+        for (HWND bar : bars) {
+            if (FindRebarAbove(bar) == priorRebar) { stillNeeded = true; break; }
+        }
+        if (!stillNeeded) {
+            SafeRemoveWindowSubclassRaw(priorRebar, &CExplorerBHO::StatusBarSubclassProc,
+                                         reinterpret_cast<UINT_PTR>(this));
         }
     }
 
-    // Always use subclass-based custom paint for reliable dark status bar
-    if (m_statusBar != statusBar) {
-        RemoveStatusBarSubclass();
+    m_statusBars.clear();
+    m_statusBarRebars.clear();
+
+    for (HWND bar : bars) {
+        if (!bar || !IsWindow(bar)) {
+            continue;
+        }
+        if (pfnAllowDark) {
+            pfnAllowDark(bar, TRUE);
+            SetWindowTheme(bar, L"DarkMode_Explorer", nullptr);
+        }
+        // Reuse the existing subclass proc — it now keys off m_statusBars to
+        // recognize any of the bars we own.
+        SetWindowSubclass(bar, &CExplorerBHO::StatusBarSubclassProc,
+                          reinterpret_cast<UINT_PTR>(this), 0);
+        m_statusBars.push_back(bar);
+
+        // Also subclass the strip immediately above the status bar — this is
+        // the container (typically a sub-pane in the Explorer frame) whose
+        // background remains light otherwise.
+        if (HWND rebar = FindRebarAbove(bar)) {
+            // Avoid double-subclassing if multiple status bars share a parent.
+            bool already = false;
+            for (HWND r : m_statusBarRebars) {
+                if (r == rebar) { already = true; break; }
+            }
+            if (!already && IsWindow(rebar)) {
+                if (pfnAllowDark) {
+                    pfnAllowDark(rebar, TRUE);
+                }
+                SetWindowSubclass(rebar, &CExplorerBHO::StatusBarSubclassProc,
+                                  reinterpret_cast<UINT_PTR>(this), 0);
+                m_statusBarRebars.push_back(rebar);
+                InvalidateRect(rebar, nullptr, TRUE);
+            }
+        }
+
+        InvalidateRect(bar, nullptr, TRUE);
     }
-    m_statusBar = statusBar;
+
+    // Keep m_statusBar pointing at the first one for legacy callers
+    m_statusBar = bars.front();
     m_statusBarDarkModeApplied = true;
-    InstallStatusBarSubclass();
-    InvalidateRect(statusBar, nullptr, TRUE);
+    m_statusBarSubclassInstalled = true;
 }
 
 void CExplorerBHO::InstallStatusBarSubclass() {
@@ -6470,18 +6571,34 @@ void CExplorerBHO::InstallStatusBarSubclass() {
 }
 
 void CExplorerBHO::RemoveStatusBarSubclass() {
-    if (m_statusBar && m_statusBarSubclassInstalled) {
-        if (IsWindow(m_statusBar)) {
-            __try {
-                RemoveWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc,
-                                     reinterpret_cast<UINT_PTR>(this));
-                if (!m_isDisconnecting) {
-                    InvalidateRect(m_statusBar, nullptr, TRUE);
-                }
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                LogMessage(LogLevel::Warning, L"RemoveStatusBarSubclass SEH exception");
-            }
+    auto detach = [this](HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd)) {
+            return;
         }
+        __try {
+            RemoveWindowSubclass(hwnd, &CExplorerBHO::StatusBarSubclassProc,
+                                 reinterpret_cast<UINT_PTR>(this));
+            if (!m_isDisconnecting) {
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            LogMessage(LogLevel::Warning, L"RemoveStatusBarSubclass SEH exception");
+        }
+    };
+
+    for (HWND bar : m_statusBars) {
+        detach(bar);
+    }
+    for (HWND rebar : m_statusBarRebars) {
+        detach(rebar);
+    }
+    m_statusBars.clear();
+    m_statusBarRebars.clear();
+
+    // Legacy path: handle m_statusBar separately if it ever pointed somewhere
+    // we didn't track in the vector.
+    if (m_statusBar && m_statusBarSubclassInstalled) {
+        detach(m_statusBar);
     }
     m_statusBarSubclassInstalled = false;
 }
@@ -6586,6 +6703,27 @@ bool CExplorerBHO::HandleStatusBarPaint(HWND hwnd) {
     return true;
 }
 
+bool CExplorerBHO::HandleRebarPaint(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+    PAINTSTRUCT ps{};
+    HDC dc = BeginPaint(hwnd, &ps);
+    if (!dc) {
+        return false;
+    }
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    constexpr COLORREF bgColor = RGB(32, 32, 32);
+    HBRUSH brush = CreateSolidBrush(bgColor);
+    if (brush) {
+        FillRect(dc, &client, brush);
+        DeleteObject(brush);
+    }
+    EndPaint(hwnd, &ps);
+    return true;
+}
+
 LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                       UINT_PTR subclassId, DWORD_PTR) {
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
@@ -6593,15 +6731,67 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
+    auto isStatusBar = [&]() {
+        for (HWND b : self->m_statusBars) {
+            if (b == hwnd) return true;
+        }
+        return hwnd == self->m_statusBar;
+    };
+    auto isRebar = [&]() {
+        for (HWND r : self->m_statusBarRebars) {
+            if (r == hwnd) return true;
+        }
+        return false;
+    };
+
     if (msg == WM_NCDESTROY) {
         RemoveWindowSubclass(hwnd, &CExplorerBHO::StatusBarSubclassProc, subclassId);
-        self->m_statusBar = nullptr;
-        self->m_statusBarSubclassInstalled = false;
-        self->m_statusBarDarkModeApplied = false;
+        // Drop the destroyed handle from any tracking lists
+        auto eraseFrom = [&](std::vector<HWND>& v) {
+            v.erase(std::remove(v.begin(), v.end(), hwnd), v.end());
+        };
+        eraseFrom(self->m_statusBars);
+        eraseFrom(self->m_statusBarRebars);
+        if (self->m_statusBar == hwnd) {
+            self->m_statusBar = nullptr;
+            self->m_statusBarSubclassInstalled = false;
+            self->m_statusBarDarkModeApplied = false;
+        }
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
-    if (!self->m_statusBarSubclassInstalled || hwnd != self->m_statusBar) {
+    // Strip-above-the-status-bar (rebar / pane container): just paint a solid
+    // dark background so the seam between the file view and the status bar is
+    // not a bright gray strip.
+    if (isRebar()) {
+        switch (msg) {
+            case WM_ERASEBKGND: {
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                RECT client{};
+                GetClientRect(hwnd, &client);
+                HBRUSH brush = CreateSolidBrush(RGB(32, 32, 32));
+                if (brush) {
+                    FillRect(dc, &client, brush);
+                    DeleteObject(brush);
+                }
+                return 1;
+            }
+            case WM_PAINT:
+                if (self->HandleRebarPaint(hwnd)) {
+                    return 0;
+                }
+                break;
+            case WM_THEMECHANGED:
+            case WM_SETTINGCHANGE:
+                InvalidateRect(hwnd, nullptr, TRUE);
+                break;
+            default:
+                break;
+        }
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    if (!isStatusBar()) {
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
