@@ -36,7 +36,6 @@
 #include <optional>
 
 #include "BackgroundCache.h"
-#include "FileColorHooks.h"
 #include "FolderBackgroundHooks.h"
 #include "ShellTabsMessages.h"
 #include "BreadcrumbGradient.h"
@@ -1354,7 +1353,6 @@ void CExplorerBHO::Disconnect() {
     {
         HWND frame = GetTopLevelExplorerWindow();
         FolderBackgroundHooks::Instance().ClearFrameFolderPath(frame);
-        FileColorHooks::Instance().ClearFrame(frame);
     }
     ClearFolderBackgrounds();
     m_currentFolderKey.clear();
@@ -1810,19 +1808,6 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_DOCUMENTCOMPLETE:
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
-
-                    // Notify folder background renderer of folder change and
-                    // refresh the file-color subclass for this Explorer frame.
-                    {
-                        UniquePidl currentPidl = GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
-                        std::wstring folderPath;
-                        if (currentPidl) {
-                            folderPath = GetParsingName(currentPidl.get());
-                        }
-                        if (HWND frame = GetTopLevelExplorerWindow()) {
-                            FileColorHooks::Instance().SetFrameCurrentFolder(frame, folderPath);
-                        }
-                    }
 
                     // Update back/forward button states to reflect ShellTabs per-tab history
                     UpdateTravelToolbarButtonStates();

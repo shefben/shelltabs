@@ -48,19 +48,23 @@ namespace {
 
 // Compact dimensions sized to fit on common low-resolution displays without
 // the OK/Cancel/Apply row sliding off the bottom of the screen.
-constexpr int kPageWidth = 400;
-constexpr int kPageHeight = 320;
-constexpr int kMargin = 10;
-constexpr int kSpacing = 6;
-constexpr int kGroupMargin = 8;
-constexpr int kLabelHeight = 12;
-constexpr int kEditHeight = 20;
-constexpr int kButtonHeight = 22;
-constexpr int kCheckHeight = 14;
-constexpr int kComboHeight = 180;
-constexpr int kSliderHeight = 22;
-constexpr int kPreviewSize = 48;
-constexpr int kColorBoxSize = 22;
+constexpr int kPageWidth = 360;
+constexpr int kPageHeight = 220;
+constexpr int kMargin = 8;
+constexpr int kSpacing = 4;
+constexpr int kGroupMargin = 6;
+constexpr int kLabelHeight = 10;
+constexpr int kEditHeight = 18;
+constexpr int kButtonHeight = 18;
+constexpr int kCheckHeight = 12;
+constexpr int kComboHeight = 160;
+constexpr int kSliderHeight = 18;
+constexpr int kPreviewSize = 40;
+constexpr int kColorBoxSize = 18;
+constexpr int kSubTabHeight = 14;
+constexpr int kSubContentTopY = kMargin + kSubTabHeight + kSpacing;
+constexpr int kSubContentMaxY = kPageHeight - kMargin;
+constexpr int kSubContentHeight = kSubContentMaxY - kSubContentTopY;
 
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
 
@@ -154,6 +158,7 @@ enum ControlIds : int {
     IDC_GLOW_SURF_EDIT = 6225,
     IDC_GLOW_SURF_DIRECTUI = 6226,
     IDC_GLOW_SURF_SCROLLBAR = 6227,
+    IDC_GLOW_SUBTAB = 6298,
 
     // Backgrounds (6300-6399)
     IDC_BG_ENABLE = 6300,
@@ -179,6 +184,7 @@ enum ControlIds : int {
     IDC_BG_POS_CENTER = 6333,
     IDC_BG_POS_BOTTOMLEFT = 6334,
     IDC_BG_POS_BOTTOMRIGHT = 6335,
+    IDC_BG_SUBTAB = 6398,
 
     // Context Menus (6400-6499)
     IDC_CTX_TREE = 6400,
@@ -224,6 +230,8 @@ enum ControlIds : int {
     IDC_CTX_ADDL_REMOVE = 6455,
     IDC_CTX_EXPAND_ENV = 6456,
     IDC_CTX_PROPS_PANEL = 6457,
+    IDC_CTX_EDIT_SELECTED = 6458,
+    IDC_CTX_SUBTAB = 6498,
 
     // Groups (6500-6599)
     IDC_GRP_LIST = 6500,
@@ -541,6 +549,24 @@ public:
         IncrementControlCount();
     }
 
+    void AddTabControl(int id, int x, int y, int w, int h) {
+        AlignBuffer(data_);
+        size_t offset = data_.size();
+        data_.resize(offset + sizeof(DLGITEMTEMPLATE));
+        auto* item = reinterpret_cast<DLGITEMTEMPLATE*>(data_.data() + offset);
+        item->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | TCS_TABS | TCS_SINGLELINE;
+        item->dwExtendedStyle = 0;
+        item->x = static_cast<short>(x);
+        item->y = static_cast<short>(y);
+        item->cx = static_cast<short>(w);
+        item->cy = static_cast<short>(h);
+        item->id = static_cast<WORD>(id);
+        AppendString(data_, L"SysTabControl32");
+        AppendWord(data_, 0);
+        AppendWord(data_, 0);
+        IncrementControlCount();
+    }
+
     void EnableVerticalScrollbar() {
         auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data_.data());
         dlg->style |= WS_VSCROLL;
@@ -632,6 +658,62 @@ bool HandlePageScrollMessage(HWND page, UINT msg, WPARAM wParam, int contentHeig
         ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
         UpdateWindow(page);
     }
+    return true;
+}
+
+//=============================================================================
+// Sub-tab helpers — pages with too many controls to fit in the compact page
+// area split their controls into "sub-tabs" via an in-page tab control.
+// Each sub-tab maps to a list of control IDs that should be visible while
+// that sub-tab is active. All controls live in the same dialog template,
+// just shown / hidden as the user switches sub-tabs.
+//=============================================================================
+
+void InitPageSubTabs(HWND page, int tabCtrlId,
+                     std::initializer_list<const wchar_t*> labels) {
+    HWND tab = GetDlgItem(page, tabCtrlId);
+    if (!tab) return;
+    int idx = 0;
+    for (const wchar_t* label : labels) {
+        TCITEMW item{};
+        item.mask = TCIF_TEXT;
+        item.pszText = const_cast<wchar_t*>(label);
+        TabCtrl_InsertItem(tab, idx++, &item);
+    }
+    TabCtrl_SetCurSel(tab, 0);
+}
+
+void ApplyPageSubTabSelection(HWND page, int tabCtrlId,
+                              const std::vector<std::vector<int>>& sets) {
+    HWND tab = GetDlgItem(page, tabCtrlId);
+    if (!tab) return;
+    int sel = TabCtrl_GetCurSel(tab);
+    if (sel < 0) sel = 0;
+
+    // Hide every control mentioned by any set, then show those for the
+    // selected set. (Controls not listed in any set are unaffected.)
+    for (const auto& set : sets) {
+        for (int id : set) {
+            if (HWND ctrl = GetDlgItem(page, id)) {
+                ShowWindow(ctrl, SW_HIDE);
+            }
+        }
+    }
+    if (sel >= 0 && sel < static_cast<int>(sets.size())) {
+        for (int id : sets[sel]) {
+            if (HWND ctrl = GetDlgItem(page, id)) {
+                ShowWindow(ctrl, SW_SHOW);
+            }
+        }
+    }
+    InvalidateRect(page, nullptr, TRUE);
+}
+
+bool HandlePageSubTabNotify(HWND page, NMHDR* hdr, int tabCtrlId,
+                            const std::vector<std::vector<int>>& sets) {
+    if (!hdr || hdr->idFrom != static_cast<UINT_PTR>(tabCtrlId)) return false;
+    if (hdr->code != TCN_SELCHANGE) return false;
+    ApplyPageSubTabSelection(page, tabCtrlId, sets);
     return true;
 }
 
@@ -776,64 +858,62 @@ bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* dir) {
 
 DialogTemplatePtr CreateGeneralPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
 
+    const int rowW = kPageWidth - 2 * kMargin;
     int y = kMargin;
 
     // Crash recovery
     builder.AddCheckbox(IDC_GEN_REOPEN,
         L"Reopen tabs after Explorer crash",
-        kMargin, y, 280, kCheckHeight);
+        kMargin, y, rowW, kCheckHeight);
     y += kCheckHeight + kSpacing;
 
     // Persist groups
     builder.AddCheckbox(IDC_GEN_PERSIST,
         L"Remember folder paths in saved groups",
-        kMargin, y, 280, kCheckHeight);
+        kMargin, y, rowW, kCheckHeight);
     y += kCheckHeight + kSpacing;
 
     // Reuse existing window
     builder.AddCheckbox(IDC_GEN_REUSE_WINDOW,
         L"Open folders as tabs in an existing window",
-        kMargin, y, 280, kCheckHeight);
+        kMargin, y, rowW, kCheckHeight);
     y += kCheckHeight + kSpacing * 2;
 
     // Dock mode
     builder.AddStatic(IDC_GEN_DOCK_LABEL,
         L"Tab band position:",
-        kMargin, y, 120, kLabelHeight);
-    y += kLabelHeight + 4;
-
+        kMargin, y + 3, 100, kLabelHeight);
     builder.AddComboBox(IDC_GEN_DOCK_COMBO,
-        kMargin, y, 200, kComboHeight);
+        kMargin + 100, y, 160, kComboHeight);
     y += kEditHeight + kSpacing * 2;
 
     // New tab behavior
     builder.AddStatic(IDC_GEN_NEWTAB_LABEL,
         L"New tab opens:",
-        kMargin, y, 120, kLabelHeight);
-    y += kLabelHeight + 4;
-
+        kMargin, y + 3, 100, kLabelHeight);
     builder.AddComboBox(IDC_GEN_NEWTAB_COMBO,
-        kMargin, y, 200, kComboHeight);
+        kMargin + 100, y, 160, kComboHeight);
     y += kEditHeight + kSpacing;
 
     // Custom path (shown conditionally)
+    const int pathLeft = kMargin + 90;
+    const int pathBrowseW = 50;
     builder.AddStatic(IDC_GEN_NEWTAB_PATH_LABEL,
         L"Custom path:",
-        kMargin + kGroupMargin, y, 100, kLabelHeight);
+        kMargin + kGroupMargin, y + 3, 80, kLabelHeight);
     builder.AddEdit(IDC_GEN_NEWTAB_PATH, L"",
-        kMargin + kGroupMargin + 100, y - 2, 180, kEditHeight);
+        pathLeft, y, rowW - 90 - pathBrowseW - 4, kEditHeight);
     builder.AddPushButton(IDC_GEN_NEWTAB_PATH_BROWSE, L"Browse...",
-        kMargin + kGroupMargin + 285, y - 2, 70, kEditHeight);
+        kPageWidth - kMargin - pathBrowseW, y, pathBrowseW, kEditHeight);
     y += kEditHeight + kSpacing;
 
     // Saved group (shown conditionally)
     builder.AddStatic(IDC_GEN_NEWTAB_GROUP_LABEL,
         L"Saved group:",
-        kMargin + kGroupMargin, y, 100, kLabelHeight);
+        kMargin + kGroupMargin, y + 3, 80, kLabelHeight);
     builder.AddComboBox(IDC_GEN_NEWTAB_GROUP,
-        kMargin + kGroupMargin + 100, y - 2, 255, kComboHeight);
+        pathLeft, y, kPageWidth - kMargin - pathLeft, kComboHeight);
 
     return builder.Build();
 }
@@ -912,18 +992,12 @@ void UpdateGeneralPageVisibility(HWND page, NewTabTemplate tmpl) {
 
 INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
-    constexpr int kPageContentHeight = 240;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitGeneralPage(page, data);
-        InitPageScrollbar(page, kPageContentHeight);
-        return TRUE;
-    }
-
-    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -1009,53 +1083,54 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
 
 DialogTemplatePtr CreateAppearancePageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
 
+    const int rowW = kPageWidth - 2 * kMargin;
+    const int innerLeft = kMargin + kGroupMargin;
     int y = kMargin;
 
     // Breadcrumb section
     builder.AddGroupBox(IDC_APP_BREADCRUMB_GROUP, L"Breadcrumb Bar",
-        kMargin, y, kPageWidth - 2 * kMargin, 100);
-    y += 18;
+        kMargin, y, rowW, 70);
+    y += 14;
 
     builder.AddCheckbox(IDC_APP_BREADCRUMB_ENABLE,
         L"Enable gradient background",
-        kMargin + kGroupMargin, y, 220, kCheckHeight);
+        innerLeft, y, rowW - 2 * kGroupMargin, kCheckHeight);
     y += kCheckHeight + kSpacing;
 
     builder.AddStatic(IDC_APP_BREADCRUMB_TRANS_LABEL,
         L"Transparency:",
-        kMargin + kGroupMargin, y, 100, kLabelHeight);
+        innerLeft, y + 2, 70, kLabelHeight);
     builder.AddSlider(IDC_APP_BREADCRUMB_TRANS,
-        kMargin + kGroupMargin + 100, y - 2, 200, kSliderHeight);
+        innerLeft + 70, y, 180, kSliderHeight);
     builder.AddStatic(IDC_APP_BREADCRUMB_TRANS_VAL, L"45%",
-        kMargin + kGroupMargin + 310, y, 40, kLabelHeight);
+        innerLeft + 252, y + 2, 30, kLabelHeight);
 
-    y += kSliderHeight + kSpacing * 2;
+    y = kMargin + 70 + kSpacing;
 
     // Tab colors section
     builder.AddGroupBox(IDC_APP_TAB_GROUP, L"Tab Colors",
-        kMargin, y, kPageWidth - 2 * kMargin, 80);
-    y += 18;
+        kMargin, y, rowW, 60);
+    y += 14;
 
     builder.AddCheckbox(IDC_APP_TAB_SEL_CHECK,
         L"Custom selected color:",
-        kMargin + kGroupMargin, y, 150, kCheckHeight);
+        innerLeft, y + 2, 130, kCheckHeight);
     builder.AddStatic(IDC_APP_TAB_SEL_PREVIEW, L"",
-        kMargin + kGroupMargin + 160, y - 2, kColorBoxSize, kColorBoxSize,
+        innerLeft + 135, y, kColorBoxSize, kColorBoxSize,
         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
     builder.AddPushButton(IDC_APP_TAB_SEL_BTN, L"Choose...",
-        kMargin + kGroupMargin + 200, y - 2, 70, kButtonHeight);
+        innerLeft + 160, y, 60, kButtonHeight);
     y += kButtonHeight + kSpacing;
 
     builder.AddCheckbox(IDC_APP_TAB_UNSEL_CHECK,
         L"Custom unselected color:",
-        kMargin + kGroupMargin, y, 150, kCheckHeight);
+        innerLeft, y + 2, 130, kCheckHeight);
     builder.AddStatic(IDC_APP_TAB_UNSEL_PREVIEW, L"",
-        kMargin + kGroupMargin + 160, y - 2, kColorBoxSize, kColorBoxSize,
+        innerLeft + 135, y, kColorBoxSize, kColorBoxSize,
         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
     builder.AddPushButton(IDC_APP_TAB_UNSEL_BTN, L"Choose...",
-        kMargin + kGroupMargin + 200, y - 2, 70, kButtonHeight);
+        innerLeft + 160, y, 60, kButtonHeight);
 
     return builder.Build();
 }
@@ -1087,18 +1162,12 @@ void InitAppearancePage(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
-    constexpr int kPageContentHeight = 240;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitAppearancePage(page, data);
-        InitPageScrollbar(page, kPageContentHeight);
-        return TRUE;
-    }
-
-    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -1184,101 +1253,122 @@ INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM l
 // GLOW EFFECTS PAGE
 //=============================================================================
 
+// Sub-tab control IDs grouping for the Glow page (used by show/hide
+// machinery in the page proc). Lists are kept here so the template, init
+// and tab-switch code stay in lockstep.
+const std::vector<std::vector<int>>& GetGlowSubTabSets() {
+    static const std::vector<std::vector<int>> sets = {
+        // [0] General
+        { IDC_GLOW_ENABLE, IDC_GLOW_BITMAP_INTERCEPT, IDC_GLOW_FILE_GRADIENT,
+          IDC_GLOW_EXPLORER_ACCENT },
+        // [1] Surfaces
+        { IDC_GLOW_SURF_LISTVIEW, IDC_GLOW_SURF_HEADER, IDC_GLOW_SURF_REBAR,
+          IDC_GLOW_SURF_TOOLBAR, IDC_GLOW_SURF_EDIT, IDC_GLOW_SURF_SCROLLBAR },
+        // [2] Colors
+        { IDC_GLOW_CUSTOM, IDC_GLOW_USE_GRADIENT,
+          IDC_GLOW_PRIMARY_LABEL, IDC_GLOW_PRIMARY_PREVIEW, IDC_GLOW_PRIMARY_BTN,
+          IDC_GLOW_SECONDARY_LABEL, IDC_GLOW_SECONDARY_PREVIEW, IDC_GLOW_SECONDARY_BTN },
+    };
+    return sets;
+}
+
 DialogTemplatePtr CreateGlowEffectsPageTemplate() {
-    // Template uses the compact page height; controls placed below that y are
-    // still created as child controls but reachable only via the scrollbar.
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
 
-    int y = kMargin;
+    const int rowW = kPageWidth - 2 * kMargin;
 
-    // Main glow controls
-    builder.AddCheckbox(IDC_GLOW_ENABLE,
-        L"Enable neon glow effects",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing;
+    // Sub-tab control across the top
+    builder.AddTabControl(IDC_GLOW_SUBTAB,
+        kMargin, kMargin, rowW, kSubTabHeight);
 
-    builder.AddCheckbox(IDC_GLOW_BITMAP_INTERCEPT,
-        L"Intercept Explorer bitmaps (may impact performance)",
-        kMargin, y, 350, kCheckHeight);
-    y += kCheckHeight + kSpacing;
+    // ---- "General" sub-tab controls ----
+    {
+        int y = kSubContentTopY;
+        builder.AddCheckbox(IDC_GLOW_ENABLE,
+            L"Enable neon glow effects",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddCheckbox(IDC_GLOW_FILE_GRADIENT,
-        L"Enable file/folder gradient font",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing;
+        builder.AddCheckbox(IDC_GLOW_BITMAP_INTERCEPT,
+            L"Intercept Explorer bitmaps (may impact performance)",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddCheckbox(IDC_GLOW_EXPLORER_ACCENT,
-        L"Use Explorer accent colors",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing * 2;
+        builder.AddCheckbox(IDC_GLOW_FILE_GRADIENT,
+            L"Enable file/folder gradient font",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    // Surface group
-    builder.AddGroupBox(IDC_GLOW_SURFACES, L"Glow Surfaces",
-        kMargin, y, kPageWidth - 2 * kMargin, 150);
-    y += 18;
+        builder.AddCheckbox(IDC_GLOW_EXPLORER_ACCENT,
+            L"Use Explorer accent colors",
+            kMargin, y, rowW, kCheckHeight);
+    }
 
-    builder.AddCheckbox(IDC_GLOW_SURF_LISTVIEW,
-        L"Enable list view glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + 6;
+    // ---- "Surfaces" sub-tab controls (occupy same area, hidden by default) ----
+    {
+        int y = kSubContentTopY;
+        builder.AddCheckbox(IDC_GLOW_SURF_LISTVIEW,
+            L"Enable list view glow",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddCheckbox(IDC_GLOW_SURF_HEADER,
-        L"Enable column header glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + 6;
+        builder.AddCheckbox(IDC_GLOW_SURF_HEADER,
+            L"Enable column header glow",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddCheckbox(IDC_GLOW_SURF_REBAR,
-        L"Enable rebar glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + 6;
+        builder.AddCheckbox(IDC_GLOW_SURF_REBAR,
+            L"Enable rebar glow",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddCheckbox(IDC_GLOW_SURF_TOOLBAR,
-        L"Enable toolbar glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + 6;
+        builder.AddCheckbox(IDC_GLOW_SURF_TOOLBAR,
+            L"Enable toolbar glow",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddCheckbox(IDC_GLOW_SURF_EDIT,
-        L"Enable address bar glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + 6;
+        builder.AddCheckbox(IDC_GLOW_SURF_EDIT,
+            L"Enable address bar glow",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
+        builder.AddCheckbox(IDC_GLOW_SURF_SCROLLBAR,
+            L"Enable scrollbar glow",
+            kMargin, y, rowW, kCheckHeight);
+    }
 
-    builder.AddCheckbox(IDC_GLOW_SURF_SCROLLBAR,
-        L"Enable scrollbar glow",
-        kMargin + kGroupMargin, y, 200, kCheckHeight);
-    y += kCheckHeight + kSpacing * 2;
+    // ---- "Colors" sub-tab controls ----
+    {
+        int y = kSubContentTopY;
+        builder.AddCheckbox(IDC_GLOW_CUSTOM,
+            L"Use custom glow colors",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    // Custom colors
-    builder.AddCheckbox(IDC_GLOW_CUSTOM,
-        L"Use custom glow colors",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing;
+        builder.AddCheckbox(IDC_GLOW_USE_GRADIENT,
+            L"Blend glow with gradient",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing * 2;
 
-    builder.AddCheckbox(IDC_GLOW_USE_GRADIENT,
-        L"Blend glow with gradient",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing;
+        builder.AddStatic(IDC_GLOW_PRIMARY_LABEL,
+            L"Primary color:",
+            kMargin, y + 2, 80, kLabelHeight);
+        builder.AddStatic(IDC_GLOW_PRIMARY_PREVIEW, L"",
+            kMargin + 85, y, kColorBoxSize, kColorBoxSize,
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
+        builder.AddPushButton(IDC_GLOW_PRIMARY_BTN, L"Choose...",
+            kMargin + 110, y, 70, kButtonHeight);
+        y += kButtonHeight + kSpacing;
 
-    // Color pickers
-    builder.AddStatic(IDC_GLOW_PRIMARY_LABEL,
-        L"Primary color:",
-        kMargin, y, 100, kLabelHeight);
-    builder.AddStatic(IDC_GLOW_PRIMARY_PREVIEW, L"",
-        kMargin + 105, y - 2, kColorBoxSize, kColorBoxSize,
-        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
-    builder.AddPushButton(IDC_GLOW_PRIMARY_BTN, L"Choose...",
-        kMargin + 145, y - 2, 80, kButtonHeight);
-    y += kButtonHeight + kSpacing;
-
-    builder.AddStatic(IDC_GLOW_SECONDARY_LABEL,
-        L"Secondary color:",
-        kMargin, y, 100, kLabelHeight);
-    builder.AddStatic(IDC_GLOW_SECONDARY_PREVIEW, L"",
-        kMargin + 105, y - 2, kColorBoxSize, kColorBoxSize,
-        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
-    builder.AddPushButton(IDC_GLOW_SECONDARY_BTN, L"Choose...",
-        kMargin + 145, y - 2, 80, kButtonHeight);
+        builder.AddStatic(IDC_GLOW_SECONDARY_LABEL,
+            L"Secondary color:",
+            kMargin, y + 2, 80, kLabelHeight);
+        builder.AddStatic(IDC_GLOW_SECONDARY_PREVIEW, L"",
+            kMargin + 85, y, kColorBoxSize, kColorBoxSize,
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
+        builder.AddPushButton(IDC_GLOW_SECONDARY_BTN, L"Choose...",
+            kMargin + 110, y, 70, kButtonHeight);
+    }
 
     return builder.Build();
 }
@@ -1336,17 +1426,20 @@ void InitGlowEffectsPage(HWND page, OptionsDialogData* data) {
 INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
 
-    constexpr int kGlowContentHeight = 520;  // virtual content height for scrolling
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        InitPageSubTabs(page, IDC_GLOW_SUBTAB,
+                        { L"General", L"Surfaces", L"Colors" });
         InitGlowEffectsPage(page, data);
-        InitPageScrollbar(page, kGlowContentHeight);
+        ApplyPageSubTabSelection(page, IDC_GLOW_SUBTAB, GetGlowSubTabSets());
         return TRUE;
     }
 
-    if (HandlePageScrollMessage(page, msg, wParam, kGlowContentHeight)) {
+    if (msg == WM_NOTIFY &&
+        HandlePageSubTabNotify(page, reinterpret_cast<NMHDR*>(lParam),
+                                IDC_GLOW_SUBTAB, GetGlowSubTabSets())) {
         return TRUE;
     }
 
@@ -1599,95 +1692,132 @@ void UpdateBackgroundControlStates(HWND page, bool enabled) {
     EnableWindow(GetDlgItem(page, IDC_BG_FOLDER_CLEAN), enabled);
 }
 
+const std::vector<std::vector<int>>& GetBackgroundsSubTabSets() {
+    static const std::vector<std::vector<int>> sets = {
+        // [0] Universal: enable + universal image group
+        { IDC_BG_ENABLE,
+          IDC_BG_UNIVERSAL_GROUP, IDC_BG_UNIVERSAL_PREVIEW,
+          IDC_BG_UNIVERSAL_BROWSE, IDC_BG_UNIVERSAL_CLEAR,
+          IDC_BG_UNIVERSAL_NAME },
+        // [1] Folders: per-folder list + buttons
+        { IDC_BG_FOLDER_GROUP, IDC_BG_FOLDER_LIST, IDC_BG_FOLDER_PREVIEW,
+          IDC_BG_FOLDER_NAME,
+          IDC_BG_FOLDER_ADD, IDC_BG_FOLDER_EDIT, IDC_BG_FOLDER_REMOVE,
+          IDC_BG_FOLDER_CLEAN },
+        // [2] Display: opacity + position
+        { IDC_BG_OPACITY_LABEL, IDC_BG_OPACITY_SLIDER, IDC_BG_OPACITY_VAL,
+          IDC_BG_POS_GROUP,
+          IDC_BG_POS_TILE, IDC_BG_POS_STRETCH, IDC_BG_POS_CENTER,
+          IDC_BG_POS_BOTTOMLEFT, IDC_BG_POS_BOTTOMRIGHT },
+    };
+    return sets;
+}
+
 DialogTemplatePtr CreateBackgroundsPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
-    int y = kMargin;
 
-    // Enable/disable all backgrounds
-    builder.AddCheckbox(IDC_BG_ENABLE,
-        L"Enable custom folder backgrounds",
-        kMargin, y, 280, kCheckHeight);
-    y += kCheckHeight + kSpacing * 2;  // 52
+    const int rowW = kPageWidth - 2 * kMargin;
+    const int innerLeft = kMargin + kGroupMargin;
+    const int innerW = rowW - 2 * kGroupMargin;
 
-    // ---- Universal Background group ----
-    builder.AddGroupBox(IDC_BG_UNIVERSAL_GROUP, L"Universal Background",
-        kMargin, y, kPageWidth - 2 * kMargin, 156);
-    y += 18;  // 70
+    // Sub-tab control
+    builder.AddTabControl(IDC_BG_SUBTAB,
+        kMargin, kMargin, rowW, kSubTabHeight);
 
-    builder.AddStatic(-1, L"Image:",
-        kMargin + kGroupMargin, y, 60, kLabelHeight);
-    builder.AddStatic(IDC_BG_UNIVERSAL_PREVIEW, L"",
-        kMargin + kGroupMargin + 65, y - 2, kPreviewSize, kPreviewSize,
-        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
-    y += kPreviewSize + kSpacing;  // 144
+    // ===== "Universal" sub-tab =====
+    {
+        int y = kSubContentTopY;
 
-    builder.AddPushButton(IDC_BG_UNIVERSAL_BROWSE, L"Browse...",
-        kMargin + kGroupMargin, y, 80, kButtonHeight);
-    builder.AddPushButton(IDC_BG_UNIVERSAL_CLEAR, L"Clear",
-        kMargin + kGroupMargin + 90, y, 60, kButtonHeight);
-    y += kButtonHeight + 6;  // 174
+        builder.AddCheckbox(IDC_BG_ENABLE,
+            L"Enable custom folder backgrounds",
+            kMargin, y, rowW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
 
-    builder.AddStatic(IDC_BG_UNIVERSAL_NAME, L"(no image selected)",
-        kMargin + kGroupMargin, y,
-        kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
-    y += kLabelHeight + kSpacing * 2;  // 208 (group top=52, height=156, so bottom=208)
+        builder.AddGroupBox(IDC_BG_UNIVERSAL_GROUP, L"Universal Background",
+            kMargin, y, rowW, kPreviewSize + kButtonHeight + kLabelHeight + 24);
+        y += 14;
 
-    // ---- Folder-Specific group ----
-    builder.AddGroupBox(IDC_BG_FOLDER_GROUP, L"Folder-Specific Backgrounds",
-        kMargin, y, kPageWidth - 2 * kMargin, 156);
-    y += 18;  // 226
+        builder.AddStatic(IDC_BG_UNIVERSAL_PREVIEW, L"",
+            innerLeft, y, kPreviewSize, kPreviewSize,
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
 
-    builder.AddListBox(IDC_BG_FOLDER_LIST,
-        kMargin + kGroupMargin, y, 200, 80);
-    builder.AddStatic(IDC_BG_FOLDER_PREVIEW, L"",
-        kMargin + kGroupMargin + 210, y, kPreviewSize, kPreviewSize,
-        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
-    y += 86;  // 312
+        builder.AddPushButton(IDC_BG_UNIVERSAL_BROWSE, L"Browse...",
+            innerLeft + kPreviewSize + kSpacing, y, 70, kButtonHeight);
+        builder.AddPushButton(IDC_BG_UNIVERSAL_CLEAR, L"Clear",
+            innerLeft + kPreviewSize + kSpacing + 75, y, 50, kButtonHeight);
 
-    builder.AddStatic(IDC_BG_FOLDER_NAME, L"",
-        kMargin + kGroupMargin, y,
-        kPageWidth - 2 * kMargin - 2 * kGroupMargin, kLabelHeight);
-    y += kLabelHeight + 6;  // 332
+        builder.AddStatic(IDC_BG_UNIVERSAL_NAME, L"(no image selected)",
+            innerLeft + kPreviewSize + kSpacing,
+            y + kButtonHeight + kSpacing,
+            innerW - kPreviewSize - kSpacing, kLabelHeight);
+    }
 
-    builder.AddPushButton(IDC_BG_FOLDER_ADD,    L"Add...",
-        kMargin + kGroupMargin, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_EDIT,   L"Edit...",
-        kMargin + kGroupMargin + 70, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_REMOVE, L"Remove",
-        kMargin + kGroupMargin + 140, y, 60, kButtonHeight);
-    builder.AddPushButton(IDC_BG_FOLDER_CLEAN,  L"Clean Up...",
-        kMargin + kGroupMargin + 210, y, 80, kButtonHeight);
-    y += kButtonHeight + kSpacing * 2;
+    // ===== "Folders" sub-tab =====
+    {
+        int y = kSubContentTopY;
 
-    // ---- Opacity slider ----
-    builder.AddStatic(IDC_BG_OPACITY_LABEL, L"Opacity:",
-        kMargin, y + 4, 48, kLabelHeight);
-    builder.AddSlider(IDC_BG_OPACITY_SLIDER,
-        kMargin + 50, y, 200, kSliderHeight);
-    builder.AddStatic(IDC_BG_OPACITY_VAL, L"78%",
-        kMargin + 256, y + 4, 40, kLabelHeight);
-    y += kSliderHeight + kSpacing;
+        builder.AddGroupBox(IDC_BG_FOLDER_GROUP, L"Folder-Specific Backgrounds",
+            kMargin, y, rowW, kSubContentHeight - kSpacing);
+        y += 14;
 
-    // ---- Position mode radio buttons ----
-    builder.AddGroupBox(IDC_BG_POS_GROUP, L"Image Position",
-        kMargin, y, kPageWidth - 2 * kMargin, 5 * kCheckHeight + 30);
-    y += 16;
+        // List on the left, preview on the right
+        const int listW = innerW - kPreviewSize - kSpacing;
+        builder.AddListBox(IDC_BG_FOLDER_LIST,
+            innerLeft, y, listW, 70);
+        builder.AddStatic(IDC_BG_FOLDER_PREVIEW, L"",
+            innerLeft + listW + kSpacing, y, kPreviewSize, kPreviewSize,
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW);
+        y += 74;
 
-    builder.AddRadioButton(IDC_BG_POS_BOTTOMRIGHT, L"Bottom right (default)",
-        kMargin + kGroupMargin, y, 180, kCheckHeight, /*isGroupStart=*/true);
-    builder.AddRadioButton(IDC_BG_POS_BOTTOMLEFT, L"Bottom left",
-        kMargin + kGroupMargin + 190, y, 100, kCheckHeight);
-    y += kCheckHeight + 4;
+        builder.AddStatic(IDC_BG_FOLDER_NAME, L"",
+            innerLeft, y, innerW, kLabelHeight);
+        y += kLabelHeight + kSpacing;
 
-    builder.AddRadioButton(IDC_BG_POS_CENTER, L"Center",
-        kMargin + kGroupMargin, y, 180, kCheckHeight);
-    builder.AddRadioButton(IDC_BG_POS_STRETCH, L"Stretch to fill",
-        kMargin + kGroupMargin + 190, y, 100, kCheckHeight);
-    y += kCheckHeight + 4;
+        const int btnW = (innerW - 3 * kSpacing) / 4;
+        builder.AddPushButton(IDC_BG_FOLDER_ADD, L"Add...",
+            innerLeft, y, btnW, kButtonHeight);
+        builder.AddPushButton(IDC_BG_FOLDER_EDIT, L"Edit...",
+            innerLeft + (btnW + kSpacing), y, btnW, kButtonHeight);
+        builder.AddPushButton(IDC_BG_FOLDER_REMOVE, L"Remove",
+            innerLeft + 2 * (btnW + kSpacing), y, btnW, kButtonHeight);
+        builder.AddPushButton(IDC_BG_FOLDER_CLEAN, L"Clean Up...",
+            innerLeft + 3 * (btnW + kSpacing), y, btnW, kButtonHeight);
+    }
 
-    builder.AddRadioButton(IDC_BG_POS_TILE, L"Tile (repeat)",
-        kMargin + kGroupMargin, y, 180, kCheckHeight);
+    // ===== "Display" sub-tab =====
+    {
+        int y = kSubContentTopY;
+
+        builder.AddStatic(IDC_BG_OPACITY_LABEL, L"Opacity:",
+            kMargin, y + 3, 50, kLabelHeight);
+        builder.AddSlider(IDC_BG_OPACITY_SLIDER,
+            kMargin + 50, y, rowW - 100, kSliderHeight);
+        builder.AddStatic(IDC_BG_OPACITY_VAL, L"78%",
+            kPageWidth - kMargin - 40, y + 3, 35, kLabelHeight);
+        y += kSliderHeight + kSpacing * 2;
+
+        const int posGroupH = 3 * kCheckHeight + 2 * kSpacing + 18;
+        builder.AddGroupBox(IDC_BG_POS_GROUP, L"Image Position",
+            kMargin, y, rowW, posGroupH);
+        y += 14;
+
+        const int colW = (rowW - 2 * kGroupMargin) / 2;
+
+        builder.AddRadioButton(IDC_BG_POS_BOTTOMRIGHT, L"Bottom right",
+            innerLeft, y, colW, kCheckHeight, /*isGroupStart=*/true);
+        builder.AddRadioButton(IDC_BG_POS_BOTTOMLEFT, L"Bottom left",
+            innerLeft + colW, y, colW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
+
+        builder.AddRadioButton(IDC_BG_POS_CENTER, L"Center",
+            innerLeft, y, colW, kCheckHeight);
+        builder.AddRadioButton(IDC_BG_POS_STRETCH, L"Stretch to fill",
+            innerLeft + colW, y, colW, kCheckHeight);
+        y += kCheckHeight + kSpacing;
+
+        builder.AddRadioButton(IDC_BG_POS_TILE, L"Tile (repeat)",
+            innerLeft, y, colW, kCheckHeight);
+    }
 
     return builder.Build();
 }
@@ -1827,18 +1957,21 @@ void RefreshFolderList(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
-    constexpr int kPageContentHeight = 480;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        InitPageSubTabs(page, IDC_BG_SUBTAB,
+                        { L"Universal", L"Folders", L"Display" });
         InitBackgroundsPage(page, data);
-        InitPageScrollbar(page, kPageContentHeight);
+        ApplyPageSubTabSelection(page, IDC_BG_SUBTAB, GetBackgroundsSubTabSets());
         return TRUE;
     }
 
-    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
+    if (msg == WM_NOTIFY &&
+        HandlePageSubTabNotify(page, reinterpret_cast<NMHDR*>(lParam),
+                                IDC_BG_SUBTAB, GetBackgroundsSubTabSets())) {
         return TRUE;
     }
 
@@ -2046,57 +2179,81 @@ INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
 // CONTEXT MENUS PAGE - Simplified
 //=============================================================================
 
+const std::vector<std::vector<int>>& GetContextSubTabSets() {
+    static const std::vector<std::vector<int>> sets = {
+        // [0] Items: template combo + tree + tree action buttons + edit button
+        { IDC_CTX_TEMPLATE, IDC_CTX_TREE,
+          IDC_CTX_ADD_COMMAND, IDC_CTX_ADD_SUBMENU, IDC_CTX_ADD_SEPARATOR,
+          IDC_CTX_REMOVE, IDC_CTX_MOVE_UP, IDC_CTX_MOVE_DOWN,
+          IDC_CTX_INDENT, IDC_CTX_OUTDENT, IDC_CTX_EDIT_SELECTED },
+        // [1] Properties: just the props panel host (the static frame).
+        { IDC_CTX_PROPS_PANEL },
+    };
+    return sets;
+}
+
 DialogTemplatePtr CreateContextMenusPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
 
-    // Layout constants for split view
-    constexpr int treeWidth = 155;
-    constexpr int treeLeft = kMargin;
-    constexpr int propLeft = treeLeft + treeWidth + 6;
-    constexpr int propWidth = kPageWidth - propLeft - kMargin;
+    const int rowW = kPageWidth - 2 * kMargin;
 
-    int y = kMargin;
+    // Sub-tab control
+    builder.AddTabControl(IDC_CTX_SUBTAB,
+        kMargin, kMargin, rowW, kSubTabHeight);
 
-    // Template selector at top, full width
-    builder.AddStatic(-1, L"Template:",
-        kMargin, y + 2, 55, kLabelHeight);
-    builder.AddComboBox(IDC_CTX_TEMPLATE,
-        kMargin + 58, y, 140, kComboHeight);
-    y += kEditHeight + 6;
+    // ===== "Items" sub-tab =====
+    {
+        int y = kSubContentTopY;
 
-    int treeTop = y;
+        // Template selector row
+        builder.AddStatic(-1, L"Template:",
+            kMargin, y + 3, 50, kLabelHeight);
+        builder.AddComboBox(IDC_CTX_TEMPLATE,
+            kMargin + 50, y, 140, kComboHeight);
 
-    // Left panel: Tree view
-    builder.AddTreeView(IDC_CTX_TREE,
-        treeLeft, treeTop, treeWidth, 340);
+        // "Edit Selected ->" jumps to Properties sub-tab
+        const int editBtnW = 110;
+        builder.AddPushButton(IDC_CTX_EDIT_SELECTED, L"Edit Selected >>",
+            kPageWidth - kMargin - editBtnW, y, editBtnW, kButtonHeight);
+        y += kEditHeight + kSpacing;
 
-    // Left panel: Buttons below tree
-    int btnY = treeTop + 344;
-    constexpr int btnW2 = 74;
-    builder.AddPushButton(IDC_CTX_ADD_COMMAND, L"+ Command",
-        treeLeft, btnY, btnW2, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_ADD_SUBMENU, L"+ Submenu",
-        treeLeft + btnW2 + 3, btnY, btnW2, kButtonHeight);
-    btnY += kButtonHeight + 3;
-    builder.AddPushButton(IDC_CTX_ADD_SEPARATOR, L"+ Separator",
-        treeLeft, btnY, btnW2, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_REMOVE, L"Remove",
-        treeLeft + btnW2 + 3, btnY, btnW2, kButtonHeight);
-    btnY += kButtonHeight + 3;
-    builder.AddPushButton(IDC_CTX_MOVE_UP, L"Up",
-        treeLeft, btnY, 50, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_MOVE_DOWN, L"Down",
-        treeLeft + 53, btnY, 50, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_INDENT, L">",
-        treeLeft + 106, btnY, 22, kButtonHeight);
-    builder.AddPushButton(IDC_CTX_OUTDENT, L"<",
-        treeLeft + 130, btnY, 22, kButtonHeight);
+        // Tree view fills most of the remaining vertical space
+        const int btnRowH = kButtonHeight + kSpacing;
+        const int treeH = kSubContentMaxY - y - btnRowH * 2;
+        builder.AddTreeView(IDC_CTX_TREE,
+            kMargin, y, rowW, treeH);
+        y += treeH + kSpacing;
 
-    // Right panel: Properties (scrollable child window created at runtime)
-    // We create a static frame as the host; actual controls are created dynamically
+        // Two rows of tree action buttons across the full width
+        const int row1Cols = 4;
+        const int btnW = (rowW - (row1Cols - 1) * kSpacing) / row1Cols;
+        builder.AddPushButton(IDC_CTX_ADD_COMMAND, L"+ Cmd",
+            kMargin, y, btnW, kButtonHeight);
+        builder.AddPushButton(IDC_CTX_ADD_SUBMENU, L"+ Submenu",
+            kMargin + (btnW + kSpacing), y, btnW, kButtonHeight);
+        builder.AddPushButton(IDC_CTX_ADD_SEPARATOR, L"+ Sep",
+            kMargin + 2 * (btnW + kSpacing), y, btnW, kButtonHeight);
+        builder.AddPushButton(IDC_CTX_REMOVE, L"Remove",
+            kMargin + 3 * (btnW + kSpacing), y, btnW, kButtonHeight);
+        y += kButtonHeight + kSpacing;
+
+        const int row2Cols = 4;
+        const int navBtnW = (rowW - (row2Cols - 1) * kSpacing) / row2Cols;
+        builder.AddPushButton(IDC_CTX_MOVE_UP, L"Up",
+            kMargin, y, navBtnW, kButtonHeight);
+        builder.AddPushButton(IDC_CTX_MOVE_DOWN, L"Down",
+            kMargin + (navBtnW + kSpacing), y, navBtnW, kButtonHeight);
+        builder.AddPushButton(IDC_CTX_OUTDENT, L"< Outdent",
+            kMargin + 2 * (navBtnW + kSpacing), y, navBtnW, kButtonHeight);
+        builder.AddPushButton(IDC_CTX_INDENT, L"Indent >",
+            kMargin + 3 * (navBtnW + kSpacing), y, navBtnW, kButtonHeight);
+    }
+
+    // ===== "Properties" sub-tab =====
+    // Static frame host that the runtime CtxPropsPanel will be created inside.
     builder.AddStatic(IDC_CTX_PROPS_PANEL, L"",
-        propLeft, treeTop, propWidth, 420,
+        kMargin, kSubContentTopY, kPageWidth - 2 * kMargin,
+        kSubContentHeight,
         WS_CHILD | WS_VISIBLE | WS_BORDER | WS_CLIPCHILDREN);
 
     return builder.Build();
@@ -2836,22 +2993,36 @@ static void InitContextMenusPage(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
-    constexpr int kPageContentHeight = 480;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        InitPageSubTabs(page, IDC_CTX_SUBTAB,
+                        { L"Items", L"Properties" });
         InitContextMenusPage(page, data);
-        InitPageScrollbar(page, kPageContentHeight);
+        ApplyPageSubTabSelection(page, IDC_CTX_SUBTAB, GetContextSubTabSets());
         return TRUE;
     }
 
-    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
+    if (msg == WM_NOTIFY &&
+        HandlePageSubTabNotify(page, reinterpret_cast<NMHDR*>(lParam),
+                                IDC_CTX_SUBTAB, GetContextSubTabSets())) {
         return TRUE;
     }
 
     data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
+
+    // Handle the "Edit Selected >>" button: switch to Properties sub-tab.
+    if (msg == WM_COMMAND && LOWORD(wParam) == IDC_CTX_EDIT_SELECTED &&
+        HIWORD(wParam) == BN_CLICKED) {
+        HWND tab = GetDlgItem(page, IDC_CTX_SUBTAB);
+        if (tab) {
+            TabCtrl_SetCurSel(tab, 1);
+            ApplyPageSubTabSelection(page, IDC_CTX_SUBTAB, GetContextSubTabSets());
+        }
+        return TRUE;
+    }
 
     switch (msg) {
     case WM_COMMAND: {
@@ -3219,29 +3390,27 @@ INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM
 
 DialogTemplatePtr CreateGroupsPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
 
+    const int rowW = kPageWidth - 2 * kMargin;
+    const int btnCol = 90;
+    const int listW = rowW - btnCol - kSpacing;
     int y = kMargin;
 
     builder.AddStatic(-1, L"Saved Groups / Islands:",
-        kMargin, y, 120, kLabelHeight);
-    y += kLabelHeight + 4;
+        kMargin, y, rowW, kLabelHeight);
+    y += kLabelHeight + kSpacing;
 
-    // List box for groups
     builder.AddListBox(IDC_GRP_LIST,
-        kMargin, y, 300, 250);
+        kMargin, y, listW, kSubContentHeight - kSpacing);
 
-    // Buttons
     builder.AddPushButton(IDC_GRP_NEW, L"New Group...",
-        kMargin + 310, y, 100, kButtonHeight);
-    y += kButtonHeight + 6;
-
+        kMargin + listW + kSpacing, y, btnCol, kButtonHeight);
     builder.AddPushButton(IDC_GRP_EDIT, L"Edit Group...",
-        kMargin + 310, y, 100, kButtonHeight);
-    y += kButtonHeight + 6;
-
+        kMargin + listW + kSpacing, y + kButtonHeight + kSpacing,
+        btnCol, kButtonHeight);
     builder.AddPushButton(IDC_GRP_REMOVE, L"Remove",
-        kMargin + 310, y, 100, kButtonHeight);
+        kMargin + listW + kSpacing, y + 2 * (kButtonHeight + kSpacing),
+        btnCol, kButtonHeight);
 
     return builder.Build();
 }
@@ -3570,18 +3739,12 @@ void InitGroupsPage(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
-    constexpr int kPageContentHeight = 480;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitGroupsPage(page, data);
-        InitPageScrollbar(page, kPageContentHeight);
-        return TRUE;
-    }
-
-    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -3668,34 +3831,34 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
 
 DialogTemplatePtr CreateWebFoldersPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    builder.EnableVerticalScrollbar();
 
+    const int rowW = kPageWidth - 2 * kMargin;
+    const int btnCol = 90;
+    const int listW = rowW - btnCol - kSpacing;
     int y = kMargin;
 
     builder.AddStatic(-1, L"Configured web directory sites:",
-        kMargin, y, 200, kLabelHeight);
-    y += kLabelHeight + 4;
+        kMargin, y, rowW, kLabelHeight);
+    y += kLabelHeight + kSpacing;
 
-    // List box for web folders
+    const int listH = kPageHeight - y - kMargin - kLabelHeight - kSpacing;
+
     builder.AddListBox(IDC_WEB_LIST,
-        kMargin, y, 300, 200);
+        kMargin, y, listW, listH);
 
-    // Buttons
-    int btnX = kMargin + 310;
     builder.AddPushButton(IDC_WEB_ADD, L"Add...",
-        btnX, y, 100, kButtonHeight);
-
+        kMargin + listW + kSpacing, y, btnCol, kButtonHeight);
     builder.AddPushButton(IDC_WEB_EDIT, L"Edit...",
-        btnX, y + kButtonHeight + 6, 100, kButtonHeight);
-
+        kMargin + listW + kSpacing, y + kButtonHeight + kSpacing,
+        btnCol, kButtonHeight);
     builder.AddPushButton(IDC_WEB_REMOVE, L"Remove",
-        btnX, y + (kButtonHeight + 6) * 2, 100, kButtonHeight);
+        kMargin + listW + kSpacing, y + 2 * (kButtonHeight + kSpacing),
+        btnCol, kButtonHeight);
 
-    y += 200 + kSpacing;
+    y += listH + kSpacing;
 
-    // URL display label
     builder.AddStatic(IDC_WEB_URL_LABEL, L"",
-        kMargin, y, 400, kLabelHeight);
+        kMargin, y, rowW, kLabelHeight);
 
     return builder.Build();
 }
@@ -3964,18 +4127,12 @@ bool ShowWebFolderEditorDialog(HWND parent, WebFolderEntry& entry, bool isNew) {
 
 INT_PTR CALLBACK WebFoldersPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
-    constexpr int kPageContentHeight = 360;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitWebFoldersPage(page, data);
-        InitPageScrollbar(page, kPageContentHeight);
-        return TRUE;
-    }
-
-    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
