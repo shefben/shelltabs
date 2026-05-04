@@ -75,6 +75,7 @@ add_library(ShellTabs SHARED
     src/ExplorerGlowSurfaces.cpp
     src/CompositionIntercept.cpp
     src/FolderBackgroundHooks.cpp
+    src/FileColorHooks.cpp
     src/ThemeHooks.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp

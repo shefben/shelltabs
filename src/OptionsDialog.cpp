@@ -46,20 +46,21 @@
 namespace shelltabs {
 namespace {
 
-// Modern, clean dimensions with proper spacing
-constexpr int kPageWidth = 440;
-constexpr int kPageHeight = 480;
-constexpr int kMargin = 16;
-constexpr int kSpacing = 10;
-constexpr int kGroupMargin = 12;
-constexpr int kLabelHeight = 14;
-constexpr int kEditHeight = 22;
-constexpr int kButtonHeight = 24;
-constexpr int kCheckHeight = 16;
-constexpr int kComboHeight = 200;
-constexpr int kSliderHeight = 24;
-constexpr int kPreviewSize = 64;
-constexpr int kColorBoxSize = 28;
+// Compact dimensions sized to fit on common low-resolution displays without
+// the OK/Cancel/Apply row sliding off the bottom of the screen.
+constexpr int kPageWidth = 400;
+constexpr int kPageHeight = 320;
+constexpr int kMargin = 10;
+constexpr int kSpacing = 6;
+constexpr int kGroupMargin = 8;
+constexpr int kLabelHeight = 12;
+constexpr int kEditHeight = 20;
+constexpr int kButtonHeight = 22;
+constexpr int kCheckHeight = 14;
+constexpr int kComboHeight = 180;
+constexpr int kSliderHeight = 22;
+constexpr int kPreviewSize = 48;
+constexpr int kColorBoxSize = 22;
 
 constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
 
@@ -559,6 +560,82 @@ private:
 };
 
 //=============================================================================
+// Page scroll helpers — generic vertical scrolling for property sheet pages
+// whose content height exceeds the compact page dimensions.
+//=============================================================================
+
+void InitPageScrollbar(HWND page, int contentHeight) {
+    RECT rc{};
+    GetClientRect(page, &rc);
+    const int pageHeight = rc.bottom - rc.top;
+    SCROLLINFO si{};
+    si.cbSize = sizeof(SCROLLINFO);
+    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin = 0;
+    si.nMax = contentHeight;
+    si.nPage = static_cast<UINT>(pageHeight);
+    si.nPos = 0;
+    SetScrollInfo(page, SB_VERT, &si, TRUE);
+}
+
+bool HandlePageScrollMessage(HWND page, UINT msg, WPARAM wParam, int contentHeight) {
+    if (msg != WM_VSCROLL && msg != WM_MOUSEWHEEL && msg != WM_SIZE) {
+        return false;
+    }
+
+    if (msg == WM_SIZE) {
+        RECT rc{};
+        GetClientRect(page, &rc);
+        const int pageHeight = rc.bottom - rc.top;
+        SCROLLINFO si{};
+        si.cbSize = sizeof(SCROLLINFO);
+        si.fMask = SIF_RANGE | SIF_PAGE;
+        si.nMin = 0;
+        si.nMax = contentHeight;
+        si.nPage = static_cast<UINT>(pageHeight);
+        SetScrollInfo(page, SB_VERT, &si, TRUE);
+        return false;  // let DefDlgProc handle the rest
+    }
+
+    SCROLLINFO si{};
+    si.cbSize = sizeof(SCROLLINFO);
+    si.fMask = SIF_ALL;
+    GetScrollInfo(page, SB_VERT, &si);
+    const int oldPos = si.nPos;
+
+    if (msg == WM_VSCROLL) {
+        switch (LOWORD(wParam)) {
+            case SB_TOP:          si.nPos = si.nMin; break;
+            case SB_BOTTOM:       si.nPos = si.nMax; break;
+            case SB_LINEUP:       si.nPos -= 20; break;
+            case SB_LINEDOWN:     si.nPos += 20; break;
+            case SB_PAGEUP:       si.nPos -= si.nPage; break;
+            case SB_PAGEDOWN:     si.nPos += si.nPage; break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION:
+                si.nPos = si.nTrackPos;
+                break;
+            default:
+                break;
+        }
+    } else {  // WM_MOUSEWHEEL
+        const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        const int notches = -delta / WHEEL_DELTA;
+        si.nPos += notches * 40;
+    }
+
+    si.fMask = SIF_POS;
+    SetScrollInfo(page, SB_VERT, &si, TRUE);
+    GetScrollInfo(page, SB_VERT, &si);
+
+    if (si.nPos != oldPos) {
+        ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
+        UpdateWindow(page);
+    }
+    return true;
+}
+
+//=============================================================================
 // Helper Functions
 //=============================================================================
 
@@ -699,6 +776,7 @@ bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* dir) {
 
 DialogTemplatePtr CreateGeneralPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
+    builder.EnableVerticalScrollbar();
 
     int y = kMargin;
 
@@ -834,12 +912,18 @@ void UpdateGeneralPageVisibility(HWND page, NewTabTemplate tmpl) {
 
 INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
+    constexpr int kPageContentHeight = 240;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitGeneralPage(page, data);
+        InitPageScrollbar(page, kPageContentHeight);
+        return TRUE;
+    }
+
+    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -925,6 +1009,7 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
 
 DialogTemplatePtr CreateAppearancePageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
+    builder.EnableVerticalScrollbar();
 
     int y = kMargin;
 
@@ -1002,12 +1087,18 @@ void InitAppearancePage(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
+    constexpr int kPageContentHeight = 240;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitAppearancePage(page, data);
+        InitPageScrollbar(page, kPageContentHeight);
+        return TRUE;
+    }
+
+    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -1094,9 +1185,9 @@ INT_PTR CALLBACK AppearancePageProc(HWND page, UINT msg, WPARAM wParam, LPARAM l
 //=============================================================================
 
 DialogTemplatePtr CreateGlowEffectsPageTemplate() {
-    // Use actual content height instead of fixed page height to enable scrolling
-    constexpr int kActualContentHeight = 520;  // Increased height to fit all controls
-    DialogBuilder builder(kPageWidth, kActualContentHeight);
+    // Template uses the compact page height; controls placed below that y are
+    // still created as child controls but reachable only via the scrollbar.
+    DialogBuilder builder(kPageWidth, kPageHeight);
     builder.EnableVerticalScrollbar();
 
     int y = kMargin;
@@ -1245,27 +1336,17 @@ void InitGlowEffectsPage(HWND page, OptionsDialogData* data) {
 INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
 
+    constexpr int kGlowContentHeight = 520;  // virtual content height for scrolling
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitGlowEffectsPage(page, data);
+        InitPageScrollbar(page, kGlowContentHeight);
+        return TRUE;
+    }
 
-        // Initialize scrollbar for the page
-        RECT clientRect;
-        GetClientRect(page, &clientRect);
-        constexpr int kActualContentHeight = 520;  // Match CreateGlowEffectsPageTemplate
-        int pageHeight = clientRect.bottom - clientRect.top;
-
-        SCROLLINFO si = {};
-        si.cbSize = sizeof(SCROLLINFO);
-        si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
-        si.nMin = 0;
-        si.nMax = kActualContentHeight;
-        si.nPage = static_cast<UINT>(pageHeight);
-        si.nPos = 0;
-        SetScrollInfo(page, SB_VERT, &si, TRUE);
-
+    if (HandlePageScrollMessage(page, msg, wParam, kGlowContentHeight)) {
         return TRUE;
     }
 
@@ -1404,94 +1485,6 @@ INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
             break;
         }
 
-        case WM_VSCROLL: {
-            // Handle vertical scrolling
-            SCROLLINFO si = {};
-            si.cbSize = sizeof(SCROLLINFO);
-            si.fMask = SIF_ALL;
-            GetScrollInfo(page, SB_VERT, &si);
-
-            int oldPos = si.nPos;
-
-            switch (LOWORD(wParam)) {
-                case SB_TOP:
-                    si.nPos = si.nMin;
-                    break;
-                case SB_BOTTOM:
-                    si.nPos = si.nMax;
-                    break;
-                case SB_LINEUP:
-                    si.nPos -= 20;
-                    break;
-                case SB_LINEDOWN:
-                    si.nPos += 20;
-                    break;
-                case SB_PAGEUP:
-                    si.nPos -= si.nPage;
-                    break;
-                case SB_PAGEDOWN:
-                    si.nPos += si.nPage;
-                    break;
-                case SB_THUMBTRACK:
-                case SB_THUMBPOSITION:
-                    si.nPos = si.nTrackPos;
-                    break;
-            }
-
-            si.fMask = SIF_POS;
-            SetScrollInfo(page, SB_VERT, &si, TRUE);
-            GetScrollInfo(page, SB_VERT, &si);
-
-            if (si.nPos != oldPos) {
-                ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
-                UpdateWindow(page);
-            }
-
-            return TRUE;
-        }
-
-        case WM_MOUSEWHEEL: {
-            // Handle mouse wheel scrolling
-            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            int scrollAmount = -delta / WHEEL_DELTA;
-
-            SCROLLINFO si = {};
-            si.cbSize = sizeof(SCROLLINFO);
-            si.fMask = SIF_ALL;
-            GetScrollInfo(page, SB_VERT, &si);
-
-            int oldPos = si.nPos;
-            si.nPos += scrollAmount * 40;  // 40 pixels per wheel notch
-
-            si.fMask = SIF_POS;
-            SetScrollInfo(page, SB_VERT, &si, TRUE);
-            GetScrollInfo(page, SB_VERT, &si);
-
-            if (si.nPos != oldPos) {
-                ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
-                UpdateWindow(page);
-            }
-
-            return TRUE;
-        }
-
-        case WM_SIZE: {
-            // Update scrollbar when window is resized
-            RECT clientRect;
-            GetClientRect(page, &clientRect);
-            constexpr int kActualContentHeight = 520;  // Match CreateGlowEffectsPageTemplate
-            int pageHeight = clientRect.bottom - clientRect.top;
-
-            SCROLLINFO si = {};
-            si.cbSize = sizeof(SCROLLINFO);
-            si.fMask = SIF_RANGE | SIF_PAGE;
-            si.nMin = 0;
-            si.nMax = kActualContentHeight;
-            si.nPage = static_cast<UINT>(pageHeight);
-            SetScrollInfo(page, SB_VERT, &si, TRUE);
-            break;
-        }
-
         case WM_NOTIFY: {
             NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
             if (nmhdr->code == PSN_APPLY && data) {
@@ -1608,7 +1601,8 @@ void UpdateBackgroundControlStates(HWND page, bool enabled) {
 
 DialogTemplatePtr CreateBackgroundsPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
-    int y = kMargin;  // 16
+    builder.EnableVerticalScrollbar();
+    int y = kMargin;
 
     // Enable/disable all backgrounds
     builder.AddCheckbox(IDC_BG_ENABLE,
@@ -1833,12 +1827,18 @@ void RefreshFolderList(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
+    constexpr int kPageContentHeight = 480;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitBackgroundsPage(page, data);
+        InitPageScrollbar(page, kPageContentHeight);
+        return TRUE;
+    }
+
+    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -2048,6 +2048,7 @@ INT_PTR CALLBACK BackgroundsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
 
 DialogTemplatePtr CreateContextMenusPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
+    builder.EnableVerticalScrollbar();
 
     // Layout constants for split view
     constexpr int treeWidth = 155;
@@ -2835,12 +2836,18 @@ static void InitContextMenusPage(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
+    constexpr int kPageContentHeight = 480;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitContextMenusPage(page, data);
+        InitPageScrollbar(page, kPageContentHeight);
+        return TRUE;
+    }
+
+    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -3212,6 +3219,7 @@ INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM
 
 DialogTemplatePtr CreateGroupsPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
+    builder.EnableVerticalScrollbar();
 
     int y = kMargin;
 
@@ -3562,12 +3570,18 @@ void InitGroupsPage(HWND page, OptionsDialogData* data) {
 
 INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
+    constexpr int kPageContentHeight = 480;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitGroupsPage(page, data);
+        InitPageScrollbar(page, kPageContentHeight);
+        return TRUE;
+    }
+
+    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 
@@ -3654,6 +3668,7 @@ INT_PTR CALLBACK GroupsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPara
 
 DialogTemplatePtr CreateWebFoldersPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
+    builder.EnableVerticalScrollbar();
 
     int y = kMargin;
 
@@ -3949,12 +3964,18 @@ bool ShowWebFolderEditorDialog(HWND parent, WebFolderEntry& entry, bool isNew) {
 
 INT_PTR CALLBACK WebFoldersPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
+    constexpr int kPageContentHeight = 360;
 
     if (msg == WM_INITDIALOG) {
         PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
         data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
         SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
         InitWebFoldersPage(page, data);
+        InitPageScrollbar(page, kPageContentHeight);
+        return TRUE;
+    }
+
+    if (HandlePageScrollMessage(page, msg, wParam, kPageContentHeight)) {
         return TRUE;
     }
 

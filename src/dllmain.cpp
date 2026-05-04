@@ -12,6 +12,7 @@
 
 #include "ClassFactory.h"
 #include "ComUtils.h"
+#include "FileColorHooks.h"
 #include "FolderBackgroundHooks.h"
 #include "Guids.h"
 #include "Logging.h"
@@ -1041,6 +1042,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             LogMessage(LogLevel::Warning, L"Failed to initialize folder background hooks; folder backgrounds will be unavailable");
         }
 
+        if (!shelltabs::InitializeFileColorHooks()) {
+            LogMessage(LogLevel::Warning, L"Failed to initialize file color hooks; per-file font colors will be unavailable");
+        }
+
         INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX)};
         icc.dwICC = ICC_BAR_CLASSES | ICC_TAB_CLASSES;
         if (!InitCommonControlsEx(&icc)) {
@@ -1053,6 +1058,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
         shelltabs::TaskbarPreviewHook::Instance().Shutdown();
         ShutdownCompositionIntercept();
+        shelltabs::ShutdownFileColorHooks();
         shelltabs::ShutdownFolderBackgroundHooks();
         ShutdownThemeHooks();
         ShutdownLogging();

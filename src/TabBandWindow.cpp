@@ -339,10 +339,10 @@ constexpr int kTabCornerRadius = 8;
 constexpr int kGroupCornerRadius = 10;
 constexpr int kGroupOutlineThickness = 2;
 constexpr int kIconGap = 6;
-constexpr int kIslandIndicatorWidth = 2;
-constexpr int kIslandIndicatorMinWidth = 2;
-constexpr int kIslandIndicatorMaxWidth = 27;
-constexpr int kIslandIndicatorLabelPad = 2;
+constexpr int kIslandIndicatorWidth = 1;
+constexpr int kIslandIndicatorMinWidth = 1;
+constexpr int kIslandIndicatorMaxWidth = 14;
+constexpr int kIslandIndicatorLabelPad = 1;
 constexpr wchar_t kLabelPopupClassName[] = L"ShellTabsLabelPopup";
 constexpr int kIslandOutlineThickness = 1;
 constexpr int kCloseButtonSize = 14;
@@ -3923,7 +3923,9 @@ int TabBandWindow::ComputeIndicatorWidth(HDC dc, const std::wstring& label) cons
     GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &textSize);
     SelectObject(dc, oldFont);
 
-    int width = std::max(kIslandIndicatorMinWidth, static_cast<int>(textSize.cy) + kIslandIndicatorLabelPad);
+    // Halved from text-height to keep the indicator slim (was textSize.cy + pad).
+    int width = std::max(kIslandIndicatorMinWidth,
+                         static_cast<int>(textSize.cy + 1) / 2 + kIslandIndicatorLabelPad);
     width = std::min(width, kIslandIndicatorMaxWidth);
     return width;
 }
@@ -4249,7 +4251,7 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
             FillRect(dc, &indicatorRect, indicatorBrush);
         }
 
-        if (item.hasGroupHeader && !item.groupHeader.name.empty() && indicWidth >= 10) {
+        if (item.hasGroupHeader && !item.groupHeader.name.empty() && indicWidth >= 5) {
             DrawIndicatorLabel(dc, indicatorRect, item.groupHeader.name, indicatorColor);
         }
     }
@@ -7006,7 +7008,6 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             const bool canCloseOthers = m_owner->CanCloseOtherTabs(hit.location);
             const bool canCloseRight = m_owner->CanCloseTabsToRight(hit.location);
             const bool canCloseLeft = m_owner->CanCloseTabsToLeft(hit.location);
-            const bool canReopen = m_owner->CanReopenClosedTabs();
 
             AppendMenuW(menu, (canCloseOthers ? MF_STRING : MF_STRING | MF_GRAYED),
                         IDM_CLOSE_OTHER_TABS, L"Close Other Tabs");
@@ -7014,11 +7015,6 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
                         IDM_CLOSE_TABS_TO_RIGHT, L"Close Tabs to the Right");
             AppendMenuW(menu, (canCloseLeft ? MF_STRING : MF_STRING | MF_GRAYED),
                         IDM_CLOSE_TABS_TO_LEFT, L"Close Tabs to the Left");
-            {
-                const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
-                AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
-                            reopenLabel.c_str());
-            }
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
@@ -7086,13 +7082,6 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(menu, MF_STRING, IDM_NEW_ISLAND, L"New Island After");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
-            {
-                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-                const bool canReopen = m_owner->CanReopenClosedTabs();
-                const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
-                AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
-                            reopenLabel.c_str());
-            }
             hasItemCommands = true;
         } else if (hit.type == HitType::kGroupHeader && hit.location.groupIndex >= 0) {
             const bool headerVisible = m_owner->IsGroupHeaderVisible(hit.location.groupIndex);
@@ -7129,26 +7118,23 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             } else {
                 AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_UNHIDE_ALL, L"Unhide All Tabs");
             }
-            {
-                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-                const bool canReopen = m_owner->CanReopenClosedTabs();
-                const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
-                AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
-                            reopenLabel.c_str());
-            }
             hasItemCommands = true;
         }
     }
 
+    // Show "Reopen Last Closed Tab or Island" only when right-clicking an empty
+    // spot in the dock (whitespace, the new-tab gap, or outside any item).
+    const bool emptyDockHit = !hit.hit || hit.type == HitType::kWhitespace ||
+                              hit.type == HitType::kNewTab;
     bool appendedBeforeOptions = hasItemCommands;
-    if (!hit.hit) {
-        AppendMenuW(menu, MF_STRING, IDM_NEW_THISPC_TAB, L"New Tab");
-        {
-            const bool canReopen = m_owner->CanReopenClosedTabs();
-            const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
-            AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
-                        reopenLabel.c_str());
+    if (emptyDockHit) {
+        if (!hit.hit) {
+            AppendMenuW(menu, MF_STRING, IDM_NEW_THISPC_TAB, L"New Tab");
         }
+        const bool canReopen = m_owner->CanReopenClosedTabs();
+        const std::wstring reopenLabel = m_owner->GetReopenClosedLabel();
+        AppendMenuW(menu, (canReopen ? MF_STRING : MF_STRING | MF_GRAYED), IDM_REOPEN_CLOSED_TAB,
+                    reopenLabel.c_str());
         appendedBeforeOptions = true;
         hasItemCommands = true;
     }

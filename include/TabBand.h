@@ -11,6 +11,7 @@
 #include <thread>
 #include <stop_token>
 #include <mutex>
+#include <unordered_map>
 
 #include <ShObjIdl_core.h>
 #include <exdisp.h>
@@ -285,7 +286,20 @@ private:
     bool GetCurrentScrollPosition(POINT& outPosition);
     bool SetCurrentScrollPosition(const POINT& position);
     void SaveCurrentTabScrollPosition();
-    void RestoreCurrentTabScrollPosition();
+    bool RestoreCurrentTabScrollPosition();
+    void ScheduleScrollRestoreRetries(TabLocation location);
+    void HandleScrollRestoreTimer(UINT_PTR timerId);
+    static void CALLBACK ScrollRestoreTimerProc(HWND hwnd, UINT msg, UINT_PTR timerId, DWORD tick);
+
+    struct ScrollRestoreState {
+        TabLocation location{};
+        int attemptsRemaining = 0;
+    };
+    ScrollRestoreState m_scrollRestore{};
+    UINT_PTR m_scrollRestoreTimerId = 0;
+
+    static std::mutex s_scrollRestoreTimerLock;
+    static std::unordered_map<UINT_PTR, TabBand*> s_scrollRestoreTimers;
 };
 
 }  // namespace shelltabs

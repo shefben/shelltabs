@@ -607,18 +607,30 @@ void TabBand::OnBrowserNavigate() {
     UpdateTabsUI();
     CaptureActiveTabPreview();
 
+    const bool wasInternal = m_internalNavigation;
+
     // Restore scroll position for the tab we just navigated to
     // This is only relevant for internal navigations (tab switches)
-    if (m_internalNavigation) {
-        RestoreCurrentTabScrollPosition();
+    if (wasInternal) {
+        const TabLocation selected = m_tabs.SelectedLocation();
+        if (!RestoreCurrentTabScrollPosition()) {
+            // The shell view's items may not be enumerated yet — retry on a timer.
+            ScheduleScrollRestoreRetries(selected);
+        }
     }
 
     m_internalNavigation = false;
 
-    // Persist navigation so that re-opening Explorer reproduces the current tab
-    // pointing at the folder the user actually ended up on (including virtual
-    // folders like Control Panel that the user navigated to in-place).
-    SaveSession();
+    // For tab switches the tab list itself didn't change — let the periodic
+    // session-flush timer pick up the selection update so that switching
+    // doesn't pay a synchronous WRITE_THROUGH disk I/O cost.
+    //
+    // For external navigations (user typed in address bar, hit Back/Forward,
+    // followed a link in a folder, etc.) the tab's PIDL may have changed and
+    // we want that on disk now.
+    if (!wasInternal) {
+        SaveSession();
+    }
 }
 
 void TabBand::OnBrowserQuit() {
@@ -1177,13 +1189,13 @@ bool TabBand::CanReopenClosedTabs() const {
 
 std::wstring TabBand::GetReopenClosedLabel() const {
     if (m_closedTabHistory.empty()) {
-        return L"Reopen Closed Tab";
+        return L"Reopen Last Closed Tab or Island";
     }
     const auto& last = m_closedTabHistory.back();
     if (last.groupRemoved && last.entries.size() > 1) {
-        return L"Reopen Closed Island (" + std::to_wstring(last.entries.size()) + L" tabs)";
+        return L"Reopen Last Closed Island (" + std::to_wstring(last.entries.size()) + L" tabs)";
     }
-    return L"Reopen Closed Tab";
+    return L"Reopen Last Closed Tab";
 }
 
 bool TabBand::CanNavigateBack() const {
@@ -2214,22 +2226,92 @@ void TabBand::SaveCurrentTabScrollPosition() {
     }
 }
 
-void TabBand::RestoreCurrentTabScrollPosition() {
+bool TabBand::RestoreCurrentTabScrollPosition() {
     const TabLocation selected = m_tabs.SelectedLocation();
     const auto* tab = m_tabs.Get(selected);
     if (!tab || !tab->hasScrollPosition) {
-        return;
+        return true;  // nothing to restore — treat as success
     }
 
     // Skip if we have nothing meaningful to restore (default zeros).
     if (tab->scrollPosition.x == 0 && tab->scrollPosition.y == 0) {
-        return;
+        return true;
     }
 
     if (SetCurrentScrollPosition(tab->scrollPosition)) {
         LogMessage(LogLevel::Info,
                    L"TabBand::RestoreCurrentTabScrollPosition restored (%ld, %ld) for tab %ls",
                    tab->scrollPosition.x, tab->scrollPosition.y, tab->name.c_str());
+        return true;
+    }
+    return false;
+}
+
+std::mutex TabBand::s_scrollRestoreTimerLock;
+std::unordered_map<UINT_PTR, TabBand*> TabBand::s_scrollRestoreTimers;
+
+void TabBand::ScheduleScrollRestoreRetries(TabLocation location) {
+    // Cancel any in-flight retry for a previous tab switch.
+    if (m_scrollRestoreTimerId) {
+        KillTimer(nullptr, m_scrollRestoreTimerId);
+        std::lock_guard<std::mutex> lock(s_scrollRestoreTimerLock);
+        s_scrollRestoreTimers.erase(m_scrollRestoreTimerId);
+        m_scrollRestoreTimerId = 0;
+    }
+    m_scrollRestore.location = location;
+    m_scrollRestore.attemptsRemaining = 6;  // ~6 retries up to ~750ms total
+    UINT_PTR id = SetTimer(nullptr, 0, 60, &TabBand::ScrollRestoreTimerProc);
+    if (!id) {
+        return;
+    }
+    m_scrollRestoreTimerId = id;
+    std::lock_guard<std::mutex> lock(s_scrollRestoreTimerLock);
+    s_scrollRestoreTimers[id] = this;
+}
+
+void CALLBACK TabBand::ScrollRestoreTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
+    TabBand* self = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(s_scrollRestoreTimerLock);
+        auto it = s_scrollRestoreTimers.find(timerId);
+        if (it == s_scrollRestoreTimers.end()) {
+            KillTimer(nullptr, timerId);
+            return;
+        }
+        self = it->second;
+    }
+    if (self) {
+        self->HandleScrollRestoreTimer(timerId);
+    }
+}
+
+void TabBand::HandleScrollRestoreTimer(UINT_PTR timerId) {
+    if (timerId != m_scrollRestoreTimerId) {
+        KillTimer(nullptr, timerId);
+        std::lock_guard<std::mutex> lock(s_scrollRestoreTimerLock);
+        s_scrollRestoreTimers.erase(timerId);
+        return;
+    }
+
+    // If selection changed since we scheduled, abort.
+    const TabLocation selected = m_tabs.SelectedLocation();
+    bool sameLocation = selected.groupIndex == m_scrollRestore.location.groupIndex &&
+                        selected.tabIndex == m_scrollRestore.location.tabIndex;
+
+    bool stop = !sameLocation;
+    if (sameLocation) {
+        if (RestoreCurrentTabScrollPosition()) {
+            stop = true;
+        } else if (--m_scrollRestore.attemptsRemaining <= 0) {
+            stop = true;
+        }
+    }
+
+    if (stop) {
+        KillTimer(nullptr, timerId);
+        std::lock_guard<std::mutex> lock(s_scrollRestoreTimerLock);
+        s_scrollRestoreTimers.erase(timerId);
+        m_scrollRestoreTimerId = 0;
     }
 }
 
@@ -2300,6 +2382,14 @@ void TabBand::DisconnectSite() {
     m_isDestroying = true;
 
     LogMessage(LogLevel::Info, L"TabBand::DisconnectSite (this=%p)", this);
+
+    // Cancel any in-flight scroll-restore retry timer first.
+    if (m_scrollRestoreTimerId) {
+        KillTimer(nullptr, m_scrollRestoreTimerId);
+        std::lock_guard<std::mutex> timerLock(s_scrollRestoreTimerLock);
+        s_scrollRestoreTimers.erase(m_scrollRestoreTimerId);
+        m_scrollRestoreTimerId = 0;
+    }
 
     // Step 1: Cancel background operations safely
     try {
@@ -3011,7 +3101,10 @@ void TabBand::NavigateToTab(TabLocation location) {
 
     m_tabs.SetGroupCollapsed(location.groupIndex, false);
     m_tabs.SetSelectedLocation(location);
-    SaveSession();
+    // Don't SaveSession() here — it does synchronous disk I/O with
+    // FILE_FLAG_WRITE_THROUGH which is the dominant pause when switching tabs.
+    // The 3-second periodic flush timer (StartSessionFlushTimer) and the
+    // explicit save in DisconnectSite are sufficient to persist selection.
     m_internalNavigation = true;
     EnsureFtpNamespaceBinding(tab->pidl.get());
     LogMessage(LogLevel::Info, L"NavigateToTab: calling BrowseObject");

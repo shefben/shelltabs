@@ -36,6 +36,7 @@
 #include <optional>
 
 #include "BackgroundCache.h"
+#include "FileColorHooks.h"
 #include "FolderBackgroundHooks.h"
 #include "ShellTabsMessages.h"
 #include "BreadcrumbGradient.h"
@@ -1350,7 +1351,11 @@ void CExplorerBHO::Disconnect() {
     // the frame HWND — doing this after Reset() would pass nullptr and leave a
     // stale entry in the FolderBackgroundHooks frame-path map.
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9c - ClearFrameFolderPath");
-    FolderBackgroundHooks::Instance().ClearFrameFolderPath(GetTopLevelExplorerWindow());
+    {
+        HWND frame = GetTopLevelExplorerWindow();
+        FolderBackgroundHooks::Instance().ClearFrameFolderPath(frame);
+        FileColorHooks::Instance().ClearFrame(frame);
+    }
     ClearFolderBackgrounds();
     m_currentFolderKey.clear();
 
@@ -1806,11 +1811,16 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
 
-                    // Notify folder background renderer of folder change
+                    // Notify folder background renderer of folder change and
+                    // refresh the file-color subclass for this Explorer frame.
                     {
                         UniquePidl currentPidl = GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
+                        std::wstring folderPath;
                         if (currentPidl) {
-                            std::wstring folderPath = GetParsingName(currentPidl.get());
+                            folderPath = GetParsingName(currentPidl.get());
+                        }
+                        if (HWND frame = GetTopLevelExplorerWindow()) {
+                            FileColorHooks::Instance().SetFrameCurrentFolder(frame, folderPath);
                         }
                     }
 
