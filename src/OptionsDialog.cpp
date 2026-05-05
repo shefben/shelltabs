@@ -2408,63 +2408,74 @@ struct CtxPropsPanel {
 
 static CtxPropsPanel* s_ctxProps = nullptr;
 
+static void ScrollPropsPanelTo(HWND hwnd, CtxPropsPanel* props, int newY) {
+    if (!props) return;
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    const int viewH = rc.bottom - rc.top;
+    int maxScroll = props->contentHeight - viewH;
+    if (maxScroll < 0) maxScroll = 0;
+    if (newY < 0) newY = 0;
+    if (newY > maxScroll) newY = maxScroll;
+    const int oldY = props->scrollY;
+    if (newY == oldY) return;
+
+    props->scrollY = newY;
+
+    SCROLLINFO si{};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_POS;
+    si.nPos = newY;
+    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+
+    // Move child controls and invalidate the uncovered region.
+    ScrollWindowEx(hwnd, 0, oldY - newY, nullptr, nullptr,
+                   nullptr, nullptr, SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+    UpdateWindow(hwnd);
+}
+
 static LRESULT CALLBACK CtxPropsPanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     auto* props = reinterpret_cast<CtxPropsPanel*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     switch (msg) {
     case WM_MOUSEWHEEL: {
         if (!props) break;
-        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        int step = 30;
-        props->scrollY -= (delta > 0) ? step : -step;
-        // Clamp
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        int maxScroll = props->contentHeight - (rc.bottom - rc.top);
-        if (maxScroll < 0) maxScroll = 0;
-        if (props->scrollY < 0) props->scrollY = 0;
-        if (props->scrollY > maxScroll) props->scrollY = maxScroll;
-        SetScrollPos(hwnd, SB_VERT, props->scrollY, TRUE);
-        ScrollWindowEx(hwnd, 0, 0, nullptr, nullptr, nullptr, nullptr,
-                       SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
-        // Reposition all children
-        HDWP dwp = BeginDeferWindowPos(40);
-        HWND child = GetWindow(hwnd, GW_CHILD);
-        while (child) {
-            RECT cr;
-            GetWindowRect(child, &cr);
-            MapWindowPoints(HWND_DESKTOP, hwnd, reinterpret_cast<POINT*>(&cr), 2);
-            // We stored original Y in the child's ID user data — we'll just
-            // invalidate and rely on WM_PAINT. For simplicity, use
-            // ScrollWindow approach instead.
-            child = GetWindow(child, GW_HWNDNEXT);
-        }
-        if (dwp) EndDeferWindowPos(dwp);
-        InvalidateRect(hwnd, nullptr, TRUE);
+        const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        const int step = 40;
+        const int notches = delta / WHEEL_DELTA;  // signed
+        ScrollPropsPanelTo(hwnd, props, props->scrollY - notches * step);
         return 0;
     }
     case WM_VSCROLL: {
         if (!props) break;
         RECT rc;
         GetClientRect(hwnd, &rc);
-        int maxScroll = props->contentHeight - (rc.bottom - rc.top);
-        if (maxScroll < 0) maxScroll = 0;
-        int oldY = props->scrollY;
-        switch (LOWORD(wParam)) {
-        case SB_LINEUP: props->scrollY -= 20; break;
-        case SB_LINEDOWN: props->scrollY += 20; break;
-        case SB_PAGEUP: props->scrollY -= (rc.bottom - rc.top); break;
-        case SB_PAGEDOWN: props->scrollY += (rc.bottom - rc.top); break;
+        const int pageH = rc.bottom - rc.top;
+        int newY = props->scrollY;
+        const WORD code = LOWORD(wParam);
+        switch (code) {
+        case SB_LINEUP:    newY -= 20; break;
+        case SB_LINEDOWN:  newY += 20; break;
+        case SB_PAGEUP:    newY -= pageH; break;
+        case SB_PAGEDOWN:  newY += pageH; break;
+        case SB_TOP:       newY = 0; break;
+        case SB_BOTTOM:    newY = props->contentHeight; break;
         case SB_THUMBTRACK:
-        case SB_THUMBPOSITION: props->scrollY = HIWORD(wParam); break;
+        case SB_THUMBPOSITION: {
+            // 32-bit-safe thumb position (HIWORD(wParam) is only 16-bit).
+            SCROLLINFO si{};
+            si.cbSize = sizeof(si);
+            si.fMask = SIF_TRACKPOS;
+            if (GetScrollInfo(hwnd, SB_VERT, &si)) {
+                newY = si.nTrackPos;
+            } else {
+                newY = HIWORD(wParam);
+            }
+            break;
         }
-        if (props->scrollY < 0) props->scrollY = 0;
-        if (props->scrollY > maxScroll) props->scrollY = maxScroll;
-        if (props->scrollY != oldY) {
-            SetScrollPos(hwnd, SB_VERT, props->scrollY, TRUE);
-            ScrollWindowEx(hwnd, 0, -(props->scrollY - oldY), nullptr, nullptr,
-                           nullptr, nullptr, SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+        default: return 0;
         }
+        ScrollPropsPanelTo(hwnd, props, newY);
         return 0;
     }
     case WM_COMMAND: {
@@ -2727,8 +2738,9 @@ static void CreatePropertiesPanel(HWND page) {
     si.nPos = 0;
     SetScrollInfo(panel, SB_VERT, &si, TRUE);
 
-    // Initially disable all property controls until an item is selected
-    EnableWindow(panel, FALSE);
+    // Panel stays enabled so it can scroll and accept input even before an
+    // item is picked. WM_COMMAND handlers ignore changes when no tree item
+    // is selected so typing into stale fields is a harmless no-op.
 }
 
 // ---------------------------------------------------------------------------
@@ -2824,7 +2836,6 @@ static void LoadItemToPanel(ContextMenuItem* item) {
         Button_SetCheck(p->chkConfirm, BST_UNCHECKED);
         SetWindowTextW(p->edConfirmMsg, L"");
         SendMessageW(p->lbAddlCmds, LB_RESETCONTENT, 0, 0);
-        EnableWindow(p->host, FALSE);
         p->suppressNotify = false;
         return;
     }
@@ -3005,17 +3016,36 @@ INT_PTR CALLBACK ContextMenusPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM
         return TRUE;
     }
 
-    if (msg == WM_NOTIFY &&
-        HandlePageSubTabNotify(page, reinterpret_cast<NMHDR*>(lParam),
-                                IDC_CTX_SUBTAB, GetContextSubTabSets())) {
-        return TRUE;
+    // Sub-tab change: apply visibility, then auto-select the first tree item
+    // when switching into Properties so the panel always has data to show.
+    if (msg == WM_NOTIFY) {
+        NMHDR* hdr = reinterpret_cast<NMHDR*>(lParam);
+        if (hdr && hdr->idFrom == static_cast<UINT_PTR>(IDC_CTX_SUBTAB) &&
+            hdr->code == TCN_SELCHANGE) {
+            ApplyPageSubTabSelection(page, IDC_CTX_SUBTAB, GetContextSubTabSets());
+            HWND tab = GetDlgItem(page, IDC_CTX_SUBTAB);
+            if (tab && TabCtrl_GetCurSel(tab) == 1) {
+                HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+                if (tree && !TreeView_GetSelection(tree)) {
+                    HTREEITEM first = TreeView_GetRoot(tree);
+                    if (first) TreeView_SelectItem(tree, first);
+                }
+            }
+            return TRUE;
+        }
     }
 
     data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
 
-    // Handle the "Edit Selected >>" button: switch to Properties sub-tab.
+    // "Edit Selected >>" button: switch to Properties sub-tab and ensure
+    // there's a tree selection so the panel populates.
     if (msg == WM_COMMAND && LOWORD(wParam) == IDC_CTX_EDIT_SELECTED &&
         HIWORD(wParam) == BN_CLICKED) {
+        HWND tree = GetDlgItem(page, IDC_CTX_TREE);
+        if (tree && !TreeView_GetSelection(tree)) {
+            HTREEITEM first = TreeView_GetRoot(tree);
+            if (first) TreeView_SelectItem(tree, first);
+        }
         HWND tab = GetDlgItem(page, IDC_CTX_SUBTAB);
         if (tab) {
             TabCtrl_SetCurSel(tab, 1);
