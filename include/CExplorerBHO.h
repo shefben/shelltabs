@@ -270,6 +270,7 @@ struct ShellTabsOptions;
                 bool EnsureUniversalBackgroundBitmap() const;
                 Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
                 void UpdateCurrentFolderBackground();
+                void ApplyCurrentFolderViewRules(const ShellTabsOptions& options);
                 void InvalidateFolderBackgroundTargets() const;
                 std::wstring ResolveBackgroundCacheKey() const;
                 Microsoft::WRL::ComPtr<IVisualProperties> GetCurrentVisualProperties() const;
@@ -470,4 +471,3 @@ struct ShellTabsOptions;
         };
 
 }  // namespace shelltabs
-

@@ -128,6 +128,24 @@ struct FolderBackgroundEntry {
     CachedImageMetadata image;
 };
 
+enum class FolderViewMode {
+    kDetails = 0,
+    kList,
+    kTiles,
+    kContent,
+    kSmallIcons,
+    kMediumIcons,
+    kLargeIcons,
+    kExtraLargeIcons,
+};
+
+struct FolderViewEntry {
+    std::wstring folderPath;
+    FolderViewMode viewMode = FolderViewMode::kDetails;
+    int iconSize = 16;
+    bool disableGrouping = true;
+};
+
 struct WebFolderEntry {
     std::wstring url;
     std::wstring displayName;
@@ -237,6 +255,7 @@ struct ShellTabsOptions {
     BYTE backgroundOpacity = 200;
     CachedImageMetadata universalFolderBackgroundImage;
     std::vector<FolderBackgroundEntry> folderBackgroundEntries;
+    std::vector<FolderViewEntry> folderViewEntries;
     std::vector<ContextMenuItem> contextMenuItems;
     std::vector<WebFolderEntry> webFolderEntries;
     std::vector<FtpSiteEntry> ftpSiteEntries;
@@ -312,6 +331,11 @@ inline bool operator!=(const FolderBackgroundEntry& left, const FolderBackground
     return !(left == right);
 }
 
+bool operator==(const FolderViewEntry& left, const FolderViewEntry& right) noexcept;
+inline bool operator!=(const FolderViewEntry& left, const FolderViewEntry& right) noexcept {
+    return !(left == right);
+}
+
 bool operator==(const WebFolderEntry& left, const WebFolderEntry& right) noexcept;
 inline bool operator!=(const WebFolderEntry& left, const WebFolderEntry& right) noexcept {
     return !(left == right);
@@ -324,6 +348,8 @@ inline bool operator!=(const FtpSiteEntry& left, const FtpSiteEntry& right) noex
 
 void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options);
 void UpdateLegacyGlowSettingsFromPalette(ShellTabsOptions& options);
+const wchar_t* FolderViewModeDisplayName(FolderViewMode mode) noexcept;
+int DefaultFolderViewIconSize(FolderViewMode mode) noexcept;
+int ExplorerViewModeValue(FolderViewMode mode) noexcept;
 
 }  // namespace shelltabs
-

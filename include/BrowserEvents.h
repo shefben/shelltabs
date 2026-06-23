@@ -28,17 +28,19 @@ public:
                           VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr) override;
 
     HRESULT Connect(const Microsoft::WRL::ComPtr<IWebBrowser2>& browser);
-    void Disconnect();
+    HRESULT Disconnect();
+    void DetachOwner() noexcept;
+    bool IsDispatching() const noexcept;
 
 private:
     bool HandleNewWindowEvent(DISPID dispIdMember, DISPPARAMS* params);
     bool HandleBeforeNavigate(DISPPARAMS* params);
 
     std::atomic<long> m_refCount;
+    std::atomic<int> m_dispatchDepth{0};
     TabBand* m_owner;
     Microsoft::WRL::ComPtr<IConnectionPoint> m_connectionPoint;
     DWORD m_cookie = 0;
 };
 
 }  // namespace shelltabs
-

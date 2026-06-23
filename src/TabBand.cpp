@@ -2414,18 +2414,7 @@ void TabBand::DisconnectSite() {
 
     // Step 3: Cancel pending operations safely
     try {
-        // Add double-check for destruction state before clearing window ID
-        if (m_isDestroying.load()) {
-            LogMessage(LogLevel::Info, L"TabBand::DisconnectSite already destroying, skipping window map cleanup");
-        } else {
-            m_tabs.ClearWindowId();
-
-            // Add validation after clearing to detect concurrent destruction
-            if (m_isDestroying.load()) {
-                LogMessage(LogLevel::Warning, L"TabBand::DisconnectSite destruction started during window map cleanup");
-                return;
-            }
-        }
+        m_tabs.ClearWindowId();
 
         // Cancel previews with bounds checking
         for (int groupIndex = 0; groupIndex < m_tabs.GroupCount(); ++groupIndex) {
@@ -2447,8 +2436,18 @@ void TabBand::DisconnectSite() {
     // Step 4: Disconnect browser events safely
     try {
         if (m_browserEvents) {
-            m_browserEvents->Disconnect();
-            m_browserEvents.reset();
+            auto browserEvents = std::move(m_browserEvents);
+            browserEvents->DetachOwner();
+
+            const bool dispatching = browserEvents->IsDispatching();
+            const HRESULT hr = browserEvents->Disconnect();
+            if (dispatching || FAILED(hr)) {
+                LogMessage(LogLevel::Warning,
+                           L"TabBand::DisconnectSite retained detached BrowserEvents sink (dispatching=%d, hr=0x%08X)",
+                           dispatching ? 1 : 0,
+                           static_cast<unsigned int>(hr));
+                browserEvents.release();
+            }
         }
     }
     catch (...) {

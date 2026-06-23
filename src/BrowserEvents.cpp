@@ -21,6 +21,23 @@
 namespace shelltabs {
 
 namespace {
+class DispatchScope {
+public:
+    explicit DispatchScope(std::atomic<int>& depth) noexcept : m_depth(depth) {
+        ++m_depth;
+    }
+
+    ~DispatchScope() {
+        --m_depth;
+    }
+
+    DispatchScope(const DispatchScope&) = delete;
+    DispatchScope& operator=(const DispatchScope&) = delete;
+
+private:
+    std::atomic<int>& m_depth;
+};
+
 std::wstring VariantToString(const VARIANT& var) {
     if (var.vt == VT_BSTR && var.bstrVal) {
         return std::wstring(var.bstrVal, SysStringLen(var.bstrVal));
@@ -154,7 +171,9 @@ IFACEMETHODIMP BrowserEvents::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT cN
 
 IFACEMETHODIMP BrowserEvents::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DISPPARAMS* pDispParams, VARIANT*,
                                      EXCEPINFO*, UINT*) {
-    if (!m_owner) {
+    DispatchScope dispatchScope(m_dispatchDepth);
+    TabBand* owner = m_owner;
+    if (!owner) {
         return S_OK;
     }
 
@@ -168,14 +187,14 @@ IFACEMETHODIMP BrowserEvents::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DI
             // Only handle NAVIGATECOMPLETE2, not DOCUMENTCOMPLETE.
             // Both events fire for each navigation, but we only want to process once
             // to avoid double-recording navigation history and corrupting m_internalNavigation state.
-            m_owner->OnBrowserNavigate();
+            owner->OnBrowserNavigate();
             break;
         case DISPID_NEWWINDOW2:
         case DISPID_NEWWINDOW3:
             HandleNewWindowEvent(dispIdMember, pDispParams);
             break;
         case DISPID_ONQUIT:
-            m_owner->OnBrowserQuit();
+            owner->OnBrowserQuit();
             break;
         default:
             break;
@@ -271,13 +290,26 @@ HRESULT BrowserEvents::Connect(const Microsoft::WRL::ComPtr<IWebBrowser2>& brows
     return S_OK;
 }
 
-void BrowserEvents::Disconnect() {
+HRESULT BrowserEvents::Disconnect() {
+    HRESULT hr = S_OK;
     if (m_connectionPoint && m_cookie != 0) {
-        m_connectionPoint->Unadvise(m_cookie);
+        __try {
+            hr = m_connectionPoint->Unadvise(m_cookie);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            hr = E_FAIL;
+        }
     }
     m_connectionPoint.Reset();
     m_cookie = 0;
+    return hr;
+}
+
+void BrowserEvents::DetachOwner() noexcept {
+    m_owner = nullptr;
+}
+
+bool BrowserEvents::IsDispatching() const noexcept {
+    return m_dispatchDepth.load() > 0;
 }
 
 }  // namespace shelltabs
-

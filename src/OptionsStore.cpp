@@ -20,7 +20,7 @@
 
 namespace shelltabs {
 namespace {
-constexpr int kCurrentOptionsVersion = 3;
+constexpr int kCurrentOptionsVersion = 4;
 constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
@@ -55,6 +55,7 @@ constexpr wchar_t kFolderBackgroundPositionToken[] = L"folder_background_positio
 constexpr wchar_t kFolderBackgroundOpacityToken[]  = L"folder_background_opacity";
 constexpr wchar_t kFolderBackgroundUniversalToken[] = L"folder_background_universal";
 constexpr wchar_t kFolderBackgroundEntryToken[] = L"folder_background_entry";
+constexpr wchar_t kFolderViewEntryToken[] = L"folder_view_entry";
 constexpr wchar_t kWebFolderEntryToken[] = L"web_folder_entry";
 constexpr wchar_t kFtpSiteEntryToken[] = L"ftp_site_entry";
 constexpr wchar_t kTabDockingToken[] = L"tab_docking";
@@ -191,6 +192,57 @@ const wchar_t* GlowModeToString(GlowSurfaceMode mode) {
             return L"gradient";
         default:
             return L"gradient";
+    }
+}
+
+FolderViewMode ParseFolderViewMode(std::wstring_view token) {
+    if (EqualsIgnoreCase(token, L"details")) {
+        return FolderViewMode::kDetails;
+    }
+    if (EqualsIgnoreCase(token, L"list")) {
+        return FolderViewMode::kList;
+    }
+    if (EqualsIgnoreCase(token, L"tiles")) {
+        return FolderViewMode::kTiles;
+    }
+    if (EqualsIgnoreCase(token, L"content")) {
+        return FolderViewMode::kContent;
+    }
+    if (EqualsIgnoreCase(token, L"small_icons")) {
+        return FolderViewMode::kSmallIcons;
+    }
+    if (EqualsIgnoreCase(token, L"medium_icons")) {
+        return FolderViewMode::kMediumIcons;
+    }
+    if (EqualsIgnoreCase(token, L"large_icons")) {
+        return FolderViewMode::kLargeIcons;
+    }
+    if (EqualsIgnoreCase(token, L"extra_large_icons")) {
+        return FolderViewMode::kExtraLargeIcons;
+    }
+    return FolderViewMode::kDetails;
+}
+
+const wchar_t* FolderViewModeToken(FolderViewMode mode) noexcept {
+    switch (mode) {
+        case FolderViewMode::kDetails:
+            return L"details";
+        case FolderViewMode::kList:
+            return L"list";
+        case FolderViewMode::kTiles:
+            return L"tiles";
+        case FolderViewMode::kContent:
+            return L"content";
+        case FolderViewMode::kSmallIcons:
+            return L"small_icons";
+        case FolderViewMode::kMediumIcons:
+            return L"medium_icons";
+        case FolderViewMode::kLargeIcons:
+            return L"large_icons";
+        case FolderViewMode::kExtraLargeIcons:
+            return L"extra_large_icons";
+        default:
+            return L"details";
     }
 }
 
@@ -1050,6 +1102,69 @@ void UpdateLegacyGlowSettingsFromPalette(ShellTabsOptions& options) {
         header.gradientEndColor != kDefaultGlowSecondaryColor;
 }
 
+const wchar_t* FolderViewModeDisplayName(FolderViewMode mode) noexcept {
+    switch (mode) {
+        case FolderViewMode::kDetails:
+            return L"Details";
+        case FolderViewMode::kList:
+            return L"List";
+        case FolderViewMode::kTiles:
+            return L"Tiles";
+        case FolderViewMode::kContent:
+            return L"Content";
+        case FolderViewMode::kSmallIcons:
+            return L"Small icons";
+        case FolderViewMode::kMediumIcons:
+            return L"Medium icons";
+        case FolderViewMode::kLargeIcons:
+            return L"Large icons";
+        case FolderViewMode::kExtraLargeIcons:
+            return L"Extra large icons";
+        default:
+            return L"Details";
+    }
+}
+
+int DefaultFolderViewIconSize(FolderViewMode mode) noexcept {
+    switch (mode) {
+        case FolderViewMode::kTiles:
+            return 48;
+        case FolderViewMode::kContent:
+            return 32;
+        case FolderViewMode::kMediumIcons:
+            return 48;
+        case FolderViewMode::kLargeIcons:
+            return 96;
+        case FolderViewMode::kExtraLargeIcons:
+            return 256;
+        case FolderViewMode::kDetails:
+        case FolderViewMode::kList:
+        case FolderViewMode::kSmallIcons:
+        default:
+            return 16;
+    }
+}
+
+int ExplorerViewModeValue(FolderViewMode mode) noexcept {
+    switch (mode) {
+        case FolderViewMode::kDetails:
+            return 4;
+        case FolderViewMode::kList:
+            return 3;
+        case FolderViewMode::kTiles:
+            return 6;
+        case FolderViewMode::kContent:
+            return 8;
+        case FolderViewMode::kSmallIcons:
+        case FolderViewMode::kMediumIcons:
+        case FolderViewMode::kLargeIcons:
+        case FolderViewMode::kExtraLargeIcons:
+            return 1;
+        default:
+            return 4;
+    }
+}
+
 OptionsStore& OptionsStore::Instance() {
     static OptionsStore store;
     return store;
@@ -1445,6 +1560,25 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kFolderViewEntryToken) {
+            if (tokens.size() >= 3) {
+                FolderViewEntry entry;
+                entry.folderPath = NormalizeFileSystemPath(std::wstring(tokens[1]));
+                entry.viewMode = ParseFolderViewMode(tokens[2]);
+                entry.iconSize = DefaultFolderViewIconSize(entry.viewMode);
+                if (tokens.size() >= 4) {
+                    entry.iconSize = ParseIntInRange(tokens[3], 16, 256, entry.iconSize);
+                }
+                if (tokens.size() >= 5) {
+                    entry.disableGrouping = ParseBool(tokens[4]);
+                }
+                if (!entry.folderPath.empty()) {
+                    m_options.folderViewEntries.emplace_back(std::move(entry));
+                }
+            }
+            return true;
+        }
+
         if (header == kWebFolderEntryToken) {
             if (tokens.size() >= 3) {
                 WebFolderEntry entry;
@@ -1834,6 +1968,28 @@ bool OptionsStore::Save() const {
         content += L"\n";
     }
 
+    for (const auto& entry : options.folderViewEntries) {
+        const std::wstring normalizedFolder = NormalizeFileSystemPath(entry.folderPath);
+        if (normalizedFolder.empty()) {
+            continue;
+        }
+
+        const FolderViewMode mode = entry.viewMode;
+        const int fallbackIconSize = DefaultFolderViewIconSize(mode);
+        const int iconSize = std::clamp(entry.iconSize, 16, 256);
+
+        content += kFolderViewEntryToken;
+        content += L"|";
+        content += normalizedFolder;
+        content += L"|";
+        content += FolderViewModeToken(mode);
+        content += L"|";
+        content += std::to_wstring(iconSize > 0 ? iconSize : fallbackIconSize);
+        content += L"|";
+        content += entry.disableGrouping ? L"1" : L"0";
+        content += L"\n";
+    }
+
     AppendContextMenuItems(content, options.contextMenuItems);
 
     for (const auto& entry : options.webFolderEntries) {
@@ -1921,6 +2077,13 @@ bool operator==(const FolderBackgroundEntry& left, const FolderBackgroundEntry& 
     return left.folderPath == right.folderPath && left.image == right.image;
 }
 
+bool operator==(const FolderViewEntry& left, const FolderViewEntry& right) noexcept {
+    return left.folderPath == right.folderPath &&
+           left.viewMode == right.viewMode &&
+           left.iconSize == right.iconSize &&
+           left.disableGrouping == right.disableGrouping;
+}
+
 bool operator==(const WebFolderEntry& left, const WebFolderEntry& right) noexcept {
     return left.url == right.url && left.displayName == right.displayName && left.enabled == right.enabled &&
            left.parallelDownloads == right.parallelDownloads &&
@@ -1982,6 +2145,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
            left.backgroundOpacity == right.backgroundOpacity &&
            left.universalFolderBackgroundImage == right.universalFolderBackgroundImage &&
            left.folderBackgroundEntries == right.folderBackgroundEntries &&
+           left.folderViewEntries == right.folderViewEntries &&
            left.contextMenuItems == right.contextMenuItems &&
            left.webFolderEntries == right.webFolderEntries &&
            left.ftpSiteEntries == right.ftpSiteEntries &&
@@ -1992,4 +2156,3 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
 }
 
 }  // namespace shelltabs
-

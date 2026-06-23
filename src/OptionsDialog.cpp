@@ -260,6 +260,16 @@ enum ControlIds : int {
     IDC_WEB_ED_PARALLEL = 6612,
     IDC_WEB_ED_MAX_CONCURRENT = 6613,
     IDC_WEB_ED_SPEED_LIMIT = 6614,
+
+    // Folder Views (6700-6799)
+    IDC_VIEW_LIST = 6700,
+    IDC_VIEW_PATH = 6701,
+    IDC_VIEW_BROWSE = 6702,
+    IDC_VIEW_MODE = 6703,
+    IDC_VIEW_ICON_SIZE = 6704,
+    IDC_VIEW_DISABLE_GROUPING = 6705,
+    IDC_VIEW_ADD_UPDATE = 6706,
+    IDC_VIEW_REMOVE = 6707,
 };
 
 // Preview bitmap async result
@@ -4155,6 +4165,323 @@ bool ShowWebFolderEditorDialog(HWND parent, WebFolderEntry& entry, bool isNew) {
     return result == IDOK;
 }
 
+//=============================================================================
+// FOLDER VIEWS PAGE
+//=============================================================================
+
+constexpr std::array<FolderViewMode, 8> kFolderViewModes = {
+    FolderViewMode::kDetails,
+    FolderViewMode::kList,
+    FolderViewMode::kTiles,
+    FolderViewMode::kContent,
+    FolderViewMode::kSmallIcons,
+    FolderViewMode::kMediumIcons,
+    FolderViewMode::kLargeIcons,
+    FolderViewMode::kExtraLargeIcons,
+};
+
+bool IsIconFolderViewMode(FolderViewMode mode) {
+    return mode == FolderViewMode::kSmallIcons ||
+           mode == FolderViewMode::kMediumIcons ||
+           mode == FolderViewMode::kLargeIcons ||
+           mode == FolderViewMode::kExtraLargeIcons;
+}
+
+std::wstring NormalizeFolderViewDialogPath(const std::wstring& path) {
+    return NormalizeFileSystemPath(Trim(path));
+}
+
+std::wstring BuildFolderViewListText(const FolderViewEntry& entry) {
+    std::wstring text = entry.folderPath;
+    text += L" -> ";
+    text += FolderViewModeDisplayName(entry.viewMode);
+    if (IsIconFolderViewMode(entry.viewMode)) {
+        text += L" [";
+        text += std::to_wstring(std::clamp(entry.iconSize, 16, 256));
+        text += L" px]";
+    }
+    if (entry.disableGrouping) {
+        text += L" (no grouping)";
+    }
+    return text;
+}
+
+int FindFolderViewEntryByPath(const std::vector<FolderViewEntry>& entries,
+                              const std::wstring& folderPath) {
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (_wcsicmp(entries[i].folderPath.c_str(), folderPath.c_str()) == 0) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void PopulateFolderViewModeCombo(HWND combo, FolderViewMode selectedMode) {
+    if (!combo) {
+        return;
+    }
+
+    ComboBox_ResetContent(combo);
+    int selectedIndex = 0;
+    for (size_t i = 0; i < kFolderViewModes.size(); ++i) {
+        const FolderViewMode mode = kFolderViewModes[i];
+        const int index = ComboBox_AddString(combo, FolderViewModeDisplayName(mode));
+        ComboBox_SetItemData(combo, index, static_cast<LPARAM>(mode));
+        if (mode == selectedMode) {
+            selectedIndex = index;
+        }
+    }
+    ComboBox_SetCurSel(combo, selectedIndex);
+}
+
+FolderViewMode GetSelectedFolderViewMode(HWND page) {
+    HWND combo = GetDlgItem(page, IDC_VIEW_MODE);
+    const int sel = ComboBox_GetCurSel(combo);
+    if (sel >= 0) {
+        const LRESULT data = ComboBox_GetItemData(combo, sel);
+        if (data != CB_ERR) {
+            return static_cast<FolderViewMode>(data);
+        }
+    }
+    return FolderViewMode::kDetails;
+}
+
+void UpdateFolderViewButtonStates(HWND page) {
+    HWND list = GetDlgItem(page, IDC_VIEW_LIST);
+    const bool hasSelection = list && SendMessageW(list, LB_GETCURSEL, 0, 0) != LB_ERR;
+    EnableWindow(GetDlgItem(page, IDC_VIEW_REMOVE), hasSelection);
+    SetWindowTextW(GetDlgItem(page, IDC_VIEW_ADD_UPDATE), hasSelection ? L"Update" : L"Add");
+}
+
+void SetFolderViewEditor(HWND page, const FolderViewEntry& entry) {
+    SetDlgItemTextW(page, IDC_VIEW_PATH, entry.folderPath.c_str());
+    PopulateFolderViewModeCombo(GetDlgItem(page, IDC_VIEW_MODE), entry.viewMode);
+    SetDlgItemInt(page, IDC_VIEW_ICON_SIZE,
+                  static_cast<UINT>(std::clamp(entry.iconSize, 16, 256)), FALSE);
+    Button_SetCheck(GetDlgItem(page, IDC_VIEW_DISABLE_GROUPING),
+                    entry.disableGrouping ? BST_CHECKED : BST_UNCHECKED);
+}
+
+void ResetFolderViewEditor(HWND page) {
+    FolderViewEntry entry{};
+    entry.iconSize = DefaultFolderViewIconSize(entry.viewMode);
+    SetFolderViewEditor(page, entry);
+}
+
+void InitFolderViewsPage(HWND page, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+
+    HWND list = GetDlgItem(page, IDC_VIEW_LIST);
+    if (list) {
+        SendMessageW(list, LB_RESETCONTENT, 0, 0);
+        for (const auto& entry : data->workingOptions.folderViewEntries) {
+            const std::wstring text = BuildFolderViewListText(entry);
+            SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+        }
+    }
+
+    ResetFolderViewEditor(page);
+    UpdateFolderViewButtonStates(page);
+}
+
+void SelectFolderViewRule(HWND page, OptionsDialogData* data) {
+    if (!data) {
+        return;
+    }
+
+    HWND list = GetDlgItem(page, IDC_VIEW_LIST);
+    const int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    if (sel >= 0 && sel < static_cast<int>(data->workingOptions.folderViewEntries.size())) {
+        SetFolderViewEditor(page, data->workingOptions.folderViewEntries[sel]);
+    } else {
+        ResetFolderViewEditor(page);
+    }
+    UpdateFolderViewButtonStates(page);
+}
+
+bool ReadFolderViewEditor(HWND page, FolderViewEntry* entry) {
+    if (!entry) {
+        return false;
+    }
+
+    FolderViewEntry candidate{};
+    candidate.folderPath = NormalizeFolderViewDialogPath(GetControlText(GetDlgItem(page, IDC_VIEW_PATH)));
+    if (candidate.folderPath.empty()) {
+        MessageBoxW(page, L"Folder path cannot be empty.", L"Folder Views",
+                    MB_OK | MB_ICONWARNING);
+        SetFocus(GetDlgItem(page, IDC_VIEW_PATH));
+        return false;
+    }
+
+    if (PathIsRelativeW(candidate.folderPath.c_str())) {
+        MessageBoxW(page, L"Folder path must be an absolute filesystem path.", L"Folder Views",
+                    MB_OK | MB_ICONWARNING);
+        SetFocus(GetDlgItem(page, IDC_VIEW_PATH));
+        return false;
+    }
+
+    candidate.viewMode = GetSelectedFolderViewMode(page);
+    candidate.iconSize = DefaultFolderViewIconSize(candidate.viewMode);
+
+    BOOL translated = FALSE;
+    const UINT typedSize = GetDlgItemInt(page, IDC_VIEW_ICON_SIZE, &translated, FALSE);
+    if (translated) {
+        candidate.iconSize = std::clamp(static_cast<int>(typedSize), 16, 256);
+    }
+
+    candidate.disableGrouping =
+        Button_GetCheck(GetDlgItem(page, IDC_VIEW_DISABLE_GROUPING)) == BST_CHECKED;
+
+    *entry = std::move(candidate);
+    return true;
+}
+
+DialogTemplatePtr CreateFolderViewsPageTemplate() {
+    DialogBuilder builder(kPageWidth, kPageHeight);
+
+    const int rowW = kPageWidth - 2 * kMargin;
+    const int btnCol = 82;
+    const int listW = rowW - btnCol - kSpacing;
+    int y = kMargin;
+
+    builder.AddStatic(-1,
+        L"Rules apply to the folder and its subfolders. The longest matching path wins.",
+        kMargin, y, rowW, kLabelHeight * 2);
+    y += kLabelHeight * 2 + kSpacing;
+
+    builder.AddListBox(IDC_VIEW_LIST, kMargin, y, listW, 72);
+    builder.AddPushButton(IDC_VIEW_REMOVE, L"Remove",
+        kMargin + listW + kSpacing, y, btnCol, kButtonHeight);
+    y += 76;
+
+    builder.AddStatic(-1, L"Folder path:", kMargin, y + 3, 64, kLabelHeight);
+    builder.AddEdit(IDC_VIEW_PATH, L"", kMargin + 66, y, rowW - 66 - 58, kEditHeight,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL);
+    builder.AddPushButton(IDC_VIEW_BROWSE, L"Browse...",
+        kPageWidth - kMargin - 54, y, 54, kButtonHeight);
+    y += kEditHeight + kSpacing;
+
+    builder.AddStatic(-1, L"View:", kMargin, y + 3, 64, kLabelHeight);
+    builder.AddComboBox(IDC_VIEW_MODE, kMargin + 66, y, 136, kComboHeight);
+    builder.AddStatic(-1, L"Icon size:", kMargin + 210, y + 3, 48, kLabelHeight);
+    builder.AddEdit(IDC_VIEW_ICON_SIZE, L"16",
+        kMargin + 258, y, 42, kEditHeight,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_NUMBER);
+    y += kEditHeight + kSpacing;
+
+    builder.AddCheckbox(IDC_VIEW_DISABLE_GROUPING, L"Disable grouping",
+        kMargin + 66, y, 120, kCheckHeight);
+    builder.AddPushButton(IDC_VIEW_ADD_UPDATE, L"Add",
+        kPageWidth - kMargin - btnCol, y - 2, btnCol, kButtonHeight);
+
+    return builder.Build();
+}
+
+INT_PTR CALLBACK FolderViewsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
+    OptionsDialogData* data = nullptr;
+
+    if (msg == WM_INITDIALOG) {
+        PROPSHEETPAGEW* psp = reinterpret_cast<PROPSHEETPAGEW*>(lParam);
+        data = reinterpret_cast<OptionsDialogData*>(psp->lParam);
+        SetWindowLongPtrW(page, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
+        InitFolderViewsPage(page, data);
+        return TRUE;
+    }
+
+    data = reinterpret_cast<OptionsDialogData*>(GetWindowLongPtrW(page, GWLP_USERDATA));
+
+    switch (msg) {
+        case WM_COMMAND: {
+            if (!data) {
+                break;
+            }
+
+            const int id = LOWORD(wParam);
+            const int code = HIWORD(wParam);
+
+            if (id == IDC_VIEW_LIST && code == LBN_SELCHANGE) {
+                SelectFolderViewRule(page, data);
+            } else if (id == IDC_VIEW_MODE && code == CBN_SELCHANGE) {
+                const FolderViewMode mode = GetSelectedFolderViewMode(page);
+                SetDlgItemInt(page, IDC_VIEW_ICON_SIZE,
+                              static_cast<UINT>(DefaultFolderViewIconSize(mode)), FALSE);
+            } else if (id == IDC_VIEW_BROWSE && code == BN_CLICKED) {
+                std::wstring path = GetControlText(GetDlgItem(page, IDC_VIEW_PATH));
+                if (BrowseForFolder(page, &path, L"Select folder for view rule")) {
+                    SetDlgItemTextW(page, IDC_VIEW_PATH, path.c_str());
+                }
+            } else if (id == IDC_VIEW_ADD_UPDATE && code == BN_CLICKED) {
+                FolderViewEntry entry{};
+                if (!ReadFolderViewEditor(page, &entry)) {
+                    return TRUE;
+                }
+
+                HWND list = GetDlgItem(page, IDC_VIEW_LIST);
+                const int selected = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+                const int duplicate =
+                    FindFolderViewEntryByPath(data->workingOptions.folderViewEntries, entry.folderPath);
+
+                int target = (selected >= 0 &&
+                              selected < static_cast<int>(data->workingOptions.folderViewEntries.size()))
+                                 ? selected
+                                 : -1;
+                if (duplicate >= 0 && target >= 0 && duplicate != target) {
+                    MessageBoxW(page, L"A rule already exists for that folder path.",
+                                L"Folder Views", MB_OK | MB_ICONWARNING);
+                    return TRUE;
+                }
+                if (target < 0) {
+                    target = duplicate;
+                }
+
+                if (target >= 0) {
+                    data->workingOptions.folderViewEntries[static_cast<size_t>(target)] = entry;
+                } else {
+                    data->workingOptions.folderViewEntries.push_back(entry);
+                    target = static_cast<int>(data->workingOptions.folderViewEntries.size()) - 1;
+                }
+
+                InitFolderViewsPage(page, data);
+                SendMessageW(GetDlgItem(page, IDC_VIEW_LIST), LB_SETCURSEL, target, 0);
+                SelectFolderViewRule(page, data);
+                PropSheet_Changed(GetParent(page), page);
+                return TRUE;
+            } else if (id == IDC_VIEW_REMOVE && code == BN_CLICKED) {
+                HWND list = GetDlgItem(page, IDC_VIEW_LIST);
+                const int selected = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+                if (selected >= 0 &&
+                    selected < static_cast<int>(data->workingOptions.folderViewEntries.size())) {
+                    const std::wstring confirm =
+                        L"Remove folder view rule for '" +
+                        data->workingOptions.folderViewEntries[static_cast<size_t>(selected)].folderPath +
+                        L"'?";
+                    if (MessageBoxW(page, confirm.c_str(), L"Folder Views",
+                                    MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                        data->workingOptions.folderViewEntries.erase(
+                            data->workingOptions.folderViewEntries.begin() + selected);
+                        InitFolderViewsPage(page, data);
+                        PropSheet_Changed(GetParent(page), page);
+                    }
+                }
+                return TRUE;
+            }
+            break;
+        }
+
+        case WM_NOTIFY: {
+            NMHDR* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+            if (nmhdr->code == PSN_APPLY && data) {
+                return PSNRET_NOERROR;
+            }
+            break;
+        }
+    }
+
+    return FALSE;
+}
+
 INT_PTR CALLBACK WebFoldersPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lParam) {
     OptionsDialogData* data = nullptr;
 
@@ -4295,17 +4622,18 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     auto backgroundsTemplate = CreateBackgroundsPageTemplate();
     auto contextTemplate = CreateContextMenusPageTemplate();
     auto groupsTemplate = CreateGroupsPageTemplate();
+    auto folderViewsTemplate = CreateFolderViewsPageTemplate();
     auto webFoldersTemplate = CreateWebFoldersPageTemplate();
 
     if (!generalTemplate || !appearanceTemplate || !glowTemplate ||
         !backgroundsTemplate || !contextTemplate || !groupsTemplate ||
-        !webFoldersTemplate) {
+        !folderViewsTemplate || !webFoldersTemplate) {
         MessageBoxW(parent, L"Failed to create dialog templates.", L"Error", MB_OK | MB_ICONERROR);
         return result;
     }
 
     // Create property sheet pages
-    std::array<PROPSHEETPAGEW, 7> pages{};
+    std::array<PROPSHEETPAGEW, 8> pages{};
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
@@ -4359,10 +4687,18 @@ OptionsDialogResult ShowOptionsDialog(HWND parent, OptionsDialogPage initialPage
     pages[6].dwSize = sizeof(PROPSHEETPAGEW);
     pages[6].dwFlags = PSP_USETITLE | PSP_DLGINDIRECT;
     pages[6].hInstance = hInst;
-    pages[6].pResource = webFoldersTemplate.get();
-    pages[6].pszTitle = L"Web Folders";
-    pages[6].pfnDlgProc = WebFoldersPageProc;
+    pages[6].pResource = folderViewsTemplate.get();
+    pages[6].pszTitle = L"Folder Views";
+    pages[6].pfnDlgProc = FolderViewsPageProc;
     pages[6].lParam = reinterpret_cast<LPARAM>(data.get());
+
+    pages[7].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[7].dwFlags = PSP_USETITLE | PSP_DLGINDIRECT;
+    pages[7].hInstance = hInst;
+    pages[7].pResource = webFoldersTemplate.get();
+    pages[7].pszTitle = L"Web Folders";
+    pages[7].pfnDlgProc = WebFoldersPageProc;
+    pages[7].lParam = reinterpret_cast<LPARAM>(data.get());
 
     // Create property sheet
     PROPSHEETHEADERW psh{};

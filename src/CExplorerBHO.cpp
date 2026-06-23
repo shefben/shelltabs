@@ -2596,6 +2596,99 @@ std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
     return {};
 }
 
+bool HasFolderViewRulePrefix(const std::wstring& folderKey, const std::wstring& ruleKey) {
+    if (folderKey.size() < ruleKey.size()) {
+        return false;
+    }
+    if (_wcsnicmp(folderKey.c_str(), ruleKey.c_str(), ruleKey.size()) != 0) {
+        return false;
+    }
+    if (folderKey.size() == ruleKey.size()) {
+        return true;
+    }
+    if (!ruleKey.empty() && ruleKey.back() == L'\\') {
+        return true;
+    }
+    return folderKey[ruleKey.size()] == L'\\';
+}
+
+void CExplorerBHO::ApplyCurrentFolderViewRules(const ShellTabsOptions& options) {
+    if (options.folderViewEntries.empty() || !m_shellBrowser) {
+        return;
+    }
+
+    UniquePidl current = GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
+    if (!current) {
+        return;
+    }
+
+    PWSTR rawPath = nullptr;
+    std::wstring folderKey;
+    if (SUCCEEDED(SHGetNameFromIDList(current.get(), SIGDN_FILESYSPATH, &rawPath)) &&
+        rawPath && rawPath[0] != L'\0') {
+        folderKey = NormalizeBackgroundKey(rawPath);
+    }
+    if (rawPath) {
+        CoTaskMemFree(rawPath);
+    }
+    if (folderKey.empty()) {
+        return;
+    }
+
+    const FolderViewEntry* bestEntry = nullptr;
+    size_t bestLength = 0;
+    for (const auto& entry : options.folderViewEntries) {
+        const std::wstring ruleKey = NormalizeBackgroundKey(entry.folderPath);
+        if (ruleKey.empty() || ruleKey.size() < bestLength) {
+            continue;
+        }
+        if (HasFolderViewRulePrefix(folderKey, ruleKey)) {
+            bestEntry = &entry;
+            bestLength = ruleKey.size();
+        }
+    }
+    if (!bestEntry) {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IShellView> shellView;
+    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
+    if (FAILED(hr) || !shellView) {
+        return;
+    }
+
+    Microsoft::WRL::ComPtr<IFolderView2> folderView;
+    hr = shellView.As(&folderView);
+    if (FAILED(hr) || !folderView) {
+        return;
+    }
+
+    const FOLDERVIEWMODE viewMode =
+        static_cast<FOLDERVIEWMODE>(ExplorerViewModeValue(bestEntry->viewMode));
+    const int iconSize = std::clamp(
+        bestEntry->iconSize > 0 ? bestEntry->iconSize : DefaultFolderViewIconSize(bestEntry->viewMode),
+        16, 256);
+
+    hr = folderView->SetViewModeAndIconSize(viewMode, iconSize);
+    if (FAILED(hr)) {
+        hr = folderView->SetCurrentViewMode(static_cast<UINT>(viewMode));
+    }
+    if (FAILED(hr)) {
+        LogMessage(LogLevel::Warning, L"Failed to apply folder view for %ls (hr=0x%08lx)",
+                   bestEntry->folderPath.c_str(), static_cast<unsigned long>(hr));
+        return;
+    }
+
+    if (bestEntry->disableGrouping) {
+        const DWORD noGrouping = static_cast<DWORD>(FWF_NOGROUPING);
+        HRESULT flagsHr = folderView->SetCurrentFolderFlags(noGrouping, noGrouping);
+        if (FAILED(flagsHr)) {
+            LogMessage(LogLevel::Warning, L"Failed to disable grouping for %ls (hr=0x%08lx)",
+                       bestEntry->folderPath.c_str(), static_cast<unsigned long>(flagsHr));
+        }
+    }
+}
+
 Microsoft::WRL::ComPtr<IVisualProperties> CExplorerBHO::GetCurrentVisualProperties() const {
     Microsoft::WRL::ComPtr<IVisualProperties> visualProperties;
 
@@ -4161,6 +4254,7 @@ void CExplorerBHO::RemoveExplorerFrameSubclass() {
 
 LRESULT CALLBACK CExplorerBHO::ExplorerFrameSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                           UINT_PTR subclassId, DWORD_PTR refData) {
+    (void)refData;
     auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
     if (msg == WM_APPCOMMAND) {
         const int command = GET_APPCOMMAND_LPARAM(lParam);
@@ -4982,6 +5076,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
 
     ReloadFolderBackgrounds(options);
     UpdateCurrentFolderBackground();
+    ApplyCurrentFolderViewRules(options);
 
     UpdateProgressSubclass();
     UpdateTravelBandSubclass();
