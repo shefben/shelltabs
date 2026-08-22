@@ -2265,9 +2265,11 @@ void TabBandWindow::PaintSurface(HDC dc, const RECT& windowRect) const {
 
     DrawBackground(dc, windowRect);
 
-    if (m_lastRowCount > 1) {
+    {
         HPEN linePen = CreatePen(PS_SOLID, 1, m_darkMode ? RGB(85, 85, 85) : RGB(220, 220, 220));
         HGDIOBJ oldPen = SelectObject(dc, linePen);
+        
+        // Draw separator lines between rows if wrapping
         for (int r = 0; r < m_lastRowCount - 1; ++r) {
             int rowBottomY = -1;
             for (const auto& item : m_items) {
@@ -2277,10 +2279,16 @@ void TabBandWindow::PaintSurface(HDC dc, const RECT& windowRect) const {
                 }
             }
             if (rowBottomY >= 0) {
-                MoveToEx(dc, windowRect.left, rowBottomY, nullptr);
-                LineTo(dc, windowRect.right, rowBottomY);
+                MoveToEx(dc, windowRect.left, rowBottomY - 1, nullptr);
+                LineTo(dc, windowRect.right, rowBottomY - 1);
             }
         }
+        
+        // Always draw the bottom-most line that "holds" the tabs
+        int bottomY = windowRect.bottom - 1;
+        MoveToEx(dc, windowRect.left, bottomY, nullptr);
+        LineTo(dc, windowRect.right, bottomY);
+        
         SelectObject(dc, oldPen);
         DeleteObject(linePen);
     }
