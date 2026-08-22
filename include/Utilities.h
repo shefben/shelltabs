@@ -9,6 +9,9 @@
 #define _WINSOCKAPI_
 #endif
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <exception>

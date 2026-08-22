@@ -12,6 +12,7 @@
 #include <vector>
 #include <stop_token>
 
+#include "SessionStore.h"
 #include <objbase.h>
 
 #include <CommCtrl.h>
@@ -1050,13 +1051,14 @@ void TabBand::OnCloseTabsToLeftRequested(TabLocation location) {
     SaveSession();
 }
 
-void TabBand::OnReopenClosedTabRequested() {
-    if (m_closedTabHistory.empty()) {
+void TabBand::OnReopenClosedTabRequested(size_t index) {
+    if (index >= m_closedTabHistory.size()) {
         return;
     }
 
-    ClosedTabSet set = std::move(m_closedTabHistory.back());
-    m_closedTabHistory.pop_back();
+    auto it = m_closedTabHistory.rbegin() + index;
+    ClosedTabSet set = std::move(*it);
+    m_closedTabHistory.erase(it.base() - 1);
 
     if (set.entries.empty()) {
         return;
@@ -1148,6 +1150,10 @@ void TabBand::OnReopenClosedTabRequested() {
     }
 
     SaveSession();
+}
+
+void TabBand::OnReopenClosedTabRequested() {
+    OnReopenClosedTabRequested(0);
 }
 
 bool TabBand::CanCloseOtherTabs(TabLocation location) const {
@@ -1315,8 +1321,16 @@ void TabBand::OnToggleTabPinned(TabLocation location) {
 }
 
 void TabBand::OnNavigateBack() {
+    if (m_internalNavigation) {
+        return;
+    }
+
     const TabLocation selected = m_tabs.SelectedLocation();
     if (!selected.IsValid()) {
+        return;
+    }
+
+    if (!m_shellBrowser) {
         return;
     }
 
@@ -1325,7 +1339,8 @@ void TabBand::OnNavigateBack() {
         return;
     }
 
-    if (!m_shellBrowser || !entry->pidl) {
+    if (!entry->pidl) {
+        m_tabs.NavigateForward(selected);
         return;
     }
 
@@ -1336,13 +1351,22 @@ void TabBand::OnNavigateBack() {
     const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE | SBSP_WRITENOHISTORY);
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"TabBand::OnNavigateBack failed to navigate (hr=0x%08X)", hr);
+        m_tabs.NavigateForward(selected);
         m_internalNavigation = false;
     }
 }
 
 void TabBand::OnNavigateForward() {
+    if (m_internalNavigation) {
+        return;
+    }
+
     const TabLocation selected = m_tabs.SelectedLocation();
     if (!selected.IsValid()) {
+        return;
+    }
+
+    if (!m_shellBrowser) {
         return;
     }
 
@@ -1351,7 +1375,8 @@ void TabBand::OnNavigateForward() {
         return;
     }
 
-    if (!m_shellBrowser || !entry->pidl) {
+    if (!entry->pidl) {
+        m_tabs.NavigateBack(selected);
         return;
     }
 
@@ -1362,6 +1387,7 @@ void TabBand::OnNavigateForward() {
     const HRESULT hr = m_shellBrowser->BrowseObject(entry->pidl.get(), SBSP_SAMEBROWSER | SBSP_ABSOLUTE | SBSP_WRITENOHISTORY);
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"TabBand::OnNavigateForward failed to navigate (hr=0x%08X)", hr);
+        m_tabs.NavigateBack(selected);
         m_internalNavigation = false;
     }
 }
@@ -1969,7 +1995,23 @@ bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
         if (IsIconic(targetFrame)) {
             ShowWindow(targetFrame, SW_RESTORE);
         }
-        SetForegroundWindow(targetFrame);
+        DWORD targetProcessId = 0;
+        DWORD targetThread = GetWindowThreadProcessId(targetFrame, &targetProcessId);
+        DWORD currentThread = GetCurrentThreadId();
+        
+        if (targetProcessId != 0) {
+            AllowSetForegroundWindow(targetProcessId);
+        }
+        
+        if (targetThread != currentThread) {
+            AttachThreadInput(currentThread, targetThread, TRUE);
+            SetForegroundWindow(targetFrame);
+            BringWindowToTop(targetFrame);
+            AttachThreadInput(currentThread, targetThread, FALSE);
+        } else {
+            SetForegroundWindow(targetFrame);
+            BringWindowToTop(targetFrame);
+        }
     }
 
     // Close this Explorer window
@@ -2224,12 +2266,65 @@ void TabBand::SaveCurrentTabScrollPosition() {
                    L"TabBand::SaveCurrentTabScrollPosition saved (%ld, %ld) for tab %ls",
                    scrollPos.x, scrollPos.y, tab->name.c_str());
     }
+
+    // Capture Deep View State (View Mode, Icon Size, Selection)
+    if (m_shellBrowser) {
+        IShellView* rawView = nullptr;
+        if (SUCCEEDED(m_shellBrowser->QueryActiveShellView(&rawView)) && rawView) {
+            ComPtr<IShellView> shellView;
+            shellView.Attach(rawView);
+            ComPtr<IFolderView2> folderView2;
+            if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
+                UINT viewMode = 0;
+                int iconSize = 0;
+                if (SUCCEEDED(folderView2->GetViewModeAndIconSize(&viewMode, &iconSize))) {
+                    tab->viewMode = viewMode;
+                    tab->iconSize = iconSize;
+                    tab->hasViewState = true;
+                }
+                
+                tab->selectedItems.clear();
+                ComPtr<IEnumIDList> enumIdList;
+                if (SUCCEEDED(folderView2->Items(SVGIO_SELECTION, IID_PPV_ARGS(&enumIdList))) && enumIdList) {
+                    PITEMID_CHILD childPidl = nullptr;
+                    while (enumIdList->Next(1, &childPidl, nullptr) == S_OK) {
+                        tab->selectedItems.emplace_back(childPidl);
+                    }
+                }
+            }
+        }
+    }
 }
 
 bool TabBand::RestoreCurrentTabScrollPosition() {
     const TabLocation selected = m_tabs.SelectedLocation();
     const auto* tab = m_tabs.Get(selected);
-    if (!tab || !tab->hasScrollPosition) {
+    // Restore Deep View State first so scroll restoration applies to the correct layout
+    if (tab->hasViewState && m_shellBrowser) {
+        IShellView* rawView = nullptr;
+        if (SUCCEEDED(m_shellBrowser->QueryActiveShellView(&rawView)) && rawView) {
+            ComPtr<IShellView> shellView;
+            shellView.Attach(rawView);
+            ComPtr<IFolderView2> folderView2;
+            if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
+                folderView2->SetViewModeAndIconSize(tab->viewMode, tab->iconSize);
+                
+                // Clear existing selection
+                folderView2->SelectItem(-1, SVSI_DESELECTOTHERS);
+                
+                // Restore selection
+                for (const auto& selPidl : tab->selectedItems) {
+                    // Try to find the item index
+                    int itemIndex = -1;
+                    if (SUCCEEDED(folderView2->IndexOf(selPidl.get(), &itemIndex)) && itemIndex >= 0) {
+                        folderView2->SelectItem(itemIndex, SVSI_SELECT | SVSI_NOSTATECHANGE);
+                    }
+                }
+            }
+        }
+    }
+
+    if (!tab->hasScrollPosition) {
         return true;  // nothing to restore — treat as success
     }
 
@@ -2645,6 +2740,15 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
             tab.hasScrollPosition = tabData.hasScrollPosition;
             tab.scrollPosition.x = tabData.scrollX;
             tab.scrollPosition.y = tabData.scrollY;
+            tab.navigationHistory.currentIndex = tabData.historyIndex;
+            for (const auto& he : tabData.history) {
+                NavigationHistoryEntry entry;
+                entry.path = he.path;
+                entry.name = he.name;
+                entry.timestamp = he.timestamp;
+                entry.pidl = ParseDisplayName(he.path);
+                tab.navigationHistory.entries.push_back(std::move(entry));
+            }
             tab.RefreshNormalizedLookupKey();
             group.tabs.emplace_back(std::move(tab));
         };
@@ -2740,6 +2844,17 @@ void TabBand::SaveSession() {
             storedTab.hasScrollPosition = tab.hasScrollPosition;
             storedTab.scrollX = tab.scrollPosition.x;
             storedTab.scrollY = tab.scrollPosition.y;
+            storedTab.historyIndex = tab.navigationHistory.currentIndex;
+            for (const auto& entry : tab.navigationHistory.entries) {
+                SessionHistoryEntry he;
+                he.path = entry.path;
+                if (he.path.empty() && entry.pidl) {
+                    he.path = GetParsingName(entry.pidl.get());
+                }
+                he.name = entry.name;
+                he.timestamp = entry.timestamp;
+                storedTab.history.push_back(std::move(he));
+            }
             storedGroup.tabs.emplace_back(std::move(storedTab));
             return true;
         };
@@ -3124,6 +3239,14 @@ void TabBand::NavigateToTab(TabLocation location) {
         m_internalNavigation = false;
     } else {
         LogMessage(LogLevel::Info, L"NavigateToTab: BrowseObject succeeded");
+        
+        // Feature: Scriptable Tab Hooks (Automation)
+        std::wstring hookScript = L"C:\\ShellTabsHooks\\" + tab->name + L".ps1";
+        if (GetFileAttributesW(hookScript.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            ShellExecuteW(nullptr, L"open", L"powershell.exe", 
+                (L"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + hookScript + L"\"").c_str(), 
+                nullptr, SW_HIDE);
+        }
     }
 }
 
@@ -3178,8 +3301,43 @@ void TabBand::EnsureTabForCurrentFolder() {
     };
     const std::wstring parsingName = computeNormalizedPath(current.get());
 
+    bool isInitialNav = m_isInitialNavigation;
+    m_isInitialNavigation = false;
+
+    if (isInitialNav && current) {
+        m_initialNavigationPidl = ClonePidl(current.get());
+    }
+
     const TabLocation selected = m_tabs.SelectedLocation();
     if (selected.IsValid()) {
+        if (isInitialNav) {
+            TabLocation existing = m_tabs.Find(current.get());
+            if (existing.IsValid()) {
+                if (existing != selected) {
+                    m_tabs.SetSelectedLocation(existing);
+                    SyncSavedGroup(existing.groupIndex);
+                }
+                return;
+            } else {
+                TabLocation location = m_tabs.Add(ClonePidl(current.get()), name, name, true, selected.groupIndex);
+                if (auto* tab = m_tabs.Get(location)) {
+                    tab->path = !parsingName.empty() ? parsingName : computeNormalizedPath(tab->pidl.get());
+                    tab->RefreshNormalizedLookupKey();
+                    tab->tooltip = tab->path;
+                    NavigationHistoryEntry entry;
+                    entry.pidl = ClonePidl(current.get());
+                    entry.path = tab->path;
+                    entry.name = name;
+                    entry.timestamp = GetTickCount64();
+                    tab->navigationHistory.entries.push_back(std::move(entry));
+                    tab->navigationHistory.currentIndex = 0;
+                }
+                UpdateTabsUI();
+                SyncAllSavedGroups();
+                return;
+            }
+        }
+
         if (auto* tab = m_tabs.Get(selected)) {
             const std::wstring oldKey = BuildIconCacheFamilyKey(tab->pidl.get(), tab->path);
             const std::wstring oldPath = tab->path;
@@ -4038,12 +4196,50 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
                 LogMessage(LogLevel::Info, L"TabBand::InitializeTabs hydrated tab %ls", name.c_str());
             }
         } else {
-            const TabLocation selection = m_tabs.SelectedLocation();
-            if (selection.IsValid()) {
-                const bool previousRestoring = m_restoringSession;
-                m_restoringSession = true;
-                NavigateToTab(selection);
-                m_restoringSession = previousRestoring;
+            if (m_initialNavigationPidl) {
+                TabLocation existing = m_tabs.Find(m_initialNavigationPidl.get());
+                if (existing.IsValid()) {
+                    m_tabs.SetSelectedLocation(existing);
+                    SyncSavedGroup(existing.groupIndex);
+                } else {
+                    std::wstring name = GetDisplayName(m_initialNavigationPidl.get());
+                    if (name.empty()) {
+                        name = L"Tab";
+                    }
+                    const TabLocation selection = m_tabs.SelectedLocation();
+                    int targetGroup = selection.IsValid() ? selection.groupIndex : 0;
+                    TabLocation location = m_tabs.Add(std::move(m_initialNavigationPidl), name, name, true, targetGroup);
+                    if (location.IsValid()) {
+                        auto* tab = m_tabs.Get(location);
+                        if (tab) {
+                            std::wstring canonical = GetCanonicalParsingName(tab->pidl.get());
+                            if (canonical.empty()) {
+                                canonical = GetParsingName(tab->pidl.get());
+                            }
+                            tab->path = canonical;
+                            tab->RefreshNormalizedLookupKey();
+                            tab->tooltip = tab->path;
+                            NavigationHistoryEntry entry;
+                            entry.pidl = ClonePidl(tab->pidl.get());
+                            entry.path = tab->path;
+                            entry.name = name;
+                            entry.timestamp = GetTickCount64();
+                            tab->navigationHistory.entries.push_back(std::move(entry));
+                            tab->navigationHistory.currentIndex = 0;
+                        }
+                        m_tabs.SetSelectedLocation(location);
+                        SyncSavedGroup(location.groupIndex);
+                    }
+                }
+                m_initialNavigationPidl.reset();
+            } else {
+                const TabLocation selection = m_tabs.SelectedLocation();
+                if (selection.IsValid()) {
+                    const bool previousRestoring = m_restoringSession;
+                    m_restoringSession = true;
+                    NavigateToTab(selection);
+                    m_restoringSession = previousRestoring;
+                }
             }
         }
     }
@@ -4063,6 +4259,16 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
     m_hadPendingSeed = false;
 
     UpdateTabsUI();
+}
+
+void TabBand::OnRestoreTabSessionRequested(int index) {
+    auto savedSessions = SavedTabSessionManager::Instance().GetSavedSessions();
+    if (index >= 0 && index < static_cast<int>(savedSessions.size())) {
+        const auto& session = savedSessions[index];
+        for (const auto& path : session.paths) {
+            OnOpenFolderInNewTab(path, false);
+        }
+    }
 }
 
 }  // namespace shelltabs

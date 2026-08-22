@@ -567,7 +567,7 @@ ULONG MapFindDataToAttributes(const WIN32_FIND_DATAW& data) {
     ULONG attributes = SFGAO_STORAGE | SFGAO_CANCOPY;
     const bool isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     if (isDirectory) {
-        attributes |= SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+        attributes |= SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE | SFGAO_FILESYSTEM;
     } else {
         attributes |= SFGAO_STREAM;
     }
@@ -1513,7 +1513,7 @@ IFACEMETHODIMP FtpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY 
     ULONG mask = *rgfInOut;
     if (cidl == 0) {
         ULONG folderFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER | SFGAO_CANCOPY |
-                            SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_BROWSABLE;
+                            SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_BROWSABLE | SFGAO_FILESYSTEM;
         *rgfInOut = mask == 0 ? folderFlags : (folderFlags & mask);
         return S_OK;
     }
@@ -1532,7 +1532,7 @@ IFACEMETHODIMP FtpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY 
                                                                                : ItemType::File;
             if (type == ItemType::Directory || type == ItemType::Root) {
                 itemFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER |
-                            SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_BROWSABLE;
+                            SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_BROWSABLE | SFGAO_FILESYSTEM;
             } else {
                 itemFlags = SFGAO_STREAM | SFGAO_STORAGE | SFGAO_CANCOPY | SFGAO_CANMOVE | SFGAO_CANRENAME |
                             SFGAO_CANDELETE;

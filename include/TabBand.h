@@ -90,7 +90,9 @@ public:
     void OnCloseOtherTabsRequested(TabLocation location);
     void OnCloseTabsToRightRequested(TabLocation location);
     void OnCloseTabsToLeftRequested(TabLocation location);
+    void OnReopenClosedTabRequested(size_t index);
     void OnReopenClosedTabRequested();
+    void OnRestoreTabSessionRequested(int index);
     void OnHideTabRequested(TabLocation location);
     void OnUnhideTabRequested(TabLocation location);
     void OnDetachTabRequested(TabLocation location);
@@ -202,6 +204,8 @@ private:
     DWORD m_browserCookie = 0;
     bool m_internalNavigation = false;
     bool m_pendingWindowRedirect = false;
+    bool m_isInitialNavigation = true;
+    UniquePidl m_initialNavigationPidl;
     int m_allowExternalNewWindows = 0;
     TabLocation m_pendingNavigation;
     bool m_deferredNavigationPosted = false;
@@ -233,6 +237,7 @@ private:
         int selectionOriginalIndex = -1;
     };
 
+    const std::vector<ClosedTabSet>& GetClosedTabHistory() const { return m_closedTabHistory; }
     std::vector<ClosedTabSet> m_closedTabHistory;
 
     ClosedGroupMetadata CaptureGroupMetadata(const TabGroup& group) const;

@@ -378,7 +378,7 @@ ULONG MapFindDataToAttributes(const WIN32_FIND_DATAW& data) {
     ULONG attributes = SFGAO_STORAGE | SFGAO_READONLY | SFGAO_CANCOPY;
     const bool isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     if (isDirectory) {
-        attributes |= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+        attributes |= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE | SFGAO_FILESYSANCESTOR | SFGAO_FILESYSTEM;
     } else {
         attributes |= SFGAO_STREAM;
     }
@@ -2359,7 +2359,7 @@ IFACEMETHODIMP HttpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY
                cidl, mask, isNamespaceRoot_ ? 1 : 0);
     if (cidl == 0) {
         ULONG folderFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_HASSUBFOLDER |
-                            SFGAO_READONLY | SFGAO_BROWSABLE;
+                            SFGAO_READONLY | SFGAO_BROWSABLE | SFGAO_FILESYSANCESTOR | SFGAO_FILESYSTEM;
         *rgfInOut = mask == 0 ? folderFlags : (folderFlags & mask);
         LogMessage(LogLevel::Verbose, L"[HttpShellFolder] GetAttributesOf: cidl=0 (folder itself) -> 0x%08X", *rgfInOut);
         return S_OK;
@@ -2379,7 +2379,8 @@ IFACEMETHODIMP HttpShellFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY
                                                                                : ItemType::File;
             if (type == ItemType::Directory || type == ItemType::Root) {
                 itemFlags = SFGAO_FOLDER | SFGAO_STORAGE | SFGAO_HASSUBFOLDER |
-                            SFGAO_READONLY | SFGAO_BROWSABLE | SFGAO_CANCOPY;
+                            SFGAO_READONLY | SFGAO_BROWSABLE | SFGAO_CANCOPY |
+                            SFGAO_FILESYSANCESTOR | SFGAO_FILESYSTEM;
             } else {
                 itemFlags = SFGAO_STREAM | SFGAO_STORAGE | SFGAO_READONLY | SFGAO_CANCOPY;
             }

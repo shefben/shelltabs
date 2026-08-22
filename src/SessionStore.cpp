@@ -12,6 +12,8 @@
 #include <cwctype>
 #include <cwchar>
 #include <string>
+#include <ctime>
+#include <time.h>
 
 #include "Utilities.h"
 
@@ -32,9 +34,11 @@ constexpr wchar_t kUndoToken[] = L"undo";
 constexpr wchar_t kUndoTabToken[] = L"undotab";
 constexpr wchar_t kWindowToken[] = L"window";
 constexpr wchar_t kWindowEndToken[] = L"window_end";
+constexpr wchar_t kHistoryToken[] = L"history";
+constexpr wchar_t kHistoryIndexToken[] = L"history_index";
 constexpr wchar_t kCommentChar = L'#';
 constexpr wchar_t kChecksumToken[] = L"checksum";
-constexpr int kCurrentVersion = 9;
+constexpr int kCurrentVersion = 10;
 
 // Legacy file patterns for migration
 constexpr wchar_t kLegacySessionPrefix[] = L"session-";
@@ -291,6 +295,30 @@ SessionFileStatus ParseSingleWindowBlock(std::wstring_view payload, SessionData&
                                                  return true;
                                              }
 
+                                             if (header == kHistoryIndexToken) {
+                                                 if (!currentGroup || currentGroup->tabs.empty() || tokens.size() < 2) {
+                                                     return true;
+                                                 }
+                                                 currentGroup->tabs.back().historyIndex = ParseInt(tokens[1]);
+                                                 return true;
+                                             }
+
+                                             if (header == kHistoryToken) {
+                                                 if (!currentGroup || currentGroup->tabs.empty() || tokens.size() < 4) {
+                                                     return true;
+                                                 }
+                                                 SessionHistoryEntry he;
+                                                 const std::wstring_view pathToken = tokens[1];
+                                                 he.path.assign(pathToken.begin(), pathToken.end());
+                                                 const std::wstring_view nameToken = tokens[2];
+                                                 he.name.assign(nameToken.begin(), nameToken.end());
+                                                 uint64_t ts = 0;
+                                                 TryParseUint64(tokens[3], &ts);
+                                                 he.timestamp = static_cast<ULONGLONG>(ts);
+                                                 currentGroup->tabs.back().history.emplace_back(std::move(he));
+                                                 return true;
+                                             }
+
                                              return true;
                                          });
 
@@ -496,6 +524,15 @@ std::wstring SerializeWindowBlock(const SessionData& data) {
                        std::to_wstring(static_cast<unsigned long long>(tab.activationOrdinal)) + L"|" +
                        (tab.pinned ? L"1" : L"0") + L"|" + (tab.hasScrollPosition ? L"1" : L"0") + L"|" +
                        std::to_wstring(tab.scrollX) + L"|" + std::to_wstring(tab.scrollY) + L"\n";
+            if (!tab.history.empty()) {
+                payload += kHistoryIndexToken;
+                payload += L"|" + std::to_wstring(tab.historyIndex) + L"\n";
+                for (const auto& entry : tab.history) {
+                    payload += kHistoryToken;
+                    payload += L"|" + entry.path + L"|" + entry.name + L"|" + 
+                               std::to_wstring(static_cast<unsigned long long>(entry.timestamp)) + L"\n";
+                }
+            }
         }
     }
 
@@ -1127,4 +1164,106 @@ bool SessionStore::Save(const SessionData& data) {
     return SessionCoordinator::Instance().SaveAll();
 }
 
+
+std::vector<std::wstring> SessionCoordinator::GetAllTabPaths() const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::vector<std::wstring> allPaths;
+    for (const auto& pair : m_slots) {
+        if (!pair.second.hasData) continue;
+        for (const auto& group : pair.second.data.groups) {
+            for (const auto& tab : group.tabs) {
+                if (!tab.path.empty()) {
+                    allPaths.push_back(tab.path);
+                }
+            }
+        }
+    }
+    return allPaths;
+}
+
+SavedTabSessionManager& SavedTabSessionManager::Instance() {
+    static SavedTabSessionManager instance;
+    return instance;
+}
+
+std::wstring SavedTabSessionManager::GetFilePath() const {
+    std::wstring dir = GetShellTabsDataDirectory();
+    if (dir.empty()) return L"";
+    if (dir.back() != L'\\') dir.push_back(L'\\');
+    return dir + L"saved_sessions.db";
+}
+
+void SavedTabSessionManager::SaveCurrentSession() {
+    auto paths = SessionCoordinator::Instance().GetAllTabPaths();
+    if (paths.empty()) return;
+
+    auto sessions = GetSavedSessions();
+    SavedTabSession newSession;
+    newSession.timestamp = _time64(nullptr);
+    newSession.paths = std::move(paths);
+
+    sessions.insert(sessions.begin(), newSession);
+    if (sessions.size() > 5) {
+        sessions.resize(5);
+    }
+
+    std::wstring filePath = GetFilePath();
+    if (filePath.empty()) return;
+
+    std::wstring content;
+    for (const auto& session : sessions) {
+        content += std::to_wstring(session.timestamp) + L"\n";
+        for (const auto& p : session.paths) {
+            content += p + L"\n";
+        }
+        content += L"\n";
+    }
+
+    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        std::string utf8Content = WideToUtf8(content);
+        DWORD written = 0;
+        WriteFile(hFile, utf8Content.data(), static_cast<DWORD>(utf8Content.size()), &written, nullptr);
+        CloseHandle(hFile);
+    }
+}
+
+std::vector<SavedTabSession> SavedTabSessionManager::GetSavedSessions() const {
+    std::vector<SavedTabSession> sessions;
+    std::wstring filePath = GetFilePath();
+    if (filePath.empty()) return sessions;
+
+    std::wstring content;
+    bool exists = false;
+    if (!ReadUtf8File(filePath, &content, &exists) || !exists || content.empty()) {
+        return sessions;
+    }
+
+    auto lines = Split(content, L'\n');
+    SavedTabSession currentSession;
+    bool readingSession = false;
+
+    for (const auto& line : lines) {
+        std::wstring trimmed = Trim(line);
+        if (trimmed.empty()) {
+            if (readingSession) {
+                sessions.push_back(std::move(currentSession));
+                currentSession = SavedTabSession{};
+                readingSession = false;
+            }
+        } else if (!readingSession) {
+            currentSession.timestamp = std::stoull(trimmed);
+            readingSession = true;
+        } else {
+            currentSession.paths.push_back(trimmed);
+        }
+    }
+    if (readingSession) {
+        sessions.push_back(std::move(currentSession));
+    }
+
+    return sessions;
+}
+
 }  // namespace shelltabs
+

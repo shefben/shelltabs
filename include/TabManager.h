@@ -32,6 +32,13 @@ struct TabLocation {
     int tabIndex = -1;
 
     bool IsValid() const noexcept { return groupIndex >= 0 && tabIndex >= 0; }
+
+    bool operator==(const TabLocation& other) const noexcept {
+        return groupIndex == other.groupIndex && tabIndex == other.tabIndex;
+    }
+    bool operator!=(const TabLocation& other) const noexcept {
+        return !(*this == other);
+    }
 };
 
 struct TabProgressState {
@@ -107,6 +114,18 @@ struct TabInfo {
     NavigationHistory navigationHistory;
     POINT scrollPosition = {0, 0};  // Saved scroll position (x=horizontal, y=vertical)
     bool hasScrollPosition = false; // Whether scrollPosition is valid
+    
+    // Deep View State
+    bool hasViewState = false;
+    UINT viewMode = 0; // FOLDERVIEWMODE
+    int iconSize = 0;
+    std::vector<UniquePidl> selectedItems;
+    
+    // Tab Sleeping
+    bool IsSleeping(ULONGLONG now, ULONGLONG timeoutMs = 300000) const noexcept {
+        if (pinned) return false;
+        return (now > lastActivatedTick) && ((now - lastActivatedTick) > timeoutMs);
+    }
 
     void RefreshNormalizedLookupKey();
 };

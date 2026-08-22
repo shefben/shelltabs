@@ -6,6 +6,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
+#include <mutex>
+#include <regex>
 #include <cwchar>
 #include <cwctype>
 #include <functional>
@@ -585,6 +588,22 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
     const TabLocation previousSelection = SelectedLocation();
 
     tab.RefreshNormalizedLookupKey();
+    
+    // Feature: Regex-Based Auto-Coloring
+    if (tab.customColor == CLR_INVALID) {
+        std::wstring path = tab.lookupKey; // which is the lowercase path
+        try {
+            if (std::regex_match(path, std::wregex(L"^c:\\\\dev\\\\.*", std::regex_constants::icase))) {
+                tab.customColor = RGB(0, 122, 204); // Blue
+            } else if (std::regex_match(path, std::wregex(L"^\\\\\\\\.*", std::regex_constants::icase))) {
+                tab.customColor = RGB(204, 102, 0); // Orange for network shares
+            } else if (std::regex_match(path, std::wregex(L".*\\\\system32\\\\.*", std::regex_constants::icase))) {
+                tab.customColor = RGB(204, 0, 0); // Red for system
+            }
+        } catch (...) {
+            // Ignore regex errors
+        }
+    }
 
     if (groupIndex < 0 || groupIndex >= static_cast<int>(m_groups.size())) {
         groupIndex = std::clamp(groupIndex, 0, static_cast<int>(m_groups.size()) - 1);

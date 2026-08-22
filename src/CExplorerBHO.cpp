@@ -1808,8 +1808,6 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_DOCUMENTCOMPLETE:
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
-
-                    // Update back/forward button states to reflect ShellTabs per-tab history
                     UpdateTravelToolbarButtonStates();
 
                     // Apply dark mode theme to status bar
@@ -1875,6 +1873,12 @@ HWND CExplorerBHO::GetShellTabsBandWindow() const {
 bool CExplorerBHO::PostTravelToolbarNavigationMessage(bool navigateBack) const {
     HWND bandWindow = GetShellTabsBandWindow();
     if (!bandWindow) {
+        return false;
+    }
+
+    const LRESULT navState = SendMessageW(bandWindow, WM_SHELLTABS_QUERY_NAV_STATE, 0, 0);
+    const bool canNavigate = navigateBack ? (LOWORD(navState) != 0) : (HIWORD(navState) != 0);
+    if (!canNavigate) {
         return false;
     }
 
@@ -4259,16 +4263,16 @@ LRESULT CALLBACK CExplorerBHO::ExplorerFrameSubclassProc(HWND hwnd, UINT msg, WP
     if (msg == WM_APPCOMMAND) {
         const int command = GET_APPCOMMAND_LPARAM(lParam);
         if (command == APPCOMMAND_BROWSER_BACKWARD) {
-            if (self->PostTravelToolbarNavigationMessage(true)) {
-                return TRUE;
-            }
+            self->PostTravelToolbarNavigationMessage(true);
+            return TRUE;
         }
         if (command == APPCOMMAND_BROWSER_FORWARD) {
-            if (self->PostTravelToolbarNavigationMessage(false)) {
-                return TRUE;
-            }
+            self->PostTravelToolbarNavigationMessage(false);
+            return TRUE;
         }
-    } else if (msg == WM_NCDESTROY) {
+    }
+
+    if (msg == WM_NCDESTROY) {
         RemoveWindowSubclass(hwnd, &CExplorerBHO::ExplorerFrameSubclassProc, subclassId);
         self->m_explorerFrame = nullptr;
         self->m_explorerFrameSubclassInstalled = false;
@@ -4292,27 +4296,27 @@ void CExplorerBHO::ResolveTravelToolbarCommands() {
     }
 
     TBBUTTON button{};
-    int dropdownIndex = 0;
+    int buttonIndex = 0;
     for (int i = 0; i < static_cast<int>(count); ++i) {
         if (!SendMessageW(m_travelToolbar, TB_GETBUTTON, i, reinterpret_cast<LPARAM>(&button))) {
             continue;
         }
 
-        const UINT commandId = static_cast<UINT>(button.idCommand);
-        if ((button.fsStyle & BTNS_DROPDOWN) != 0) {
-            if (dropdownIndex == 0) {
-                m_travelBackCommandId = commandId;
-            } else if (dropdownIndex == 1) {
-                m_travelForwardCommandId = commandId;
-            } else if (dropdownIndex == 2) {
-                m_travelHistoryDropdownCommandId = commandId;
-            }
-            ++dropdownIndex;
+        if ((button.fsStyle & BTNS_SEP) != 0) {
+            continue;
         }
 
-        if (i == 2 && m_travelHistoryDropdownCommandId == 0) {
+        const UINT commandId = static_cast<UINT>(button.idCommand);
+        
+        if (buttonIndex == 0) {
+            m_travelBackCommandId = commandId;
+        } else if (buttonIndex == 1) {
+            m_travelForwardCommandId = commandId;
+        } else if (buttonIndex == 2) {
             m_travelHistoryDropdownCommandId = commandId;
         }
+        
+        ++buttonIndex;
 
         if (m_travelBackCommandId != 0 && m_travelForwardCommandId != 0 &&
             m_travelHistoryDropdownCommandId != 0) {
@@ -4345,20 +4349,21 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
 
     const bool isNavigationTarget =
         (target == TravelToolbarTarget::kBack || target == TravelToolbarTarget::kForward);
-
     const bool canGoBack = IsTravelToolbarButtonEnabled(m_travelBackCommandId);
     const bool canGoForward = IsTravelToolbarButtonEnabled(m_travelForwardCommandId);
 
     if (!buttonUp) {
         if (isNavigationTarget) {
-            BeginTravelToolbarCapture(toolbar);
-            m_travelToolbarPressedButton = static_cast<int>(target);
-            // Always show pressed state - ShellTabs may have history even when
-            // Windows' native back/forward buttons appear disabled
-            const UINT commandId =
-                (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
-            if (commandId != 0) {
-                SetTravelToolbarButtonPressed(commandId, true);
+            const bool canNavigate =
+                (target == TravelToolbarTarget::kBack) ? canGoBack : canGoForward;
+            m_travelToolbarPressedButton = canNavigate ? static_cast<int>(target) : -1;
+            if (canNavigate) {
+                BeginTravelToolbarCapture(toolbar);
+                const UINT commandId =
+                    (target == TravelToolbarTarget::kBack) ? m_travelBackCommandId : m_travelForwardCommandId;
+                if (commandId != 0) {
+                    SetTravelToolbarButtonPressed(commandId, true);
+                }
             }
             if (result) {
                 *result = 0;
@@ -4406,18 +4411,22 @@ bool CExplorerBHO::HandleTravelToolbarMouseButton(
                                                   ? static_cast<TravelToolbarTarget>(m_travelToolbarPressedButton)
                                                   : TravelToolbarTarget::kNone;
 
-    ReleaseTravelToolbarCapture();
-    ResetTravelToolbarButtonState();
-    m_travelToolbarPressedButton = -1;
-
     if (pressedNavigationButton) {
+        ReleaseTravelToolbarCapture();
+        ResetTravelToolbarButtonState();
+        m_travelToolbarPressedButton = -1;
+
         if (target == pressedTarget) {
-            // Always post the navigation message - ShellTabs maintains its own history
-            // that may differ from Windows' native back/forward state. The TabBand
-            // will check if navigation is actually possible in its history.
             PostTravelToolbarNavigationMessage(pressedTarget == TravelToolbarTarget::kBack);
         }
 
+        if (result) {
+            *result = 0;
+        }
+        return true;
+    }
+
+    if (isNavigationTarget) {
         if (result) {
             *result = 0;
         }
@@ -4546,18 +4555,8 @@ void CExplorerBHO::SetTravelToolbarButtonEnabled(UINT commandId, bool enabled) {
         return;
     }
 
-    const LRESULT stateResult = SendMessageW(m_travelToolbar, TB_GETSTATE, commandId, 0);
-    if (stateResult < 0) {
-        return;
-    }
-
-    BYTE state = static_cast<BYTE>(stateResult);
-    if (enabled) {
-        state |= TBSTATE_ENABLED;
-    } else {
-        state &= static_cast<BYTE>(~TBSTATE_ENABLED);
-    }
-    SendMessageW(m_travelToolbar, TB_SETSTATE, commandId, static_cast<LPARAM>(state));
+    SendMessageW(m_travelToolbar, TB_ENABLEBUTTON, commandId, MAKELPARAM(enabled ? TRUE : FALSE, 0));
+    InvalidateRect(m_travelToolbar, nullptr, FALSE);
 }
 
 void CExplorerBHO::UpdateTravelToolbarButtonStates() {
@@ -4565,7 +4564,6 @@ void CExplorerBHO::UpdateTravelToolbarButtonStates() {
         return;
     }
 
-    // Resolve command IDs if not yet known
     if (m_travelBackCommandId == 0 && m_travelForwardCommandId == 0) {
         ResolveTravelToolbarCommands();
     }
@@ -4574,7 +4572,6 @@ void CExplorerBHO::UpdateTravelToolbarButtonStates() {
         return;
     }
 
-    // Query the TabBand for current navigation state
     HWND bandWindow = GetShellTabsBandWindow();
     if (!bandWindow || !IsWindow(bandWindow)) {
         return;
@@ -4584,7 +4581,6 @@ void CExplorerBHO::UpdateTravelToolbarButtonStates() {
     const bool canGoBack = LOWORD(navState) != 0;
     const bool canGoForward = HIWORD(navState) != 0;
 
-    // Update button states to match ShellTabs' per-tab history
     SetTravelToolbarButtonEnabled(m_travelBackCommandId, canGoBack);
     SetTravelToolbarButtonEnabled(m_travelForwardCommandId, canGoForward);
 }
@@ -6433,10 +6429,12 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
             }
             break;
         }
+        case TB_ENABLEBUTTON:
         case TB_SETSTATE: {
-            // Windows Explorer resets back/forward button states based on its own
-            // native travel log, which doesn't know about ShellTabs' per-tab history.
-            // Intercept TB_SETSTATE and override the enabled bit for our buttons.
+            if (self->m_travelBackCommandId == 0 && self->m_travelForwardCommandId == 0) {
+                self->ResolveTravelToolbarCommands();
+            }
+
             const UINT commandId = static_cast<UINT>(wParam);
             if (commandId != 0 &&
                 (commandId == self->m_travelBackCommandId || commandId == self->m_travelForwardCommandId)) {
@@ -6446,6 +6444,10 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
                     const bool canGo = (commandId == self->m_travelBackCommandId)
                                            ? (LOWORD(navState) != 0)
                                            : (HIWORD(navState) != 0);
+                    if (msg == TB_ENABLEBUTTON) {
+                        return DefSubclassProc(hwnd, msg, wParam, MAKELPARAM(canGo ? TRUE : FALSE, 0));
+                    }
+
                     BYTE state = static_cast<BYTE>(lParam);
                     if (canGo) {
                         state |= TBSTATE_ENABLED;

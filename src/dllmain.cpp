@@ -59,14 +59,14 @@ constexpr wchar_t kFtpNamespaceFriendlyName[] = L"Shell Tabs FTP Sites";
 constexpr wchar_t kFtpNamespaceParsingName[] = L"ftp://";
 constexpr DWORD kFtpShellFolderAttributes = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR |
                                              SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_STREAM | SFGAO_CANLINK |
-                                             SFGAO_BROWSABLE;
+                                             SFGAO_BROWSABLE | SFGAO_FILESYSTEM;
 constexpr DWORD kFtpShellFolderFlags = 0x00000028;
 constexpr wchar_t kHttpFolderFriendlyName[] = L"Shell Tabs HTTP Folder";
 constexpr wchar_t kHttpNamespaceFriendlyName[] = L"Web Folders";
 constexpr wchar_t kHttpNamespaceParsingName[] = L"";
 constexpr DWORD kHttpShellFolderAttributes = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR |
                                               SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_STREAM | SFGAO_CANLINK |
-                                              SFGAO_BROWSABLE;
+                                              SFGAO_BROWSABLE | SFGAO_FILESYSTEM;
 constexpr DWORD kHttpShellFolderFlags = 0x00000028;
 
 struct ScopedRegKey {

@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <cstdint>
@@ -14,6 +17,12 @@
 
 namespace shelltabs {
 
+struct SessionHistoryEntry {
+    std::wstring path;
+    std::wstring name;
+    ULONGLONG timestamp = 0;
+};
+
 struct SessionTab {
     std::wstring path;
     std::wstring name;
@@ -25,6 +34,8 @@ struct SessionTab {
     bool hasScrollPosition = false;
     int32_t scrollX = 0;
     int32_t scrollY = 0;
+    std::vector<SessionHistoryEntry> history;
+    int historyIndex = -1;
 };
 
 struct SessionGroup {
@@ -111,6 +122,8 @@ public:
     // True if the pending pool has unclaimed session data.
     bool HasPendingData() const;
 
+    std::vector<std::wstring> GetAllTabPaths() const;
+
 private:
     SessionCoordinator();
     ~SessionCoordinator() = default;
@@ -166,6 +179,22 @@ public:
 
 private:
     int m_slot = -1;
+};
+
+struct SavedTabSession {
+    ULONGLONG timestamp = 0;
+    std::vector<std::wstring> paths;
+};
+
+class SavedTabSessionManager {
+public:
+    static SavedTabSessionManager& Instance();
+    void SaveCurrentSession();
+    std::vector<SavedTabSession> GetSavedSessions() const;
+
+private:
+    SavedTabSessionManager() = default;
+    std::wstring GetFilePath() const;
 };
 
 }  // namespace shelltabs
