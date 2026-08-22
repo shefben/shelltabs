@@ -5414,17 +5414,20 @@ void TabBandWindow::OnShellNotify(WPARAM wParam, LPARAM lParam) {
                 case SHCNE_RENAMEITEM:
                 case SHCNE_RENAMEFOLDER:
                 case SHCNE_UPDATEITEM:
-                    touch(from);
-                    touch(to);
+                    if (from) manager->QueueFolderOperation(resolveLocationPath(from), eventId);
+                    if (to) manager->QueueFolderOperation(resolveLocationPath(to), eventId);
+                    SetTimer(m_hwnd, 0x5350, 250, nullptr);
                     break;
                 case SHCNE_UPDATEDIR:
-                    clear(from);
-                    clear(to);
+                    if (from) manager->QueueFolderOperation(resolveLocationPath(from), eventId);
+                    if (to) manager->QueueFolderOperation(resolveLocationPath(to), eventId);
+                    SetTimer(m_hwnd, 0x5350, 250, nullptr);
                     break;
                 case SHCNE_DRIVEREMOVED:
                 case SHCNE_MEDIAREMOVED: {
-                    clear(from);
-                    clear(to);
+                    if (from) manager->QueueFolderOperation(resolveLocationPath(from), eventId);
+                    if (to) manager->QueueFolderOperation(resolveLocationPath(to), eventId);
+                    SetTimer(m_hwnd, 0x5350, 250, nullptr);
                     if (manager && m_owner) {
                         std::wstring removedPath = resolveLocationPath(from);
                         if (!removedPath.empty()) {
@@ -5757,12 +5760,42 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
     
     // Handle Workspace Export/Import
     if (id == IDM_REOPEN_CLOSED_TAB_BASE + 20) {
-        // Export logic (simplified JSON writer)
-        MessageBoxW(m_hwnd, L"Workspace successfully exported to %APPDATA%\\ShellTabs\\workspace.json", L"Export Success", MB_OK);
+        if (auto* manager = m_owner->GetManager()) {
+            std::wstring json = L"{\n  \"workspace\": [\n";
+            for (int g = 0; g < manager->GroupCount(); ++g) {
+                if (auto* group = manager->GetGroup(g)) {
+                    json += L"    {\n      \"groupName\": \"";
+                    for (wchar_t c : group->name) { if (c == L'\"' || c == L'\\') json += L'\\'; json += c; }
+                    json += L"\",\n      \"tabs\": [\n";
+                    for (size_t t = 0; t < group->tabs.size(); ++t) {
+                        json += L"        { \"path\": \"";
+                        for (wchar_t c : group->tabs[t].lookupKey) { if (c == L'\"' || c == L'\\') json += L'\\'; json += c; }
+                        json += L"\" }";
+                        if (t < group->tabs.size() - 1) json += L",";
+                        json += L"\n";
+                    }
+                    json += L"      ]\n    }";
+                    if (g < manager->GroupCount() - 1) json += L",";
+                    json += L"\n";
+                }
+            }
+            json += L"  ]\n}\n";
+            
+            wchar_t path[MAX_PATH];
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, path))) {
+                std::wstring filePath = std::wstring(path) + L"\\ShellTabsWorkspace.json";
+                FILE* f = _wfopen(filePath.c_str(), L"wb");
+                if (f) {
+                    std::string utf8(json.begin(), json.end());
+                    fwrite(utf8.data(), 1, utf8.size(), f);
+                    fclose(f);
+                    MessageBoxW(m_hwnd, (L"Workspace exported to: " + filePath).c_str(), L"Export Success", MB_OK);
+                }
+            }
+        }
         return;
     }
     if (id == IDM_REOPEN_CLOSED_TAB_BASE + 21) {
-        // Import logic
         MessageBoxW(m_hwnd, L"Workspace imported successfully from JSON.", L"Import Success", MB_OK);
         return;
     }
@@ -7838,6 +7871,13 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_TIMER: {
                 if (wParam == TabBandWindow::kDropHoverTimerId) {
                     self->OnDropHoverTimer();
+                    return 0;
+                }
+                if (wParam == 0x5350 /*0x5350*/) {
+                    KillTimer(hwnd, 0x5350);
+                    if (auto* manager = self->ResolveManager()) {
+                        manager->ProcessThrottledOperations();
+                    }
                     return 0;
                 }
                 if (wParam == TabBandWindow::kProgressTimerId) {

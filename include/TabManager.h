@@ -259,6 +259,10 @@ public:
     void UnregisterProgressListener(HWND hwnd);
     void TouchFolderOperation(PCIDLIST_ABSOLUTE folder, std::optional<double> fraction = std::nullopt);
     void TouchFolderOperation(const std::wstring& folderPath, std::optional<double> fraction = std::nullopt);
+    
+    // Throttled Shell Notification support
+    void QueueFolderOperation(const std::wstring& path, LONG eventId);
+    void ProcessThrottledOperations();
     void ClearFolderOperation(PCIDLIST_ABSOLUTE folder);
     void ClearFolderOperation(const std::wstring& folderPath);
     std::vector<TabLocation> ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
@@ -355,12 +359,20 @@ private:
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
     int m_selectedTab = -1;
-    int m_groupSequence = 1;
+    uint64_t m_previewRequestCounter = 1;
+    
+    struct ThrottledEvent {
+        std::wstring path;
+        LONG eventId;
+    };
+    std::vector<ThrottledEvent> m_throttledShellQueue;
+    std::mutex m_throttledQueueMutex;
     std::vector<HWND> m_progressListeners;
     uint64_t m_nextActivationOrdinal = 1;
     uint64_t m_activationEpoch = 0;
     uint64_t m_lastActivationOrdinalSeen = 0;
     ULONGLONG m_lastActivationTickSeen = 0;
+    int m_groupSequence = 1;
     ExplorerWindowId m_windowId{};
     std::unordered_map<std::wstring, std::vector<TabLocation>> m_locationIndex;
     std::vector<ProgressUpdateKey> m_pendingProgressUpdates;

@@ -864,6 +864,26 @@ TabProgressSnapshot TabManager::CollectProgressStates() const {
     return snapshot;
 }
 
+void TabManager::QueueFolderOperation(const std::wstring& path, LONG eventId) {
+    std::scoped_lock lock(m_throttledQueueMutex);
+    m_throttledShellQueue.push_back({path, eventId});
+}
+
+void TabManager::ProcessThrottledOperations() {
+    std::vector<ThrottledEvent> localQueue;
+    {
+        std::scoped_lock lock(m_throttledQueueMutex);
+        localQueue.swap(m_throttledShellQueue);
+    }
+    for (const auto& ev : localQueue) {
+        if (ev.eventId == SHCNE_UPDATEDIR || ev.eventId == SHCNE_DRIVEREMOVED || ev.eventId == SHCNE_MEDIAREMOVED) {
+            ClearFolderOperation(ev.path);
+        } else {
+            TouchFolderOperation(ev.path);
+        }
+    }
+}
+
 void TabManager::RegisterProgressListener(HWND hwnd) {
     if (!hwnd) {
         return;
