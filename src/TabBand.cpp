@@ -13,12 +13,14 @@
 #include <stop_token>
 
 #include "SessionStore.h"
+#include "CrashRecoveryLogger.h"
 #include <objbase.h>
 
 #include <CommCtrl.h>
 #include <ShlObj.h>
+#include "TaskbarTabProvider.h"
+#include <shellapi.h> // For ShellExecuteW
 #include <Shlwapi.h>
-#include <shellapi.h>
 #include <shlguid.h>
 #include <shobjidl_core.h>
 
@@ -2275,10 +2277,10 @@ void TabBand::SaveCurrentTabScrollPosition() {
             shellView.Attach(rawView);
             ComPtr<IFolderView2> folderView2;
             if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
-                UINT viewMode = 0;
+                FOLDERVIEWMODE viewMode = FVM_AUTO;
                 int iconSize = 0;
                 if (SUCCEEDED(folderView2->GetViewModeAndIconSize(&viewMode, &iconSize))) {
-                    tab->viewMode = viewMode;
+                    tab->viewMode = static_cast<UINT>(viewMode);
                     tab->iconSize = iconSize;
                     tab->hasViewState = true;
                 }
@@ -2307,7 +2309,7 @@ bool TabBand::RestoreCurrentTabScrollPosition() {
             shellView.Attach(rawView);
             ComPtr<IFolderView2> folderView2;
             if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
-                folderView2->SetViewModeAndIconSize(tab->viewMode, tab->iconSize);
+                folderView2->SetViewModeAndIconSize(static_cast<FOLDERVIEWMODE>(tab->viewMode), tab->iconSize);
                 
                 // Clear existing selection
                 folderView2->SelectItem(-1, SVSI_DESELECTOTHERS);
@@ -2579,7 +2581,10 @@ void TabBand::DisconnectSite() {
         m_tabs.Clear();
         m_internalNavigation = false;
         m_allowExternalNewWindows = 0;
-        m_sessionStore.reset();
+        if (m_sessionStore) {
+            CrashRecoveryLogger::Instance().ClearWindowState(m_sessionStore->Slot());
+            m_sessionStore.reset();
+        }
     }
     catch (...) {
         LogMessage(LogLevel::Error, L"TabBand::DisconnectSite exception during final cleanup");
@@ -2887,8 +2892,21 @@ void TabBand::SaveSession() {
     }
 
     int totalTabs = 0;
-    for (const auto& g : data.groups) {
-        totalTabs += static_cast<int>(g.tabs.size());
+    std::vector<std::wstring> allPaths;
+    int globalSelectedIndex = -1;
+    for (int g = 0; g < data.groups.size(); ++g) {
+        const auto& group = data.groups[g];
+        for (int t = 0; t < group.tabs.size(); ++t) {
+            allPaths.push_back(group.tabs[t].path);
+            if (g == data.selectedGroup && t == data.selectedTab) {
+                globalSelectedIndex = static_cast<int>(allPaths.size() - 1);
+            }
+        }
+        totalTabs += static_cast<int>(group.tabs.size());
+    }
+
+    if (m_sessionStore) {
+        CrashRecoveryLogger::Instance().LogWindowState(m_sessionStore->Slot(), allPaths, globalSelectedIndex);
     }
 
     if (m_sessionStore->Save(data)) {
@@ -3193,6 +3211,16 @@ void TabBand::CancelPendingPreviewForGroup(const TabGroup& group) const {
     }
 }
 
+namespace {
+    HRESULT SafeBrowseObject(IShellBrowser* browser, PCIDLIST_ABSOLUTE pidl, UINT flags) {
+        __try {
+            return browser->BrowseObject(pidl, flags);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            return E_FAIL;
+        }
+    }
+}
+
 void TabBand::NavigateToTab(TabLocation location) {
     LogMessage(LogLevel::Info, L"NavigateToTab location=(group=%d,tab=%d) shellBrowser=%p",
                location.groupIndex, location.tabIndex, m_shellBrowser.Get());
@@ -3201,8 +3229,17 @@ void TabBand::NavigateToTab(TabLocation location) {
         return;
     }
     auto* tab = m_tabs.Get(location);
-    if (!tab || !tab->pidl) {
-        LogMessage(LogLevel::Warning, L"NavigateToTab: tab or pidl is null, aborting");
+    if (!tab) {
+        LogMessage(LogLevel::Warning, L"NavigateToTab: tab is null, aborting");
+        return;
+    }
+
+    if (tab->hibernated) {
+        m_tabs.WakeHibernatedTab(location);
+    }
+
+    if (!tab->pidl) {
+        LogMessage(LogLevel::Warning, L"NavigateToTab: pidl is null, aborting");
         return;
     }
 
@@ -4070,12 +4107,36 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
                            L"TabBand::RunBackgroundInitialization deferring crash session claim to timer");
             } else {
                 SessionData data;
-                if (m_sessionStore->Load(data)) {
+                std::vector<std::wstring> crashPaths;
+                int crashSelectedIndex = -1;
+                bool fastRestored = false;
+
+                if (m_sessionStore && CrashRecoveryLogger::Instance().ReadCrashedState(m_sessionStore->Slot(), crashPaths, crashSelectedIndex)) {
+                    SessionGroup group;
+                    group.name = L"Recovered";
+                    for (const auto& path : crashPaths) {
+                        SessionTab tab;
+                        tab.path = path;
+                        group.tabs.push_back(tab);
+                    }
+                    data.groups.push_back(group);
+                    data.selectedGroup = 0;
+                    data.selectedTab = crashSelectedIndex >= 0 ? crashSelectedIndex : 0;
+                    
                     result->sessionData = std::move(data);
                     result->hasSessionData = true;
-                } else {
-                    LogMessage(LogLevel::Warning,
-                               L"TabBand::RunBackgroundInitialization no session data to claim");
+                    fastRestored = true;
+                    LogMessage(LogLevel::Info, L"TabBand::RunBackgroundInitialization fast crash recovery successful");
+                }
+
+                if (!fastRestored) {
+                    if (m_sessionStore->Load(data)) {
+                        result->sessionData = std::move(data);
+                        result->hasSessionData = true;
+                    } else {
+                        LogMessage(LogLevel::Warning,
+                                   L"TabBand::RunBackgroundInitialization no session data to claim");
+                    }
                 }
             }
         }

@@ -23,6 +23,7 @@
 #include <functional>
 #include <optional>
 
+#include "DirectoryWatcher.h"
 #include <commctrl.h>
 #include <wrl/client.h>
 #include <shobjidl.h>
@@ -397,6 +398,7 @@ private:
     POINT m_previewAnchorPoint{};
     UINT m_shellNotifyMessage = 0;
     ULONG m_shellNotifyId = 0;
+    std::unique_ptr<DirectoryWatcher> m_directoryWatcher;
     bool m_progressTimerActive = false;
         int m_lastRowCount = 1;  // tracks wrapped rows for height calc
         // track if we've installed the subclass
@@ -652,6 +654,7 @@ private:
     static constexpr UINT_PTR kSessionFlushTimerId = 0x5346;  // 'SF'
     static constexpr UINT_PTR kProgressTimerId = 0x5349;   // 'SI'
     static constexpr UINT_PTR kSessionRetryTimerId = 0x5352;  // 'SR'
+    static constexpr UINT_PTR kHibernationTimerId = 0x5351;   // 'SQ'
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 };

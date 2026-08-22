@@ -109,6 +109,7 @@ struct TabInfo {
     std::wstring normalizedLookupKey;
     std::optional<COLORREF> customColor;
     TabProgressState progress;
+    bool hibernated = false;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;
     uint64_t activationEpoch = 0;
@@ -173,6 +174,7 @@ struct TabViewItem {
     uint64_t activationOrdinal = 0;
     bool pinned = false;
     uint64_t stableId = 0;
+    bool hibernated = false;
 };
 
 uint64_t ComputeTabViewStableId(const TabViewItem& item) noexcept;
@@ -267,6 +269,13 @@ public:
     void ClearFolderOperation(PCIDLIST_ABSOLUTE folder);
     void ClearFolderOperation(const std::wstring& folderPath);
     std::vector<TabLocation> ExpireFolderOperations(ULONGLONG now, ULONGLONG timeoutMs);
+
+    bool NavigateBackward();
+    bool NavigateForward();
+
+    void GarbageCollectHibernatedTabs();
+    bool WakeHibernatedTab(TabLocation location);
+    void HandleShellChangeNotify(LONG wEventId, PCIDLIST_ABSOLUTE pidl1, PCIDLIST_ABSOLUTE pidl2);
     bool HasActiveProgress() const;
 
     uint32_t GetLayoutVersion() const noexcept { return m_layoutVersion; }

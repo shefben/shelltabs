@@ -809,6 +809,7 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.headerVisible = group.headerVisible;
             item.lastActivatedTick = tab.lastActivatedTick;
             item.activationOrdinal = tab.activationOrdinal;
+            item.hibernated = tab.hibernated;
             item.pinned = tab.pinned;
             if (tab.progress.active) {
                 item.progress.visible = true;
@@ -2432,4 +2433,71 @@ void TabManager::ClearNavigationHistory(TabLocation location) {
 }
 
 
-}  // namespace shelltabs
+
+void TabManager::GarbageCollectHibernatedTabs() {
+    ULONGLONG now = GetTickCount64();
+    const ULONGLONG kHibernationTimeoutMs = 10 * 60 * 1000; // 10 minutes
+
+    bool changed = false;
+    TabLocation activeLocation = GetLastActivatedTab();
+    
+    for (auto& group : m_groups) {
+        for (int i = 0; i < static_cast<int>(group.tabs.size()); ++i) {
+            auto& tab = group.tabs[i];
+            
+            // Skip the active tab or tabs already hibernated
+            if (activeLocation.IsValid() && activeLocation.groupIndex == &group - m_groups.data() && activeLocation.tabIndex == i) {
+                continue;
+            }
+            if (tab.hibernated) {
+                continue;
+            }
+
+            // If the tab hasn't been activated in 10 minutes
+            if (tab.lastActivatedTick > 0 && (now > tab.lastActivatedTick) && ((now - tab.lastActivatedTick) > kHibernationTimeoutMs)) {
+                tab.hibernated = true;
+                tab.pidl.reset();
+                tab.navigationHistory.Clear();
+                tab.tooltip = L"Hibernated (Click to wake)";
+                changed = true;
+                LogMessage(LogLevel::Info, L"GarbageCollectHibernatedTabs: Hibernated tab '%s'", tab.name.c_str());
+            }
+        }
+    }
+    
+    if (changed) {
+        m_layoutVersion++;
+        if (m_windowId.hwnd) {
+            InvalidateRect(m_windowId.hwnd, nullptr, FALSE);
+        }
+    }
+}
+
+bool TabManager::WakeHibernatedTab(TabLocation location) {
+    TabInfo* tab = Get(location);
+    if (!tab) return false;
+    
+    if (!tab->hibernated) {
+        return true; // Already awake
+    }
+
+    LogMessage(LogLevel::Info, L"WakeHibernatedTab: Waking tab '%s' (path='%s')", tab->name.c_str(), tab->path.c_str());
+
+    // Re-resolve the path to a PIDL
+    auto newPidl = ParseDisplayName(tab->path);
+    if (!newPidl) {
+        LogMessage(LogLevel::Error, L"WakeHibernatedTab: Failed to re-parse PIDL for path '%s'", tab->path.c_str());
+        return false;
+    }
+    
+    tab->pidl = std::move(newPidl);
+    tab->hibernated = false;
+    tab->lastActivatedTick = GetTickCount64();
+    tab->tooltip = tab->path;
+    
+    // Request a preview cache regeneration if possible, though we can do that lazily
+    m_layoutVersion++;
+    return true;
+}
+
+} // namespace shelltabs

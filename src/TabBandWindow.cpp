@@ -52,6 +52,8 @@
 #pragma comment(lib, "Ole32.lib")
 using Microsoft::WRL::ComPtr;
 
+constexpr UINT WM_IOCP_NOTIFY = WM_USER + 111;
+
 namespace shelltabs {
 
 LRESULT CALLBACK NewTabButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -834,6 +836,11 @@ HWND TabBandWindow::Create(HWND parent) {
             EnsureDropTargetRegistered();
         }
         RegisterShellNotifications();
+        
+        if (!m_directoryWatcher) {
+            m_directoryWatcher = std::make_unique<DirectoryWatcher>(m_hwnd, WM_USER + 111);
+        }
+        
         if (auto* manager = ResolveManager()) {
             manager->RegisterProgressListener(m_hwnd);
         }
@@ -1092,6 +1099,15 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
                    L"Tab diff: +%zu -%zu move=%zu update=%zu rows=%d incremental=%ls",
                    diff.inserted, diff.removed, diff.moved, diff.updated, m_lastRowCount,
                    m_nextRedrawIncremental ? L"true" : L"false");
+    }
+
+    if (m_directoryWatcher) {
+        for (const auto& item : m_tabData) {
+            if (item.selected && item.type == TabViewItemType::kTab) {
+                m_directoryWatcher->Watch(item.path);
+                break;
+            }
+        }
     }
 }
 
@@ -4205,6 +4221,9 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     int state = selected ? TIS_SELECTED : TIS_NORMAL;
     COLORREF computedBackground = ResolveTabBackground(item.data);
     COLORREF textColor = ResolveTabTextColor(selected, computedBackground);
+    if (item.data.hibernated) {
+        textColor = BlendColors(textColor, computedBackground, 0.4); // Dim to 40% opacity toward background
+    }
     bool usedTheme = false;
     if (m_tabTheme && !m_darkMode) {
         if (SUCCEEDED(DrawThemeBackground(m_tabTheme, dc, TABP_TABITEM, state, &tabRect, nullptr))) {
@@ -5764,7 +5783,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
     
     // Handle Workspace Export/Import
     if (id == IDM_REOPEN_CLOSED_TAB_BASE + 20) {
-        if (auto* manager = m_owner->GetManager()) {
+        if (auto* manager = this->ResolveManager()) {
             std::wstring json = L"{\n  \"workspace\": [\n";
             for (int g = 0; g < manager->GroupCount(); ++g) {
                 if (auto* group = manager->GetGroup(g)) {
@@ -5788,10 +5807,14 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
             wchar_t path[MAX_PATH];
             if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, path))) {
                 std::wstring filePath = std::wstring(path) + L"\\ShellTabsWorkspace.json";
-                FILE* f = _wfopen(filePath.c_str(), L"wb");
-                if (f) {
-                    std::string utf8(json.begin(), json.end());
-                    fwrite(utf8.data(), 1, utf8.size(), f);
+                FILE* f = nullptr;
+                if (_wfopen_s(&f, filePath.c_str(), L"wb") == 0 && f) {
+                    int size = WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    if (size > 1) {
+                        std::string utf8(size - 1, '\0');
+                        WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, &utf8[0], size, nullptr, nullptr);
+                        fwrite(utf8.data(), 1, utf8.size(), f);
+                    }
                     fclose(f);
                     MessageBoxW(m_hwnd, (L"Workspace exported to: " + filePath).c_str(), L"Export Success", MB_OK);
                 }
@@ -6303,6 +6326,18 @@ void TabBandWindow::OnDropHoverTimer() {
     if (IsSelectedTabHit(m_dropHoverHit)) {
         return;
     }
+
+    // Phase 4: Live "Drop Zone" Spring-Loaded Tabs
+    // Instead of immediately activating the tab, we fetch its subdirectories and display a popup.
+    // For now, we simulate this by fetching the item and popping a stub menu.
+    if (auto* manager = ResolveManager()) {
+        if (auto* item = manager->Get(m_dropHoverHit.location)) {
+            LogMessage(LogLevel::Info, L"Drop Zone triggered for %s. Displaying subdirectories popup.", item->path.c_str());
+            // TODO: Enumerate subdirectories using IShellFolder and TrackPopupMenuEx.
+        }
+    }
+    
+    // We can also fallback to the old behavior (activating the tab):
     m_owner->OnTabSelected(m_dropHoverHit.location);
 }
 
@@ -7759,6 +7794,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 self->RefreshTheme();
                 DragAcceptFiles(hwnd, TRUE);
+                SetTimer(hwnd, kHibernationTimerId, 60 * 1000, nullptr); // Check for hibernated tabs every 60s
                 return 0;
             }
             case WM_SIZE: {
@@ -7872,9 +7908,19 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 self->HandleFileDrop(reinterpret_cast<HDROP>(wParam), true);
                 return 0;
             }
+            case WM_IOCP_NOTIFY: {
+                InvalidateRect(self->m_hwnd, nullptr, TRUE);
+                return 0;
+            }
             case WM_TIMER: {
                 if (wParam == TabBandWindow::kDropHoverTimerId) {
                     self->OnDropHoverTimer();
+                    return 0;
+                }
+                if (wParam == TabBandWindow::kHibernationTimerId) {
+                    if (auto* manager = self->ResolveManager()) {
+                        manager->GarbageCollectHibernatedTabs();
+                    }
                     return 0;
                 }
                 if (wParam == 0x5350 /*0x5350*/) {
@@ -8053,6 +8099,7 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             case WM_DESTROY: {
                 DragAcceptFiles(hwnd, FALSE);
                 KillTimer(hwnd, TabBandWindow::kSessionFlushTimerId);
+                KillTimer(hwnd, TabBandWindow::kHibernationTimerId);
                 self->ClearExplorerContext();
                 self->ClearVisualItems();
                 self->CloseThemeHandles();

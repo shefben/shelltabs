@@ -61,6 +61,8 @@ add_library(ShellTabs SHARED
     src/Module.cpp
     src/ColorSerialization.cpp
     src/SessionStore.cpp
+    src/CrashRecoveryLogger.cpp
+    src/DirectoryWatcher.cpp
     src/GroupStore.cpp
     src/OptionsStore.cpp
     src/OptionsDialog.cpp

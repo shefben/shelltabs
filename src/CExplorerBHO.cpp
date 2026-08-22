@@ -6921,7 +6921,7 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM
 ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
 
 
-}  // namespace shelltabs
+
 void CExplorerBHO::InstallDirectUISubclass() {
     HWND frame = GetTopLevelExplorerWindow();
     if (!frame || !IsWindow(frame)) {
@@ -7001,3 +7001,4 @@ LRESULT CALLBACK CExplorerBHO::DirectUISubclassProc(HWND hwnd, UINT msg, WPARAM 
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
+} // namespace shelltabs

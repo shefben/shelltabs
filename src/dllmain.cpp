@@ -18,6 +18,7 @@
 #include "Module.h"
 #include "ThemeHooks.h"
 #include "CompositionIntercept.h"
+#include "CrashRecoveryLogger.h"
 #include "TaskbarPreviewHook.h"
 #include "TaskbarTabProvider.h"
 
@@ -1027,6 +1028,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 
         shelltabs::SetModuleHandleInstance(module);
         DisableThreadLibraryCalls(module);
+        
+        shelltabs::CrashRecoveryLogger::Instance().Initialize();
 
         if (!InitializeCompositionIntercept()) {
             LogMessage(LogLevel::Warning,
@@ -1051,6 +1054,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 
     } else if (reason == DLL_PROCESS_DETACH) {
         LogMessage(LogLevel::Info, L"DllMain PROCESS_DETACH for %ls", CurrentProcessImageName().c_str());
+        shelltabs::CrashRecoveryLogger::Instance().Shutdown();
         shelltabs::TaskbarPreviewHook::Instance().Shutdown();
         ShutdownCompositionIntercept();
         shelltabs::ShutdownFolderBackgroundHooks();
