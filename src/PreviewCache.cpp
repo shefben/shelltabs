@@ -14,6 +14,7 @@
 
 #include "Logging.h"
 #include "Utilities.h"
+#include <shlwapi.h>
 
 namespace shelltabs {
 
@@ -34,6 +35,142 @@ struct PreviewCache::AsyncRequest {
     std::wstring ownerToken;
 };
 
+class PreviewWorkerClient {
+public:
+    PreviewWorkerClient() {}
+    ~PreviewWorkerClient() { Close(); }
+
+    HBITMAP RequestPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& size) {
+        if (!EnsureWorker()) return nullptr;
+
+        UINT pidlSize = ILGetSize(pidl);
+
+        struct Request {
+            uint64_t id;
+            int32_t cx;
+            int32_t cy;
+            int32_t pidlLen;
+        } req = { ++m_nextId, size.cx, size.cy, (int32_t)pidlSize };
+
+        DWORD written;
+        if (!WriteFile(m_hWrite, &req, sizeof(req), &written, nullptr) || written != sizeof(req)) {
+            Close();
+            return nullptr;
+        }
+
+        if (pidlSize > 0) {
+            if (!WriteFile(m_hWrite, pidl, pidlSize, &written, nullptr) || written != pidlSize) {
+                Close();
+                return nullptr;
+            }
+        }
+
+        struct Response {
+            uint64_t id;
+            int32_t width;
+            int32_t height;
+            uint32_t dataSize;
+        } resp;
+
+        DWORD readBytes;
+        if (!ReadFile(m_hRead, &resp, sizeof(resp), &readBytes, nullptr) || readBytes != sizeof(resp)) {
+            Close();
+            return nullptr;
+        }
+
+        if (resp.id != req.id) {
+            Close();
+            return nullptr;
+        }
+
+        if (resp.dataSize == 0 || resp.width == 0 || resp.height == 0) {
+            return nullptr;
+        }
+
+        std::vector<BYTE> pixelData(resp.dataSize);
+        if (!ReadFile(m_hRead, pixelData.data(), resp.dataSize, &readBytes, nullptr) || readBytes != resp.dataSize) {
+            Close();
+            return nullptr;
+        }
+
+        HBITMAP hBitmap = CreateBitmap(resp.width, resp.height, 1, 32, pixelData.data());
+        return hBitmap;
+    }
+
+private:
+    bool EnsureWorker() {
+        if (m_hProcess) {
+            // Check if process is still running
+            DWORD exitCode;
+            if (GetExitCodeProcess(m_hProcess, &exitCode) && exitCode == STILL_ACTIVE) {
+                return true;
+            }
+            Close();
+        }
+
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE };
+        HANDLE hChildStdOutRd, hChildStdOutWr;
+        HANDLE hChildStdInRd, hChildStdInWr;
+
+        if (!CreatePipe(&hChildStdOutRd, &hChildStdOutWr, &sa, 0)) return false;
+        SetHandleInformation(hChildStdOutRd, HANDLE_FLAG_INHERIT, 0);
+
+        if (!CreatePipe(&hChildStdInRd, &hChildStdInWr, &sa, 0)) {
+            CloseHandle(hChildStdOutRd);
+            CloseHandle(hChildStdOutWr);
+            return false;
+        }
+        SetHandleInformation(hChildStdInWr, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+        si.hStdError = hChildStdOutWr;
+        si.hStdOutput = hChildStdOutWr;
+        si.hStdInput = hChildStdInRd;
+        si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+
+        PROCESS_INFORMATION pi = {};
+        
+        wchar_t modulePath[MAX_PATH];
+        GetModuleFileNameW(GetModuleHandleW(L"ShellTabs.dll"), modulePath, MAX_PATH);
+        std::wstring workerPath = modulePath;
+        size_t lastSlash = workerPath.find_last_of(L"\\/");
+        if (lastSlash != std::wstring::npos) {
+            workerPath = workerPath.substr(0, lastSlash + 1) + L"ShellTabsWorker.exe";
+        }
+
+        if (CreateProcessW(nullptr, const_cast<LPWSTR>(workerPath.c_str()), nullptr, nullptr, TRUE, 
+                           CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+            m_hProcess = pi.hProcess;
+            CloseHandle(pi.hThread);
+            m_hRead = hChildStdOutRd;
+            m_hWrite = hChildStdInWr;
+            CloseHandle(hChildStdOutWr);
+            CloseHandle(hChildStdInRd);
+            return true;
+        }
+
+        CloseHandle(hChildStdOutRd);
+        CloseHandle(hChildStdOutWr);
+        CloseHandle(hChildStdInRd);
+        CloseHandle(hChildStdInWr);
+        return false;
+    }
+
+    void Close() {
+        if (m_hProcess) { TerminateProcess(m_hProcess, 0); CloseHandle(m_hProcess); m_hProcess = nullptr; }
+        if (m_hRead) { CloseHandle(m_hRead); m_hRead = nullptr; }
+        if (m_hWrite) { CloseHandle(m_hWrite); m_hWrite = nullptr; }
+    }
+
+    HANDLE m_hProcess = nullptr;
+    HANDLE m_hRead = nullptr;
+    HANDLE m_hWrite = nullptr;
+    uint64_t m_nextId = 0;
+};
+
+PreviewWorkerClient g_previewWorker;
+
 namespace {
 constexpr size_t kMaxPendingCaptureRequests = 8;
 
@@ -52,43 +189,18 @@ HBITMAP LoadShellItemPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desiredSize, SI
         return folderPreview;
     }
 
-    Microsoft::WRL::ComPtr<IShellItem> item;
-    if (FAILED(SHCreateItemFromIDList(pidl, IID_PPV_ARGS(&item))) || !item) {
-        return nullptr;
-    }
-    Microsoft::WRL::ComPtr<IShellItemImageFactory> factory;
-    if (FAILED(item.As(&factory)) || !factory) {
-        return nullptr;
-    }
-
     SIZE requestSize = desiredSize;
     if (requestSize.cx <= 0 || requestSize.cy <= 0) {
         requestSize = kPreviewImageSize;
     }
 
-    HBITMAP bitmap = nullptr;
-    HRESULT hr = factory->GetImage(requestSize,
-                                   SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK | SIIGBF_THUMBNAILONLY,
-                                   &bitmap);
-    if (FAILED(hr)) {
-        hr = factory->GetImage(requestSize, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, &bitmap);
-    }
-    if (FAILED(hr)) {
-        hr = factory->GetImage(requestSize, SIIGBF_ICONONLY, &bitmap);
-    }
-    if (FAILED(hr) || !bitmap) {
-        if (bitmap) {
-            DeleteObject(bitmap);
-        }
+    HBITMAP bitmap = g_previewWorker.RequestPreview(pidl, requestSize);
+    if (!bitmap) {
         return nullptr;
     }
 
     BITMAP bmp{};
-    if (GetObject(bitmap, sizeof(bmp), &bmp) <= 0) {
-        DeleteObject(bitmap);
-        return nullptr;
-    }
-    if (outSize) {
+    if (GetObject(bitmap, sizeof(bmp), &bmp) > 0 && outSize) {
         outSize->cx = bmp.bmWidth;
         outSize->cy = bmp.bmHeight;
     }
@@ -133,24 +245,17 @@ HBITMAP GenerateFolderContentPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desired
         Microsoft::WRL::ComPtr<IShellItem> child;
         if (enumItems->Next(1, &child, nullptr) != S_OK || !child) break;
 
-        Microsoft::WRL::ComPtr<IShellItemImageFactory> factory;
-        if (FAILED(child.As(&factory)) || !factory) continue;
+        PIDLIST_ABSOLUTE pidlChild = nullptr;
+        if (FAILED(SHGetIDListFromObject(child.Get(), &pidlChild)) || !pidlChild) continue;
 
-        // Use a smaller size for each cell
         SIZE cellSize = {desiredSize.cx / kGridSize - kPadding, desiredSize.cy / kGridSize - kPadding};
         if (cellSize.cx <= 0) cellSize.cx = 48;
         if (cellSize.cy <= 0) cellSize.cy = 48;
 
-        HBITMAP bmp = nullptr;
-        // Try to get thumbnail with a timeout by checking the current time
-        auto startTime = std::chrono::steady_clock::now();
-        HRESULT hr = factory->GetImage(cellSize, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, &bmp);
-        auto elapsed = std::chrono::steady_clock::now() - startTime;
+        HBITMAP bmp = g_previewWorker.RequestPreview(pidlChild, cellSize);
+        CoTaskMemFree(pidlChild);
 
-        if (FAILED(hr) || !bmp) {
-            if (bmp) DeleteObject(bmp);
-            // Skip slow items
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > kChildTimeoutMs) break;
+        if (!bmp) {
             continue;
         }
 

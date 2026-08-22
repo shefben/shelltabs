@@ -107,6 +107,7 @@ struct TabInfo {
     bool pinned = false;
     std::wstring path;
     std::wstring normalizedLookupKey;
+    std::optional<COLORREF> customColor;
     TabProgressState progress;
     ULONGLONG lastActivatedTick = 0;
     uint64_t activationOrdinal = 0;

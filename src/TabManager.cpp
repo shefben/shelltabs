@@ -591,7 +591,7 @@ TabLocation TabManager::InsertTab(TabInfo tab, int groupIndex, int tabIndex, boo
     
     // Feature: Regex-Based Auto-Coloring
     if (tab.customColor == CLR_INVALID) {
-        std::wstring path = tab.lookupKey; // which is the lowercase path
+        std::wstring path = tab.normalizedLookupKey; // which is the lowercase path
         try {
             if (std::regex_match(path, std::wregex(L"^c:\\\\dev\\\\.*", std::regex_constants::icase))) {
                 tab.customColor = RGB(0, 122, 204); // Blue
@@ -796,8 +796,13 @@ std::vector<TabViewItem> TabManager::BuildView() const {
             item.pidl = tab.pidl.get();
             item.selected = (m_selectedGroup == static_cast<int>(g) && m_selectedTab == static_cast<int>(t));
             item.path = tab.path;
-            item.hasCustomOutline = group.hasCustomOutline;
-            item.outlineColor = group.outlineColor;
+            if (tab.customColor.has_value()) {
+                item.hasCustomOutline = true;
+                item.outlineColor = tab.customColor.value();
+            } else {
+                item.hasCustomOutline = group.hasCustomOutline;
+                item.outlineColor = group.outlineColor;
+            }
             item.outlineStyle = group.outlineStyle;
             item.savedGroupId = group.savedGroupId;
             item.isSavedGroup = !group.savedGroupId.empty();

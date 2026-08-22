@@ -1,9 +1,3 @@
-#define private public
-#define protected public
-#include "TabManager.h"
-#undef private
-#undef protected
-
 #include <windows.h>
 
 #include <cmath>
@@ -11,6 +5,18 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <memory>
+#include <functional>
+#include <optional>
+#include <list>
+#include <mutex>
+#include <unordered_map>
+
+#define private public
+#define protected public
+#include "TabManager.h"
+#undef private
+#undef protected
 
 namespace {
 
@@ -154,12 +160,12 @@ bool TestProgressUpdateDeltas() {
     shelltabs::TabInfo first{};
     first.name = L"One";
     first.tooltip = L"One";
-    manager.InsertTab(first, 0, 0, true);
+    manager.InsertTab(std::move(first), 0, 0, true);
 
     shelltabs::TabInfo second{};
     second.name = L"Two";
     second.tooltip = L"Two";
-    auto secondLocation = manager.InsertTab(second, 0, 1, false);
+    auto secondLocation = manager.InsertTab(std::move(second), 0, 1, false);
 
     auto* secondTab = manager.Get(secondLocation);
     if (!secondTab) {

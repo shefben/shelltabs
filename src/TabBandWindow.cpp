@@ -423,27 +423,31 @@ TabBandWindow* LookupWindow(HWND hwnd) {
 }
 
 // Memory-Mapped File (MMF) IPC Setup for Multi-Window Sync
+struct MMFMessage {
+    uint32_t type;
+    uint32_t payloadLength;
+    wchar_t payload[256];
+};
+struct MMFQueue {
+    uint32_t head;
+    uint32_t tail;
+    MMFMessage messages[10]; // Fit in 4096 bytes
+};
 static HANDLE s_mmfHandle = nullptr;
-static void* s_mmfBuffer = nullptr;
+static MMFQueue* s_mmfBuffer = nullptr;
 void InitializeMMFIPC() {
     if (!s_mmfHandle) {
         s_mmfHandle = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 4096, L"Local\\ShellTabsMMFIPC");
         if (s_mmfHandle) {
-            s_mmfBuffer = MapViewOfFile(s_mmfHandle, FILE_MAP_ALL_ACCESS, 0, 0, 4096);
+            s_mmfBuffer = static_cast<MMFQueue*>(MapViewOfFile(s_mmfHandle, FILE_MAP_ALL_ACCESS, 0, 0, 4096));
+            if (s_mmfBuffer && GetLastError() != ERROR_ALREADY_EXISTS) {
+                s_mmfBuffer->head = 0;
+                s_mmfBuffer->tail = 0;
+            }
         }
     }
 }
-    if (!hwnd) {
-        return nullptr;
-    }
-    auto& registry = GetWindowRegistry();
-    std::scoped_lock lock(registry.mutex);
-    auto it = registry.windows.find(hwnd);
-    if (it == registry.windows.end()) {
-        return nullptr;
-    }
-    return it->second;
-}
+
 
 TabBandWindow* FindWindowFromPoint(const POINT& screenPt) {
     HWND target = WindowFromPoint(screenPt);
@@ -5769,7 +5773,7 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
                     json += L"\",\n      \"tabs\": [\n";
                     for (size_t t = 0; t < group->tabs.size(); ++t) {
                         json += L"        { \"path\": \"";
-                        for (wchar_t c : group->tabs[t].lookupKey) { if (c == L'\"' || c == L'\\') json += L'\\'; json += c; }
+                        for (wchar_t c : group->tabs[t].normalizedLookupKey) { if (c == L'\"' || c == L'\\') json += L'\\'; json += c; }
                         json += L"\" }";
                         if (t < group->tabs.size() - 1) json += L",";
                         json += L"\n";

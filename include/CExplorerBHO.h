@@ -354,8 +354,13 @@ struct ShellTabsOptions;
                         UINT_PTR subclassId, DWORD_PTR refData);
                 static LRESULT CALLBACK ExplorerFrameSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                         UINT_PTR subclassId, DWORD_PTR refData);
+                static LRESULT CALLBACK DirectUISubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                        UINT_PTR subclassId, DWORD_PTR refData);
+                static bool ParseAddressEditPath(HWND editControl, std::wstring* outPath);
                 void InstallExplorerFrameSubclass();
                 void RemoveExplorerFrameSubclass();
+                void InstallDirectUISubclass();
+                void RemoveDirectUISubclass();
 
                 std::atomic<long> m_refCount;
 		Microsoft::WRL::ComPtr<IUnknown> m_site;
@@ -392,6 +397,8 @@ struct ShellTabsOptions;
                 UINT m_travelHistoryDropdownCommandId = 0;
                 HWND m_explorerFrame = nullptr;
                 bool m_explorerFrameSubclassInstalled = false;
+                HWND m_directUIHwnd = nullptr;
+                bool m_directUISubclassInstalled = false;
 		bool m_useCustomProgressGradientColors = false;
 		COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
 		COLORREF m_progressGradientEndColor = RGB(0, 153, 255);

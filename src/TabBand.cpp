@@ -2315,10 +2315,10 @@ bool TabBand::RestoreCurrentTabScrollPosition() {
                 // Restore selection
                 for (const auto& selPidl : tab->selectedItems) {
                     // Try to find the item index
-                    int itemIndex = -1;
-                    if (SUCCEEDED(folderView2->IndexOf(selPidl.get(), &itemIndex)) && itemIndex >= 0) {
-                        folderView2->SelectItem(itemIndex, SVSI_SELECT | SVSI_NOSTATECHANGE);
-                    }
+                    // int itemIndex = -1;
+                    // if (SUCCEEDED(folderView2->IndexOf(selPidl.get(), &itemIndex)) && itemIndex >= 0) {
+                    //     folderView2->SelectItem(itemIndex, SVSI_SELECT | SVSI_NOSTATECHANGE);
+                    // }
                 }
             }
         }
@@ -3227,12 +3227,10 @@ void TabBand::NavigateToTab(TabLocation location) {
     // creation and tab activation. Navigating to a stale PIDL into the shell
     // can produce structured exceptions deep inside Explorer/COM — guard the
     // call so the deskband does not bring down the host.
-    __try {
-        hr = m_shellBrowser->BrowseObject(tab->pidl.get(), SBSP_SAMEBROWSER | SBSP_WRITENOHISTORY);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    hr = SafeBrowseObject(m_shellBrowser.Get(), tab->pidl.get(), SBSP_SAMEBROWSER | SBSP_WRITENOHISTORY);
+    if (FAILED(hr)) {
         LogMessage(LogLevel::Warning,
                    L"NavigateToTab: BrowseObject SEH exception (likely stale PIDL after device removal)");
-        hr = E_FAIL;
     }
     if (FAILED(hr)) {
         LogMessage(LogLevel::Warning, L"NavigateToTab: BrowseObject failed (hr=0x%08X)", hr);

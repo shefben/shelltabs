@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_definitions(_WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000)
 # Global for the whole project
-add_definitions(-D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000000)
+add_definitions(-D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000000 -DNOMINMAX)
 # Prevent winsock.h conflicts by ensuring winsock2.h is used
 add_definitions(-D_WINSOCKAPI_)
 
@@ -153,6 +153,13 @@ set_target_properties(ShellTabs PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+add_executable(ShellTabsWorker src/ShellTabsWorker.cpp)
+target_compile_definitions(ShellTabsWorker PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0A00)
+target_link_libraries(ShellTabsWorker PRIVATE ole32 oleaut32 shell32 shlwapi)
+set_target_properties(ShellTabsWorker PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
 if (WIN32 AND SHELLTABS_BUILD_TESTS)

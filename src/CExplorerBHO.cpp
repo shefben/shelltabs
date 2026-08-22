@@ -1340,6 +1340,7 @@ void CExplorerBHO::Disconnect() {
     RemoveTravelBandSubclass();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 8b - RemoveExplorerFrameSubclass");
     RemoveExplorerFrameSubclass();
+    RemoveDirectUISubclass();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9 - RemoveAddressEditSubclass");
     RemoveAddressEditSubclass();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9b - RemoveStatusBarSubclass");
@@ -4155,6 +4156,7 @@ void CExplorerBHO::UpdateTravelBandSubclass() {
     if (m_travelBandSubclassInstalled && travelBand == m_travelBand && toolbar == m_travelToolbar) {
         ResolveTravelToolbarCommands();
         InstallExplorerFrameSubclass();
+    InstallDirectUISubclass();
         return;
     }
 
@@ -4163,6 +4165,7 @@ void CExplorerBHO::UpdateTravelBandSubclass() {
         ResolveTravelToolbarCommands();
     }
     InstallExplorerFrameSubclass();
+    InstallDirectUISubclass();
 }
 
 bool CExplorerBHO::InstallTravelBandSubclass(HWND travelBand, HWND toolbar) {
@@ -6919,3 +6922,82 @@ ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
 
 
 }  // namespace shelltabs
+void CExplorerBHO::InstallDirectUISubclass() {
+    HWND frame = GetTopLevelExplorerWindow();
+    if (!frame || !IsWindow(frame)) {
+        return;
+    }
+
+    HWND addressBandRoot = FindWindowExW(frame, nullptr, L"WorkerW", nullptr);
+    if (!addressBandRoot) return;
+    HWND rebar = FindWindowExW(addressBandRoot, nullptr, L"ReBarWindow32", nullptr);
+    if (!rebar) return;
+    HWND addressBand = FindWindowExW(rebar, nullptr, L"Address Band Root", nullptr);
+    if (!addressBand) return;
+
+    // Search for DirectUIHWND inside Address Band Root (Windows 10 ribbon navigation/address)
+    HWND dui = FindWindowExW(addressBand, nullptr, L"DirectUIHWND", nullptr);
+    if (!dui) {
+        // Fallback for Windows 11 ExplorerPatcher or XAML variations
+        dui = FindWindowExW(frame, nullptr, L"DirectUIHWND", nullptr);
+    }
+    
+    if (dui && IsWindow(dui)) {
+        if (m_directUISubclassInstalled && m_directUIHwnd == dui) {
+            return;
+        }
+        RemoveDirectUISubclass();
+        if (SetWindowSubclass(dui, &CExplorerBHO::DirectUISubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
+            m_directUIHwnd = dui;
+            m_directUISubclassInstalled = true;
+            LogMessage(LogLevel::Info, L"Installed DirectUIHWND subclass on hwnd=%p", dui);
+        }
+    }
+}
+
+void CExplorerBHO::RemoveDirectUISubclass() {
+    __try {
+        if (m_directUIHwnd && m_directUISubclassInstalled) {
+            if (IsWindow(m_directUIHwnd)) {
+                RemoveWindowSubclass(m_directUIHwnd, &CExplorerBHO::DirectUISubclassProc, reinterpret_cast<UINT_PTR>(this));
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LogMessage(LogLevel::Warning, L"RemoveDirectUISubclass SEH exception");
+    }
+    m_directUIHwnd = nullptr;
+    m_directUISubclassInstalled = false;
+}
+
+LRESULT CALLBACK CExplorerBHO::DirectUISubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                          UINT_PTR subclassId, DWORD_PTR refData) {
+    (void)refData;
+    auto* self = reinterpret_cast<CExplorerBHO*>(subclassId);
+    
+    // DirectUIHWND internal events or UIAutomation triggers
+    // Here we listen for commands if the UI posts them
+    if (msg == WM_COMMAND || msg == WM_SYSCOMMAND) {
+        // Try to intercept known back/forward DirectUI internal commands if they are sent this way
+    }
+    
+    // Fallback: If DirectUI passes APPCOMMAND back to the window
+    if (msg == WM_APPCOMMAND) {
+        const int command = GET_APPCOMMAND_LPARAM(lParam);
+        if (command == APPCOMMAND_BROWSER_BACKWARD) {
+            self->PostTravelToolbarNavigationMessage(true);
+            return TRUE;
+        }
+        if (command == APPCOMMAND_BROWSER_FORWARD) {
+            self->PostTravelToolbarNavigationMessage(false);
+            return TRUE;
+        }
+    }
+
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &CExplorerBHO::DirectUISubclassProc, subclassId);
+        self->m_directUIHwnd = nullptr;
+        self->m_directUISubclassInstalled = false;
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
