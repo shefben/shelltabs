@@ -17,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -142,6 +143,7 @@ private:
         RECT itemBounds{};
         RECT tabBounds{};
         RECT closeButton{};
+        RECT recencyDot{};
         int textLeft = 0;
         int textRight = 0;
         int iconLeft = 0;
@@ -482,6 +484,30 @@ private:
     void DrawGroupHeader(HDC dc, const VisualItem& item) const;
     void DrawIndicatorLabel(HDC dc, const RECT& indicatorRect, const std::wstring& label, COLORREF bgColor) const;
     void DrawTab(HDC dc, const VisualItem& item) const;
+    static double ComputeTabRecencyOpacity(const TabViewItem& tab,
+                                          const std::vector<TabViewItem>& tabs) noexcept {
+        if (tab.type != TabViewItemType::kTab ||
+            (tab.activationOrdinal == 0 && tab.lastActivatedTick == 0)) {
+            return 0.0;
+        }
+        size_t rank = 0;
+        for (const auto& candidate : tabs) {
+            if (candidate.type != TabViewItemType::kTab ||
+                (candidate.activationOrdinal == 0 && candidate.lastActivatedTick == 0)) {
+                continue;
+            }
+            // Stable identity breaks timestamp ties without depending on display order.
+            const bool newer =
+                std::tie(candidate.activationOrdinal, candidate.lastActivatedTick, candidate.stableId,
+                         candidate.location.groupIndex, candidate.location.tabIndex) >
+                std::tie(tab.activationOrdinal, tab.lastActivatedTick, tab.stableId,
+                         tab.location.groupIndex, tab.location.tabIndex);
+            if (newer && ++rank >= 5) {
+                return 0.0;
+            }
+        }
+        return static_cast<double>(5 - rank) / 5.0;
+    }
     void DrawGroupOutlines(HDC dc, const std::vector<GroupOutline>& outlines) const;
     void DrawTabProgress(HDC dc, const VisualItem& item, const TabPaintMetrics& metrics,
                          COLORREF background) const;

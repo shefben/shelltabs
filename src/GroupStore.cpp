@@ -204,16 +204,60 @@ bool GroupStore::Upsert(SavedGroup group) {
 
     for (auto& existing : m_groups) {
         if (_wcsicmp(existing.name.c_str(), group.name.c_str()) == 0) {
-            existing.name = group.name;
-            existing.color = group.color;
-            existing.tabPaths = std::move(group.tabPaths);
-            existing.outlineStyle = group.outlineStyle;
-            return Save();
+            auto previous = std::move(existing);
+            existing = std::move(group);
+            if (Save()) {
+                return true;
+            }
+            existing = std::move(previous);
+            return false;
         }
     }
 
     m_groups.emplace_back(std::move(group));
-    return Save();
+    if (Save()) {
+        return true;
+    }
+    m_groups.pop_back();
+    return false;
+}
+
+bool GroupStore::AddTabPath(const std::wstring& name, const std::wstring& path) {
+    if (path.empty() || !EnsureLoaded()) {
+        return false;
+    }
+    const auto normalize = [](std::wstring value) {
+        // URLs can contain case-sensitive paths; retain their exact spelling.
+        if (value.find(L"://") == std::wstring::npos) {
+            std::replace(value.begin(), value.end(), L'/', L'\\');
+            while (value.size() > 1 && value.back() == L'\\') {
+                value.pop_back();
+            }
+        }
+        return value;
+    };
+    const auto normalizedPath = normalize(path);
+    for (auto& group : m_groups) {
+        if (_wcsicmp(group.name.c_str(), name.c_str()) != 0) {
+            continue;
+        }
+        for (const auto& existing : group.tabPaths) {
+            const auto normalizedExisting = normalize(existing);
+            const bool duplicate = path.find(L"://") == std::wstring::npos
+                ? _wcsicmp(normalizedExisting.c_str(), normalizedPath.c_str()) == 0
+                : normalizedExisting == normalizedPath;
+            if (duplicate) {
+                return true;
+            }
+        }
+        group.tabPaths.push_back(path);
+        if (Save()) {
+            return true;
+        }
+        group.tabPaths.pop_back();
+        return false;
+    }
+    return false;
 }
 
 bool GroupStore::UpdateTabs(const std::wstring& name, const std::vector<std::wstring>& tabPaths) {

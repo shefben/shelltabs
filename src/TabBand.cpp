@@ -667,7 +667,7 @@ bool TabBand::OnCtrlBeforeNavigate(const std::wstring& url) {
     const int groupIndex = current.groupIndex >= 0 ? current.groupIndex : -1;
     TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, groupIndex);
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist new tab
     if (location.IsValid()) {
         QueueNavigateTo(location);
@@ -715,7 +715,7 @@ void TabBand::OnNewTabRequested(int targetGroup) {
 
         TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, true, targetGroup);
         UpdateTabsUI();
-        SyncAllSavedGroups();
+
         SaveSession();  // Immediately persist new tab
         if (location.IsValid()) {
             NavigateToTab(location);
@@ -842,11 +842,6 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
         closedSet.groupRemoved = true;
     }
 
-    std::wstring removedGroupId;
-    if (!groupBefore->savedGroupId.empty() && groupBefore->tabs.size() == 1) {
-        removedGroupId = groupBefore->savedGroupId;
-    }
-
     auto removed = m_tabs.TakeTab(location);
     if (!removed) {
         return;
@@ -863,10 +858,6 @@ void TabBand::OnCloseTabRequested(TabLocation location) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
-    if (!removedGroupId.empty()) {
-        GroupStore::Instance().UpdateTabs(removedGroupId, {});
-    }
 
     if (wasSelected) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -930,7 +921,6 @@ void TabBand::OnCloseOtherTabsRequested(TabLocation location) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (targetWasSelected && anchorLocation.IsValid()) {
         NavigateToTab(anchorLocation);
@@ -987,7 +977,6 @@ void TabBand::OnCloseTabsToRightRequested(TabLocation location) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (targetWasSelected && anchorLocation.IsValid()) {
         NavigateToTab(anchorLocation);
@@ -1044,7 +1033,6 @@ void TabBand::OnCloseTabsToLeftRequested(TabLocation location) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (targetWasSelected && anchorLocation.IsValid()) {
         NavigateToTab(anchorLocation);
@@ -1144,7 +1132,6 @@ void TabBand::OnReopenClosedTabRequested(size_t index) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (haveSelection && selected.IsValid()) {
         m_tabs.SetSelectedLocation(selected);
@@ -1241,13 +1228,6 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
     const TabLocation selected = m_tabs.SelectedLocation();
     const bool wasSelected = (selected.groupIndex == location.groupIndex && selected.tabIndex == location.tabIndex);
 
-    std::wstring removedGroupId;
-    if (const auto* group = m_tabs.GetGroup(location.groupIndex)) {
-        if (!group->savedGroupId.empty() && group->tabs.size() == 1) {
-            removedGroupId = group->savedGroupId;
-        }
-    }
-
     auto seed = std::make_shared<PendingWindowSeed>();
     seed->type = WindowSeedType::StandaloneTab;
     EnqueuePendingWindowSeed(seed);
@@ -1258,10 +1238,6 @@ void TabBand::OnDetachTabRequested(TabLocation location) {
         EnsureTabForCurrentFolder();
     }
     UpdateTabsUI();
-    SyncAllSavedGroups();
-    if (!removedGroupId.empty()) {
-        GroupStore::Instance().UpdateTabs(removedGroupId, {});
-    }
 
     if (wasSelected) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -1299,7 +1275,7 @@ void TabBand::OnCloneTabRequested(TabLocation location) {
 
     TabLocation newLocation = m_tabs.Add(std::move(clone), name, tooltip, true, location.groupIndex, tab->pinned);
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist cloned tab
     if (newLocation.IsValid()) {
         NavigateToTab(newLocation);
@@ -1318,7 +1294,7 @@ void TabBand::OnToggleTabPinned(TabLocation location) {
         return;
     }
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist pin state change
 }
 
@@ -1530,7 +1506,7 @@ void TabBand::OnCreateIslandAfter(int groupIndex) {
     m_tabs.CreateGroupAfter(groupIndex);
     UpdateTabsUI();
     SaveSession();  // Immediately persist new island
-    SyncAllSavedGroups();
+
 }
 
 void TabBand::OnCloseIslandRequested(int groupIndex) {
@@ -1565,11 +1541,6 @@ void TabBand::OnCloseIslandRequested(int groupIndex) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
-
-    if (!removed->savedGroupId.empty()) {
-        GroupStore::Instance().Remove(removed->savedGroupId);
-    }
 
     if (removedSelectedGroup) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -1612,7 +1583,7 @@ void TabBand::OnEditGroupProperties(int groupIndex) {
     group->outlineColor = color;
 
     UpdateTabsUI();
-    SyncSavedGroup(groupIndex);
+
     SaveSession();  // Immediately persist group name/color changes
 
     if (!group->savedGroupId.empty() && colorChanged) {
@@ -1629,7 +1600,7 @@ void TabBand::OnSetIslandLabel(int groupIndex, const std::wstring& label) {
 
     group->name = label;
     UpdateTabsUI();
-    SyncSavedGroup(groupIndex);
+
     SaveSession();
 }
 
@@ -1656,7 +1627,6 @@ void TabBand::OnDetachGroupRequested(int groupIndex) {
         EnsureTabForCurrentFolder();
     }
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (wasSelectedInGroup) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -1671,7 +1641,7 @@ void TabBand::OnDetachGroupRequested(int groupIndex) {
 void TabBand::OnMoveTabRequested(TabLocation from, TabLocation to) {
     m_tabs.MoveTab(from, to);
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist tab move
 }
 
@@ -1684,7 +1654,7 @@ void TabBand::OnMoveGroupRequested(int fromGroup, int toGroup) {
 void TabBand::OnMoveTabToNewGroup(TabLocation from, int insertIndex, bool headerVisible) {
     m_tabs.MoveTabToNewGroup(from, insertIndex, headerVisible);
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist tab move to new group
 }
 
@@ -1720,7 +1690,6 @@ std::optional<TabInfo> TabBand::DetachTabForTransfer(TabLocation location, bool*
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (tabWasSelected) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -1765,7 +1734,7 @@ TabLocation TabBand::InsertTransferredTab(TabInfo tab, int groupIndex, int tabIn
 
     TabLocation inserted = m_tabs.InsertTab(std::move(tab), groupIndex, tabIndex, select);
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist inserted tab
     if (select && inserted.IsValid()) {
         NavigateToTab(inserted);
@@ -1794,7 +1763,6 @@ std::optional<TabGroup> TabBand::DetachGroupForTransfer(int groupIndex, bool* wa
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
 
     if (groupWasSelected) {
         const TabLocation newSelection = m_tabs.SelectedLocation();
@@ -1825,7 +1793,7 @@ int TabBand::InsertTransferredGroup(TabGroup group, int insertIndex, bool select
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();  // Immediately persist transferred group
 
     return insertIndex;
@@ -1936,7 +1904,7 @@ void TabBand::OnOpenFolderInNewTab(const std::wstring& path, bool select) {
     TabLocation location = m_tabs.Add(std::move(pidl), name, tooltip, select, targetGroup);
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     SaveSession();
 
     if (select && location.IsValid()) {
@@ -3138,10 +3106,6 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
         }
     }
 
-    if (!previousOptions.persistGroupPaths && m_options.persistGroupPaths) {
-        SyncAllSavedGroups();
-    }
-
     const bool backgroundChanged =
         previousOptions.enableBreadcrumbGradient != m_options.enableBreadcrumbGradient;
     const bool fontChanged =
@@ -3193,7 +3157,6 @@ void TabBand::ApplyOptionsChanges(const ShellTabsOptions& previousOptions) {
 
     }
 }
-
 
 UniquePidl TabBand::QueryCurrentFolder() const {
     return GetCurrentFolderPidL(m_shellBrowser, m_webBrowser);
@@ -3350,7 +3313,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             if (existing.IsValid()) {
                 if (existing != selected) {
                     m_tabs.SetSelectedLocation(existing);
-                    SyncSavedGroup(existing.groupIndex);
+
                 }
                 return;
             } else {
@@ -3368,7 +3331,7 @@ void TabBand::EnsureTabForCurrentFolder() {
                     tab->navigationHistory.currentIndex = 0;
                 }
                 UpdateTabsUI();
-                SyncAllSavedGroups();
+
                 return;
             }
         }
@@ -3401,7 +3364,7 @@ void TabBand::EnsureTabForCurrentFolder() {
             }
 
             m_tabs.SetGroupCollapsed(selected.groupIndex, false);
-            SyncSavedGroup(selected.groupIndex);
+
             return;
         }
     }
@@ -3425,7 +3388,7 @@ void TabBand::EnsureTabForCurrentFolder() {
         }
         m_tabs.SetGroupCollapsed(existing.groupIndex, false);
         m_tabs.SetSelectedLocation(existing);
-        SyncSavedGroup(existing.groupIndex);
+
         return;
     }
 
@@ -3450,7 +3413,6 @@ void TabBand::EnsureTabForCurrentFolder() {
         m_tabs.SetGroupHeaderVisible(location.groupIndex, false);
     }
 
-    SyncSavedGroup(location.groupIndex);
 }
 
 void TabBand::OpenTabInNewWindow(const TabInfo& tab) {
@@ -3625,7 +3587,7 @@ bool TabBand::HandleNewWindowRequest(const std::wstring& targetUrl) {
     }
 
     UpdateTabsUI();
-    SyncAllSavedGroups();
+
     if (haveNavigateTarget) {
         QueueNavigateTo(navigateTo);
     }
@@ -3704,6 +3666,68 @@ std::wstring TabBand::GetSavedGroupId(int groupIndex) const {
     return group->savedGroupId;
 }
 
+void TabBand::OnSaveFolderToGroup(TabLocation location) {
+    const auto* tab = m_tabs.Get(location);
+    auto* group = m_tabs.GetGroup(location.groupIndex);
+    if (!tab || !group) {
+        return;
+    }
+    const std::wstring path = GetTabPath(location);
+    if (path.empty()) {
+        return;
+    }
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    auto& store = GroupStore::Instance();
+    if (!LoadGroupStoreForContext(L"TabBand::OnSaveFolderToGroup failed to load saved groups", store)) {
+        MessageBoxW(hwnd, L"Unable to load saved groups.", L"ShellTabs", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    bool saved = false;
+    if (!group->savedGroupId.empty()) {
+        saved = store.AddTabPath(group->savedGroupId, path);
+    } else {
+        std::wstring name = group->name.empty() ? L"New Group" : group->name;
+        COLORREF color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
+        if (!PromptForTextInput(hwnd, L"Save Folder to Group", L"Group name:", &name, &color)) {
+            return;
+        }
+        name = TrimWhitespace(name);
+        if (name.empty() || name.find_first_of(L"|\r\n") != std::wstring::npos) {
+            MessageBoxW(hwnd, L"Enter a group name without | or line breaks.",
+                        L"ShellTabs", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (store.Find(name)) {
+            MessageBoxW(hwnd, L"A saved group with that name already exists.",
+                        L"ShellTabs", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        SavedGroup definition;
+        definition.name = name;
+        definition.color = color;
+        definition.outlineStyle = group->outlineStyle;
+        definition.tabPaths.push_back(path);
+        saved = store.Upsert(std::move(definition));
+        if (saved) {
+            group->savedGroupId = name;
+            group->name = name;
+            group->hasCustomOutline = true;
+            group->outlineColor = color;
+        }
+    }
+    if (!saved) {
+        LogMessage(LogLevel::Warning, L"TabBand::OnSaveFolderToGroup failed to save folder");
+        MessageBoxW(hwnd, L"Unable to save this folder to the group.",
+                    L"ShellTabs", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    LogMessage(LogLevel::Info, L"TabBand::OnSaveFolderToGroup saved folder to '%s'",
+               group->savedGroupId.c_str());
+    UpdateTabsUI();
+    SaveSession();
+}
+
 void TabBand::OnCreateSavedGroup(int afterGroup) {
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
     std::wstring name = L"New Group";
@@ -3728,7 +3752,10 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
     saved.name = name;
     saved.color = color;
     saved.outlineStyle = TabGroupOutlineStyle::kSolid;
-    store.Upsert(saved);
+    if (!store.Upsert(saved)) {
+        MessageBoxW(hwnd, L"Unable to save the group.", L"ShellTabs", MB_OK | MB_ICONWARNING);
+        return;
+    }
 
     const int groupIndex = m_tabs.CreateGroupAfter(afterGroup, name, true);
     if (auto* group = m_tabs.GetGroup(groupIndex)) {
@@ -3740,7 +3767,7 @@ void TabBand::OnCreateSavedGroup(int afterGroup) {
         group->collapsed = false;
     }
     UpdateTabsUI();
-    SyncSavedGroup(groupIndex);
+
 }
 
 void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
@@ -3786,7 +3813,6 @@ void TabBand::OnLoadSavedGroup(const std::wstring& name, int afterGroup) {
     }
 
     UpdateTabsUI();
-    SyncSavedGroup(groupIndex);
 
     if (addedAny) {
         TabLocation selection = m_tabs.SelectedLocation();
@@ -3858,8 +3884,6 @@ void TabBand::OnShowOptionsDialog(OptionsDialogPage initialPage, const std::wstr
         const bool metadataUpdated =
             ApplySavedGroupMetadata(updatedGroups, dialog.renamedGroups, dialog.removedGroupIds);
 
-        m_skipSavedGroupSync = true;
-        SyncAllSavedGroups();
         if (metadataUpdated) {
             UpdateTabsUI();
             SaveSession();
@@ -4007,44 +4031,6 @@ void TabBand::OnSavedGroupsChanged() {
         SaveSession();
     }
     m_processedGroupStoreGeneration = generation;
-}
-
-void TabBand::SyncSavedGroup(int groupIndex) const {
-    // Saved groups (those with a non-empty savedGroupId) are intentionally promoted
-    // to durable storage by the user; their current tab set should always be
-    // mirrored back to groups.db so that re-loading the saved group reproduces
-    // the state the user last left it in. Unsaved islands are skipped entirely
-    // because they have no savedGroupId.
-    const auto* group = m_tabs.GetGroup(groupIndex);
-    if (!group || group->savedGroupId.empty()) {
-        return;
-    }
-    std::vector<std::wstring> paths;
-    paths.reserve(group->tabs.size());
-    for (const auto& tab : group->tabs) {
-        if (!tab.path.empty()) {
-            paths.push_back(tab.path);
-        }
-    }
-    if (!GroupStore::Instance().UpdateTabs(group->savedGroupId, paths)) {
-        SavedGroup saved;
-        saved.name = group->savedGroupId;
-        saved.color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
-        saved.tabPaths = std::move(paths);
-        saved.outlineStyle = group->outlineStyle;
-        GroupStore::Instance().Upsert(std::move(saved));
-    }
-}
-
-void TabBand::SyncAllSavedGroups() const {
-    if (m_skipSavedGroupSync) {
-        m_skipSavedGroupSync = false;
-        return;
-    }
-    const int groupCount = m_tabs.GroupCount();
-    for (int i = 0; i < groupCount; ++i) {
-        SyncSavedGroup(i);
-    }
 }
 
 void TabBand::CancelInitializationWorker() {
@@ -4259,7 +4245,7 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
                 TabLocation existing = m_tabs.Find(m_initialNavigationPidl.get());
                 if (existing.IsValid()) {
                     m_tabs.SetSelectedLocation(existing);
-                    SyncSavedGroup(existing.groupIndex);
+
                 } else {
                     std::wstring name = GetDisplayName(m_initialNavigationPidl.get());
                     if (name.empty()) {
@@ -4287,7 +4273,7 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
                             tab->navigationHistory.currentIndex = 0;
                         }
                         m_tabs.SetSelectedLocation(location);
-                        SyncSavedGroup(location.groupIndex);
+
                     }
                 }
                 m_initialNavigationPidl.reset();
@@ -4301,10 +4287,6 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
                 }
             }
         }
-    }
-
-    if (result->groupStoreLoaded) {
-        SyncAllSavedGroups();
     }
 
     // Session persistence is ready as soon as we have a session store.

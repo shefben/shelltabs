@@ -165,6 +165,29 @@ set_target_properties(ShellTabsWorker PROPERTIES
 )
 
 if (WIN32 AND SHELLTABS_BUILD_TESTS)
+    add_executable(ShellTabsGroupStoreTests
+        tests/GroupStoreTests.cpp
+        src/GroupStore.cpp
+        src/StringUtils.cpp
+        src/ColorSerialization.cpp
+    )
+    target_include_directories(ShellTabsGroupStoreTests PRIVATE include ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(ShellTabsGroupStoreTests PRIVATE UNICODE _UNICODE)
+    target_compile_options(ShellTabsGroupStoreTests PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/permissive->
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+    )
+
+    add_executable(ShellTabsTabRecencyTests tests/TabRecencyTests.cpp src/ColorUtils.cpp)
+    target_include_directories(ShellTabsTabRecencyTests PRIVATE include ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(ShellTabsTabRecencyTests PRIVATE UNICODE _UNICODE SHELLTABS_BUILD_TESTS)
+    target_compile_options(ShellTabsTabRecencyTests PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/permissive->
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+    )
+
     add_executable(ShellTabsUtilitiesTests
         tests/UtilitiesFtpTests.cpp
         src/FtpPidl.cpp

@@ -150,6 +150,7 @@ public:
                                       UINT idFirst, const POINT& ptInvoke) const;
     std::optional<std::vector<std::wstring>> GetSavedGroupNames() const;
     void OnCreateSavedGroup(int afterGroup);
+    void OnSaveFolderToGroup(TabLocation location);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
                              const std::wstring& focusGroupId = std::wstring(),
@@ -211,7 +212,6 @@ private:
     bool m_deferredNavigationPosted = false;
     TabBandDockMode m_dockMode = TabBandDockMode::kAutomatic;
     TabBandDockMode m_requestedDockMode = TabBandDockMode::kAutomatic;
-    mutable bool m_skipSavedGroupSync = false;
     uint64_t m_processedGroupStoreGeneration = 0;
 
     struct ClosedGroupMetadata {
@@ -271,8 +271,6 @@ private:
     void PerformFileOperation(TabLocation location, const std::vector<std::wstring>& paths, bool move);
     bool HandleNewWindowRequest(const std::wstring& targetUrl);
     void QueueNavigateTo(TabLocation location);
-    void SyncSavedGroup(int groupIndex) const;
-    void SyncAllSavedGroups() const;
     void RunBackgroundInitialization(std::stop_token stopToken, uint64_t sequence, bool hasPendingSeed);
     void HandleInitializationResult(std::unique_ptr<InitializationResult> result);
     void PostInitializationResult(std::unique_ptr<InitializationResult> result);

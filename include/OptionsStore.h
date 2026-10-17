@@ -220,6 +220,7 @@ struct GlowSurfacePalette {
 
 struct ShellTabsOptions {
     bool reopenOnCrash = true;
+    // Retained for config compatibility; saved folders are now added explicitly.
     bool persistGroupPaths = false;
     bool reuseExistingWindow = false;
     bool enableBreadcrumbGradient = false;

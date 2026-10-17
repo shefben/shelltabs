@@ -45,6 +45,7 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
 - Configurable new-tab template: duplicate current folder, This PC, custom path, or load a saved group
 - Configurable tab strip dock mode: top, bottom, left, right, or automatic
 - Per-tab progress indicator that mirrors Explorer's active file operation on that tab's folder
+- Recency dots beside the folder icons mark the five most recently viewed tabs, including the active tab. Opacity decreases from 100% to 20% in viewing order, with colors adapted to light, dark, and custom-colored tabs
 
 ### Tab Groups (Islands)
 - Organize tabs into named, collapsible groups (islands)
@@ -58,9 +59,12 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
 ### Saved Groups
 - Save a group configuration by name for reuse across windows and sessions
 - Load saved groups from the tab strip context menu or via the new-tab template
-- Edits to a saved group (rename, color, outline style, member folders) sync automatically to all windows using it
-- Member folders are mirrored into `groups.db` whenever you add or remove a tab from a saved group, so the saved group always reflects its current contents
-- Manage saved groups from the Options dialog: add, edit, remove, and edit the folder list directly
+- Drag or open folders in an island temporarily without changing its saved folder list
+- To keep a folder, right-click its tab and choose **Save folder to group**. Only that tab's current folder is added; equivalent Windows paths are not duplicated
+- Saving a folder in an unsaved island asks for a group name and saves only the selected folder
+- Navigating, moving, or closing tabs does not change saved folders. Closing an island preserves its saved definition so it can be loaded again later
+- Manage saved groups from the Options dialog: add, rename, change colors and outline styles, edit saved folders, or explicitly remove a saved group
+- Saved folders are separate from session restoration, which continues to remember all live tabs, including temporary tabs
 
 ### Session Persistence
 - All tabs, groups, selection state, and per-tab scroll positions are saved to disk continuously
@@ -110,7 +114,7 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
 - Anonymous and credentialed connections (credentials managed via Windows Credential Manager)
 
 ### Context Menu Integration
-- Right-click a tab for quick actions: close, clone, pin, hide, detach, open terminal, open VS Code, copy path
+- Right-click a tab for quick actions: close, clone, pin, hide, detach, save folder to group, open terminal, open VS Code, copy path
 - Access the full Explorer shell context menu for any tab's folder, with `IContextMenu2` / `IContextMenu3` message forwarding for owner-drawn shell extensions
 - Add custom context menu entries from the Options dialog with configurable executables, arguments, working directory, run-as-admin, window state, and confirmation prompts
 - Submenus, separators, icons (file path or `shell32.dll,index` style), and selection-based visibility rules (file vs folder, count constraints, wildcard file patterns, folder path filters)
@@ -122,7 +126,7 @@ A Windows Explorer deskband extension that adds tabbed browsing, tab groups, ses
 - Light/dark themed to match the system theme
 
 ### Options Dialog
-- **General:** New-tab behavior, session restore settings, dock mode, reuse-existing-window toggle, persist-group-paths toggle
+- **General:** New-tab behavior, session restore settings, dock mode, reuse-existing-window toggle, and a reminder to save group folders from the tab context menu
 - **Appearance:** Breadcrumb gradient (font + background, custom colors, transparency, highlight/dropdown alpha), progress bar gradient colors, custom tab selected/unselected colors
 - **Glow Effects:** Master enable, per-surface toggles, custom primary/secondary glow colors, gradient blend, Explorer accent override, bitmap intercept and gradient font toggles
 - **Backgrounds:** Enable/disable, universal image picker, per-folder image list (add/edit/remove/clean up), opacity slider, position mode radio buttons

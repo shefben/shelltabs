@@ -72,7 +72,7 @@ constexpr UINT WM_PREVIEW_BITMAP_READY = WM_APP + 101;
 enum ControlIds : int {
     // General Page (6000-6099)
     IDC_GEN_REOPEN = 6001,
-    IDC_GEN_PERSIST = 6002,
+    IDC_GEN_GROUP_SAVE_HINT = 6002,
     IDC_GEN_DOCK_LABEL = 6003,
     IDC_GEN_DOCK_COMBO = 6004,
     IDC_GEN_NEWTAB_LABEL = 6005,
@@ -878,9 +878,9 @@ DialogTemplatePtr CreateGeneralPageTemplate() {
         kMargin, y, rowW, kCheckHeight);
     y += kCheckHeight + kSpacing;
 
-    // Persist groups
-    builder.AddCheckbox(IDC_GEN_PERSIST,
-        L"Remember folder paths in saved groups",
+    // Saved group membership is explicit; live tabs remain temporary.
+    builder.AddStatic(IDC_GEN_GROUP_SAVE_HINT,
+        L"Save folders using a tab's 'Save folder to group' menu.",
         kMargin, y, rowW, kCheckHeight);
     y += kCheckHeight + kSpacing;
 
@@ -934,8 +934,6 @@ void InitGeneralPage(HWND page, OptionsDialogData* data) {
     // Set checkbox states
     CheckDlgButton(page, IDC_GEN_REOPEN,
         data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
-    CheckDlgButton(page, IDC_GEN_PERSIST,
-        data->workingOptions.persistGroupPaths ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(page, IDC_GEN_REUSE_WINDOW,
         data->workingOptions.reuseExistingWindow ? BST_CHECKED : BST_UNCHECKED);
 
@@ -1023,11 +1021,6 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
             if (id == IDC_GEN_REOPEN && code == BN_CLICKED) {
                 data->workingOptions.reopenOnCrash =
                     (IsDlgButtonChecked(page, IDC_GEN_REOPEN) == BST_CHECKED);
-                PropSheet_Changed(GetParent(page), page);
-            }
-            else if (id == IDC_GEN_PERSIST && code == BN_CLICKED) {
-                data->workingOptions.persistGroupPaths =
-                    (IsDlgButtonChecked(page, IDC_GEN_PERSIST) == BST_CHECKED);
                 PropSheet_Changed(GetParent(page), page);
             }
             else if (id == IDC_GEN_REUSE_WINDOW && code == BN_CLICKED) {

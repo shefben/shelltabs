@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "TabBandWindow.h"
+#include "ColorUtils.h"
 
 #include <algorithm>  // for 2-arg std::max/std::min
 
@@ -338,6 +339,9 @@ constexpr int kGroupMinWidth = 90;
 constexpr int kGroupGap = 4;   // gap between “islands” (groups)
 constexpr int kTabGap   = 4;   // gap between adjacent tabs
 constexpr int kPaddingX = 12;
+constexpr int kRecencyDotSize = 8;
+constexpr int kRecencyDotGap = 4;
+constexpr int kRecencyDotSlot = kRecencyDotSize + kRecencyDotGap;
 constexpr int kGroupPaddingX = 16;
 constexpr int kToolbarGripWidth = 14;
 constexpr int kDragThreshold = 4;
@@ -979,6 +983,12 @@ void TabBandWindow::RebuildTabLocationIndex() {
 }
 
 void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
+    const bool recencyChanged = m_tabData.size() != items.size() ||
+        !std::equal(m_tabData.begin(), m_tabData.end(), items.begin(),
+                    [](const TabViewItem& a, const TabViewItem& b) {
+                        return a.type == b.type && a.activationOrdinal == b.activationOrdinal &&
+                            a.lastActivatedTick == b.lastActivatedTick;
+                    });
     m_tabData = items;
     if (auto* manager = ResolveManager(); manager) {
         m_tabLayoutVersion = manager->GetLayoutVersion();
@@ -1076,7 +1086,7 @@ void TabBandWindow::SetTabs(const std::vector<TabViewItem>& items) {
     }
 
     bool topologyChanged = diff.inserted > 0 || diff.removed > 0 || rowCountChanged;
-    if (topologyChanged) {
+    if (topologyChanged || recencyChanged) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
         m_nextRedrawIncremental = false;
     } else if (!diff.invalidRects.empty()) {
@@ -1508,7 +1518,7 @@ TabBandWindow::LayoutResult TabBandWindow::BuildLayoutItems(const std::vector<Ta
             }
         }
 
-        int width = measuredTextWidth + kPaddingX * 2;
+            int width = measuredTextWidth + kPaddingX * 2 + kRecencyDotSlot;
         if (item.pinned) {
             width += kPinnedGlyphWidth + kPinnedGlyphPadding;
         }
@@ -4114,7 +4124,8 @@ RECT TabBandWindow::ComputeCloseButtonRect(const VisualItem& item) const {
     if (size <= 0) {
         return rect;
     }
-    const int minimumWidth = size + kCloseButtonEdgePadding + kCloseButtonSpacing + badgeWidth + kPaddingX + 8;
+    const int minimumWidth = size + kCloseButtonEdgePadding + kCloseButtonSpacing + badgeWidth +
+                             kPaddingX + kRecencyDotSlot + 8;
     if (availableWidth < minimumWidth) {
         return rect;
     }
@@ -4194,6 +4205,12 @@ TabBandWindow::TabPaintMetrics TabBandWindow::ComputeTabPaintMetrics(const Visua
     metrics.tabBounds.left += metrics.islandIndicator;
     metrics.closeButton = ComputeCloseButtonRect(item);
     metrics.iconLeft = metrics.itemBounds.left + metrics.islandIndicator + kPaddingX;
+    const LONG dotTop = metrics.itemBounds.top +
+        (metrics.itemBounds.bottom - metrics.itemBounds.top - kRecencyDotSize) / 2;
+    metrics.recencyDot = {metrics.iconLeft, dotTop,
+                          metrics.iconLeft + kRecencyDotSize, dotTop + kRecencyDotSize};
+    // Reserve the same slot on all tabs so activating another tab cannot shift icons.
+    metrics.iconLeft += kRecencyDotSlot;
     metrics.textLeft = metrics.iconLeft;
     metrics.textRight = metrics.itemBounds.right - kPaddingX;
 
@@ -4360,6 +4377,27 @@ void TabBandWindow::DrawTab(HDC dc, const VisualItem& item) const {
     const bool hasProgress = item.data.progress.visible;
     if (hasProgress) {
         DrawTabProgress(dc, item, metrics, computedBackground);
+    }
+
+    const double recencyOpacity = ComputeTabRecencyOpacity(item.data, m_tabData);
+    if (recencyOpacity > 0.0) {
+        const RECT recencyRect = metrics.recencyDot;
+        if (RectHasArea(recencyRect)) {
+            // The native light-theme tab can differ from the palette's base color.
+            const COLORREF sampledBackground = GetPixel(dc,
+                recencyRect.left + (recencyRect.right - recencyRect.left) / 2,
+                recencyRect.top + (recencyRect.bottom - recencyRect.top) / 2);
+            const COLORREF lineBackground = sampledBackground == CLR_INVALID
+                ? computedBackground : sampledBackground;
+            const COLORREF lineColor = m_highContrast
+                ? ResolveTabTextColor(selected, computedBackground)
+                : ResolveTabRecencyColor(lineBackground, accentColor, recencyOpacity);
+            if (HBRUSH brush = GetCachedBrush(lineColor)) {
+                SelectObjectGuard brushGuard(dc, brush);
+                SelectObjectGuard penGuard(dc, GetStockObject(NULL_PEN));
+                Ellipse(dc, recencyRect.left, recencyRect.top, recencyRect.right, recencyRect.bottom);
+            }
+        }
     }
 
     RECT textRect = rect;
@@ -5118,6 +5156,7 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
 
         bool resyncNeeded = false;
         bool changed = false;
+        bool recencyChanged = false;
         std::vector<size_t> progressChanged;
         progressChanged.reserve(updatePayload->entries.size());
 
@@ -5142,6 +5181,7 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
                 data.lastActivatedTick = entry.lastActivatedTick;
                 data.activationOrdinal = entry.activationOrdinal;
                 entryChanged = true;
+                recencyChanged = true;
             }
 
             if (data.progress != entry.progress) {
@@ -5190,7 +5230,8 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
 
         if (!progressChanged.empty()) {
             InvalidateProgressForIndices(progressChanged);
-        } else if (changed && m_hwnd) {
+        }
+        if ((recencyChanged || (changed && progressChanged.empty())) && m_hwnd) {
             InvalidateRect(m_hwnd, nullptr, FALSE);
         }
 
@@ -5245,6 +5286,7 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
     }
 
     bool changed = false;
+    bool recencyChanged = false;
     std::vector<size_t> progressChanged;
     progressChanged.reserve(snapshot.size());
     for (size_t i = 0; i < snapshot.size(); ++i) {
@@ -5252,6 +5294,7 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
             m_tabData[i].activationOrdinal != snapshot[i].activationOrdinal) {
             m_tabData[i].lastActivatedTick = snapshot[i].lastActivatedTick;
             m_tabData[i].activationOrdinal = snapshot[i].activationOrdinal;
+            recencyChanged = true;
             if (i < m_items.size()) {
                 m_items[i].data.lastActivatedTick = snapshot[i].lastActivatedTick;
                 m_items[i].data.activationOrdinal = snapshot[i].activationOrdinal;
@@ -5289,7 +5332,8 @@ void TabBandWindow::RefreshProgressState(const std::vector<TabLocation>& priorit
 
     if (!progressChanged.empty()) {
         InvalidateProgressForIndices(progressChanged);
-    } else if (changed && m_hwnd) {
+    }
+    if ((recencyChanged || (changed && progressChanged.empty())) && m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
@@ -5642,6 +5686,11 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
 
 	// Handle the bulk of tab/island commands with a switch.
 	switch (id) {
+        case IDM_SAVE_FOLDER_TO_GROUP:
+            if (m_contextHit.type == HitType::kTab && m_contextHit.location.IsValid()) {
+                m_owner->OnSaveFolderToGroup(m_contextHit.location);
+            }
+            break;
 	case IDM_CLOSE_TAB:
 		if (m_contextHit.location.IsValid()) {
 			m_owner->OnCloseTabRequested(m_contextHit.location);
@@ -7198,6 +7247,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_TOGGLE_PIN_TAB, pinned ? L"Unpin Tab" : L"Pin Tab");
             AppendMenuW(menu, MF_STRING, IDM_DETACH_TAB, L"Move to New Window");
             AppendMenuW(menu, MF_STRING, IDM_CLONE_TAB, L"Clone Tab");
+            AppendMenuW(menu, MF_STRING, IDM_SAVE_FOLDER_TO_GROUP, L"Save folder to group");
 
             const bool canCloseOthers = m_owner->CanCloseOtherTabs(hit.location);
             const bool canCloseRight = m_owner->CanCloseTabsToRight(hit.location);
