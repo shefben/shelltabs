@@ -44,6 +44,8 @@ private:
                                                 UINT_PTR id, DWORD_PTR refData);
     static LRESULT CALLBACK TreeParentSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                                    UINT_PTR id, DWORD_PTR refData);
+    static LRESULT CALLBACK ListViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                 UINT_PTR id, DWORD_PTR refData);
     static bool HandlePopupCommand(UINT command);
 
     void AttachDefView(HWND defView);
@@ -53,6 +55,9 @@ private:
     void ApplyListViewTheme();
 
     LRESULT HandleListCustomDraw(NMLVCUSTOMDRAW* draw, LRESULT defaultResult);
+    void SubclassListView();
+    void UnsubclassListView();
+    HWND m_subclassedListView = nullptr;
     LRESULT HandleTreeCustomDraw(NMTVCUSTOMDRAW* draw, LRESULT defaultResult);
     std::optional<COLORREF> ResolveListItemColor(int index);
     std::optional<COLORREF> ResolveTreeItemColor(HTREEITEM item);

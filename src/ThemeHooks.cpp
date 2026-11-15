@@ -1011,12 +1011,17 @@ using OpenThemeDataExFn = HTHEME(WINAPI*)(HWND, LPCWSTR, DWORD);
 using OpenThemeDataForDpiFn = HTHEME(WINAPI*)(HWND, LPCWSTR, UINT);
 using CloseThemeDataFn = HRESULT(WINAPI*)(HTHEME);
 using GetThemeColorFn = HRESULT(WINAPI*)(HTHEME, int, int, int, COLORREF*);
+using DrawThemeBackgroundExFn = HRESULT(WINAPI*)(HTHEME, HDC, int, int, LPCRECT, const DTBGOPTS*);
 
 OpenThemeDataFn g_originalOpenThemeData = nullptr;
 OpenThemeDataExFn g_originalOpenThemeDataEx = nullptr;
 OpenThemeDataForDpiFn g_originalOpenThemeDataForDpi = nullptr;
 CloseThemeDataFn g_originalCloseThemeData = nullptr;
 GetThemeColorFn g_originalGetThemeColor = nullptr;
+// DirectUI (dui70.dll) paints its themed backgrounds through DrawThemeBackgroundEx, not
+// DrawThemeBackground, so Control Panel panes need this hook to turn dark.
+DrawThemeBackgroundExFn g_originalDrawThemeBackgroundEx = nullptr;
+void* g_drawThemeBackgroundExTarget = nullptr;
 void* g_openThemeDataTarget = nullptr;
 void* g_openThemeDataExTarget = nullptr;
 void* g_openThemeDataForDpiTarget = nullptr;
@@ -1241,6 +1246,15 @@ bool TryPaintDarkThemePart(HTHEME theme, HDC dc, int partId, const RECT* rect, c
     }
     DeleteObject(brush);
     return true;
+}
+
+HRESULT WINAPI DrawThemeBackgroundExDetour(HTHEME theme, HDC dc, int partId, int stateId, LPCRECT rect,
+                                           const DTBGOPTS* options) {
+    const RECT* clipRect = (options && (options->dwFlags & DTBG_CLIPRECT) != 0) ? &options->rcClip : nullptr;
+    if (TryPaintDarkThemePart(theme, dc, partId, rect, clipRect)) {
+        return S_OK;
+    }
+    return g_originalDrawThemeBackgroundEx(theme, dc, partId, stateId, rect, options);
 }
 
 HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int stateId, const RECT* rect,
@@ -2410,6 +2424,12 @@ bool InitializeThemeHooks() {
             InstallHook(g_getThemeColorTarget, reinterpret_cast<void*>(&GetThemeColorDetour),
                         reinterpret_cast<void**>(&g_originalGetThemeColor), L"GetThemeColor");
         }
+        g_drawThemeBackgroundExTarget =
+            uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "DrawThemeBackgroundEx")) : nullptr;
+        if (g_drawThemeBackgroundExTarget) {
+            InstallHook(g_drawThemeBackgroundExTarget, reinterpret_cast<void*>(&DrawThemeBackgroundExDetour),
+                        reinterpret_cast<void**>(&g_originalDrawThemeBackgroundEx), L"DrawThemeBackgroundEx");
+        }
     }
 
     g_hooksActive = true;
@@ -2423,6 +2443,7 @@ void ShutdownThemeHooks() {
         return;
     }
 
+    DisableHook(g_drawThemeBackgroundExTarget, L"DrawThemeBackgroundEx");
     DisableHook(g_getThemeColorTarget, L"GetThemeColor");
     DisableHook(g_openThemeDataForDpiTarget, L"OpenThemeDataForDpi");
     DisableHook(g_openThemeDataExTarget, L"OpenThemeDataEx");

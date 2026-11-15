@@ -2325,7 +2325,7 @@ std::optional<NavigationHistoryEntry> TabManager::NavigateBack(TabLocation locat
     // Return a copy of the entry at the new position
     NavigationHistoryEntry result;
     const auto& entry = history.entries[history.currentIndex];
-    result.pidl = ClonePidl(entry.pidl.get());
+    result.pidl = entry.pidl ? ClonePidl(entry.pidl.get()) : ParseDisplayName(entry.path);
     result.path = entry.path;
     result.name = entry.name;
     result.timestamp = entry.timestamp;
@@ -2349,7 +2349,7 @@ std::optional<NavigationHistoryEntry> TabManager::NavigateForward(TabLocation lo
     // Return a copy of the entry at the new position
     NavigationHistoryEntry result;
     const auto& entry = history.entries[history.currentIndex];
-    result.pidl = ClonePidl(entry.pidl.get());
+    result.pidl = entry.pidl ? ClonePidl(entry.pidl.get()) : ParseDisplayName(entry.path);
     result.path = entry.path;
     result.name = entry.name;
     result.timestamp = entry.timestamp;
@@ -2376,7 +2376,7 @@ std::optional<NavigationHistoryEntry> TabManager::NavigateToHistory(TabLocation 
 
     NavigationHistoryEntry result;
     const auto& entry = history.entries[targetIndex];
-    result.pidl = ClonePidl(entry.pidl.get());
+    result.pidl = entry.pidl ? ClonePidl(entry.pidl.get()) : ParseDisplayName(entry.path);
     result.path = entry.path;
     result.name = entry.name;
     result.timestamp = entry.timestamp;
@@ -2426,7 +2426,7 @@ void TabManager::GarbageCollectHibernatedTabs() {
             if (tab.lastActivatedTick > 0 && (now > tab.lastActivatedTick) && ((now - tab.lastActivatedTick) > kHibernationTimeoutMs)) {
                 tab.hibernated = true;
                 tab.pidl.reset();
-                tab.navigationHistory.Clear();
+                // Keep navigationHistory: back/forward must survive hibernation.
                 tab.tooltip = L"Hibernated (Click to wake)";
                 changed = true;
                 LogMessage(LogLevel::Info, L"GarbageCollectHibernatedTabs: Hibernated tab '%s'", tab.name.c_str());

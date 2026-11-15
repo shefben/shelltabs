@@ -182,6 +182,7 @@ void NameColorView::DetachDefView() {
     if (m_defView && IsWindow(m_defView)) {
         RemoveWindowSubclass(m_defView, &NameColorView::DefViewSubclassProc, kSubclassId);
     }
+    UnsubclassListView();
     m_defView = nullptr;
     m_listView = nullptr;
 }
@@ -237,6 +238,58 @@ void NameColorView::ApplyListViewTheme() {
     ListView_SetBkColor(m_listView, background);
     ListView_SetTextBkColor(m_listView, CLR_NONE);
     ListView_SetTextColor(m_listView, text);
+    SubclassListView();
+    if (HWND header = ListView_GetHeader(m_listView)) {
+        InvalidateRect(header, nullptr, TRUE);
+    }
+}
+
+// The header control is a child of the list view, so its NM_CUSTOMDRAW reaches the list view.
+// The dark items-view theme paints a dark header background but leaves the text near-black;
+// the list view subclass supplies a readable text color in dark mode.
+void NameColorView::SubclassListView() {
+    if (m_subclassedListView == m_listView) {
+        return;
+    }
+    UnsubclassListView();
+    if (m_listView && IsWindow(m_listView) &&
+        SetWindowSubclass(m_listView, &NameColorView::ListViewSubclassProc, kSubclassId,
+                          reinterpret_cast<DWORD_PTR>(this))) {
+        m_subclassedListView = m_listView;
+    }
+}
+
+void NameColorView::UnsubclassListView() {
+    if (m_subclassedListView && IsWindow(m_subclassedListView)) {
+        RemoveWindowSubclass(m_subclassedListView, &NameColorView::ListViewSubclassProc, kSubclassId);
+    }
+    m_subclassedListView = nullptr;
+}
+
+LRESULT CALLBACK NameColorView::ListViewSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                    UINT_PTR id, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<NameColorView*>(refData);
+    if (msg == WM_NOTIFY && self && self->m_darkMode) {
+        auto* header = reinterpret_cast<NMHDR*>(lParam);
+        if (header && header->code == NM_CUSTOMDRAW && header->hwndFrom == ListView_GetHeader(hwnd)) {
+            auto* draw = reinterpret_cast<NMCUSTOMDRAW*>(lParam);
+            if (draw->dwDrawStage == CDDS_PREPAINT) {
+                const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                return result | CDRF_NOTIFYITEMDRAW;
+            }
+            if (draw->dwDrawStage == CDDS_ITEMPREPAINT) {
+                SetTextColor(draw->hdc, RGB(222, 222, 222));
+                return DefSubclassProc(hwnd, msg, wParam, lParam) | CDRF_NEWFONT;
+            }
+        }
+    }
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, &NameColorView::ListViewSubclassProc, id);
+        if (self && self->m_subclassedListView == hwnd) {
+            self->m_subclassedListView = nullptr;
+        }
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 std::optional<COLORREF> NameColorView::ResolveListItemColor(int index) {

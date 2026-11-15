@@ -2848,8 +2848,11 @@ LRESULT CALLBACK TabBandWindow::RebarSubclassProc(HWND hwnd, UINT msg,
 		// rebar background. Let the menu band do its custom draw, then force readable colors.
 		auto* header = reinterpret_cast<NMHDR*>(lParam);
 		if (!self || !header || header->code != NM_CUSTOMDRAW || !header->hwndFrom ||
-		    header->hwndFrom == self->m_hwnd || GetParent(header->hwndFrom) != hwnd ||
-		    !self->m_darkMode || self->m_highContrast) {
+		    header->hwndFrom == self->m_hwnd || GetParent(header->hwndFrom) != hwnd || self->m_highContrast) {
+			break;
+		}
+		// Light mode keeps Explorer's own colors unless the breadcrumb font gradient is on.
+		if (!self->m_darkMode && !OptionsStore::Instance().Get().enableBreadcrumbFontGradient) {
 			break;
 		}
 		wchar_t className[32] = {};
@@ -2859,12 +2862,72 @@ LRESULT CALLBACK TabBandWindow::RebarSubclassProc(HWND hwnd, UINT msg,
 		}
 		auto* draw = reinterpret_cast<NMTBCUSTOMDRAW*>(lParam);
 		LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+		// Mirrors the breadcrumb font gradient so the menu labels match the address bar.
+		struct MenuFontGradient {
+			bool enabled = false;
+			bool custom = false;
+			int brightness = 85;
+			COLORREF start = 0;
+			COLORREF end = 0;
+			int left = 0;
+			int right = 0;
+		};
+		thread_local MenuFontGradient s_menuGradient;
 		if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) {
+			const ShellTabsOptions options = OptionsStore::Instance().Get();
+			s_menuGradient.enabled = options.enableBreadcrumbFontGradient;
+			s_menuGradient.custom = options.useCustomBreadcrumbFontColors;
+			s_menuGradient.brightness = std::clamp(options.breadcrumbFontBrightness, 0, 100);
+			s_menuGradient.start = options.breadcrumbFontGradientStartColor;
+			s_menuGradient.end = options.breadcrumbFontGradientEndColor;
+			s_menuGradient.left = 0;
+			s_menuGradient.right = 0;
+			const int count = static_cast<int>(SendMessageW(header->hwndFrom, TB_BUTTONCOUNT, 0, 0));
+			bool any = false;
+			for (int i = 0; i < count; ++i) {
+				RECT itemRect{};
+				if (!SendMessageW(header->hwndFrom, TB_GETITEMRECT, i, reinterpret_cast<LPARAM>(&itemRect))) {
+					continue;
+				}
+				s_menuGradient.left = any ? std::min<int>(s_menuGradient.left, itemRect.left) : itemRect.left;
+				s_menuGradient.right = any ? std::max<int>(s_menuGradient.right, itemRect.right) : itemRect.right;
+				any = true;
+			}
 			result |= CDRF_NOTIFYITEMDRAW;
 		} else if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && (result & CDRF_SKIPDEFAULT) == 0) {
 			const COLORREF background = self->m_themePalette.rebarBackground;
 			const bool hot = (draw->nmcd.uItemState & (CDIS_HOT | CDIS_SELECTED | CDIS_CHECKED)) != 0;
 			draw->clrText = self->ResolveTextColor(background);
+			if (s_menuGradient.enabled) {
+				const int center = (draw->nmcd.rc.left + draw->nmcd.rc.right) / 2;
+				const int span = s_menuGradient.right - s_menuGradient.left;
+				const double position =
+				    span > 0 ? std::clamp(static_cast<double>(center - s_menuGradient.left) / span, 0.0, 1.0) : 0.0;
+				COLORREF start = s_menuGradient.start;
+				COLORREF end = s_menuGradient.end;
+				if (!s_menuGradient.custom) {
+					// Same palette the breadcrumb uses when no custom font colors are set.
+					static constexpr COLORREF kRainbow[] = {RGB(255, 59, 48),  RGB(255, 149, 0), RGB(255, 204, 0),
+					                                        RGB(52, 199, 89),  RGB(0, 122, 255), RGB(88, 86, 214),
+					                                        RGB(175, 82, 222)};
+					constexpr int kCount = static_cast<int>(ARRAYSIZE(kRainbow));
+					const double scaled = position * (kCount - 1);
+					const int index = std::clamp(static_cast<int>(scaled), 0, kCount - 2);
+					start = kRainbow[index];
+					end = kRainbow[index + 1];
+					const double local = scaled - index;
+					auto mix = [&](BYTE a, BYTE b) {
+						const int value = static_cast<int>(a + (b - a) * local + 0.5);
+						return static_cast<BYTE>(value + ((255 - value) * s_menuGradient.brightness) / 100);
+					};
+					draw->clrText = RGB(mix(GetRValue(start), GetRValue(end)), mix(GetGValue(start), GetGValue(end)),
+					                    mix(GetBValue(start), GetBValue(end)));
+				} else {
+					auto mix = [&](BYTE a, BYTE b) { return static_cast<BYTE>(a + (b - a) * position + 0.5); };
+					draw->clrText = RGB(mix(GetRValue(start), GetRValue(end)), mix(GetGValue(start), GetGValue(end)),
+					                    mix(GetBValue(start), GetBValue(end)));
+				}
+			}
 			draw->clrTextHighlight = draw->clrText;
 			draw->clrBtnFace = background;
 			draw->clrHighlightHotTrack = BlendColors(background, RGB(255, 255, 255), 0.18);

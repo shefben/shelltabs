@@ -1744,6 +1744,17 @@ bool CExplorerBHO::IsBreadcrumbToolbarCandidate(HWND hwnd) const {
         return false;
     }
 
+    // On ribbon-less pages (Control Panel and other special folders) Explorer shows its legacy
+    // menu band (File/Edit/View/Tools): a text toolbar in the shell tab's own rebar
+    // (ShellTabWindowClass > WorkerW > ReBarWindow32). It passes the generic checks below, and
+    // treating it as the breadcrumb painted the address gradient over the menu labels.
+    if (HWND rebar = GetParent(hwnd); rebar && MatchesClass(rebar, L"ReBarWindow32")) {
+        HWND worker = GetParent(rebar);
+        if (worker && MatchesClass(worker, L"WorkerW") && MatchesClass(GetParent(worker), L"ShellTabWindowClass")) {
+            return false;
+        }
+    }
+
     LRESULT buttonCount = SendMessage(hwnd, TB_BUTTONCOUNT, 0, 0);
     if (buttonCount <= 0) {
         return false;

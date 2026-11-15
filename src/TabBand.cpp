@@ -2720,7 +2720,6 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
             tab.hasScrollPosition = tabData.hasScrollPosition;
             tab.scrollPosition.x = tabData.scrollX;
             tab.scrollPosition.y = tabData.scrollY;
-            tab.navigationHistory.currentIndex = tabData.historyIndex;
             for (const auto& he : tabData.history) {
                 NavigationHistoryEntry entry;
                 entry.path = he.path;
@@ -2728,6 +2727,22 @@ bool TabBand::RestoreSessionFromData(const SessionData& data) {
                 entry.timestamp = he.timestamp;
                 entry.pidl = ParseDisplayName(he.path);
                 tab.navigationHistory.entries.push_back(std::move(entry));
+            }
+            if (!tab.navigationHistory.entries.empty()) {
+                const int lastIndex = static_cast<int>(tab.navigationHistory.entries.size()) - 1;
+                int index = tabData.historyIndex;
+                if (index < 0 || index > lastIndex) {
+                    // Fall back to the entry matching the tab's own location.
+                    index = lastIndex;
+                    for (int i = lastIndex; i >= 0; --i) {
+                        if (_wcsicmp(tab.navigationHistory.entries[static_cast<size_t>(i)].path.c_str(),
+                                     tab.path.c_str()) == 0) {
+                            index = i;
+                            break;
+                        }
+                    }
+                }
+                tab.navigationHistory.currentIndex = index;
             }
             tab.RefreshNormalizedLookupKey();
             group.tabs.emplace_back(std::move(tab));
@@ -4185,7 +4200,14 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
                 int crashSelectedIndex = -1;
                 bool fastRestored = false;
 
-                if (m_sessionStore && CrashRecoveryLogger::Instance().ReadCrashedState(m_sessionStore->Slot(), crashPaths, crashSelectedIndex)) {
+                // The session file carries per-tab navigation history; the crash
+                // snapshot only has bare paths. Prefer the session file and use the
+                // snapshot only when the file cannot be claimed.
+                if (m_sessionStore->Load(data)) {
+                    result->sessionData = std::move(data);
+                    result->hasSessionData = true;
+                    fastRestored = true;
+                } else if (CrashRecoveryLogger::Instance().ReadCrashedState(m_sessionStore->Slot(), crashPaths, crashSelectedIndex)) {
                     SessionGroup group;
                     group.name = L"Recovered";
                     for (const auto& path : crashPaths) {
@@ -4204,13 +4226,8 @@ void TabBand::RunBackgroundInitialization(std::stop_token stopToken, uint64_t se
                 }
 
                 if (!fastRestored) {
-                    if (m_sessionStore->Load(data)) {
-                        result->sessionData = std::move(data);
-                        result->hasSessionData = true;
-                    } else {
-                        LogMessage(LogLevel::Warning,
-                                   L"TabBand::RunBackgroundInitialization no session data to claim");
-                    }
+                    LogMessage(LogLevel::Warning,
+                               L"TabBand::RunBackgroundInitialization no session data to claim");
                 }
             }
         }
