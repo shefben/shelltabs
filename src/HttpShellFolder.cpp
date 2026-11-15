@@ -1688,28 +1688,11 @@ bool HttpShellFolder::ExtractRelativeSegments(PCUIDLIST_RELATIVE pidl, std::vect
     return !segments->empty() || (pidl->mkid.cb == 0);
 }
 
-std::wstring HttpShellFolder::BuildRemotePath(const std::vector<std::wstring>& extra) const {
-    return JoinSegments(pathSegments_, extra);
-}
 
 // Static members for download queue management
 std::mutex HttpShellFolder::s_queueMutex;
 std::unordered_map<std::wstring, std::unique_ptr<HttpDownloadQueue>> HttpShellFolder::s_downloadQueues;
 
-HttpDownloadQueue* HttpShellFolder::GetDownloadQueue(const std::wstring& host,
-                                                      int maxConcurrent, int speedLimitKBps) {
-    std::lock_guard<std::mutex> lock(s_queueMutex);
-    auto it = s_downloadQueues.find(host);
-    if (it == s_downloadQueues.end()) {
-        auto queue = std::make_unique<HttpDownloadQueue>();
-        queue->Configure(maxConcurrent, speedLimitKBps);
-        auto* ptr = queue.get();
-        s_downloadQueues[host] = std::move(queue);
-        return ptr;
-    }
-    it->second->Configure(maxConcurrent, speedLimitKBps);
-    return it->second.get();
-}
 
 HRESULT HttpShellFolder::DownloadFileToStream(const std::vector<std::wstring>& segments,
                                               ComPtr<IStream>* stream) const {

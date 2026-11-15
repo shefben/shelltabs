@@ -441,18 +441,6 @@ struct MMFQueue {
 };
 static HANDLE s_mmfHandle = nullptr;
 static MMFQueue* s_mmfBuffer = nullptr;
-void InitializeMMFIPC() {
-    if (!s_mmfHandle) {
-        s_mmfHandle = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 4096, L"Local\\ShellTabsMMFIPC");
-        if (s_mmfHandle) {
-            s_mmfBuffer = static_cast<MMFQueue*>(MapViewOfFile(s_mmfHandle, FILE_MAP_ALL_ACCESS, 0, 0, 4096));
-            if (s_mmfBuffer && GetLastError() != ERROR_ALREADY_EXISTS) {
-                s_mmfBuffer->head = 0;
-                s_mmfBuffer->tail = 0;
-            }
-        }
-    }
-}
 
 
 TabBandWindow* FindWindowFromPoint(const POINT& screenPt) {
@@ -507,29 +495,177 @@ SharedDragState& GetSharedDragState() {
     return state;
 }
 
+// ---------------------------------------------------------------------------
+// Cross-process tab transfer.
+//
+// Explorer frequently hosts folder windows in several explorer.exe processes
+// (the shell process, "/factory" COM hosts, separate-process windows). The
+// in-process window registry above cannot see bands that live in another
+// process, so tab drags between those windows use WM_COPYDATA (drop) and
+// registered window messages (hover feedback) instead.
+// ---------------------------------------------------------------------------
+constexpr ULONG_PTR kCrossProcessTransferCopyDataId = 'STXF';
+constexpr wchar_t kCrossProcessTransferSignature[] = L"STXF1";
+constexpr UINT WM_SHELLTABS_CROSS_PROCESS_DROP = WM_APP + 97;
+// Folder paths received via WM_COPYDATA are opened from a posted message: navigating
+// (IShellBrowser::BrowseObject) inside another process's inbound SendMessage is ignored by
+// Explorer, which left the new tab relabelled as the folder that was already open.
+constexpr UINT WM_SHELLTABS_OPEN_FOLDER_ASYNC = WM_APP + 98;
+constexpr DWORD kCrossProcessDropTimeoutMs = 5000;
+
+UINT GetCrossProcessHoverMessage() {
+    static const UINT message = RegisterWindowMessageW(L"ShellTabs.CrossProcessDragHover");
+    return message;
+}
+
+UINT GetCrossProcessLeaveMessage() {
+    static const UINT message = RegisterWindowMessageW(L"ShellTabs.CrossProcessDragLeave");
+    return message;
+}
+
+// Returns a ShellTabs band window under the point that belongs to a different process.
+HWND FindRemoteBandWindowFromPoint(const POINT& screenPt) {
+    HWND target = WindowFromPoint(screenPt);
+    const DWORD currentProcess = GetCurrentProcessId();
+    while (target) {
+        wchar_t className[64] = {};
+        if (GetClassNameW(target, className, ARRAYSIZE(className)) > 0 &&
+            wcscmp(className, kWindowClassName) == 0) {
+            DWORD processId = 0;
+            GetWindowThreadProcessId(target, &processId);
+            return (processId != 0 && processId != currentProcess) ? target : nullptr;
+        }
+        target = GetParent(target);
+    }
+    return nullptr;
+}
+
+std::wstring PidlToHex(PCIDLIST_ABSOLUTE pidl) {
+    if (!pidl) {
+        return {};
+    }
+    static constexpr wchar_t kDigits[] = L"0123456789ABCDEF";
+    const UINT size = ILGetSize(pidl);
+    const auto* bytes = reinterpret_cast<const BYTE*>(pidl);
+    std::wstring out;
+    out.reserve(static_cast<size_t>(size) * 2);
+    for (UINT i = 0; i < size; ++i) {
+        out.push_back(kDigits[bytes[i] >> 4]);
+        out.push_back(kDigits[bytes[i] & 0x0F]);
+    }
+    return out;
+}
+
+UniquePidl PidlFromHex(const std::wstring& hex) {
+    if (hex.size() < 4 || (hex.size() % 2) != 0) {
+        return nullptr;
+    }
+    auto nibble = [](wchar_t ch) -> int {
+        if (ch >= L'0' && ch <= L'9') return ch - L'0';
+        if (ch >= L'A' && ch <= L'F') return ch - L'A' + 10;
+        if (ch >= L'a' && ch <= L'f') return ch - L'a' + 10;
+        return -1;
+    };
+    const size_t size = hex.size() / 2;
+    auto* bytes = static_cast<BYTE*>(CoTaskMemAlloc(size));
+    if (!bytes) {
+        return nullptr;
+    }
+    for (size_t i = 0; i < size; ++i) {
+        const int high = nibble(hex[i * 2]);
+        const int low = nibble(hex[i * 2 + 1]);
+        if (high < 0 || low < 0) {
+            CoTaskMemFree(bytes);
+            return nullptr;
+        }
+        bytes[i] = static_cast<BYTE>((high << 4) | low);
+    }
+    // Validate the SHITEMID chain stays in bounds and terminates exactly at the end.
+    size_t offset = 0;
+    bool valid = false;
+    while (offset + 2 <= size) {
+        const size_t cb = static_cast<size_t>(bytes[offset]) | (static_cast<size_t>(bytes[offset + 1]) << 8);
+        if (cb == 0) {
+            valid = (offset + 2 == size);
+            break;
+        }
+        if (cb < 2 || offset + cb > size) {
+            break;
+        }
+        offset += cb;
+    }
+    if (!valid) {
+        CoTaskMemFree(bytes);
+        return nullptr;
+    }
+    return UniquePidl(reinterpret_cast<PIDLIST_ABSOLUTE>(bytes));
+}
+
+TabInfo BuildTransferredTabInfo(UniquePidl pidl, bool pinned) {
+    TabInfo info;
+    std::wstring parsing = GetCanonicalParsingName(pidl.get());
+    if (parsing.empty()) {
+        parsing = GetParsingName(pidl.get());
+    }
+    info.name = GetDisplayName(pidl.get());
+    if (info.name.empty()) {
+        info.name = parsing;
+    }
+    info.tooltip = parsing.empty() ? info.name : parsing;
+    info.path = parsing;
+    info.pinned = pinned;
+    info.pidl = std::move(pidl);
+    info.RefreshNormalizedLookupKey();
+    return info;
+}
+
+std::vector<std::wstring> SplitLines(const std::wstring& text) {
+    std::vector<std::wstring> lines;
+    size_t start = 0;
+    while (start <= text.size()) {
+        const size_t end = text.find(L'\n', start);
+        if (end == std::wstring::npos) {
+            lines.emplace_back(text.substr(start));
+            break;
+        }
+        lines.emplace_back(text.substr(start, end - start));
+        start = end + 1;
+    }
+    return lines;
+}
+
+std::wstring SanitizeLine(std::wstring value) {
+    for (auto& ch : value) {
+        if (ch == L'\n' || ch == L'\r') {
+            ch = L' ';
+        }
+    }
+    return value;
+}
+
+}  // namespace
+
+struct TabBandWindow::CrossProcessDropRequest {
+    bool isGroup = false;
+    POINT screen{};
+    std::wstring groupName;
+    bool headerVisible = true;
+    bool hasCustomOutline = false;
+    COLORREF outlineColor = RGB(0, 120, 215);
+    int outlineStyle = 0;
+    std::wstring savedGroupId;
+    std::vector<TabInfo> tabs;
+};
+
+namespace {
+
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-COLORREF GetGroupColor(bool selected) {
-    return selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE);
-}
 
-COLORREF GetTabColor(bool selected) {
-    return selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_WINDOW);
-}
 
-COLORREF GetTabTextColor(bool selected) {
-    return selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT);
-}
 
-COLORREF LightenColor(COLORREF color, double factor) {
-    factor = std::clamp(factor, 0.0, 1.0);
-    const int r = static_cast<int>(GetRValue(color) + (255 - GetRValue(color)) * factor);
-    const int g = static_cast<int>(GetGValue(color) + (255 - GetGValue(color)) * factor);
-    const int b = static_cast<int>(GetBValue(color) + (255 - GetBValue(color)) * factor);
-    return RGB(std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255));
-}
 
 COLORREF DarkenColor(COLORREF color, double factor) {
     factor = std::clamp(factor, 0.0, 1.0);
@@ -800,14 +936,6 @@ void TabBandWindow::SetPreferredDockMode(TabBandDockMode mode) {
     EnsureRebarIntegration();
 }
 
-uint32_t TabBandWindow::GetAvailableDockMask() {
-    uint32_t mask = g_availableDockMask.load(std::memory_order_acquire);
-    if (mask == 0) {
-        mask |= DockModeToMask(TabBandDockMode::kTop);
-        mask |= DockModeToMask(TabBandDockMode::kBottom);
-    }
-    return mask;
-}
 
 HWND TabBandWindow::Create(HWND parent) {
     if (m_hwnd) {
@@ -2405,19 +2533,6 @@ COLORREF TabBandWindow::ResolveTabBackground(const TabViewItem& item) const {
     return base;
 }
 
-COLORREF TabBandWindow::ResolveGroupBackground(const TabViewItem& item) const {
-    if (m_highContrast) {
-        return item.selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_BTNFACE);
-    }
-    COLORREF base = m_themePalette.groupBase;
-    if (item.selected) {
-        base = BlendColors(base, m_accentColor, m_darkMode ? 0.4 : 0.25);
-    }
-    if (item.hasCustomOutline) {
-        base = BlendColors(base, item.outlineColor, m_darkMode ? 0.35 : 0.25);
-    }
-    return base;
-}
 
 COLORREF TabBandWindow::ResolveTextColor(COLORREF background) const {
     return ComputeLuminance(background) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
@@ -2439,21 +2554,6 @@ COLORREF TabBandWindow::ResolveTabTextColor(bool selected, COLORREF background) 
     return ResolveTextColor(background);
 }
 
-COLORREF TabBandWindow::ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const {
-    if (m_highContrast) {
-        return item.selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT);
-    }
-    if (item.selected && m_themePalette.tabSelectedTextValid) {
-        return m_themePalette.tabSelectedText;
-    }
-    if (m_themePalette.groupTextValid) {
-        return m_themePalette.groupText;
-    }
-    if (item.selected) {
-        return GetSysColor(COLOR_HIGHLIGHTTEXT);
-    }
-    return ResolveTextColor(background);
-}
 
 bool TabBandWindow::FindEmptyIslandPlusAt(POINT pt, int* outGroupIndex) const {
         for (const auto& b : m_emptyIslandPlusButtons) {
@@ -2740,6 +2840,40 @@ LRESULT CALLBACK TabBandWindow::RebarSubclassProc(HWND hwnd, UINT msg,
 			if (br) { FillRect(hdc, &rc, br); DeleteObject(br); }
 		}
 		break; // let children continue drawing
+	}
+	case WM_NOTIFY: {
+		// Folders without a ribbon (Control Panel, other special namespaces) show Explorer's
+		// legacy menu band (File/Edit/View/Tools) as a toolbar inside this rebar. Explorer
+		// paints its text with the light-theme menu color, which is invisible on our dark
+		// rebar background. Let the menu band do its custom draw, then force readable colors.
+		auto* header = reinterpret_cast<NMHDR*>(lParam);
+		if (!self || !header || header->code != NM_CUSTOMDRAW || !header->hwndFrom ||
+		    header->hwndFrom == self->m_hwnd || GetParent(header->hwndFrom) != hwnd ||
+		    !self->m_darkMode || self->m_highContrast) {
+			break;
+		}
+		wchar_t className[32] = {};
+		if (GetClassNameW(header->hwndFrom, className, ARRAYSIZE(className)) == 0 ||
+		    wcscmp(className, TOOLBARCLASSNAME) != 0) {
+			break;
+		}
+		auto* draw = reinterpret_cast<NMTBCUSTOMDRAW*>(lParam);
+		LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+		if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) {
+			result |= CDRF_NOTIFYITEMDRAW;
+		} else if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && (result & CDRF_SKIPDEFAULT) == 0) {
+			const COLORREF background = self->m_themePalette.rebarBackground;
+			const bool hot = (draw->nmcd.uItemState & (CDIS_HOT | CDIS_SELECTED | CDIS_CHECKED)) != 0;
+			draw->clrText = self->ResolveTextColor(background);
+			draw->clrTextHighlight = draw->clrText;
+			draw->clrBtnFace = background;
+			draw->clrHighlightHotTrack = BlendColors(background, RGB(255, 255, 255), 0.18);
+			result |= TBCDRF_USECDCOLORS;
+			if (hot) {
+				result |= TBCDRF_HILITEHOTTRACK;
+			}
+		}
+		return result;
 	}
         case WM_NCDESTROY:
                 RemoveWindowSubclass(hwnd, RebarSubclassProc, 0);
@@ -5686,6 +5820,11 @@ void TabBandWindow::HandleCommand(WPARAM wParam, LPARAM lParam) {
 
 	// Handle the bulk of tab/island commands with a switch.
 	switch (id) {
+        case IDM_SAVE_ISLAND:
+            if (m_contextHit.location.groupIndex >= 0) {
+                m_owner->OnSaveIslandToGroup(m_contextHit.location.groupIndex);
+            }
+            break;
         case IDM_SAVE_FOLDER_TO_GROUP:
             if (m_contextHit.type == HitType::kTab && m_contextHit.location.IsValid()) {
                 m_owner->OnSaveFolderToGroup(m_contextHit.location);
@@ -6059,6 +6198,7 @@ bool TabBandWindow::HandleMouseMove(const POINT& pt) {
         POINT screen = pt;
         ClientToScreen(m_hwnd, &screen);
         UpdateExternalDrag(screen);
+        UpdateCrossProcessHover(screen);
         TabBandWindow* targetWindow = FindWindowFromPoint(screen);
         if (!targetWindow || targetWindow == this) {
             UpdateDropTarget(pt);
@@ -6468,6 +6608,7 @@ void TabBandWindow::CancelDrag() {
         ReleaseCapture();
     }
     HideDragOverlay(true);
+    ClearCrossProcessHover();
     {
         auto& state = GetSharedDragState();
         TabBandWindow* hovered = nullptr;
@@ -7070,6 +7211,247 @@ void TabBandWindow::HandleExternalDropExecute() {
     m_externalDrop = {};
 }
 
+void TabBandWindow::UpdateCrossProcessHover(const POINT& screenPt) {
+    HWND remote = FindRemoteBandWindowFromPoint(screenPt);
+    if (m_crossProcessHover && m_crossProcessHover != remote) {
+        ClearCrossProcessHover();
+    }
+    if (!remote) {
+        return;
+    }
+    m_crossProcessHover = remote;
+    const bool group = m_drag.origin.type == HitType::kGroupHeader;
+    PostMessageW(remote, GetCrossProcessHoverMessage(), group ? 1 : 0, MAKELPARAM(screenPt.x, screenPt.y));
+}
+
+void TabBandWindow::ClearCrossProcessHover() {
+    if (m_crossProcessHover) {
+        if (IsWindow(m_crossProcessHover)) {
+            PostMessageW(m_crossProcessHover, GetCrossProcessLeaveMessage(), 0, 0);
+        }
+        m_crossProcessHover = nullptr;
+    }
+}
+
+void TabBandWindow::HandleCrossProcessHover(const POINT& screenPt, bool group) {
+    DropTarget previous = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
+    POINT client = screenPt;
+    ScreenToClient(m_hwnd, &client);
+    HitInfo origin;
+    origin.type = group ? HitType::kGroupHeader : HitType::kTab;
+    DropTarget target = ComputeDropTarget(client, origin);
+    if (!target.outside) {
+        ApplyExternalDropTarget(previous, target, nullptr);
+    } else {
+        DropTarget cleared{};
+        ApplyExternalDropTarget(previous, cleared, nullptr);
+        m_externalDrop = {};
+    }
+}
+
+bool TabBandWindow::TryCompleteCrossProcessDrop(const POINT& screenPt) {
+    HWND remote = FindRemoteBandWindowFromPoint(screenPt);
+    ClearCrossProcessHover();
+    if (!remote || !m_owner) {
+        return false;
+    }
+
+    const bool isGroup = m_drag.origin.type == HitType::kGroupHeader;
+    auto* manager = ResolveManager();
+    if (!manager) {
+        return false;
+    }
+
+    // Serialise the payload as simple newline separated text:
+    //   signature, kind, x, y, groupName, headerVisible, hasOutline, color, style, savedId, count,
+    //   then per tab: pinned, pidl-hex
+    std::wstring text;
+    auto appendLine = [&text](const std::wstring& line) {
+        text.append(line);
+        text.push_back(L'\n');
+    };
+
+    appendLine(kCrossProcessTransferSignature);
+    appendLine(isGroup ? L"G" : L"T");
+    appendLine(std::to_wstring(screenPt.x));
+    appendLine(std::to_wstring(screenPt.y));
+
+    std::vector<std::pair<bool, std::wstring>> tabs;
+    if (isGroup) {
+        const TabGroup* group = manager->GetGroup(m_drag.origin.location.groupIndex);
+        if (!group || group->tabs.empty()) {
+            return false;
+        }
+        appendLine(SanitizeLine(group->name));
+        appendLine(group->headerVisible ? L"1" : L"0");
+        appendLine(group->hasCustomOutline ? L"1" : L"0");
+        appendLine(std::to_wstring(static_cast<unsigned long>(group->outlineColor)));
+        appendLine(std::to_wstring(static_cast<int>(group->outlineStyle)));
+        appendLine(SanitizeLine(group->savedGroupId));
+        for (const auto& tab : group->tabs) {
+            std::wstring hex = PidlToHex(tab.pidl.get());
+            if (!hex.empty()) {
+                tabs.emplace_back(tab.pinned, std::move(hex));
+            }
+        }
+    } else {
+        if (!m_drag.origin.location.IsValid()) {
+            return false;
+        }
+        const TabInfo* tab = manager->Get(m_drag.origin.location);
+        if (!tab) {
+            return false;
+        }
+        appendLine(L"");
+        appendLine(L"1");
+        appendLine(L"0");
+        appendLine(L"0");
+        appendLine(L"0");
+        appendLine(L"");
+        std::wstring hex = PidlToHex(tab->pidl.get());
+        if (!hex.empty()) {
+            tabs.emplace_back(tab->pinned, std::move(hex));
+        }
+    }
+    if (tabs.empty()) {
+        return false;
+    }
+    appendLine(std::to_wstring(tabs.size()));
+    for (const auto& entry : tabs) {
+        appendLine(entry.first ? L"1" : L"0");
+        appendLine(entry.second);
+    }
+
+    COPYDATASTRUCT cds{};
+    cds.dwData = kCrossProcessTransferCopyDataId;
+    cds.cbData = static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t));
+    cds.lpData = const_cast<wchar_t*>(text.c_str());
+
+    DWORD_PTR result = 0;
+    const LRESULT sent = SendMessageTimeoutW(remote, WM_COPYDATA, reinterpret_cast<WPARAM>(m_hwnd),
+                                             reinterpret_cast<LPARAM>(&cds), SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                                             kCrossProcessDropTimeoutMs, &result);
+    if (!sent || result != TRUE) {
+        LogMessage(LogLevel::Warning, L"Cross-process tab drop rejected by hwnd=%p (sent=%d result=%llu)", remote,
+                   sent ? 1 : 0, static_cast<unsigned long long>(result));
+        return false;
+    }
+
+    // Receiver accepted the payload; remove the source item locally.
+    if (isGroup) {
+        m_owner->DetachGroupForTransfer(m_drag.origin.location.groupIndex, nullptr);
+    } else {
+        bool closeSourceWindow = false;
+        m_owner->DetachTabForTransfer(m_drag.origin.location, nullptr, false, &closeSourceWindow);
+        if (closeSourceWindow) {
+            m_owner->CloseFrameWindowAsync();
+        }
+    }
+
+    HWND targetFrame = GetAncestor(remote, GA_ROOT);
+    if (targetFrame) {
+        DWORD targetProcess = 0;
+        GetWindowThreadProcessId(targetFrame, &targetProcess);
+        if (targetProcess) {
+            AllowSetForegroundWindow(targetProcess);
+        }
+        SetForegroundWindow(targetFrame);
+    }
+    return true;
+}
+
+LRESULT TabBandWindow::HandleCrossProcessCopyData(const COPYDATASTRUCT* data) {
+    if (!data || !data->lpData || data->cbData < sizeof(wchar_t) || !m_owner) {
+        return FALSE;
+    }
+    const auto* buffer = static_cast<const wchar_t*>(data->lpData);
+    size_t length = data->cbData / sizeof(wchar_t);
+    while (length > 0 && buffer[length - 1] == L'\0') {
+        --length;
+    }
+    const std::vector<std::wstring> lines = SplitLines(std::wstring(buffer, length));
+    constexpr size_t kHeaderLines = 11;
+    if (lines.size() < kHeaderLines || lines[0] != kCrossProcessTransferSignature) {
+        return FALSE;
+    }
+
+    auto request = std::make_unique<CrossProcessDropRequest>();
+    try {
+        request->isGroup = lines[1] == L"G";
+        request->screen.x = std::stol(lines[2]);
+        request->screen.y = std::stol(lines[3]);
+        request->groupName = lines[4];
+        request->headerVisible = lines[5] == L"1";
+        request->hasCustomOutline = lines[6] == L"1";
+        request->outlineColor = static_cast<COLORREF>(std::stoul(lines[7]));
+        request->outlineStyle = std::stoi(lines[8]);
+        request->savedGroupId = lines[9];
+        const size_t count = static_cast<size_t>(std::stoul(lines[10]));
+        if (count == 0 || count > 1024 || lines.size() < kHeaderLines + count * 2) {
+            return FALSE;
+        }
+        for (size_t i = 0; i < count; ++i) {
+            const bool pinned = lines[kHeaderLines + i * 2] == L"1";
+            UniquePidl pidl = PidlFromHex(lines[kHeaderLines + i * 2 + 1]);
+            if (!pidl) {
+                continue;
+            }
+            request->tabs.push_back(BuildTransferredTabInfo(std::move(pidl), pinned));
+        }
+    } catch (...) {
+        return FALSE;
+    }
+    if (request->tabs.empty()) {
+        return FALSE;
+    }
+
+    // Accept now and do the (navigating) insertion after the sender's SendMessage has returned,
+    // so neither process blocks the other while the shell view navigates.
+    PostMessageW(m_hwnd, WM_SHELLTABS_CROSS_PROCESS_DROP, 0, reinterpret_cast<LPARAM>(request.release()));
+    return TRUE;
+}
+
+void TabBandWindow::ExecuteCrossProcessDrop(std::unique_ptr<CrossProcessDropRequest> request) {
+    DropTarget previous = m_externalDrop.active ? m_externalDrop.target : DropTarget{};
+    DropTarget cleared{};
+    ApplyExternalDropTarget(previous, cleared, nullptr);
+    m_externalDrop = {};
+
+    if (!request || !m_owner || request->tabs.empty()) {
+        return;
+    }
+
+    POINT client = request->screen;
+    ScreenToClient(m_hwnd, &client);
+    HitInfo origin;
+    origin.type = request->isGroup ? HitType::kGroupHeader : HitType::kTab;
+    DropTarget target = ComputeDropTarget(client, origin);
+
+    if (request->isGroup) {
+        TabGroup group;
+        group.name = request->groupName;
+        group.headerVisible = request->headerVisible;
+        group.hasCustomOutline = request->hasCustomOutline;
+        group.outlineColor = request->outlineColor;
+        if (request->outlineStyle >= 0 && request->outlineStyle <= static_cast<int>(TabGroupOutlineStyle::kDotted)) {
+            group.outlineStyle = static_cast<TabGroupOutlineStyle>(request->outlineStyle);
+        }
+        group.savedGroupId = request->savedGroupId;
+        group.tabs = std::move(request->tabs);
+        const int insertIndex = (!target.outside && target.groupIndex >= 0) ? target.groupIndex : GroupCount();
+        m_owner->InsertTransferredGroup(std::move(group), insertIndex, true);
+        return;
+    }
+
+    TabInfo tab = std::move(request->tabs.front());
+    if (target.outside) {
+        m_owner->InsertTransferredTab(std::move(tab), GroupCount(), 0, true, true, true);
+        return;
+    }
+    m_owner->InsertTransferredTab(std::move(tab), target.groupIndex, target.tabIndex, target.newGroup,
+                                  !target.floating, true);
+}
+
 void TabBandWindow::CompleteDrop() {
     if (!m_owner || !m_drag.dragging) {
         return;
@@ -7084,6 +7466,14 @@ void TabBandWindow::CompleteDrop() {
 
     if (TryCompleteExternalDrop()) {
         return;
+    }
+
+    if (target.outside && m_drag.hasCurrent) {
+        POINT screen = m_drag.current;
+        ClientToScreen(m_hwnd, &screen);
+        if (TryCompleteCrossProcessDrop(screen)) {
+            return;
+        }
     }
 
     if (target.outside) {
@@ -7311,6 +7701,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
                         headerVisible ? L"Hide Island Indicator" : L"Show Island Indicator");
 
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, IDM_SAVE_ISLAND, L"Save Island");
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
             AppendMenuW(menu, MF_STRING, IDM_SET_ISLAND_LABEL, L"Set Island Label...");
 
@@ -7352,6 +7743,7 @@ void TabBandWindow::ShowContextMenu(const POINT& screenPt) {
             AppendMenuW(menu, MF_STRING, IDM_DETACH_ISLAND, L"Move Island to New Window");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
+            AppendMenuW(menu, MF_STRING, IDM_SAVE_ISLAND, L"Save Island");
             AppendMenuW(menu, MF_STRING, IDM_EDIT_GROUP, L"Edit Island...");
             AppendMenuW(menu, MF_STRING, IDM_SET_ISLAND_LABEL, L"Set Island Label...");
             AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -7805,6 +8197,20 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
             self->OnSavedGroupsChanged();
             return 0;
         }
+        const UINT crossHoverMessage = GetCrossProcessHoverMessage();
+        if (crossHoverMessage != 0 && message == crossHoverMessage) {
+            const POINT screen{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            self->HandleCrossProcessHover(screen, wParam != 0);
+            return 0;
+        }
+        const UINT crossLeaveMessage = GetCrossProcessLeaveMessage();
+        if (crossLeaveMessage != 0 && message == crossLeaveMessage) {
+            DropTarget previous = self->m_externalDrop.active ? self->m_externalDrop.target : DropTarget{};
+            DropTarget cleared{};
+            self->ApplyExternalDropTarget(previous, cleared, nullptr);
+            self->m_externalDrop = {};
+            return 0;
+        }
         const UINT progressMessage = GetProgressUpdateMessage();
         if (progressMessage != 0 && message == progressMessage) {
             std::unique_ptr<TabProgressUpdatePayload> payload(
@@ -8113,8 +8519,17 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 return 0;
             }
+            case WM_SHELLTABS_CROSS_PROCESS_DROP: {
+                std::unique_ptr<CrossProcessDropRequest> request(
+                    reinterpret_cast<CrossProcessDropRequest*>(lParam));
+                self->ExecuteCrossProcessDrop(std::move(request));
+                return 0;
+            }
             case WM_COPYDATA: {
                 auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+                if (data && data->dwData == kCrossProcessTransferCopyDataId) {
+                    return self->HandleCrossProcessCopyData(data);
+                }
                 if (!data || data->dwData != SHELLTABS_COPYDATA_OPEN_FOLDER || data->cbData == 0 ||
                     !data->lpData) {
                     return fallback();
@@ -8136,9 +8551,22 @@ LRESULT CALLBACK TabBandWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, 
                 }
 
                 if (!path.empty()) {
-                    self->m_owner->OnOpenFolderInNewTab(path);
+                    auto pending = std::make_unique<std::wstring>(std::move(path));
+                    if (PostMessageW(hwnd, WM_SHELLTABS_OPEN_FOLDER_ASYNC, 0,
+                                     reinterpret_cast<LPARAM>(pending.get()))) {
+                        pending.release();
+                    } else {
+                        return FALSE;
+                    }
                 }
                 return TRUE;
+            }
+            case WM_SHELLTABS_OPEN_FOLDER_ASYNC: {
+                std::unique_ptr<std::wstring> pending(reinterpret_cast<std::wstring*>(lParam));
+                if (pending && !pending->empty() && self->m_owner) {
+                    self->m_owner->OnOpenFolderInNewTab(*pending);
+                }
+                return 0;
             }
             case WM_PAINT: {
                 PAINTSTRUCT ps;

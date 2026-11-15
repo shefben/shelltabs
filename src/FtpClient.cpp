@@ -301,28 +301,6 @@ HRESULT HResultFromFtpReply(int statusCode) {
     }
 }
 
-HRESULT HResultFromInternetError(DWORD error) {
-    if (error == ERROR_SUCCESS) {
-        return S_OK;
-    }
-    switch (error) {
-        case ERROR_INTERNET_TIMEOUT:
-            return HRESULT_FROM_WIN32(WAIT_TIMEOUT);
-        case ERROR_INTERNET_NAME_NOT_RESOLVED:
-            return HRESULT_FROM_WIN32(WSAHOST_NOT_FOUND);
-        case ERROR_INTERNET_CANNOT_CONNECT:
-        case ERROR_INTERNET_CONNECTION_ABORTED:
-            return HRESULT_FROM_WIN32(ERROR_CONNECTION_ABORTED);
-        case ERROR_INTERNET_CONNECTION_RESET:
-            return HRESULT_FROM_WIN32(ERROR_NETNAME_DELETED);
-        case ERROR_INTERNET_LOGIN_FAILURE:
-            return HRESULT_FROM_WIN32(ERROR_LOGON_FAILURE);
-        case ERROR_INTERNET_EXTENDED_ERROR:
-            return HRESULT_FROM_WIN32(ERROR_INTERNET_EXTENDED_ERROR);
-        default:
-            return HRESULT_FROM_WIN32(error);
-    }
-}
 
 DWORD ParsePassivePort(const std::wstring& response) {
     size_t start = response.find(L"(");
@@ -582,7 +560,6 @@ public:
         return steps_[currentIndex_++];
     }
 
-    void ResetForRetry() { currentIndex_ = 0; }
 
 private:
     void BuildSteps() {
@@ -1290,25 +1267,6 @@ void FtpClient::ClearConnectionPool() {
     impl_->pool.clear();
 }
 
-std::wstring FtpClient::BuildCommandDescription(FtpOperationContext& context) const {
-    switch (context.kind) {
-        case FtpOperationKind::DirectoryListing:
-            return L"directory listing";
-        case FtpOperationKind::Download:
-            return L"download";
-        case FtpOperationKind::Upload:
-            return L"upload";
-        case FtpOperationKind::DeleteFile:
-            return L"delete";
-        case FtpOperationKind::DeleteDirectory:
-            return L"delete directory";
-        case FtpOperationKind::CreateDirectory:
-            return L"create directory";
-        case FtpOperationKind::RenameFile:
-            return L"rename";
-    }
-    return L"operation";
-}
 
 HRESULT FtpClient::ExecuteOperation(const FtpConnectionOptions& options, const FtpCredential* explicitCredential,
                                     HWND credentialParent, FtpOperationContext* context) {
@@ -1452,18 +1410,6 @@ std::wstring FtpClient::BuildCredentialTargetName(const FtpConnectionOptions& op
     return target;
 }
 
-FtpTransportType FtpClient::DetermineTransport(const FtpConnectionOptions& options) const {
-    if (options.forcedTransport) {
-        return *options.forcedTransport;
-    }
-    if (IsWinInetAvailable()) {
-        return FtpTransportType::WinInet;
-    }
-    if (options.allowFallbackTransports && IsWinHttpAvailable()) {
-        return FtpTransportType::WinHttp;
-    }
-    return FtpTransportType::CustomSockets;
-}
 
 std::vector<FtpTransportType> FtpClient::BuildTransportPriority(const FtpConnectionOptions& options) const {
     std::vector<FtpTransportType> transports;
@@ -1618,27 +1564,7 @@ FtpClient::ExecuteResult FtpClient::ExecuteStateMachine(FtpTransportSession& ses
     return result;
 }
 
-HRESULT FtpClient::MapInternetErrorToHresult(DWORD error, bool isSocketError) const {
-    if (isSocketError) {
-        return HResultFromSocketError(static_cast<int>(error));
-    }
-    return HResultFromInternetError(error);
-}
 
-void FtpClient::ClearExpiredSessions(const SessionKey& key, const FtpConnectionOptions& options) {
-    std::lock_guard<std::mutex> guard(impl_->mutex);
-    auto iter = impl_->pool.find(key);
-    if (iter == impl_->pool.end()) {
-        return;
-    }
-    auto now = std::chrono::steady_clock::now();
-    auto& vector = iter->second;
-    vector.erase(std::remove_if(vector.begin(), vector.end(), [&](const PooledSession& session) {
-                      return !session.session || !session.session->IsAlive() ||
-                             (now - session.lastUsed) > options.poolIdleTimeout;
-                  }),
-                 vector.end());
-}
 
 }  // namespace shelltabs
 

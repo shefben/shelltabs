@@ -116,8 +116,6 @@ public:
     // successfully initialized (restored or not).
     void ClearCrashState();
 
-    // Number of currently registered slots.
-    int RegisteredCount() const;
 
     // True if the pending pool has unclaimed session data.
     bool HasPendingData() const;

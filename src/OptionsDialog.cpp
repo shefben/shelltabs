@@ -38,6 +38,7 @@
 #include "Logging.h"
 #include "Module.h"
 #include "OptionsStore.h"
+#include "NameColorStore.h"
 #include "StringUtils.h"
 #include "ShellTabsMessages.h"
 #include "TabBandWindow.h"
@@ -83,6 +84,8 @@ enum ControlIds : int {
     IDC_GEN_NEWTAB_GROUP_LABEL = 6010,
     IDC_GEN_NEWTAB_GROUP = 6011,
     IDC_GEN_REUSE_WINDOW = 6012,
+    IDC_GEN_NAME_COLORS = 6013,
+    IDC_GEN_EXTENSION_COLORS = 6014,
 
     // Appearance Page (6100-6199)
     IDC_APP_BREADCRUMB_GROUP = 6100,
@@ -345,12 +348,6 @@ void AppendWord(std::vector<BYTE>& buffer, WORD value) {
     buffer.push_back(static_cast<BYTE>((value >> 8) & 0xFF));
 }
 
-void AppendDWord(std::vector<BYTE>& buffer, DWORD value) {
-    buffer.push_back(static_cast<BYTE>(value & 0xFF));
-    buffer.push_back(static_cast<BYTE>((value >> 8) & 0xFF));
-    buffer.push_back(static_cast<BYTE>((value >> 16) & 0xFF));
-    buffer.push_back(static_cast<BYTE>((value >> 24) & 0xFF));
-}
 
 void AppendString(std::vector<BYTE>& buffer, const wchar_t* text) {
     if (!text) {
@@ -577,10 +574,6 @@ public:
         IncrementControlCount();
     }
 
-    void EnableVerticalScrollbar() {
-        auto* dlg = reinterpret_cast<DLGTEMPLATE*>(data_.data());
-        dlg->style |= WS_VSCROLL;
-    }
 
     DialogTemplatePtr Build() {
         return AllocateTemplate(data_);
@@ -600,76 +593,7 @@ private:
 // whose content height exceeds the compact page dimensions.
 //=============================================================================
 
-void InitPageScrollbar(HWND page, int contentHeight) {
-    RECT rc{};
-    GetClientRect(page, &rc);
-    const int pageHeight = rc.bottom - rc.top;
-    SCROLLINFO si{};
-    si.cbSize = sizeof(SCROLLINFO);
-    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
-    si.nMin = 0;
-    si.nMax = contentHeight;
-    si.nPage = static_cast<UINT>(pageHeight);
-    si.nPos = 0;
-    SetScrollInfo(page, SB_VERT, &si, TRUE);
-}
 
-bool HandlePageScrollMessage(HWND page, UINT msg, WPARAM wParam, int contentHeight) {
-    if (msg != WM_VSCROLL && msg != WM_MOUSEWHEEL && msg != WM_SIZE) {
-        return false;
-    }
-
-    if (msg == WM_SIZE) {
-        RECT rc{};
-        GetClientRect(page, &rc);
-        const int pageHeight = rc.bottom - rc.top;
-        SCROLLINFO si{};
-        si.cbSize = sizeof(SCROLLINFO);
-        si.fMask = SIF_RANGE | SIF_PAGE;
-        si.nMin = 0;
-        si.nMax = contentHeight;
-        si.nPage = static_cast<UINT>(pageHeight);
-        SetScrollInfo(page, SB_VERT, &si, TRUE);
-        return false;  // let DefDlgProc handle the rest
-    }
-
-    SCROLLINFO si{};
-    si.cbSize = sizeof(SCROLLINFO);
-    si.fMask = SIF_ALL;
-    GetScrollInfo(page, SB_VERT, &si);
-    const int oldPos = si.nPos;
-
-    if (msg == WM_VSCROLL) {
-        switch (LOWORD(wParam)) {
-            case SB_TOP:          si.nPos = si.nMin; break;
-            case SB_BOTTOM:       si.nPos = si.nMax; break;
-            case SB_LINEUP:       si.nPos -= 20; break;
-            case SB_LINEDOWN:     si.nPos += 20; break;
-            case SB_PAGEUP:       si.nPos -= si.nPage; break;
-            case SB_PAGEDOWN:     si.nPos += si.nPage; break;
-            case SB_THUMBTRACK:
-            case SB_THUMBPOSITION:
-                si.nPos = si.nTrackPos;
-                break;
-            default:
-                break;
-        }
-    } else {  // WM_MOUSEWHEEL
-        const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        const int notches = -delta / WHEEL_DELTA;
-        si.nPos += notches * 40;
-    }
-
-    si.fMask = SIF_POS;
-    SetScrollInfo(page, SB_VERT, &si, TRUE);
-    GetScrollInfo(page, SB_VERT, &si);
-
-    if (si.nPos != oldPos) {
-        ScrollWindow(page, 0, oldPos - si.nPos, nullptr, nullptr);
-        UpdateWindow(page);
-    }
-    return true;
-}
 
 //=============================================================================
 // Sub-tab helpers — pages with too many controls to fit in the compact page
@@ -866,6 +790,147 @@ bool BrowseForImage(HWND parent, std::wstring* path, std::wstring* dir) {
 // GENERAL PAGE
 //=============================================================================
 
+//=============================================================================
+// EXTENSION COLORS DIALOG
+//
+// Edits the "*.ext" entries in NameColorStore. Changes are saved immediately (they live in
+// namecolors.json, not in ShellTabsOptions) and broadcast to every Explorer window.
+//=============================================================================
+
+enum ExtensionColorControlId {
+    IDC_EXTCOL_LIST = 100,
+    IDC_EXTCOL_ADD = 101,
+    IDC_EXTCOL_CHANGE = 102,
+    IDC_EXTCOL_REMOVE = 103,
+};
+
+void RefreshExtensionColorList(HWND dialog) {
+    HWND list = GetDlgItem(dialog, IDC_EXTCOL_LIST);
+    if (!list) {
+        return;
+    }
+    const int previous = ListBox_GetCurSel(list);
+    ListBox_ResetContent(list);
+    for (const auto& [extension, color] : NameColorStore::Instance().GetExtensionColors()) {
+        wchar_t line[128];
+        swprintf(line, ARRAYSIZE(line), L".%ls\t#%02X%02X%02X", extension.c_str(), GetRValue(color),
+                 GetGValue(color), GetBValue(color));
+        ListBox_AddString(list, line);
+    }
+    const int count = ListBox_GetCount(list);
+    if (count > 0) {
+        ListBox_SetCurSel(list, std::clamp(previous, 0, count - 1));
+    }
+}
+
+std::wstring SelectedExtension(HWND dialog) {
+    HWND list = GetDlgItem(dialog, IDC_EXTCOL_LIST);
+    const int index = list ? ListBox_GetCurSel(list) : LB_ERR;
+    if (index < 0) {
+        return {};
+    }
+    const auto colors = NameColorStore::Instance().GetExtensionColors();
+    if (static_cast<size_t>(index) >= colors.size()) {
+        return {};
+    }
+    return colors[static_cast<size_t>(index)].first;
+}
+
+INT_PTR CALLBACK ExtensionColorsDialogProc(HWND dialog, UINT msg, WPARAM wParam, LPARAM) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            SetWindowTextW(dialog, L"Extension Colors");
+            HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            auto make = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int id, RECT du) {
+                MapDialogRect(dialog, &du);
+                const DWORD exStyle = (wcscmp(cls, WC_LISTBOXW) == 0) ? WS_EX_CLIENTEDGE : 0;
+                HWND control = CreateWindowExW(exStyle, cls, text, WS_CHILD | WS_VISIBLE | style, du.left, du.top,
+                                               du.right - du.left, du.bottom - du.top, dialog,
+                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                                               GetModuleHandleInstance(), nullptr);
+                if (control && font) {
+                    SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                }
+                return control;
+            };
+            make(WC_STATICW, L"Files with these extensions use the color in the folder view and tree.", 0, -1,
+                 RECT{8, 8, 232, 18});
+            HWND list = make(WC_LISTBOXW, L"", WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_USETABSTOPS,
+                             IDC_EXTCOL_LIST, RECT{8, 22, 160, 150});
+            if (list) {
+                int tabStop = 60;
+                ListBox_SetTabStops(list, 1, &tabStop);
+            }
+            make(WC_BUTTONW, L"Add...", WS_TABSTOP | BS_PUSHBUTTON, IDC_EXTCOL_ADD, RECT{166, 22, 232, 36});
+            make(WC_BUTTONW, L"Change Color...", WS_TABSTOP | BS_PUSHBUTTON, IDC_EXTCOL_CHANGE,
+                 RECT{166, 40, 232, 54});
+            make(WC_BUTTONW, L"Remove", WS_TABSTOP | BS_PUSHBUTTON, IDC_EXTCOL_REMOVE, RECT{166, 58, 232, 72});
+            make(WC_BUTTONW, L"Close", WS_TABSTOP | BS_DEFPUSHBUTTON, IDOK, RECT{166, 136, 232, 150});
+            RefreshExtensionColorList(dialog);
+            return TRUE;
+        }
+        case WM_COMMAND: {
+            const int id = LOWORD(wParam);
+            const int code = HIWORD(wParam);
+            auto& store = NameColorStore::Instance();
+            if (id == IDOK || id == IDCANCEL) {
+                EndDialog(dialog, IDOK);
+                return TRUE;
+            }
+            if (id == IDC_EXTCOL_ADD) {
+                std::wstring extension;
+                COLORREF color = RGB(255, 128, 0);
+                if (PromptForTextInput(dialog, L"Add Extension Color", L"Extension (for example: txt):", &extension,
+                                       &color)) {
+                    if (NameColorStore::NormalizeExtensionKey(extension).empty()) {
+                        MessageBoxW(dialog, L"Enter a single extension such as txt or .cpp.", L"ShellTabs",
+                                    MB_OK | MB_ICONWARNING);
+                    } else {
+                        store.SetExtensionColor(extension, color);
+                        RefreshExtensionColorList(dialog);
+                    }
+                }
+                return TRUE;
+            }
+            if (id == IDC_EXTCOL_CHANGE || (id == IDC_EXTCOL_LIST && code == LBN_DBLCLK)) {
+                const std::wstring extension = SelectedExtension(dialog);
+                COLORREF color = store.GetExtensionColor(extension).value_or(RGB(255, 128, 0));
+                if (!extension.empty() && PromptForColor(dialog, color, &color)) {
+                    store.SetExtensionColor(extension, color);
+                    RefreshExtensionColorList(dialog);
+                }
+                return TRUE;
+            }
+            if (id == IDC_EXTCOL_REMOVE) {
+                const std::wstring extension = SelectedExtension(dialog);
+                if (!extension.empty()) {
+                    store.SetExtensionColor(extension, std::nullopt);
+                    RefreshExtensionColorList(dialog);
+                }
+                return TRUE;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    return FALSE;
+}
+
+void ShowExtensionColorsDialog(HWND parent) {
+    struct {
+        DLGTEMPLATE dlg;
+        WORD menu;
+        WORD windowClass;
+        WORD title;
+    } templateData = {};
+    templateData.dlg.style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    templateData.dlg.cx = 240;
+    templateData.dlg.cy = 158;
+    DialogBoxIndirectParamW(GetModuleHandleInstance(), reinterpret_cast<LPCDLGTEMPLATEW>(&templateData), parent,
+                            ExtensionColorsDialogProc, 0);
+}
+
 DialogTemplatePtr CreateGeneralPageTemplate() {
     DialogBuilder builder(kPageWidth, kPageHeight);
 
@@ -886,8 +951,16 @@ DialogTemplatePtr CreateGeneralPageTemplate() {
 
     // Reuse existing window
     builder.AddCheckbox(IDC_GEN_REUSE_WINDOW,
-        L"Open folders as tabs in an existing window",
+        L"Open folders from external apps in a new process/window",
         kMargin, y, rowW, kCheckHeight);
+    y += kCheckHeight + kSpacing;
+
+    // Name colors (forces the classic list view so items can be custom drawn)
+    builder.AddCheckbox(IDC_GEN_NAME_COLORS,
+        L"Enable file/folder name colors (uses the classic folder view)",
+        kMargin, y, rowW - 100, kCheckHeight);
+    builder.AddPushButton(IDC_GEN_EXTENSION_COLORS, L"Extension Colors...",
+        kPageWidth - kMargin - 95, y - 3, 95, kButtonHeight);
     y += kCheckHeight + kSpacing * 2;
 
     // Dock mode
@@ -935,7 +1008,9 @@ void InitGeneralPage(HWND page, OptionsDialogData* data) {
     CheckDlgButton(page, IDC_GEN_REOPEN,
         data->workingOptions.reopenOnCrash ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(page, IDC_GEN_REUSE_WINDOW,
-        data->workingOptions.reuseExistingWindow ? BST_CHECKED : BST_UNCHECKED);
+        data->workingOptions.reuseExistingWindow ? BST_UNCHECKED : BST_CHECKED);
+    CheckDlgButton(page, IDC_GEN_NAME_COLORS,
+        data->workingOptions.enableNameColors ? BST_CHECKED : BST_UNCHECKED);
 
     // Populate dock mode combo
     HWND dockCombo = GetDlgItem(page, IDC_GEN_DOCK_COMBO);
@@ -1023,9 +1098,17 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
                     (IsDlgButtonChecked(page, IDC_GEN_REOPEN) == BST_CHECKED);
                 PropSheet_Changed(GetParent(page), page);
             }
+            else if (id == IDC_GEN_EXTENSION_COLORS && code == BN_CLICKED) {
+                ShowExtensionColorsDialog(page);
+            }
+            else if (id == IDC_GEN_NAME_COLORS && code == BN_CLICKED) {
+                data->workingOptions.enableNameColors =
+                    (IsDlgButtonChecked(page, IDC_GEN_NAME_COLORS) == BST_CHECKED);
+                PropSheet_Changed(GetParent(page), page);
+            }
             else if (id == IDC_GEN_REUSE_WINDOW && code == BN_CLICKED) {
                 data->workingOptions.reuseExistingWindow =
-                    (IsDlgButtonChecked(page, IDC_GEN_REUSE_WINDOW) == BST_CHECKED);
+                    (IsDlgButtonChecked(page, IDC_GEN_REUSE_WINDOW) != BST_CHECKED);
                 PropSheet_Changed(GetParent(page), page);
             }
             else if (id == IDC_GEN_DOCK_COMBO && code == CBN_SELCHANGE) {
@@ -1597,11 +1680,6 @@ INT_PTR CALLBACK GlowEffectsPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM 
 // BACKGROUNDS PAGE
 //=============================================================================
 
-// Helper function to generate unique token for async operations
-static UINT64 GenerateToken() {
-    static std::atomic<UINT64> counter{1};
-    return counter.fetch_add(1, std::memory_order_relaxed);
-}
 
 // Creates a kPreviewSize x kPreviewSize HBITMAP thumbnail of the image at |path|.
 // Returns nullptr if the image can't be loaded.
@@ -2492,17 +2570,6 @@ static LRESULT CALLBACK CtxPropsPanelProc(HWND hwnd, UINT msg, WPARAM wParam, LP
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-// DLU to pixel helpers (approximate for 9pt Segoe UI)
-static int DluToPixelX(int dlu, HWND hwnd) {
-    RECT r = {0, 0, dlu, 0};
-    MapDialogRect(GetParent(hwnd) ? GetParent(hwnd) : hwnd, &r);
-    return r.right;
-}
-static int DluToPixelY(int dlu, HWND hwnd) {
-    RECT r = {0, 0, 0, dlu};
-    MapDialogRect(GetParent(hwnd) ? GetParent(hwnd) : hwnd, &r);
-    return r.bottom;
-}
 
 static HWND CreateLabel(HWND parent, const wchar_t* text, int x, int y, int w, int h) {
     return CreateWindowExW(0, L"STATIC", text,
@@ -2554,10 +2621,6 @@ static HWND CreateGroupCtrl(HWND parent, const wchar_t* text, int x, int y, int 
         reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(parent, GWLP_HINSTANCE)), nullptr);
 }
 
-static void SetCtrlFont(HWND ctrl, HWND page) {
-    HFONT font = reinterpret_cast<HFONT>(SendMessageW(page, WM_GETFONT, 0, 0));
-    if (font) SendMessageW(ctrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
-}
 
 static void SetAllChildFonts(HWND parent, HWND page) {
     HFONT font = reinterpret_cast<HFONT>(SendMessageW(page, WM_GETFONT, 0, 0));

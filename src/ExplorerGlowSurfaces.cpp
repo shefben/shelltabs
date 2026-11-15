@@ -38,30 +38,6 @@ bool ApproximatelyEqual(int lhs, int rhs, int tolerance) {
     return std::abs(lhs - rhs) <= tolerance;
 }
 
-Microsoft::WRL::ComPtr<IUIAutomation> GetAutomationInstance() {
-    static std::once_flag automationInitFlag;
-    static Microsoft::WRL::ComPtr<IUIAutomation> automation;
-    static HRESULT automationInitResult = E_FAIL;
-
-    std::call_once(automationInitFlag, []() {
-        Microsoft::WRL::ComPtr<IUIAutomation> instance;
-        const HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
-                                            IID_PPV_ARGS(&instance));
-        if (SUCCEEDED(hr)) {
-            automation = std::move(instance);
-            automationInitResult = S_OK;
-        } else {
-            automation.Reset();
-            automationInitResult = hr;
-        }
-    });
-
-    if (FAILED(automationInitResult)) {
-        return nullptr;
-    }
-
-    return automation;
-}
 
 void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTreeWalker* walker, HWND host,
                                 const RECT& clientRect, std::vector<RECT>& rectangles);
@@ -134,27 +110,6 @@ void CollectDirectUiDescendants(IUIAutomationElement* element, IUIAutomationTree
     }
 }
 
-bool EnumerateDirectUiRectangles(HWND host, const RECT& clientRect, std::vector<RECT>& rectangles) {
-    rectangles.clear();
-
-    auto automation = GetAutomationInstance();
-    if (!automation) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IUIAutomationElement> root;
-    if (FAILED(automation->ElementFromHandle(host, &root)) || !root) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IUIAutomationTreeWalker> walker;
-    if (FAILED(automation->get_ControlViewWalker(&walker)) || !walker) {
-        return false;
-    }
-
-    CollectDirectUiDescendants(root.Get(), walker.Get(), host, clientRect, rectangles);
-    return true;
-}
 
 RECT MapScreenRectToWindow(HWND hwnd, const RECT& rect) {
     POINT points[2] = {{rect.left, rect.top}, {rect.right, rect.bottom}};
@@ -1790,78 +1745,9 @@ void ExplorerGlowCoordinator::ReleaseSurfaceDescriptor(HWND hwnd) {
     m_surfaceDescriptors.erase(hwnd);
 }
 
-void ExplorerGlowCoordinator::UpdateSurfaceDescriptor(HWND hwnd, const SurfaceColorDescriptor& descriptor) {
-    if (!hwnd) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(m_descriptorMutex);
-    auto& slot = m_surfaceDescriptors[hwnd];
-    if (!slot) {
-        slot = std::make_unique<SurfaceColorDescriptor>();
-    }
-    const bool wasForced = slot->forcedHooks;
-    slot->kind = descriptor.kind;
-    slot->role = descriptor.role;
-    slot->fillColors = descriptor.fillColors;
-    slot->fillOverride = descriptor.fillOverride;
-    slot->textColor = descriptor.textColor;
-    slot->textOverride = descriptor.textOverride;
-    slot->backgroundColor = descriptor.backgroundColor;
-    slot->backgroundOverride = descriptor.backgroundOverride;
-    slot->forceOpaqueBackground = descriptor.forceOpaqueBackground;
-    slot->backgroundPaintCallback = descriptor.backgroundPaintCallback;
-    slot->backgroundPaintContext = descriptor.backgroundPaintContext;
-    slot->imageBackgroundMode = descriptor.imageBackgroundMode;
-    slot->userAccessibilityOptOut = descriptor.userAccessibilityOptOut;
-    slot->accessibilityOptOut = descriptor.userAccessibilityOptOut || m_highContrastActive;
-    slot->forcedHooks = wasForced && !slot->accessibilityOptOut;
-}
 
-void ExplorerGlowCoordinator::SetSurfaceForcedHooks(HWND hwnd, bool forced) {
-    if (!hwnd) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(m_descriptorMutex);
-    auto it = m_surfaceDescriptors.find(hwnd);
-    if (it == m_surfaceDescriptors.end() || !it->second) {
-        return;
-    }
-    SurfaceColorDescriptor& descriptor = *it->second;
-    if (descriptor.accessibilityOptOut) {
-        descriptor.forcedHooks = false;
-        return;
-    }
-    descriptor.forcedHooks = forced;
-}
 
-void ExplorerGlowCoordinator::SetSurfaceRole(HWND hwnd, SurfacePaintRole role) {
-    if (!hwnd) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(m_descriptorMutex);
-    auto it = m_surfaceDescriptors.find(hwnd);
-    if (it == m_surfaceDescriptors.end() || !it->second) {
-        return;
-    }
-    it->second->role = role;
-}
 
-void ExplorerGlowCoordinator::SetSurfaceAccessibilityOptOut(HWND hwnd, bool optOut) {
-    if (!hwnd) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(m_descriptorMutex);
-    auto it = m_surfaceDescriptors.find(hwnd);
-    if (it == m_surfaceDescriptors.end() || !it->second) {
-        return;
-    }
-    SurfaceColorDescriptor& descriptor = *it->second;
-    descriptor.userAccessibilityOptOut = optOut;
-    descriptor.accessibilityOptOut = optOut || m_highContrastActive;
-    if (descriptor.accessibilityOptOut) {
-        descriptor.forcedHooks = false;
-    }
-}
 
 void ExplorerGlowCoordinator::RefreshDescriptorAccessibility() {
     std::lock_guard<std::mutex> lock(m_descriptorMutex);
@@ -1920,9 +1806,6 @@ void ExplorerGlowSurface::Detach() {
     OnDetached();
 }
 
-bool ExplorerGlowSurface::IsAttached() const noexcept {
-    return m_hwnd && IsWindow(m_hwnd) && m_subclassInstalled;
-}
 
 void ExplorerGlowSurface::RequestRepaint() const {
     if (m_hwnd && IsWindow(m_hwnd)) {
@@ -1930,29 +1813,7 @@ void ExplorerGlowSurface::RequestRepaint() const {
     }
 }
 
-bool ExplorerGlowSurface::SupportsImmediatePainting() const noexcept {
-    return !UsesCustomDraw();
-}
 
-bool ExplorerGlowSurface::PaintImmediately(HDC targetDc, const RECT& clipRect) {
-    if (!SupportsImmediatePainting() || !targetDc) {
-        return false;
-    }
-    if (!IsAttached()) {
-        return false;
-    }
-    if (!Coordinator().ShouldRenderSurface(Kind())) {
-        return false;
-    }
-
-    RECT bounds = clipRect;
-    if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
-        return false;
-    }
-
-    PaintInternal(targetDc, bounds);
-    return true;
-}
 
 bool ExplorerGlowSurface::HandleNotify(const NMHDR&, LRESULT*) { return false; }
 

@@ -16,36 +16,7 @@ constexpr const wchar_t kThemePreferenceKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr const wchar_t kThemePreferenceValue[] = L"AppsUseLightTheme";
 
-RECT ShrinkRectIfPossible(const RECT& rect, LONG insetX, LONG insetY) {
-    RECT result = rect;
-    const LONG width = rect.right - rect.left;
-    const LONG height = rect.bottom - rect.top;
-    if (width > insetX * 2) {
-        result.left += insetX;
-        result.right -= insetX;
-    }
-    if (height > insetY * 2) {
-        result.top += insetY;
-        result.bottom -= insetY;
-    }
-    if (result.right <= result.left || result.bottom <= result.top) {
-        return rect;
-    }
-    return result;
-}
 
-std::optional<COLORREF> SampleWindowRectAverage(HWND window, const RECT& rect) {
-    if (!window || !IsWindow(window)) {
-        return std::nullopt;
-    }
-    HDC dc = GetDC(window);
-    if (!dc) {
-        return std::nullopt;
-    }
-    std::optional<COLORREF> color = SampleAverageColor(dc, rect);
-    ReleaseDC(window, dc);
-    return color;
-}
 
 }  // namespace
 
@@ -114,39 +85,6 @@ bool IsAppDarkModePreferred() {
     return !lightPreference.value();
 }
 
-std::optional<ToolbarChromeSample> SampleToolbarChrome(HWND window) {
-    if (!window || !IsWindow(window)) {
-        return std::nullopt;
-    }
-
-    RECT client{};
-    if (!GetClientRect(window, &client) || client.right <= client.left || client.bottom <= client.top) {
-        return std::nullopt;
-    }
-
-    const LONG height = client.bottom - client.top;
-    const LONG sampleHeight = std::max<LONG>(1, height / 4);
-
-    RECT topRect = client;
-    topRect.bottom = topRect.top + sampleHeight;
-    topRect = ShrinkRectIfPossible(topRect, 4, 2);
-
-    RECT bottomRect = client;
-    bottomRect.top = std::max(bottomRect.bottom - sampleHeight, bottomRect.top);
-    bottomRect = ShrinkRectIfPossible(bottomRect, 4, 2);
-
-    const auto topSample = SampleWindowRectAverage(window, topRect);
-    const auto bottomSample = SampleWindowRectAverage(window, bottomRect);
-
-    if (!topSample.has_value() && !bottomSample.has_value()) {
-        return std::nullopt;
-    }
-
-    ToolbarChromeSample sample{};
-    sample.topColor = topSample.value_or(bottomSample.value_or(0));
-    sample.bottomColor = bottomSample.value_or(sample.topColor);
-    return sample;
-}
 
 std::optional<COLORREF> QueryEditThemeTextColor(HWND editWindow) {
     if (!editWindow || !IsWindow(editWindow)) {

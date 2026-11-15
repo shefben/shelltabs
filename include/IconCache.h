@@ -55,9 +55,6 @@ public:
 
     Reference Acquire(const std::wstring& familyKey, UINT iconFlags, const std::function<HICON()>& loader);
     void InvalidateFamily(const std::wstring& familyKey);
-    void InvalidatePidl(PCIDLIST_ABSOLUTE pidl);
-    void InvalidatePath(const std::wstring& path);
-    void LogStatsNow();
 #if defined(SHELLTABS_BUILD_TESTS)
     void DebugSetCapacity(size_t capacity);
     size_t DebugGetLastFamilyInvalidationCount();

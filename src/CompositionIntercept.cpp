@@ -1352,30 +1352,6 @@ void UnregisterCompositionSurface(HWND hwnd) noexcept {
     }
 }
 
-void NotifyCompositionColorChange(HWND hwnd) noexcept {
-    HWND normalized = NormalizeWindow(hwnd);
-    std::shared_ptr<ExplorerTargetContext> context;
-    {
-        std::lock_guard<std::mutex> guard(g_contextMutex);
-        auto it = g_windowContexts.find(normalized);
-        if (it != g_windowContexts.end()) {
-            context = it->second.lock();
-        }
-    }
-    if (!context) {
-        return;
-    }
-    std::lock_guard<std::mutex> guard(context->mutex);
-    context->surfacesDirty = true;
-    UpdateGradientSurfacesLocked(context);
-    if (context->deviceV1) {
-        context->deviceV1->Commit();
-    } else if (context->deviceV2) {
-        context->deviceV2->Commit();
-    } else if (context->deviceV3) {
-        context->deviceV3->Commit();
-    }
-}
 
 }  // namespace shelltabs
 

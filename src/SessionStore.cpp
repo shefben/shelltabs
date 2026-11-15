@@ -930,10 +930,6 @@ void SessionCoordinator::ClearCrashState() {
     SaveAll();
 }
 
-int SessionCoordinator::RegisteredCount() const {
-    std::scoped_lock lock(m_mutex);
-    return static_cast<int>(m_slots.size());
-}
 
 bool SessionCoordinator::HasPendingData() const {
     std::scoped_lock lock(m_mutex);

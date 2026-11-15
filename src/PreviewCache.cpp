@@ -232,7 +232,6 @@ HBITMAP GenerateFolderContentPreview(PCIDLIST_ABSOLUTE pidl, const SIZE& desired
     constexpr int kGridSize = 2;
     constexpr int kMaxChildren = kGridSize * kGridSize;
     constexpr int kPadding = 2;
-    constexpr DWORD kChildTimeoutMs = 3000;
 
     struct ChildThumb {
         HBITMAP bitmap = nullptr;

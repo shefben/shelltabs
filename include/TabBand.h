@@ -134,7 +134,6 @@ public:
     bool CanCloseTabsToRight(TabLocation location) const;
     bool CanCloseTabsToLeft(TabLocation location) const;
     bool CanReopenClosedTabs() const;
-    std::wstring GetReopenClosedLabel() const;
     bool CanNavigateBack() const;
     bool CanNavigateForward() const;
 
@@ -151,6 +150,7 @@ public:
     std::optional<std::vector<std::wstring>> GetSavedGroupNames() const;
     void OnCreateSavedGroup(int afterGroup);
     void OnSaveFolderToGroup(TabLocation location);
+    void OnSaveIslandToGroup(int groupIndex);
     void OnLoadSavedGroup(const std::wstring& name, int afterGroup);
     void OnShowOptionsDialog(OptionsDialogPage initialPage = OptionsDialogPage::kGeneral,
                              const std::wstring& focusGroupId = std::wstring(),
@@ -202,7 +202,6 @@ private:
     bool m_hadPendingSeed = false;
 
     std::unique_ptr<BrowserEvents> m_browserEvents;
-    DWORD m_browserCookie = 0;
     bool m_internalNavigation = false;
     bool m_pendingWindowRedirect = false;
     bool m_isInitialNavigation = true;
@@ -252,7 +251,6 @@ private:
     void InitializeTabs();
     void UpdateTabsUI();
     void EnsureSessionStore();
-    bool RestoreSession();
     void SaveSession();
     void StartSessionFlushTimer();
     void StopSessionFlushTimer();
@@ -284,6 +282,7 @@ private:
     void CaptureActiveTabPreview();
 
     bool TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl);
+    static HWND FindRedirectTargetBand(HWND ourFrame);
 
     // Scroll position preservation
     bool GetCurrentScrollPosition(POINT& outPosition);

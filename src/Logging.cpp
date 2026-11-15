@@ -635,19 +635,7 @@ void ShutdownLogging() noexcept {
     }
 }
 
-void RegisterFaultMitigationHandler(FaultMitigationCallback callback, void* context) noexcept {
-    if (!callback) {
-        return;
-    }
 
-    AcquireSRWLockExclusive(&g_faultHandlersLock);
-    g_faultHandlers.push_back({callback, context});
-    ReleaseSRWLockExclusive(&g_faultHandlersLock);
-}
-
-bool HasFaultMitigationTriggered() noexcept {
-    return g_faultMitigationTriggered.load();
-}
 
 void LogMessage(LogLevel level, const wchar_t* format, ...) noexcept {
     va_list args;

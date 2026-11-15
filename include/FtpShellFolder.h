@@ -84,7 +84,6 @@ private:
     HRESULT EnumRootEntries(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList);
     HRESULT ParseInputToSegments(std::wstring_view input, std::vector<std::wstring>* segments, bool* isDirectory) const;
     bool ExtractRelativeSegments(PCUIDLIST_RELATIVE pidl, std::vector<std::wstring>* segments, bool* isDirectory) const;
-    std::wstring BuildFolderPath(const std::vector<std::wstring>& extra) const;
     std::wstring BuildFileName(const std::vector<std::wstring>& segments, std::wstring* directoryOut) const;
     HRESULT DownloadFileToStream(const std::vector<std::wstring>& segments, Microsoft::WRL::ComPtr<IStream>* stream) const;
     HRESULT BindToChild(const std::vector<std::wstring>& segments, REFIID riid, void** ppv) const;

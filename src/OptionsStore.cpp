@@ -25,7 +25,9 @@ constexpr wchar_t kStorageFile[] = L"options.db";
 constexpr wchar_t kVersionToken[] = L"version";
 constexpr wchar_t kReopenToken[] = L"reopen_on_crash";
 constexpr wchar_t kPersistToken[] = L"persist_group_paths";
-constexpr wchar_t kReuseWindowToken[] = L"reuse_existing_window";
+constexpr wchar_t kReuseWindowToken[] = L"reuse_existing_window";  // legacy, ignored on load
+constexpr wchar_t kExternalNewWindowToken[] = L"external_open_new_window";
+constexpr wchar_t kNameColorsToken[] = L"name_colors";
 constexpr wchar_t kNewTabTemplateToken[] = L"new_tab_template";
 constexpr wchar_t kNewTabCustomPathToken[] = L"new_tab_custom_path";
 constexpr wchar_t kNewTabSavedGroupToken[] = L"new_tab_saved_group";
@@ -311,83 +313,7 @@ const wchar_t* ContextMenuAnchorToString(ContextMenuInsertionAnchor anchor) {
     }
 }
 
-ContextMenuItemScope ParseContextMenuScope(std::wstring_view token) {
-    ContextMenuItemScope scope;
-    scope.includeAllFiles = true;
-    scope.includeAllFolders = true;
 
-    if (token.empty()) {
-        return scope;
-    }
-
-    scope.includeAllFiles = false;
-    scope.includeAllFolders = false;
-    bool anyToken = false;
-    for (std::wstring_view part : Split(token, kContextMenuScopeDelimiter)) {
-        const std::wstring trimmed = Trim(part);
-        if (trimmed.empty()) {
-            continue;
-        }
-        anyToken = true;
-        if (EqualsIgnoreCase(trimmed, L"all")) {
-            scope.includeAllFiles = true;
-            scope.includeAllFolders = true;
-            break;
-        }
-        if (EqualsIgnoreCase(trimmed, L"files") || EqualsIgnoreCase(trimmed, L"file")) {
-            scope.includeAllFiles = true;
-            continue;
-        }
-        if (EqualsIgnoreCase(trimmed, L"folders") || EqualsIgnoreCase(trimmed, L"folder")) {
-            scope.includeAllFolders = true;
-            continue;
-        }
-        if (EqualsIgnoreCase(trimmed, L"none")) {
-            scope.includeAllFiles = false;
-            scope.includeAllFolders = false;
-            continue;
-        }
-        if (EqualsIgnoreCase(trimmed, L"extensions") || EqualsIgnoreCase(trimmed, L"ext")) {
-            continue;
-        }
-    }
-
-    if (!anyToken) {
-        scope.includeAllFiles = true;
-        scope.includeAllFolders = true;
-    }
-
-    return scope;
-}
-
-std::wstring BuildContextMenuScopeString(const ContextMenuItemScope& scope) {
-    std::vector<std::wstring> tokens;
-    if (scope.includeAllFiles && scope.includeAllFolders && scope.extensions.empty()) {
-        tokens.emplace_back(L"all");
-    } else {
-        if (scope.includeAllFiles) {
-            tokens.emplace_back(L"files");
-        }
-        if (scope.includeAllFolders) {
-            tokens.emplace_back(L"folders");
-        }
-        if (!scope.extensions.empty()) {
-            tokens.emplace_back(L"extensions");
-        }
-        if (tokens.empty()) {
-            tokens.emplace_back(L"none");
-        }
-    }
-
-    std::wstring result;
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        if (i > 0) {
-            result.push_back(kContextMenuScopeDelimiter);
-        }
-        result += tokens[i];
-    }
-    return result;
-}
 
 std::vector<std::wstring> ParseContextMenuExtensions(std::wstring_view token) {
     std::vector<std::wstring> extensions;
@@ -406,17 +332,6 @@ std::vector<std::wstring> ParseContextMenuExtensions(std::wstring_view token) {
     return NormalizeContextMenuPatterns(extensions);
 }
 
-std::wstring BuildContextMenuExtensionsToken(const std::vector<std::wstring>& extensions) {
-    const std::vector<std::wstring> normalized = NormalizeContextMenuPatterns(extensions);
-    std::wstring result;
-    for (size_t i = 0; i < normalized.size(); ++i) {
-        if (i > 0) {
-            result.push_back(kContextMenuExtensionDelimiter);
-        }
-        result += normalized[i];
-    }
-    return result;
-}
 
 int ParseSelectionCount(std::wstring_view token) {
     if (token.empty()) {
@@ -595,32 +510,7 @@ void AppendContextMenuItems(std::wstring& content, const std::vector<ContextMenu
 
 // ==================== Context Menu System Implementation ====================
 
-// Backward compatibility: split old commandTemplate into executable + arguments
-void MigrateCommandTemplate(ContextMenuItem* item) {
-    if (!item || item->type != ContextMenuItemType::kCommand) {
-        return;
-    }
 
-    // If we already have an executable, no need to migrate
-    if (!item->executable.empty()) {
-        return;
-    }
-
-    // This would be populated by old format - we'll leave the interface for now
-    // The old code can call SplitCommandTemplate manually if needed
-}
-
-// Helper to build command template from executable + arguments (for old code)
-std::wstring BuildCommandTemplateFromParts(const std::wstring& executable, const std::wstring& arguments) {
-    std::wstring result = executable;
-    if (!arguments.empty()) {
-        if (!result.empty()) {
-            result += L" ";
-        }
-        result += arguments;
-    }
-    return result;
-}
 
 // ==================== Context Menu System Implementation ====================
 
@@ -695,16 +585,6 @@ std::vector<std::wstring> NormalizeContextMenuPatterns(const std::vector<std::ws
     return normalized;
 }
 
-// Legacy extension normalization (kept for compatibility)
-std::wstring NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions) {
-    std::wstring result;
-    auto normalized = NormalizeContextMenuPatterns(extensions);
-    for (size_t i = 0; i < normalized.size(); ++i) {
-        if (i > 0) result += L";";
-        result += normalized[i];
-    }
-    return result;
-}
 
 // Check if a context menu item matches the current selection
 bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionCount,
@@ -892,63 +772,6 @@ void ValidateContextMenuItem(const ContextMenuItem& item, std::vector<std::wstri
     }
 }
 
-// Create a context menu item from a template
-ContextMenuItem CreateContextMenuTemplate(const std::wstring& templateType) {
-    ContextMenuItem item;
-    item.enabled = true;
-    item.anchor = ContextMenuInsertionAnchor::kDefault;
-
-    if (templateType == L"open_with") {
-        item.type = ContextMenuItemType::kCommand;
-        item.label = L"Open with...";
-        item.executable = L"rundll32.exe";
-        item.arguments = L"shell32.dll,OpenAs_RunDLL %1";
-        item.iconSource = L"shell32.dll,3";
-        item.visibility.maximumSelection = 1;
-        item.visibility.showForFiles = true;
-        item.visibility.showForFolders = false;
-    } else if (templateType == L"cmd_here") {
-        item.type = ContextMenuItemType::kCommand;
-        item.label = L"Command Prompt Here";
-        item.executable = L"cmd.exe";
-        item.arguments = L"/k cd /d %P";
-        item.iconSource = L"cmd.exe,0";
-        item.visibility.showForFiles = true;
-        item.visibility.showForFolders = true;
-        item.workingDirectory = L"%P";
-    } else if (templateType == L"powershell_here") {
-        item.type = ContextMenuItemType::kCommand;
-        item.label = L"PowerShell Here";
-        item.executable = L"powershell.exe";
-        item.arguments = L"-NoExit -Command Set-Location -Path %P";
-        item.iconSource = L"powershell.exe,0";
-        item.visibility.showForFiles = true;
-        item.visibility.showForFolders = true;
-        item.workingDirectory = L"%P";
-    } else if (templateType == L"copy_path") {
-        item.type = ContextMenuItemType::kCommand;
-        item.label = L"Copy Full Path";
-        item.executable = L"cmd.exe";
-        item.arguments = L"/c echo %1 | clip";
-        item.iconSource = L"shell32.dll,134";
-        item.windowState = ContextMenuWindowState::kHidden;
-    } else if (templateType == L"properties") {
-        item.type = ContextMenuItemType::kCommand;
-        item.label = L"Properties";
-        item.executable = L"rundll32.exe";
-        item.arguments = L"shell32.dll,Control_RunDLL shell32.dll,,Properties %1";
-        item.iconSource = L"shell32.dll,21";
-        item.visibility.maximumSelection = 1;
-    } else {
-        // Default empty command
-        item.type = ContextMenuItemType::kCommand;
-        item.label = L"New Command";
-        item.executable = L"";
-        item.arguments = L"";
-    }
-
-    return item;
-}
 
 std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource) {
     std::wstring trimmed = Trim(iconSource);
@@ -986,76 +809,6 @@ std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource) {
     return result;
 }
 
-IconCache::Reference ResolveContextMenuIcon(const std::wstring& iconSource, UINT iconFlags) {
-    const std::wstring normalizedSource = NormalizeContextMenuIconSource(iconSource);
-    if (normalizedSource.empty()) {
-        return {};
-    }
-
-    std::vector<wchar_t> buffer(normalizedSource.begin(), normalizedSource.end());
-    buffer.push_back(L'\0');
-    const int iconIndex = PathParseIconLocationW(buffer.data());
-    std::wstring path(buffer.data());
-    path = Trim(path);
-    if (path.empty()) {
-        return {};
-    }
-
-    const bool wantLarge = (iconFlags & SHGFI_LARGEICON) != 0;
-    const bool wantSmall = (iconFlags & SHGFI_SMALLICON) != 0;
-    const bool requestLarge = wantLarge || !wantSmall;
-    const bool requestSmall = wantSmall || !wantLarge;
-
-    return IconCache::Instance().Acquire(normalizedSource, iconFlags, [path, iconIndex, requestLarge, requestSmall,
-                                                                      wantLarge, wantSmall]() -> HICON {
-        HICON largeIcon = nullptr;
-        HICON smallIcon = nullptr;
-        const UINT extracted = ExtractIconExW(path.c_str(), iconIndex, requestLarge ? &largeIcon : nullptr,
-                                              requestSmall ? &smallIcon : nullptr, 1);
-        if (extracted == 0) {
-            if (largeIcon) {
-                DestroyIcon(largeIcon);
-            }
-            if (smallIcon) {
-                DestroyIcon(smallIcon);
-            }
-            return nullptr;
-        }
-
-        HICON result = nullptr;
-        if (wantSmall && smallIcon) {
-            result = smallIcon;
-            if (largeIcon) {
-                DestroyIcon(largeIcon);
-            }
-        } else if (wantLarge && largeIcon) {
-            result = largeIcon;
-            if (smallIcon) {
-                DestroyIcon(smallIcon);
-            }
-        } else if (largeIcon) {
-            result = largeIcon;
-            if (smallIcon) {
-                DestroyIcon(smallIcon);
-            }
-        } else if (smallIcon) {
-            result = smallIcon;
-        }
-
-        if (!result) {
-            if (largeIcon) {
-                DestroyIcon(largeIcon);
-            }
-            if (smallIcon) {
-                DestroyIcon(smallIcon);
-            }
-        } else if (result != smallIcon && smallIcon) {
-            DestroyIcon(smallIcon);
-        }
-
-        return result;
-    });
-}
 
 void UpdateGlowPaletteFromLegacySettings(ShellTabsOptions& options) {
     const bool gradient = options.useNeonGlowGradient;
@@ -1271,8 +1024,20 @@ bool OptionsStore::Load(std::wstring* errorContext) {
         }
 
         if (header == kReuseWindowToken) {
+            // Legacy setting (defaulted to off). Superseded by external_open_new_window.
+            return true;
+        }
+
+        if (header == kNameColorsToken) {
             if (tokens.size() >= 2) {
-                m_options.reuseExistingWindow = ParseBool(tokens[1]);
+                m_options.enableNameColors = ParseBool(tokens[1]);
+            }
+            return true;
+        }
+
+        if (header == kExternalNewWindowToken) {
+            if (tokens.size() >= 2) {
+                m_options.reuseExistingWindow = !ParseBool(tokens[1]);
             }
             return true;
         }
@@ -1791,9 +1556,13 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += options.persistGroupPaths ? L"1" : L"0";
     content += L"\n";
-    content += kReuseWindowToken;
+    content += kExternalNewWindowToken;
     content += L"|";
-    content += options.reuseExistingWindow ? L"1" : L"0";
+    content += options.reuseExistingWindow ? L"0" : L"1";
+    content += L"\n";
+    content += kNameColorsToken;
+    content += L"|";
+    content += options.enableNameColors ? L"1" : L"0";
     content += L"\n";
     content += kNewTabTemplateToken;
     content += L"|";
@@ -2112,6 +1881,7 @@ bool operator==(const GlowSurfacePalette& left, const GlowSurfacePalette& right)
 bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noexcept {
     return left.reopenOnCrash == right.reopenOnCrash && left.persistGroupPaths == right.persistGroupPaths &&
            left.reuseExistingWindow == right.reuseExistingWindow &&
+           left.enableNameColors == right.enableNameColors &&
            left.enableBreadcrumbGradient == right.enableBreadcrumbGradient &&
            left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
            left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&

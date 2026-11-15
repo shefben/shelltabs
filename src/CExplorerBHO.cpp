@@ -48,6 +48,7 @@
 #include "CompositionIntercept.h"
 #include "Notifications.h"
 #include "OptionsStore.h"
+#include "NameColorStore.h"
 #include "ShellTabsMessages.h"
 #include "Utilities.h"
 #include "ExplorerThemeUtils.h"
@@ -135,7 +136,6 @@ using shelltabs::ComputeContrastRatio;
 
 constexpr DWORD kEnsureRetryInitialDelayMs = 500;
 constexpr DWORD kEnsureRetryMaxDelayMs = 4000;
-constexpr DWORD kOpenInNewTabRetryDelayMs = 250;
 constexpr wchar_t kUniversalBackgroundCacheKey[] = L"__shelltabs_universal_background";
 constexpr UINT_PTR kAddressEditRedrawTimerId = 0x53445257;  // 'SRDW'
 constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
@@ -143,116 +143,8 @@ constexpr UINT kAddressEditRedrawCoalesceDelayMs = 30;
 constexpr size_t kDirectUiDrawMethodIndex = 12;
 const IID IID_IUIElement = {0x0A498932, 0xD65C, 0x4E0C, {0x80, 0xDA, 0x8A, 0x2C, 0xA8, 0xF2, 0x53, 0x20}};
 
-void ConfigureToolbarForCustomSeparators(HWND toolbar) {
-    if (!toolbar || !IsWindow(toolbar)) {
-        return;
-    }
 
-    const LRESULT currentStyle = SendMessageW(toolbar, TB_GETEXTENDEDSTYLE, 0, 0);
-    const LRESULT desiredStyle = currentStyle | TBSTYLE_EX_HIDECLIPPEDBUTTONS;
-    if (desiredStyle != currentStyle) {
-        SendMessageW(toolbar, TB_SETEXTENDEDSTYLE, 0, desiredStyle);
-    }
-}
 
-void ConfigureHeaderForCustomDividers(HWND header) {
-    if (!header || !IsWindow(header)) {
-        return;
-    }
-
-    const int itemCount = Header_GetItemCount(header);
-    if (itemCount <= 0) {
-        return;
-    }
-
-    const UINT dpi = GetDpiForWindow(header);
-    const int kBaseThreshold = 4;
-    const int threshold = std::max(kBaseThreshold, MulDiv(kBaseThreshold, static_cast<int>(dpi), 96));
-    for (int index = 0; index < itemCount; ++index) {
-        RECT itemRect{};
-        if (!Header_GetItemRect(header, index, &itemRect)) {
-            continue;
-        }
-
-        const int width = itemRect.right - itemRect.left;
-        if (width > threshold) {
-            continue;
-        }
-
-        HDITEMW item{};
-        item.mask = HDI_FORMAT;
-        if (!Header_GetItem(header, index, &item)) {
-            continue;
-        }
-
-        if ((item.fmt & HDF_OWNERDRAW) != 0) {
-            continue;
-        }
-
-        item.fmt |= HDF_OWNERDRAW;
-        Header_SetItem(header, index, &item);
-    }
-}
-
-std::optional<std::wstring> TranslateVirtualLocation(PCIDLIST_ABSOLUTE pidl) {
-    if (!pidl) {
-        return std::nullopt;
-    }
-
-    struct KnownVirtualFolderMapping {
-        const KNOWNFOLDERID* folderId;
-        const wchar_t* canonical;
-    };
-
-    static const KnownVirtualFolderMapping kKnownVirtualFolders[] = {
-        {&FOLDERID_ComputerFolder, L"shell:MyComputerFolder"},
-        {&FOLDERID_NetworkFolder, L"shell:NetworkPlacesFolder"},
-        {&FOLDERID_ControlPanelFolder, L"shell:ControlPanelFolder"},
-        {&FOLDERID_RecycleBinFolder, L"shell:RecycleBinFolder"},
-        {&FOLDERID_Libraries, L"shell:Libraries"},
-#ifdef FOLDERID_QuickAccess
-        {&FOLDERID_QuickAccess, L"shell:QuickAccess"},
-#endif
-#ifdef FOLDERID_AppsFolder
-        {&FOLDERID_AppsFolder, L"shell:AppsFolder"},
-#endif
-    };
-
-    for (const auto& mapping : kKnownVirtualFolders) {
-        PIDLIST_ABSOLUTE knownFolder = nullptr;
-        if (FAILED(SHGetKnownFolderIDList(*mapping.folderId, KF_FLAG_DEFAULT | KF_FLAG_NO_ALIAS, nullptr, &knownFolder)) ||
-            !knownFolder) {
-            continue;
-        }
-
-        UniquePidl known(knownFolder);
-        if (ArePidlsEqual(pidl, known.get())) {
-            return std::wstring(mapping.canonical);
-        }
-    }
-
-    auto canonical = GetCanonicalParsingName(pidl);
-    if (!canonical.empty()) {
-        if (canonical.rfind(L"shell:", 0) == 0) {
-            return canonical;
-        }
-        if (canonical.rfind(L"::", 0) == 0) {
-            return L"shell:" + canonical;
-        }
-    }
-
-    auto parsing = GetParsingName(pidl);
-    if (!parsing.empty()) {
-        if (parsing.rfind(L"shell:", 0) == 0) {
-            return parsing;
-        }
-        if (parsing.rfind(L"::", 0) == 0) {
-            return L"shell:" + parsing;
-        }
-    }
-
-    return std::nullopt;
-}
 
 struct EnumClassSearchContext {
     const wchar_t* className = nullptr;
@@ -291,132 +183,8 @@ HWND FindDescendantByClassEnum(HWND root, const wchar_t* className) {
 }
 
 
-// Convert GDI+ Bitmap to HBITMAP for use with LVM_SETBKIMAGE
-HBITMAP BitmapToHBITMAP(Gdiplus::Bitmap* bitmap) {
-    if (!bitmap) {
-        return nullptr;
-    }
 
-    HBITMAP hBitmap = nullptr;
-    Gdiplus::Color transparentColor(0, 0, 0, 0);  // Transparent black
 
-    if (bitmap->GetHBITMAP(transparentColor, &hBitmap) != Gdiplus::Ok) {
-        return nullptr;
-    }
-
-    return hBitmap;
-}
-
-// Clear ListView background image using LVM_SETBKIMAGE
-void ClearListViewBackgroundImage(HWND hwnd, HBITMAP* trackedBitmap = nullptr,
-                                  IVisualProperties* visualProperties = nullptr) {
-    if (!hwnd || !IsWindow(hwnd)) {
-        return;
-    }
-
-    LVBKIMAGEW bkImage = {};
-
-    // Clear watermark type
-    bkImage.ulFlags = LVBKIF_TYPE_WATERMARK;
-    SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
-
-    // Clear bitmap type
-    bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP;
-    SendMessageW(hwnd, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
-
-    if (visualProperties) {
-        HRESULT hr = visualProperties->SetWatermark(nullptr, VPWF_DEFAULT);
-        if (FAILED(hr)) {
-            LogMessage(LogLevel::Warning,
-                       L"Failed to clear folder view watermark via IVisualProperties hr=0x%08X", hr);
-        }
-    }
-
-    // Delete the tracked bitmap if provided
-    if (trackedBitmap && *trackedBitmap) {
-        DeleteObject(*trackedBitmap);
-        *trackedBitmap = nullptr;
-    }
-}
-
-// Set ListView background image using LVM_SETBKIMAGE (QTTabBar approach)
-bool SetListViewBackgroundImage(HWND listView, Gdiplus::Bitmap* bitmap, HBITMAP* trackedBitmap = nullptr,
-                                bool useWatermarkMode = false, IVisualProperties* visualProperties = nullptr) {
-    if (!listView || !IsWindow(listView)) {
-        return false;
-    }
-
-    // Use the ListView window directly as the target
-    HWND targetWindow = listView;
-
-    // Clear any existing background image and delete the old bitmap
-    ClearListViewBackgroundImage(targetWindow, trackedBitmap, visualProperties);
-
-    // If no bitmap provided, we're just clearing
-    if (!bitmap) {
-        return true;
-    }
-
-    // Convert GDI+ Bitmap to HBITMAP
-    HBITMAP hBitmap = BitmapToHBITMAP(bitmap);
-    if (!hBitmap) {
-        LogMessage(LogLevel::Warning, L"Failed to convert bitmap to HBITMAP for background image");
-        return false;
-    }
-
-    // Set up LVBKIMAGE structure
-    LVBKIMAGEW bkImage = {};
-    bkImage.hbm = hBitmap;
-    bkImage.xOffsetPercent = 0;
-    bkImage.yOffsetPercent = 0;
-
-    // Use watermark mode for Vista+ (better rendering) or normal mode for XP
-    // Watermark mode supports alpha blending and better positioning
-    if (useWatermarkMode) {
-        bkImage.ulFlags = LVBKIF_TYPE_WATERMARK;
-    } else {
-        // Normal tiled mode - stretches image to fill ListView
-        bkImage.ulFlags = LVBKIF_SOURCE_HBITMAP | LVBKIF_STYLE_TILE;
-    }
-
-    // Send the message to set the background
-    LRESULT result = SendMessageW(targetWindow, LVM_SETBKIMAGE, 0, reinterpret_cast<LPARAM>(&bkImage));
-    bool lvmApplied = result != 0;
-    bool usedWatermarkFallback = false;
-
-    if (!lvmApplied) {
-        LogMessage(LogLevel::Warning, L"Failed to set ListView background image (hwnd=%p)", targetWindow);
-    }
-
-    bool needsWatermarkFallback = visualProperties && !lvmApplied;
-    if (needsWatermarkFallback) {
-        HRESULT hr = visualProperties->SetWatermark(hBitmap, VPWF_ALPHABLEND);
-        if (SUCCEEDED(hr)) {
-            usedWatermarkFallback = true;
-            LogMessage(LogLevel::Info,
-                       L"Applied folder view watermark fallback via IVisualProperties (hr=0x%08X)", hr);
-        } else {
-            LogMessage(LogLevel::Warning,
-                       L"Failed to apply folder view watermark fallback via IVisualProperties hr=0x%08X", hr);
-        }
-    }
-
-    if (lvmApplied || usedWatermarkFallback) {
-        LogMessage(LogLevel::Info, L"Successfully set folder background via %s",
-                   lvmApplied ? L"LVM_SETBKIMAGE" : L"IVisualProperties");
-
-        // Track the new bitmap so we can clean it up later
-        if (trackedBitmap) {
-            *trackedBitmap = hBitmap;
-        }
-
-        return true;
-    }
-
-    // Failed entirely, so delete the bitmap we created
-    DeleteObject(hBitmap);
-    return false;
-}
 
 Microsoft::WRL::ComPtr<ITypeInfo> LoadBrowserEventsTypeInfo() {
     static std::once_flag once;
@@ -557,271 +325,16 @@ BOOL TreeView_GetItemW(HWND hwnd, TVITEMEXW* item) {
 }
 #endif
 
-std::wstring NormalizeMenuText(const std::wstring& value) {
-    if (value.empty()) {
-        return {};
-    }
 
-    std::wstring normalized;
-    normalized.reserve(value.size());
-    for (wchar_t ch : value) {
-        if (ch == L'&' || ch == L'.' || ch == 0x2026) {  // 0x2026 = ellipsis
-            continue;
-        }
-        normalized.push_back(static_cast<wchar_t>(towlower(ch)));
-    }
 
-    const size_t first = normalized.find_first_not_of(L" \t\r\n");
-    if (first == std::wstring::npos) {
-        return {};
-    }
-    const size_t last = normalized.find_last_not_of(L" \t\r\n");
-    return normalized.substr(first, last - first + 1);
-}
 
-bool TryGetMenuItemText(HMENU menu, UINT position, std::wstring& text) {
-    text.clear();
-    if (!menu) {
-        return false;
-    }
 
-    MENUITEMINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = MIIM_STRING;
-    info.dwTypeData = nullptr;
-    info.cch = 0;
-    if (!GetMenuItemInfoW(menu, position, TRUE, &info)) {
-        return false;
-    }
 
-    if (info.cch == 0) {
-        return true;
-    }
 
-    std::wstring buffer;
-    buffer.resize(info.cch);
-    info.dwTypeData = buffer.data();
-    info.cch = static_cast<UINT>(buffer.size());
-    if (!GetMenuItemInfoW(menu, position, TRUE, &info)) {
-        return false;
-    }
 
-    buffer.resize(info.cch);
-    text = std::move(buffer);
-    return true;
-}
 
-bool FindMenuItemById(HMENU menu, UINT commandId, UINT* position) {
-    if (!menu) {
-        return false;
-    }
 
-    const int count = GetMenuItemCount(menu);
-    if (count <= 0) {
-        return false;
-    }
 
-    for (int i = 0; i < count; ++i) {
-        const UINT id = GetMenuItemID(menu, i);
-        if (id == commandId) {
-            if (position) {
-                *position = static_cast<UINT>(i);
-            }
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool FindOpenInNewWindowMenuItem(HMENU menu, UINT* position, UINT* commandId) {
-    if (!menu) {
-        return false;
-    }
-
-    const UINT candidates[] = {SFVIDM_CLIENT_OPENWINDOW, 0x705A, 0x7059, 0x7020};
-    for (UINT candidate : candidates) {
-        UINT pos = 0;
-        if (FindMenuItemById(menu, candidate, &pos)) {
-            if (position) {
-                *position = pos;
-            }
-            if (commandId) {
-                *commandId = candidate;
-            }
-            return true;
-        }
-    }
-
-    const int count = GetMenuItemCount(menu);
-    if (count <= 0) {
-        return false;
-    }
-
-    static const wchar_t* kTargets[] = {L"open in new window", L"open new window"};
-
-    for (int i = 0; i < count; ++i) {
-        const UINT id = GetMenuItemID(menu, i);
-        if (id == UINT_MAX) {
-            continue;
-        }
-
-        std::wstring text;
-        if (!TryGetMenuItemText(menu, i, text)) {
-            continue;
-        }
-
-        const std::wstring normalized = NormalizeMenuText(text);
-        if (normalized.empty()) {
-            continue;
-        }
-
-        for (const wchar_t* target : kTargets) {
-            if (normalized == target) {
-                if (position) {
-                    *position = static_cast<UINT>(i);
-                }
-                if (commandId) {
-                    *commandId = id;
-                }
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool IsSeparatorItem(HMENU menu, UINT position) {
-    if (!menu) {
-        return false;
-    }
-
-    MENUITEMINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = MIIM_FTYPE;
-    if (!GetMenuItemInfoW(menu, position, TRUE, &info)) {
-        return false;
-    }
-
-    return (info.fType & MFT_SEPARATOR) != 0;
-}
-
-std::wstring ExtractLowercaseExtension(const std::wstring& path) {
-    if (path.empty()) {
-        return {};
-    }
-
-    const size_t slash = path.find_last_of(L"\\/");
-    const size_t dot = path.find_last_of(L'.');
-    if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash + 1)) {
-        return {};
-    }
-
-    std::wstring extension = path.substr(dot);
-    std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t ch) {
-        return static_cast<wchar_t>(std::towlower(static_cast<unsigned int>(ch)));
-    });
-    return extension;
-}
-
-std::wstring ExtractParentDirectory(const std::wstring& path) {
-    if (path.empty()) {
-        return {};
-    }
-
-    size_t slash = path.find_last_of(L"\\/");
-    if (slash == std::wstring::npos) {
-        return {};
-    }
-
-    if (slash == 0 && path.size() > 1 && path[1] == L':') {
-        return path.substr(0, 2);
-    }
-
-    return path.substr(0, slash);
-}
-
-bool ContainsToken(const std::wstring& command, std::wstring_view token) {
-    return command.find(std::wstring(token)) != std::wstring::npos;
-}
-
-std::wstring ReplaceToken(const std::wstring& input, std::wstring_view token,
-                          const std::wstring& replacement) {
-    if (token.empty()) {
-        return input;
-    }
-
-    std::wstring result = input;
-    const std::wstring pattern(token);
-    size_t position = 0;
-    while ((position = result.find(pattern, position)) != std::wstring::npos) {
-        result.replace(position, pattern.size(), replacement);
-        position += replacement.size();
-    }
-    return result;
-}
-
-std::wstring QuoteArgument(const std::wstring& argument) {
-    if (argument.empty()) {
-        return L"\"\"";
-    }
-
-    bool needsQuotes = false;
-    for (wchar_t ch : argument) {
-        if (std::iswspace(ch) || ch == L'"') {
-            needsQuotes = true;
-            break;
-        }
-    }
-
-    if (!needsQuotes) {
-        return argument;
-    }
-
-    std::wstring result;
-    result.reserve(argument.size() + 2);
-    result.push_back(L'"');
-    size_t consecutiveBackslashes = 0;
-    for (wchar_t ch : argument) {
-        if (ch == L'\\') {
-            ++consecutiveBackslashes;
-            result.push_back(ch);
-            continue;
-        }
-
-        if (ch == L'"') {
-            result.append(consecutiveBackslashes + 1, L'\\');
-            consecutiveBackslashes = 0;
-            result.push_back(ch);
-            continue;
-        }
-
-        consecutiveBackslashes = 0;
-        result.push_back(ch);
-    }
-
-    if (consecutiveBackslashes > 0) {
-        result.append(consecutiveBackslashes, L'\\');
-    }
-
-    result.push_back(L'"');
-    return result;
-}
-
-SIZE ResolveMenuIconSize(const IconCache::Reference& iconReference) {
-    const int defaultWidth = GetSystemMetrics(SM_CXSMICON);
-    const int defaultHeight = GetSystemMetrics(SM_CYSMICON);
-    SIZE size{defaultWidth > 0 ? defaultWidth : 16, defaultHeight > 0 ? defaultHeight : 16};
-    if (iconReference) {
-        if (auto metrics = iconReference.GetMetrics()) {
-            if (metrics->cx > 0 && metrics->cy > 0) {
-                size = *metrics;
-            }
-        }
-    }
-    return size;
-}
 
 BYTE AverageColorChannel(BYTE a, BYTE b) {
     return static_cast<BYTE>((static_cast<int>(a) + static_cast<int>(b)) / 2);
@@ -850,11 +363,7 @@ Gdiplus::Color BrightenBreadcrumbColor(const Gdiplus::Color& color,
                           blendChannel(color.GetG(), blendGreen), blendChannel(color.GetB(), blendBlue));
 }
 
-COLORREF ChooseAccentTextColor(COLORREF accent) {
-    return ComputeColorLuminance(accent) > 0.55 ? RGB(0, 0, 0) : RGB(255, 255, 255);
-}
 
-constexpr wchar_t kOpenInNewTabLabel[] = L"Open in new tab";
 constexpr int kProgressGradientSampleWidth = 256;
 
 struct BreadcrumbHookEntry {
@@ -865,29 +374,6 @@ struct BreadcrumbHookEntry {
 std::mutex g_breadcrumbHookMutex;
 std::unordered_map<DWORD, BreadcrumbHookEntry> g_breadcrumbHooks;
 
-const wchar_t* DescribeSurfaceKind(shelltabs::ExplorerSurfaceKind kind) {
-    using shelltabs::ExplorerSurfaceKind;
-    switch (kind) {
-        case ExplorerSurfaceKind::ListView:
-            return L"list view";
-        case ExplorerSurfaceKind::Header:
-            return L"header";
-        case ExplorerSurfaceKind::Rebar:
-            return L"rebar";
-        case ExplorerSurfaceKind::Toolbar:
-            return L"toolbar";
-        case ExplorerSurfaceKind::Edit:
-            return L"edit";
-        case ExplorerSurfaceKind::Scrollbar:
-            return L"scrollbar";
-        case ExplorerSurfaceKind::PopupMenu:
-            return L"popup menu";
-        case ExplorerSurfaceKind::Tooltip:
-            return L"tooltip";
-        default:
-            return L"surface";
-    }
-}
 
 }  // namespace
 
@@ -934,8 +420,6 @@ namespace shelltabs {
 
 std::mutex CExplorerBHO::s_ensureTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_ensureTimers;
-std::mutex CExplorerBHO::s_openInNewTabTimerLock;
-std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_openInNewTabTimers;
 std::mutex CExplorerBHO::s_deferredBreadcrumbTimerLock;
 std::unordered_map<UINT_PTR, CExplorerBHO*> CExplorerBHO::s_deferredBreadcrumbTimers;
 
@@ -1112,79 +596,9 @@ void CALLBACK CExplorerBHO::EnsureBandTimerProc(HWND, UINT, UINT_PTR timerId, DW
     }
 }
 
-void CExplorerBHO::HandleOpenInNewTabTimer(UINT_PTR timerId) {
-    if (m_openInNewTabTimerId != timerId) {
-        return;
-    }
 
-    m_openInNewTabTimerId = 0;
-    m_openInNewTabRetryScheduled = false;
-    TryDispatchQueuedOpenInNewTabRequests();
-}
 
-void CExplorerBHO::ScheduleOpenInNewTabRetry() {
-    if (m_openInNewTabRetryScheduled || m_openInNewTabQueue.empty()) {
-        return;
-    }
 
-    UINT_PTR timerId = SetTimer(nullptr, 0, kOpenInNewTabRetryDelayMs, &CExplorerBHO::OpenInNewTabTimerProc);
-    if (timerId == 0) {
-        const DWORD error = GetLastError();
-        LogMessage(LogLevel::Error,
-                   L"Open In New Tab: failed to schedule retry timer (delay=%u ms, error=%lu)",
-                   kOpenInNewTabRetryDelayMs, error);
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
-        s_openInNewTabTimers[timerId] = this;
-    }
-
-    m_openInNewTabRetryScheduled = true;
-    m_openInNewTabTimerId = timerId;
-}
-
-void CExplorerBHO::CancelOpenInNewTabRetry() {
-    if (!m_openInNewTabRetryScheduled || m_openInNewTabTimerId == 0) {
-        m_openInNewTabRetryScheduled = false;
-        m_openInNewTabTimerId = 0;
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
-        s_openInNewTabTimers.erase(m_openInNewTabTimerId);
-    }
-
-    KillTimer(nullptr, m_openInNewTabTimerId);
-    m_openInNewTabRetryScheduled = false;
-    m_openInNewTabTimerId = 0;
-}
-
-void CALLBACK CExplorerBHO::OpenInNewTabTimerProc(HWND, UINT, UINT_PTR timerId, DWORD) {
-    CExplorerBHO* instance = nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(s_openInNewTabTimerLock);
-        auto it = s_openInNewTabTimers.find(timerId);
-        if (it != s_openInNewTabTimers.end()) {
-            instance = it->second;
-            // AddRef to keep the object alive during callback execution
-            // This prevents use-after-free if the object is being destroyed on another thread
-            instance->AddRef();
-            s_openInNewTabTimers.erase(it);
-        }
-    }
-
-    KillTimer(nullptr, timerId);
-
-    if (instance) {
-        instance->HandleOpenInNewTabTimer(timerId);
-        // Release the reference we added above
-        instance->Release();
-    }
-}
 
 void CExplorerBHO::ScheduleDeferredBreadcrumbUpdate() {
     CancelDeferredBreadcrumbUpdate();
@@ -1325,11 +739,8 @@ void CExplorerBHO::Disconnect() {
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 2 - CancelAllEnsureRetries");
     CancelAllEnsureRetries();
     CancelDeferredBreadcrumbUpdate();
-    LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 3 - CancelOpenInNewTabRetry");
-    CancelOpenInNewTabRetry();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 4 - clear states");
     m_bandEnsureStates.clear();
-    m_openInNewTabQueue.clear();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 5 - RemoveBreadcrumbHook");
     RemoveBreadcrumbHook();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 6 - RemoveBreadcrumbSubclass");
@@ -1341,6 +752,9 @@ void CExplorerBHO::Disconnect() {
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 8b - RemoveExplorerFrameSubclass");
     RemoveExplorerFrameSubclass();
     RemoveDirectUISubclass();
+    if (m_nameColorView) {
+        m_nameColorView->Detach();
+    }
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9 - RemoveAddressEditSubclass");
     RemoveAddressEditSubclass();
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 9b - RemoveStatusBarSubclass");
@@ -1561,7 +975,6 @@ HRESULT CExplorerBHO::EnsureBandVisible() {
                            L"EnsureBandVisible: ShowBrowserBar succeeded for host=%p on attempt %zu", hostWindow,
                            attempt);
                 ScheduleDeferredBreadcrumbUpdate();
-                TryDispatchQueuedOpenInNewTabRequests();
             } else {
                 m_bandVisible = false;
                 const bool throttled = IsShowBrowserBarThrottled(hr);
@@ -1652,6 +1065,11 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
+            }
+
+            // Name colors need the classic list view; request it before the first view is created.
+            if (OptionsStore::Instance().Get().enableNameColors) {
+                NameColorView::ApplyFolderViewMode(m_shellBrowser.Get(), true);
             }
             EnsureBandVisible();
 
@@ -1810,6 +1228,7 @@ IFACEMETHODIMP CExplorerBHO::Invoke(DISPID dispIdMember, REFIID, LCID, WORD, DIS
                 case DISPID_NAVIGATECOMPLETE2:
                     UpdateBreadcrumbSubclass();
                     UpdateTravelToolbarButtonStates();
+                    UpdateNameColorView();
 
                     // Apply dark mode theme to status bar
                     UpdateStatusBarTheme();
@@ -2247,41 +1666,6 @@ HWND CExplorerBHO::FindAddressEditControl() const {
     return data.edit;
 }
 
-std::vector<HWND> CExplorerBHO::FindExplorerEditControls() const {
-    std::vector<HWND> edits;
-    std::unordered_set<HWND, HandleHasher> seen;
-
-    if (HWND address = FindAddressEditControl()) {
-        MaybeAddExplorerEdit(address, seen, edits);
-    }
-
-    HWND frame = GetTopLevelExplorerWindow();
-    if (!frame) {
-        return edits;
-    }
-
-    struct EnumContext {
-        const CExplorerBHO* self = nullptr;
-        std::unordered_set<HWND, HandleHasher>* seen = nullptr;
-        std::vector<HWND>* edits = nullptr;
-    } context{this, &seen, &edits};
-
-    EnumChildWindows(
-        frame,
-        [](HWND hwnd, LPARAM param) -> BOOL {
-            auto* ctx = reinterpret_cast<EnumContext*>(param);
-            if (!ctx || !ctx->self || !ctx->seen || !ctx->edits) {
-                return TRUE;
-            }
-            if (!IsWindow(hwnd)) {
-                return TRUE;
-            }
-            return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&context));
-
-    return edits;
-}
 
 
 void CExplorerBHO::MaybeAddExplorerEdit(HWND candidate, std::unordered_set<HWND, HandleHasher>& seen,
@@ -2570,36 +1954,7 @@ bool CExplorerBHO::EnsureUniversalBackgroundBitmap() const {
     return true;
 }
 
-Gdiplus::Bitmap* CExplorerBHO::ResolveCurrentFolderBackground() const {
-    if (!m_folderBackgroundsEnabled || !m_gdiplusInitialized) {
-        return nullptr;
-    }
 
-    if (EnsureFolderBackgroundBitmap(m_currentFolderKey)) {
-        auto it = m_folderBackgroundBitmaps.find(m_currentFolderKey);
-        if (it != m_folderBackgroundBitmaps.end()) {
-            return it->second.get();
-        }
-    }
-
-    if (EnsureUniversalBackgroundBitmap()) {
-        return m_universalBackgroundBitmap.get();
-    }
-
-    return nullptr;
-}
-
-std::wstring CExplorerBHO::ResolveBackgroundCacheKey() const {
-    if (!m_currentFolderKey.empty()) {
-        return m_currentFolderKey;
-    }
-
-    if (m_universalBackgroundBitmap) {
-        return std::wstring(kUniversalBackgroundCacheKey);
-    }
-
-    return {};
-}
 
 bool HasFolderViewRulePrefix(const std::wstring& folderKey, const std::wstring& ruleKey) {
     if (folderKey.size() < ruleKey.size()) {
@@ -2694,25 +2049,6 @@ void CExplorerBHO::ApplyCurrentFolderViewRules(const ShellTabsOptions& options) 
     }
 }
 
-Microsoft::WRL::ComPtr<IVisualProperties> CExplorerBHO::GetCurrentVisualProperties() const {
-    Microsoft::WRL::ComPtr<IVisualProperties> visualProperties;
-
-    // Try to get visual properties from the shell browser
-    if (m_shellBrowser) {
-        Microsoft::WRL::ComPtr<IShellView> shellView;
-        if (SUCCEEDED(m_shellBrowser->QueryActiveShellView(&shellView)) && shellView) {
-            Microsoft::WRL::ComPtr<IFolderView2> folderView2;
-            if (SUCCEEDED(shellView.As(&folderView2)) && folderView2) {
-                folderView2.As(&visualProperties);
-            }
-            if (!visualProperties) {
-                shellView.As(&visualProperties);
-            }
-        }
-    }
-
-    return visualProperties;
-}
 
 
 void CExplorerBHO::UpdateCurrentFolderBackground() {
@@ -2793,1275 +2129,49 @@ void CExplorerBHO::InvalidateFolderBackgroundTargets() const {
 
 
 
-void CExplorerBHO::HandleExplorerContextMenuInit(HWND source, HMENU menu) {
-    LogMessage(LogLevel::Info, L"Explorer context menu init (menu=%p source=%p inserted=%d tracking=%p)", menu, source,
-               m_contextMenuInserted ? 1 : 0, m_trackedContextMenu);
 
-    if (!menu) {
-        LogMessage(LogLevel::Warning, L"Context menu init aborted: menu handle missing");
+void CExplorerBHO::UpdateNameColorView() {
+    const bool enabled = OptionsStore::Instance().Get().enableNameColors;
+    if (!enabled && !m_nameColorView) {
         return;
     }
-
-    if (m_contextMenuInserted) {
-        LogMessage(LogLevel::Info, L"Context menu init skipped: already inserted for this cycle");
-        return;
+    if (!m_nameColorView) {
+        m_nameColorView = std::make_unique<NameColorView>();
     }
-
-    if (m_trackedContextMenu && menu != m_trackedContextMenu) {
-        LogMessage(LogLevel::Info, L"Context menu init skipped: still tracking menu %p", m_trackedContextMenu);
-        return;
-    }
-
-    ClearPendingOpenInNewTabState();
-
-    UINT position = 0;
-    const bool anchorFound = FindOpenInNewWindowMenuItem(menu, &position, nullptr);
-
-    ContextMenuSelectionSnapshot selection;
-    CollectContextMenuSelection(selection);
-    m_contextMenuSelection = selection;
-
-    std::vector<std::wstring> folderPaths;
-    folderPaths.reserve(selection.items.size());
-    for (const auto& item : selection.items) {
-        if (item.isFolder && !item.path.empty()) {
-            if (std::find_if(folderPaths.begin(), folderPaths.end(), [&](const std::wstring& value) {
-                    return _wcsicmp(value.c_str(), item.path.c_str()) == 0;
-                }) == folderPaths.end()) {
-                folderPaths.push_back(item.path);
-            }
-        }
-    }
-
-    bool insertedAny = false;
-    UINT customAnchorPosition = position;
-    bool customAnchorFound = anchorFound;
-
-    if (!folderPaths.empty() && GetMenuState(menu, kOpenInNewTabCommandId, MF_BYCOMMAND) == static_cast<UINT>(-1)) {
-        MENUITEMINFOW item{};
-        item.cbSize = sizeof(item);
-        item.fMask = MIIM_ID | MIIM_STRING | MIIM_FTYPE | MIIM_STATE;
-        item.fType = MFT_STRING;
-        item.fState = MFS_ENABLED;
-        item.wID = kOpenInNewTabCommandId;
-        item.dwTypeData = const_cast<wchar_t*>(kOpenInNewTabLabel);
-
-        UINT insertPosition = 0;
-        if (anchorFound) {
-            insertPosition = position + 1;
-        } else {
-            LogMessage(LogLevel::Info, L"Context menu init continuing without explicit anchor");
-            insertPosition = GetMenuItemCount(menu) > 0 ? static_cast<UINT>(GetMenuItemCount(menu)) : 0;
-        }
-
-        if (InsertMenuItemW(menu, insertPosition, TRUE, &item)) {
-            m_pendingOpenInNewTabPaths = folderPaths;
-            insertedAny = true;
-            customAnchorFound = true;
-            customAnchorPosition = insertPosition;
-            LogMessage(LogLevel::Info, L"Open In New Tab inserted at position %u for %zu paths", insertPosition + 1,
-                       m_pendingOpenInNewTabPaths.size());
-        } else {
-            LogLastError(L"InsertMenuItem(Open In New Tab)", GetLastError());
-        }
-    } else if (folderPaths.empty()) {
-        LogMessage(LogLevel::Info, L"Open In New Tab not inserted: selection contains no folders");
-    } else {
-        LogMessage(LogLevel::Info, L"Context menu already contains Open In New Tab entry");
-    }
-
-    if (PopulateCustomContextMenus(menu, m_contextMenuSelection, customAnchorFound, customAnchorPosition)) {
-        insertedAny = true;
-    }
-
-    if (insertedAny) {
-        m_contextMenuInserted = true;
-        m_trackedContextMenu = menu;
-    } else {
-        m_contextMenuSelection.Clear();
-        m_pendingOpenInNewTabPaths.clear();
-        LogMessage(LogLevel::Info, L"Context menu init completed without inserting custom entries");
-    }
-}
-
-void CExplorerBHO::PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint) {
-    (void)sourceWindow;
-    (void)screenPoint;
-}
-
-void CExplorerBHO::HandleExplorerCommand(UINT commandId) {
-    if (commandId != kOpenInNewTabCommandId) {
-        auto it = m_contextMenuCommandMap.find(commandId);
-        if (it != m_contextMenuCommandMap.end() && it->second) {
-            ExecuteContextMenuCommand(*it->second);
-        }
-        return;
-    }
-
-    std::vector<std::wstring> paths = m_pendingOpenInNewTabPaths;
-    if (paths.empty()) {
-        if (!CollectSelectedFolderPaths(paths)) {
-            LogMessage(LogLevel::Warning, L"Open In New Tab command aborted: unable to resolve folder selection");
-            ClearPendingOpenInNewTabState();
-            return;
-        }
-    }
-
-    LogMessage(LogLevel::Info, L"Open In New Tab command executing for %zu paths", paths.size());
-    DispatchOpenInNewTab(paths);
-    ClearPendingOpenInNewTabState();
-}
-
-void CExplorerBHO::HandleExplorerMenuDismiss(HMENU menu) {
-    if (!m_trackedContextMenu) {
-        return;
-    }
-
-    if (!menu || menu == m_trackedContextMenu) {
-        LogMessage(LogLevel::Info, L"Explorer context menu dismissed (menu=%p)", menu);
-        ClearPendingOpenInNewTabState();
-    }
-}
-
-bool CExplorerBHO::CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const {
-    paths.clear();
-
-    ContextMenuSelectionSnapshot selection;
-    if (!CollectContextMenuSelection(selection) || selection.items.empty()) {
-        LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths found no eligible folders");
-        return false;
-    }
-
-    for (const auto& item : selection.items) {
-        if (!item.isFolder || item.path.empty()) {
-            continue;
-        }
-
-        const auto existing = std::find_if(paths.begin(), paths.end(), [&](const std::wstring& value) {
-            return _wcsicmp(value.c_str(), item.path.c_str()) == 0;
-        });
-        if (existing == paths.end()) {
-            paths.push_back(item.path);
-        }
-    }
-
-    if (paths.empty()) {
-        LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths found no eligible folders");
-        return false;
-    }
-
-    LogMessage(LogLevel::Info, L"CollectSelectedFolderPaths captured %zu path(s)", paths.size());
-    return true;
-}
-
-bool CExplorerBHO::CollectContextMenuSelection(ContextMenuSelectionSnapshot& selection) const {
-    selection.Clear();
-
-    if (CollectContextSelectionFromShellView(selection) && !selection.items.empty()) {
-        LogMessage(LogLevel::Info, L"CollectContextMenuSelection resolved %zu item(s) from shell view",
-                   selection.items.size());
-        return true;
-    }
-
-    selection.Clear();
-    if (CollectContextSelectionFromFolderView(selection) && !selection.items.empty()) {
-        LogMessage(LogLevel::Info, L"CollectContextMenuSelection resolved %zu item(s) from folder view",
-                   selection.items.size());
-        return true;
-    }
-
-    LogMessage(LogLevel::Info, L"CollectContextMenuSelection found no eligible selection");
-    selection.Clear();
-    return false;
-}
-
-bool CExplorerBHO::CollectContextSelectionFromShellView(ContextMenuSelectionSnapshot& selection) const {
-    if (!m_shellBrowser) {
-        LogMessage(LogLevel::Warning, L"CollectContextSelectionFromShellView failed: shell browser unavailable");
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IShellView> shellView;
-    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
-    if (FAILED(hr) || !shellView) {
-        LogMessage(LogLevel::Warning, L"CollectContextSelectionFromShellView failed: could not get shell view (hr=0x%08lX)", hr);
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IShellItemArray> items;
-    hr = shellView->GetItemObject(SVGIO_SELECTION, IID_PPV_ARGS(&items));
-    if (FAILED(hr) || !items) {
-        LogMessage(LogLevel::Info,
-                   L"CollectContextSelectionFromShellView skipped: selection unavailable (hr=0x%08lX)", hr);
-        return false;
-    }
-
-    return CollectContextSelectionFromItemArray(items.Get(), selection);
-}
-
-bool CExplorerBHO::CollectContextSelectionFromFolderView(ContextMenuSelectionSnapshot& selection) const {
-    if (!m_shellBrowser) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IShellView> shellView;
-    HRESULT hr = m_shellBrowser->QueryActiveShellView(&shellView);
-    if (FAILED(hr) || !shellView) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IFolderView2> folderView;
-    hr = shellView.As(&folderView);
-    if (FAILED(hr) || !folderView) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IShellItemArray> items;
-    hr = folderView->GetSelection(TRUE, &items);
-    if (FAILED(hr) || !items) {
-        LogMessage(LogLevel::Info,
-                   L"CollectContextSelectionFromFolderView skipped: unable to resolve selection (hr=0x%08lX)", hr);
-        return false;
-    }
-
-    return CollectContextSelectionFromItemArray(items.Get(), selection);
-}
-
-bool CExplorerBHO::CollectContextSelectionFromItemArray(IShellItemArray* items,
-                                                        ContextMenuSelectionSnapshot& selection) const {
-    if (!items) {
-        return false;
-    }
-
-    DWORD count = 0;
-    HRESULT hr = items->GetCount(&count);
-    if (FAILED(hr) || count == 0) {
-        LogMessage(LogLevel::Info, L"CollectContextSelectionFromItemArray skipped: count=%lu hr=0x%08lX", count, hr);
-        return false;
-    }
-
-    bool appended = false;
-    for (DWORD index = 0; index < count; ++index) {
-        Microsoft::WRL::ComPtr<IShellItem> item;
-        if (FAILED(items->GetItemAt(index, &item)) || !item) {
-            LogMessage(LogLevel::Warning, L"CollectContextSelectionFromItemArray failed: unable to access item %lu",
-                       index);
-            continue;
-        }
-
-        if (AppendSelectionItemFromShellItem(item.Get(), selection)) {
-            appended = true;
-        }
-    }
-
-    return appended;
+    m_nameColorView->Attach(m_shellBrowser.Get(), GetTopLevelExplorerWindow(), enabled);
 }
 
 
-bool CExplorerBHO::AppendSelectionItemFromShellItem(IShellItem* item,
-                                                    ContextMenuSelectionSnapshot& selection) const {
-    if (!item) {
-        return false;
-    }
 
-    PIDLIST_ABSOLUTE pidl = nullptr;
-    HRESULT hr = SHGetIDListFromObject(item, &pidl);
-    if (SUCCEEDED(hr) && pidl) {
-        const bool appended = AppendSelectionItemFromPidl(pidl, selection);
-        CoTaskMemFree(pidl);
-        if (appended) {
-            return true;
-        }
-    }
 
-    PWSTR parsingName = nullptr;
-    hr = item->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parsingName);
-    if (FAILED(hr) || !parsingName || parsingName[0] == L'\0') {
-        if (parsingName) {
-            CoTaskMemFree(parsingName);
-        }
-        return false;
-    }
 
-    UniquePidl parsed = ParseDisplayName(parsingName);
-    CoTaskMemFree(parsingName);
-    if (!parsed) {
-        return false;
-    }
 
-    return AppendSelectionItemFromPidl(parsed.get(), selection);
-}
 
-bool CExplorerBHO::AppendSelectionItemFromPidl(PCIDLIST_ABSOLUTE pidl,
-                                               ContextMenuSelectionSnapshot& selection) const {
-    if (!pidl) {
-        return false;
-    }
 
-    for (const auto& existing : selection.items) {
-        if (ArePidlsEqual(existing.raw, pidl)) {
-            return false;
-        }
-    }
 
-    ContextMenuSelectionItem entry;
-    entry.pidl = ClonePidl(pidl);
-    if (!entry.pidl) {
-        return false;
-    }
-    entry.raw = entry.pidl.get();
 
-    SHFILEINFOW info{};
-    if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &info, sizeof(info), SHGFI_PIDL | SHGFI_ATTRIBUTES)) {
-        entry.attributes = info.dwAttributes;
-    } else {
-        entry.attributes = 0;
-    }
 
-    entry.isFolder = (entry.attributes & SFGAO_FOLDER) != 0 && (entry.attributes & SFGAO_STREAM) == 0;
-    entry.isFileSystem = (entry.attributes & SFGAO_FILESYSTEM) != 0;
 
-    entry.path = GetCanonicalParsingName(pidl);
-    if (entry.path.empty()) {
-        entry.path = GetParsingName(pidl);
-    }
 
-    if (entry.path.empty() && entry.isFileSystem) {
-        PWSTR fileSystemPath = nullptr;
-        if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &fileSystemPath)) && fileSystemPath) {
-            entry.path.assign(fileSystemPath);
-        }
-        if (fileSystemPath) {
-            CoTaskMemFree(fileSystemPath);
-        }
-    }
 
-    if (!entry.path.empty()) {
-        entry.extension = ExtractLowercaseExtension(entry.path);
-        entry.parentPath = ExtractParentDirectory(entry.path);
 
-        for (const auto& existing : selection.items) {
-            if (!existing.path.empty() && _wcsicmp(existing.path.c_str(), entry.path.c_str()) == 0) {
-                return false;
-            }
-        }
-    }
 
-    selection.items.push_back(std::move(entry));
-    ContextMenuSelectionItem& stored = selection.items.back();
-    if (stored.isFolder) {
-        ++selection.folderCount;
-    } else {
-        ++selection.fileCount;
-    }
 
-    return true;
-}
 
-bool CExplorerBHO::IsSelectionCountAllowed(const ContextMenuSelectionRule& rule,
-                                           size_t selectionCount) const {
-    const size_t minimum = rule.minimumSelection > 0 ? static_cast<size_t>(rule.minimumSelection) : 0;
-    if (selectionCount < minimum) {
-        return false;
-    }
 
-    if (rule.maximumSelection > 0 && selectionCount > static_cast<size_t>(rule.maximumSelection)) {
-        return false;
-    }
 
-    return true;
-}
 
-bool CExplorerBHO::DoesSelectionMatchScope(const ContextMenuItemScope& scope,
-                                           const ContextMenuSelectionSnapshot& selection) const {
-    if (selection.items.empty()) {
-        return false;
-    }
 
-    for (const auto& item : selection.items) {
-        if (item.isFolder) {
-            if (!scope.includeAllFolders) {
-                return false;
-            }
-            continue;
-        }
 
-        bool fileAllowed = scope.includeAllFiles;
-        if (!fileAllowed && !item.extension.empty()) {
-            fileAllowed = std::find(scope.extensions.begin(), scope.extensions.end(), item.extension) !=
-                          scope.extensions.end();
-        }
 
-        if (!fileAllowed) {
-            return false;
-        }
-    }
 
-    return true;
-}
 
-bool CExplorerBHO::ShouldDisplayMenuItem(const ContextMenuItem& item,
-                                         const ContextMenuSelectionSnapshot& selection) const {
-    if (item.type == ContextMenuItemType::kSeparator) return true;
 
-    const int count = static_cast<int>(selection.items.size());
-    std::vector<std::wstring> paths;
-    paths.reserve(selection.items.size());
-    for (const auto& s : selection.items) paths.push_back(s.path);
 
-    if (!ContextMenuItemMatchesSelection(item, count, paths,
-            selection.fileCount > 0, selection.folderCount > 0))
-        return false;
 
-    if (item.type == ContextMenuItemType::kCommand)
-        return !item.label.empty() || !item.executable.empty() || !item.commandTemplate.empty();
 
-    return true;
-}
 
-UINT CExplorerBHO::AllocateContextMenuCommandId(HMENU menu) {
-    if (m_nextContextCommandId < kCustomCommandIdBase) {
-        m_nextContextCommandId = kCustomCommandIdBase;
-    }
 
-    UINT candidate = m_nextContextCommandId;
-    for (;;) {
-        if (candidate == kOpenInNewTabCommandId) {
-            ++candidate;
-            continue;
-        }
-
-        if (menu && GetMenuState(menu, candidate, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
-            ++candidate;
-            continue;
-        }
-
-        if (m_contextMenuCommandMap.find(candidate) != m_contextMenuCommandMap.end()) {
-            ++candidate;
-            continue;
-        }
-
-        break;
-    }
-
-    m_nextContextCommandId = candidate + 1;
-    return candidate;
-}
-
-void CExplorerBHO::TrackContextCommand(UINT commandId, const ContextMenuItem* item) {
-    if (!commandId || !item) {
-        return;
-    }
-
-    m_contextMenuCommandMap[commandId] = item;
-}
-
-HBITMAP CExplorerBHO::CreateBitmapFromIcon(HICON icon, SIZE desiredSize) const {
-    if (!icon || desiredSize.cx <= 0 || desiredSize.cy <= 0) {
-        return nullptr;
-    }
-
-    BITMAPINFO info{};
-    info.bmiHeader.biSize = sizeof(info.bmiHeader);
-    info.bmiHeader.biWidth = desiredSize.cx;
-    info.bmiHeader.biHeight = -desiredSize.cy;
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-
-    void* bits = nullptr;
-    HDC screen = GetDC(nullptr);
-    if (!screen) {
-        return nullptr;
-    }
-
-    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (!bitmap) {
-        ReleaseDC(nullptr, screen);
-        return nullptr;
-    }
-
-    if (bits) {
-        std::memset(bits, 0, static_cast<size_t>(desiredSize.cx) * static_cast<size_t>(desiredSize.cy) * 4);
-    }
-
-    HDC memory = CreateCompatibleDC(screen);
-    if (!memory) {
-        DeleteObject(bitmap);
-        ReleaseDC(nullptr, screen);
-        return nullptr;
-    }
-
-    HGDIOBJ old = SelectObject(memory, bitmap);
-    DrawIconEx(memory, 0, 0, icon, desiredSize.cx, desiredSize.cy, 0, nullptr, DI_NORMAL);
-    SelectObject(memory, old);
-    DeleteDC(memory);
-    ReleaseDC(nullptr, screen);
-    return bitmap;
-}
-
-void CExplorerBHO::CleanupContextMenuResources() {
-    for (HBITMAP bitmap : m_contextMenuBitmaps) {
-        if (bitmap) {
-            DeleteObject(bitmap);
-        }
-    }
-    m_contextMenuBitmaps.clear();
-
-    for (HMENU submenu : m_contextMenuSubmenus) {
-        if (submenu) {
-            DestroyMenu(submenu);
-        }
-    }
-    m_contextMenuSubmenus.clear();
-
-    m_contextMenuIconRefs.clear();
-    m_contextMenuCommandMap.clear();
-    m_contextMenuSelection.Clear();
-    m_nextContextCommandId = 0;
-}
-
-std::optional<CExplorerBHO::PreparedMenuItem> CExplorerBHO::PrepareMenuItem(
-    const ContextMenuItem& item, const ContextMenuSelectionSnapshot& selection, bool allowSubmenuAnchors) {
-    if (item.type != ContextMenuItemType::kSeparator && !ShouldDisplayMenuItem(item, selection)) {
-        return std::nullopt;
-    }
-
-    if (item.type == ContextMenuItemType::kSeparator &&
-        !IsSelectionCountAllowed(item.selection, selection.items.size())) {
-        return std::nullopt;
-    }
-
-    PreparedMenuItem prepared;
-    prepared.definition = &item;
-    prepared.type = item.type;
-    prepared.anchor = allowSubmenuAnchors ? item.anchor : ContextMenuInsertionAnchor::kDefault;
-    prepared.label = item.label;
-
-    auto applyIcon = [&](PreparedMenuItem& target) {
-        if (item.iconSource.empty()) {
-            return;
-        }
-
-        IconCache::Reference iconRef = ResolveContextMenuIcon(item.iconSource, SHGFI_SMALLICON);
-        if (iconRef) {
-            const SIZE size = ResolveMenuIconSize(iconRef);
-            HBITMAP bitmap = CreateBitmapFromIcon(iconRef.Get(), size);
-            if (bitmap) {
-                m_contextMenuIconRefs.push_back(iconRef);
-                m_contextMenuBitmaps.push_back(bitmap);
-                target.bitmap = bitmap;
-            }
-            return;
-        }
-
-        const std::wstring normalized = NormalizeContextMenuIconSource(item.iconSource);
-        if (normalized.empty()) {
-            return;
-        }
-
-        HBITMAP bitmap = reinterpret_cast<HBITMAP>(
-            LoadImageW(nullptr, normalized.c_str(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION));
-        if (bitmap) {
-            m_contextMenuBitmaps.push_back(bitmap);
-            target.bitmap = bitmap;
-        }
-    };
-
-    switch (item.type) {
-        case ContextMenuItemType::kCommand: {
-            prepared.enabled = !item.commandTemplate.empty();
-            applyIcon(prepared);
-            break;
-        }
-        case ContextMenuItemType::kSubmenu: {
-            if (item.children.empty()) {
-                return std::nullopt;
-            }
-
-            HMENU submenu = CreatePopupMenu();
-            if (!submenu) {
-                LogLastError(L"CreatePopupMenu(custom submenu)", GetLastError());
-                return std::nullopt;
-            }
-
-            if (!PopulateCustomSubmenu(submenu, item.children, selection)) {
-                DestroyMenu(submenu);
-                return std::nullopt;
-            }
-
-            prepared.submenu = submenu;
-            m_contextMenuSubmenus.push_back(submenu);
-            applyIcon(prepared);
-            break;
-        }
-        case ContextMenuItemType::kSeparator: {
-            prepared.enabled = false;
-            break;
-        }
-    }
-
-    return prepared;
-}
-
-bool CExplorerBHO::PopulateCustomSubmenu(HMENU submenu, const std::vector<ContextMenuItem>& items,
-                                         const ContextMenuSelectionSnapshot& selection) {
-    if (!submenu) {
-        return false;
-    }
-
-    bool insertedAny = false;
-    bool lastInsertedSeparator = false;
-
-    auto insertPrepared = [&](PreparedMenuItem& prepared) -> bool {
-        auto labelFor = [&]() -> std::wstring {
-            if (!prepared.label.empty()) {
-                return prepared.label;
-            }
-            return prepared.definition ? prepared.definition->label : std::wstring();
-        };
-
-        if (prepared.type == ContextMenuItemType::kSeparator) {
-            const int count = GetMenuItemCount(submenu);
-            if (count <= 0 || lastInsertedSeparator) {
-                return false;
-            }
-        }
-
-        MENUITEMINFOW info{};
-        info.cbSize = sizeof(info);
-
-        switch (prepared.type) {
-            case ContextMenuItemType::kCommand: {
-                info.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
-                info.fType = MFT_STRING;
-                info.wID = AllocateContextMenuCommandId(submenu);
-                prepared.commandId = info.wID;
-                std::wstring label = labelFor();
-                info.dwTypeData = label.empty() ? nullptr : const_cast<wchar_t*>(label.c_str());
-                info.fState = prepared.enabled ? MFS_ENABLED : MFS_DISABLED;
-                if (prepared.bitmap) {
-                    info.fMask |= MIIM_BITMAP;
-                    info.hbmpItem = prepared.bitmap;
-                }
-                if (!InsertMenuItemW(submenu, static_cast<UINT>(GetMenuItemCount(submenu)), TRUE, &info)) {
-                    LogLastError(L"InsertMenuItem(custom submenu command)", GetLastError());
-                    return false;
-                }
-                TrackContextCommand(prepared.commandId, prepared.definition);
-                lastInsertedSeparator = false;
-                return true;
-            }
-            case ContextMenuItemType::kSubmenu: {
-                info.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_STRING | MIIM_STATE;
-                info.fType = MFT_STRING;
-                info.hSubMenu = prepared.submenu;
-                std::wstring label = labelFor();
-                info.dwTypeData = label.empty() ? nullptr : const_cast<wchar_t*>(label.c_str());
-                info.fState = MFS_ENABLED;
-                if (prepared.bitmap) {
-                    info.fMask |= MIIM_BITMAP;
-                    info.hbmpItem = prepared.bitmap;
-                }
-                if (!InsertMenuItemW(submenu, static_cast<UINT>(GetMenuItemCount(submenu)), TRUE, &info)) {
-                    LogLastError(L"InsertMenuItem(custom submenu)", GetLastError());
-                    return false;
-                }
-                lastInsertedSeparator = false;
-                return true;
-            }
-            case ContextMenuItemType::kSeparator: {
-                info.fMask = MIIM_FTYPE;
-                info.fType = MFT_SEPARATOR;
-                if (!InsertMenuItemW(submenu, static_cast<UINT>(GetMenuItemCount(submenu)), TRUE, &info)) {
-                    LogLastError(L"InsertMenuItem(custom submenu separator)", GetLastError());
-                    return false;
-                }
-                lastInsertedSeparator = true;
-                return true;
-            }
-        }
-
-        return false;
-    };
-
-    for (const auto& child : items) {
-        auto prepared = PrepareMenuItem(child, selection, false);
-        if (!prepared) {
-            continue;
-        }
-
-        if (prepared->type == ContextMenuItemType::kSeparator && lastInsertedSeparator) {
-            continue;
-        }
-
-        if (insertPrepared(*prepared)) {
-            insertedAny = true;
-        }
-    }
-
-    if (lastInsertedSeparator) {
-        const int count = GetMenuItemCount(submenu);
-        if (count > 0) {
-            DeleteMenu(submenu, static_cast<UINT>(count - 1), MF_BYPOSITION);
-            insertedAny = count > 1;
-        }
-    }
-
-    return insertedAny;
-}
-
-bool CExplorerBHO::PopulateCustomContextMenus(HMENU menu, const ContextMenuSelectionSnapshot& selection,
-                                              bool anchorFound, UINT anchorPosition) {
-    if (!menu || m_cachedContextMenuItems.empty()) {
-        return false;
-    }
-
-    struct AnchorState {
-        bool anchorFound = false;
-        UINT anchorPosition = 0;
-        UINT topInsertCount = 0;
-        UINT beforeShellCount = 0;
-        UINT afterShellCount = 0;
-    } state{anchorFound, anchorPosition, 0, 0, 0};
-
-    auto insertPrepared = [&](PreparedMenuItem& prepared, UINT position) -> bool {
-        auto labelFor = [&]() -> std::wstring {
-            if (!prepared.label.empty()) {
-                return prepared.label;
-            }
-            return prepared.definition ? prepared.definition->label : std::wstring();
-        };
-
-        if (prepared.type == ContextMenuItemType::kSeparator) {
-            const int count = GetMenuItemCount(menu);
-            if ((count <= 0 && position == 0) || (position > 0 && IsSeparatorItem(menu, position - 1)) ||
-                (position < static_cast<UINT>(count) && IsSeparatorItem(menu, position))) {
-                return false;
-            }
-        }
-
-        MENUITEMINFOW info{};
-        info.cbSize = sizeof(info);
-
-        switch (prepared.type) {
-            case ContextMenuItemType::kCommand: {
-                info.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
-                info.fType = MFT_STRING;
-                info.wID = AllocateContextMenuCommandId(menu);
-                prepared.commandId = info.wID;
-                std::wstring label = labelFor();
-                info.dwTypeData = label.empty() ? nullptr : const_cast<wchar_t*>(label.c_str());
-                info.fState = prepared.enabled ? MFS_ENABLED : MFS_DISABLED;
-                if (prepared.bitmap) {
-                    info.fMask |= MIIM_BITMAP;
-                    info.hbmpItem = prepared.bitmap;
-                }
-                if (!InsertMenuItemW(menu, position, TRUE, &info)) {
-                    LogLastError(L"InsertMenuItem(custom command)", GetLastError());
-                    return false;
-                }
-                TrackContextCommand(prepared.commandId, prepared.definition);
-                return true;
-            }
-            case ContextMenuItemType::kSubmenu: {
-                info.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_STRING | MIIM_STATE;
-                info.fType = MFT_STRING;
-                info.hSubMenu = prepared.submenu;
-                std::wstring label = labelFor();
-                info.dwTypeData = label.empty() ? nullptr : const_cast<wchar_t*>(label.c_str());
-                info.fState = MFS_ENABLED;
-                if (prepared.bitmap) {
-                    info.fMask |= MIIM_BITMAP;
-                    info.hbmpItem = prepared.bitmap;
-                }
-                if (!InsertMenuItemW(menu, position, TRUE, &info)) {
-                    LogLastError(L"InsertMenuItem(custom submenu)", GetLastError());
-                    return false;
-                }
-                return true;
-            }
-            case ContextMenuItemType::kSeparator: {
-                info.fMask = MIIM_FTYPE;
-                info.fType = MFT_SEPARATOR;
-                if (!InsertMenuItemW(menu, position, TRUE, &info)) {
-                    LogLastError(L"InsertMenuItem(custom separator)", GetLastError());
-                    return false;
-                }
-                return true;
-            }
-        }
-
-        return false;
-    };
-
-    auto insertWithAnchor = [&](PreparedMenuItem& prepared) -> bool {
-        UINT position = 0;
-        switch (prepared.anchor) {
-            case ContextMenuInsertionAnchor::kTop: {
-                position = state.topInsertCount;
-                ++state.topInsertCount;
-                if (state.anchorFound) {
-                    ++state.anchorPosition;
-                }
-                break;
-            }
-            case ContextMenuInsertionAnchor::kBeforeShellItems: {
-                if (state.anchorFound) {
-                    position = state.anchorPosition + state.beforeShellCount;
-                    ++state.beforeShellCount;
-                    ++state.anchorPosition;
-                } else {
-                    position = state.topInsertCount;
-                    ++state.topInsertCount;
-                }
-                break;
-            }
-            case ContextMenuInsertionAnchor::kBottom: {
-                position = static_cast<UINT>(GetMenuItemCount(menu));
-                break;
-            }
-            case ContextMenuInsertionAnchor::kAfterShellItems:
-            case ContextMenuInsertionAnchor::kDefault:
-            default: {
-                if (state.anchorFound) {
-                    position = state.anchorPosition + 1 + state.afterShellCount;
-                    ++state.afterShellCount;
-                } else {
-                    position = static_cast<UINT>(GetMenuItemCount(menu));
-                }
-                break;
-            }
-        }
-
-        return insertPrepared(prepared, position);
-    };
-
-    std::vector<PreparedMenuItem> topItems;
-    std::vector<PreparedMenuItem> beforeShellItems;
-    std::vector<PreparedMenuItem> defaultItems;
-    std::vector<PreparedMenuItem> afterShellItems;
-    std::vector<PreparedMenuItem> bottomItems;
-
-    for (const auto& definition : m_cachedContextMenuItems) {
-        auto prepared = PrepareMenuItem(definition, selection, true);
-        if (!prepared) {
-            continue;
-        }
-
-        switch (prepared->anchor) {
-            case ContextMenuInsertionAnchor::kTop:
-                topItems.push_back(std::move(*prepared));
-                break;
-            case ContextMenuInsertionAnchor::kBeforeShellItems:
-                beforeShellItems.push_back(std::move(*prepared));
-                break;
-            case ContextMenuInsertionAnchor::kAfterShellItems:
-                afterShellItems.push_back(std::move(*prepared));
-                break;
-            case ContextMenuInsertionAnchor::kBottom:
-                bottomItems.push_back(std::move(*prepared));
-                break;
-            case ContextMenuInsertionAnchor::kDefault:
-            default:
-                defaultItems.push_back(std::move(*prepared));
-                break;
-        }
-    }
-
-    bool insertedAny = false;
-    auto process = [&](std::vector<PreparedMenuItem>& items) {
-        for (auto& prepared : items) {
-            if (insertWithAnchor(prepared)) {
-                insertedAny = true;
-            }
-        }
-    };
-
-    process(topItems);
-    process(beforeShellItems);
-    process(defaultItems);
-    process(afterShellItems);
-    process(bottomItems);
-
-    return insertedAny;
-}
-
-std::vector<std::wstring> CExplorerBHO::BuildCommandLines(const ContextMenuItem& item) const {
-    std::vector<std::wstring> commands;
-    if (item.commandTemplate.empty()) {
-        return commands;
-    }
-
-    const std::wstring aggregated = ExpandAggregateTokens(item.commandTemplate);
-    const bool hasSingularToken = ContainsToken(aggregated, L"%PATH%") || ContainsToken(aggregated, L"%PARENT%") ||
-                                  ContainsToken(aggregated, L"%EXT%");
-    const bool hasPluralToken = ContainsToken(aggregated, L"%PATHS%") || ContainsToken(aggregated, L"%PARENTS%") ||
-                                ContainsToken(aggregated, L"%EXTS%");
-
-    const size_t selectionCount = m_contextMenuSelection.items.size();
-
-    if (hasSingularToken && selectionCount > 1 && !hasPluralToken) {
-        for (const auto& selected : m_contextMenuSelection.items) {
-            std::wstring expanded = ExpandCommandTemplate(aggregated, &selected);
-            commands.push_back(std::move(expanded));
-        }
-        return commands;
-    }
-
-    const ContextMenuSelectionItem* first = selectionCount > 0 ? &m_contextMenuSelection.items.front() : nullptr;
-    commands.push_back(ExpandCommandTemplate(aggregated, first));
-    return commands;
-}
-
-std::wstring CExplorerBHO::ExpandAggregateTokens(const std::wstring& commandTemplate) const {
-    std::wstring result = commandTemplate;
-
-    if (ContainsToken(result, L"%COUNT%")) {
-        result = ReplaceToken(result, L"%COUNT%", std::to_wstring(m_contextMenuSelection.items.size()));
-    }
-
-    if (ContainsToken(result, L"%PATHS%")) {
-        std::wstring joined;
-        bool first = true;
-        for (const auto& item : m_contextMenuSelection.items) {
-            if (item.path.empty()) {
-                continue;
-            }
-            if (!first) {
-                joined.push_back(L' ');
-            }
-            joined += QuoteArgument(item.path);
-            first = false;
-        }
-        result = ReplaceToken(result, L"%PATHS%", joined);
-    }
-
-    if (ContainsToken(result, L"%PARENTS%")) {
-        std::wstring joined;
-        bool first = true;
-        for (const auto& item : m_contextMenuSelection.items) {
-            if (item.parentPath.empty()) {
-                continue;
-            }
-            if (!first) {
-                joined.push_back(L' ');
-            }
-            joined += QuoteArgument(item.parentPath);
-            first = false;
-        }
-        result = ReplaceToken(result, L"%PARENTS%", joined);
-    }
-
-    if (ContainsToken(result, L"%EXTS%")) {
-        std::vector<std::wstring> extensions;
-        extensions.reserve(m_contextMenuSelection.items.size());
-        for (const auto& item : m_contextMenuSelection.items) {
-            if (!item.extension.empty() &&
-                std::find(extensions.begin(), extensions.end(), item.extension) == extensions.end()) {
-                extensions.push_back(item.extension);
-            }
-        }
-        std::wstring joined;
-        for (size_t i = 0; i < extensions.size(); ++i) {
-            if (i > 0) {
-                joined.push_back(L' ');
-            }
-            joined += extensions[i];
-        }
-        result = ReplaceToken(result, L"%EXTS%", joined);
-    }
-
-    return result;
-}
-
-std::wstring CExplorerBHO::ExpandCommandTemplate(const std::wstring& commandTemplate,
-                                                 const ContextMenuSelectionItem* item) const {
-    std::wstring result = commandTemplate;
-
-    const std::wstring path = (item && !item->path.empty()) ? item->path : std::wstring();
-    if (ContainsToken(result, L"%PATH%")) {
-        result = ReplaceToken(result, L"%PATH%", path);
-    }
-
-    const std::wstring parent = (item && !item->parentPath.empty()) ? item->parentPath : std::wstring();
-    if (ContainsToken(result, L"%PARENT%")) {
-        result = ReplaceToken(result, L"%PARENT%", parent);
-    }
-
-    const std::wstring extension = (item && !item->extension.empty()) ? item->extension : std::wstring();
-    if (ContainsToken(result, L"%EXT%")) {
-        result = ReplaceToken(result, L"%EXT%", extension);
-    }
-
-    return result;
-}
-
-bool CExplorerBHO::ExecuteCommandLine(const std::wstring& commandLine) const {
-    if (commandLine.empty()) {
-        return false;
-    }
-
-    std::vector<wchar_t> buffer(commandLine.begin(), commandLine.end());
-    buffer.push_back(L'\0');
-
-    STARTUPINFOW startupInfo{};
-    startupInfo.cb = sizeof(startupInfo);
-    PROCESS_INFORMATION processInfo{};
-
-    if (CreateProcessW(nullptr, buffer.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startupInfo,
-                       &processInfo)) {
-        CloseHandle(processInfo.hThread);
-        CloseHandle(processInfo.hProcess);
-        return true;
-    }
-
-    const DWORD processError = GetLastError();
-    if (processError != ERROR_FILE_NOT_FOUND && processError != ERROR_PATH_NOT_FOUND) {
-        LogLastError(L"CreateProcess(custom context command)", processError);
-    }
-
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(commandLine.c_str(), &argc);
-    if (!argv || argc <= 0) {
-        if (argv) {
-            LocalFree(argv);
-        }
-        return false;
-    }
-
-    std::wstring file = argv[0];
-    std::wstring parameters;
-    for (int i = 1; i < argc; ++i) {
-        if (i > 1) {
-            parameters.push_back(L' ');
-        }
-        parameters += QuoteArgument(argv[i]);
-    }
-    LocalFree(argv);
-
-    SHELLEXECUTEINFOW exec{};
-    exec.cbSize = sizeof(exec);
-    exec.fMask = SEE_MASK_NOASYNC;
-    exec.nShow = SW_SHOWNORMAL;
-    exec.lpFile = file.c_str();
-    exec.lpParameters = parameters.empty() ? nullptr : parameters.c_str();
-
-    if (!ShellExecuteExW(&exec)) {
-        LogLastError(L"ShellExecuteEx(custom context command)", GetLastError());
-        return false;
-    }
-
-    return true;
-}
-
-static std::wstring ExpandEnvVars(const std::wstring& input) {
-    if (input.empty()) return input;
-    wchar_t expanded[MAX_PATH * 2];
-    DWORD len = ExpandEnvironmentStringsW(input.c_str(), expanded, _countof(expanded));
-    if (len > 0 && len < _countof(expanded)) return std::wstring(expanded);
-    return input;
-}
-
-void CExplorerBHO::ExecuteContextMenuCommand(const ContextMenuItem& item) const {
-    // Confirmation prompt
-    if (item.confirmBeforeExecute) {
-        std::wstring msg = item.confirmMessage.empty()
-            ? L"Are you sure you want to run \"" + item.label + L"\"?"
-            : item.confirmMessage;
-        HWND owner = GetTopLevelExplorerWindow();
-        if (MessageBoxW(owner, msg.c_str(), L"Confirm", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
-            LogMessage(LogLevel::Info, L"ExecuteContextMenuCommand cancelled by user confirmation");
-            return;
-        }
-    }
-
-    const std::vector<std::wstring> commands = BuildCommandLines(item);
-    if (commands.empty()) {
-        LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand skipped: no command lines generated");
-        return;
-    }
-
-    size_t succeeded = 0;
-    for (const auto& rawCommandLine : commands) {
-        if (rawCommandLine.empty()) {
-            continue;
-        }
-
-        std::wstring commandLine = item.expandEnvironmentVars ? ExpandEnvVars(rawCommandLine) : rawCommandLine;
-
-        if (ExecuteCommandLine(commandLine)) {
-            ++succeeded;
-            LogMessage(LogLevel::Info, L"ExecuteContextMenuCommand launched: %ls", commandLine.c_str());
-        } else {
-            LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand failed: %ls", commandLine.c_str());
-        }
-    }
-
-    // Execute additional commands sequentially
-    for (const auto& rawAdditional : item.additionalCommands) {
-        if (rawAdditional.empty()) continue;
-        std::wstring cmd = item.expandEnvironmentVars ? ExpandEnvVars(rawAdditional) : rawAdditional;
-        if (ExecuteCommandLine(cmd)) {
-            ++succeeded;
-            LogMessage(LogLevel::Info, L"ExecuteContextMenuCommand additional: %ls", cmd.c_str());
-        } else {
-            LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand additional failed: %ls", cmd.c_str());
-        }
-    }
-
-    if (succeeded == 0) {
-        LogMessage(LogLevel::Warning, L"ExecuteContextMenuCommand failed for all generated commands");
-    }
-}
-
-bool CExplorerBHO::AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const {
-    if (!pidl) {
-        return false;
-    }
-
-    std::wstring value;
-
-    enum class FileSystemFailureReason {
-        kNone,
-        kBindFailed,
-        kAttributeMismatch,
-        kPathResolutionFailed,
-    } failureReason = FileSystemFailureReason::kNone;
-
-    HRESULT failureHr = S_OK;
-    SFGAOF failureAttributes = 0;
-
-    Microsoft::WRL::ComPtr<IShellFolder> parentFolder;
-    PCUITEMID_CHILD child = nullptr;
-    HRESULT hr = SHBindToParent(pidl, IID_PPV_ARGS(&parentFolder), &child);
-    if (FAILED(hr) || !parentFolder || !child) {
-        failureReason = FileSystemFailureReason::kBindFailed;
-        failureHr = hr;
-    } else {
-        SFGAOF attributes = SFGAO_FOLDER | SFGAO_FILESYSTEM;
-        hr = parentFolder->GetAttributesOf(1, &child, &attributes);
-        if (FAILED(hr) || (attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_FILESYSTEM) == 0) {
-            failureReason = FileSystemFailureReason::kAttributeMismatch;
-            failureHr = hr;
-            failureAttributes = attributes;
-        } else {
-            PWSTR path = nullptr;
-            hr = SHGetNameFromIDList(pidl, SIGDN_FILESYSPATH, &path);
-            if (FAILED(hr) || !path || path[0] == L'\0') {
-                failureReason = FileSystemFailureReason::kPathResolutionFailed;
-                failureHr = hr;
-            } else {
-                value.assign(path);
-            }
-            if (path) {
-                CoTaskMemFree(path);
-            }
-        }
-    }
-
-    if (value.empty()) {
-        if (auto translated = TranslateVirtualLocation(pidl)) {
-            value = std::move(*translated);
-        }
-    }
-
-    if (value.empty()) {
-        switch (failureReason) {
-            case FileSystemFailureReason::kBindFailed:
-                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to bind to parent (hr=0x%08lX)", failureHr);
-                break;
-            case FileSystemFailureReason::kAttributeMismatch:
-                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: attributes=0x%08lX (hr=0x%08lX)", failureAttributes,
-                           failureHr);
-                break;
-            case FileSystemFailureReason::kPathResolutionFailed:
-                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unable to resolve filesystem path (hr=0x%08lX)",
-                           failureHr);
-                break;
-            case FileSystemFailureReason::kNone:
-                LogMessage(LogLevel::Info, L"AppendPathFromPidl skipped: unsupported namespace");
-                break;
-        }
-        return false;
-    }
-
-    if (std::find(paths.begin(), paths.end(), value) != paths.end()) {
-        return true;
-    }
-
-    paths.push_back(std::move(value));
-    return true;
-}
-
-void CExplorerBHO::DispatchOpenInNewTab(const std::vector<std::wstring>& paths) {
-    if (paths.empty()) {
-        LogMessage(LogLevel::Info, L"DispatchOpenInNewTab skipped: no paths provided");
-        return;
-    }
-
-    QueueOpenInNewTabRequests(paths);
-    TryDispatchQueuedOpenInNewTabRequests();
-}
-
-void CExplorerBHO::QueueOpenInNewTabRequests(const std::vector<std::wstring>& paths) {
-    size_t added = 0;
-    for (const std::wstring& path : paths) {
-        if (path.empty()) {
-            LogMessage(LogLevel::Warning, L"QueueOpenInNewTabRequests skipped empty path entry");
-            continue;
-        }
-
-        m_openInNewTabQueue.push_back(path);
-        ++added;
-    }
-
-    if (added > 0) {
-        LogMessage(LogLevel::Info, L"Queued %zu Open In New Tab request(s); %zu pending", added,
-                   m_openInNewTabQueue.size());
-    }
-}
-
-void CExplorerBHO::TryDispatchQueuedOpenInNewTabRequests() {
-    if (m_openInNewTabQueue.empty()) {
-        CancelOpenInNewTabRetry();
-        return;
-    }
-
-    HWND frame = GetTopLevelExplorerWindow();
-    HWND bandWindow = FindShellTabsBandWindow(frame);
-    if (!bandWindow || !IsWindow(bandWindow)) {
-        LogMessage(LogLevel::Info,
-                   L"Open In New Tab dispatch deferred: ShellTabs band window missing (frame=%p, pending=%zu)",
-                   frame, m_openInNewTabQueue.size());
-        m_shouldRetryEnsure = true;
-        EnsureBandVisible();
-        ScheduleOpenInNewTabRetry();
-        return;
-    }
-
-    std::vector<std::wstring> pending;
-    pending.swap(m_openInNewTabQueue);
-    CancelOpenInNewTabRetry();
-
-    for (const std::wstring& path : pending) {
-        if (path.empty()) {
-            continue;
-        }
-
-        OpenFolderMessagePayload payload{path.c_str(), path.size()};
-        SendMessageW(bandWindow, WM_SHELLTABS_OPEN_FOLDER, reinterpret_cast<WPARAM>(&payload), 0);
-        LogMessage(LogLevel::Info, L"Dispatched Open In New Tab request for %ls", path.c_str());
-    }
-}
-
-void CExplorerBHO::ClearPendingOpenInNewTabState() {
-    CleanupContextMenuResources();
-    m_pendingOpenInNewTabPaths.clear();
-    m_trackedContextMenu = nullptr;
-    m_contextMenuInserted = false;
-    LogMessage(LogLevel::Info, L"Cleared Open In New Tab pending state");
-}
 
 bool CExplorerBHO::InstallBreadcrumbSubclass(HWND toolbar) {
     if (!toolbar || !IsWindow(toolbar)) {
@@ -4273,6 +2383,13 @@ LRESULT CALLBACK CExplorerBHO::ExplorerFrameSubclassProc(HWND hwnd, UINT msg, WP
             self->PostTravelToolbarNavigationMessage(false);
             return TRUE;
         }
+    }
+
+    if (msg != 0 && msg == NameColorStore::ChangedMessage()) {
+        if (self->m_nameColorView) {
+            self->m_nameColorView->OnColorsChanged();
+        }
+        return 0;
     }
 
     if (msg == WM_NCDESTROY) {
@@ -6471,13 +4588,6 @@ LRESULT CALLBACK CExplorerBHO::TravelToolbarSubclassProc(HWND hwnd, UINT msg, WP
 
 
 
-HWND CExplorerBHO::FindStatusBar() const {
-    HWND frame = GetTopLevelExplorerWindow();
-    if (!frame || !IsWindow(frame)) {
-        return nullptr;
-    }
-    return FindDescendantWindow(frame, STATUSCLASSNAMEW);
-}
 
 namespace {
 
@@ -6652,18 +4762,6 @@ void CExplorerBHO::UpdateStatusBarTheme() {
     m_statusBarSubclassInstalled = true;
 }
 
-void CExplorerBHO::InstallStatusBarSubclass() {
-    if (m_statusBarSubclassInstalled) {
-        return;
-    }
-    if (!m_statusBar || !IsWindow(m_statusBar)) {
-        return;
-    }
-    if (SetWindowSubclass(m_statusBar, &CExplorerBHO::StatusBarSubclassProc, reinterpret_cast<UINT_PTR>(this), 0)) {
-        m_statusBarSubclassInstalled = true;
-        LogMessage(LogLevel::Info, L"Installed status bar dark mode subclass on hwnd=%p", m_statusBar);
-    }
-}
 
 void CExplorerBHO::RemoveStatusBarSubclass() {
     auto detach = [this](HWND hwnd) {
@@ -6918,7 +5016,6 @@ LRESULT CALLBACK CExplorerBHO::StatusBarSubclassProc(HWND hwnd, UINT msg, WPARAM
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-ULONGLONG CExplorerBHO::CurrentTickCount() { return GetTickCount64(); }
 
 
 

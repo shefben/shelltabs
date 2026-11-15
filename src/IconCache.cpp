@@ -342,30 +342,8 @@ void IconCache::InvalidateFamily(const std::wstring& familyKey) {
     }
 }
 
-void IconCache::InvalidatePidl(PCIDLIST_ABSOLUTE pidl) {
-    InvalidateFamily(BuildIconCacheFamilyKey(pidl, {}));
-}
 
-void IconCache::InvalidatePath(const std::wstring& path) {
-    InvalidateFamily(BuildIconCacheFamilyKey(nullptr, path));
-}
 
-void IconCache::LogStatsNow() {
-    StatsSnapshot snapshot;
-    {
-        std::unique_lock lock(m_mutex);
-        snapshot.hits = m_hits;
-        snapshot.misses = m_misses;
-        snapshot.evictions = m_evictions;
-        snapshot.size = m_entries.size();
-    }
-    const double total = static_cast<double>(snapshot.hits + snapshot.misses);
-    const double hitRate = total > 0.0 ? (static_cast<double>(snapshot.hits) / total) * 100.0 : 0.0;
-    LogMessage(LogLevel::Info, L"IconCache stats: size=%zu hits=%llu misses=%llu evictions=%llu hitRate=%.1f%%",
-               snapshot.size, static_cast<unsigned long long>(snapshot.hits),
-               static_cast<unsigned long long>(snapshot.misses),
-               static_cast<unsigned long long>(snapshot.evictions), hitRate);
-}
 
 #if defined(SHELLTABS_BUILD_TESTS)
 void IconCache::DebugSetCapacity(size_t capacity) {

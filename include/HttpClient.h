@@ -129,14 +129,9 @@ public:
     HttpDownloadQueue& operator=(const HttpDownloadQueue&) = delete;
 
     void Configure(int maxConcurrent, int speedLimitKBps);
-    HRESULT Enqueue(DownloadTask task);
     void CancelAll();
-    size_t PendingCount() const;
 
 private:
-    void EnsureWorkers();
-    void WorkerLoop();
-    void ThrottleIfNeeded(size_t bytesJustRead);
 
     std::mutex m_mutex;
     std::condition_variable m_cv;
@@ -148,9 +143,6 @@ private:
     bool m_workersStarted = false;
 
     // Speed tracking shared across workers
-    std::mutex m_speedMutex;
-    std::atomic<size_t> m_bytesThisSecond{0};
-    std::chrono::steady_clock::time_point m_windowStart{std::chrono::steady_clock::now()};
 };
 
 }  // namespace shelltabs::http

@@ -19,7 +19,6 @@ std::optional<bool> QueryAppsUseLightThemePreference();
 
 bool IsAppDarkModePreferred();
 
-std::optional<ToolbarChromeSample> SampleToolbarChrome(HWND window);
 
 std::optional<COLORREF> QueryEditThemeTextColor(HWND editWindow);
 

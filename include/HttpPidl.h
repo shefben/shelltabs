@@ -72,7 +72,6 @@ bool TryParseHttpPidl(PCIDLIST_ABSOLUTE pidl, HttpUrlParts* parts, std::vector<s
                       bool* terminalIsDirectory);
 std::wstring BuildUrlFromHttpPidl(PCIDLIST_ABSOLUTE pidl);
 UniquePidl CreatePidlFromHttpUrl(const HttpUrlParts& parts);
-UniquePidl CloneRelativeHttpPidl(PCUIDLIST_RELATIVE pidl);
 std::vector<std::uint8_t> SerializeHttpPidl(PCIDLIST_ABSOLUTE pidl);
 
 }  // namespace shelltabs::http

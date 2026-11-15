@@ -30,8 +30,6 @@ void LogMessageV(LogLevel level, const wchar_t* format, va_list args) noexcept;
 void LogLastError(const wchar_t* operation, DWORD error) noexcept;
 void LogHrFailure(const wchar_t* operation, HRESULT hr) noexcept;
 
-void RegisterFaultMitigationHandler(FaultMitigationCallback callback, void* context) noexcept;
-bool HasFaultMitigationTriggered() noexcept;
 
 class LogScope {
 public:

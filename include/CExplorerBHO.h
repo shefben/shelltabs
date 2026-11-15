@@ -38,6 +38,7 @@
 #include "OptionsStore.h"
 #include "Utilities.h"
 #include "VisualPropertiesInterop.h"
+#include "NameColorView.h"
 #include "ShellTabsMessages.h"
 
 namespace Gdiplus {
@@ -96,102 +97,9 @@ struct ShellTabsOptions;
                         }
                 };
 
-                struct ContextMenuSelectionItem {
-                        UniquePidl pidl;
-                        PCIDLIST_ABSOLUTE raw = nullptr;
-                        DWORD attributes = 0;
-                        bool isFolder = false;
-                        bool isFileSystem = false;
-                        std::wstring path;
-                        std::wstring parentPath;
-                        std::wstring extension;
 
-                        ContextMenuSelectionItem() = default;
 
-                        ContextMenuSelectionItem(const ContextMenuSelectionItem& other)
-                            : pidl(other.pidl ? ClonePidl(other.raw) : nullptr),
-                              raw(pidl ? pidl.get() : other.raw),
-                              attributes(other.attributes),
-                              isFolder(other.isFolder),
-                              isFileSystem(other.isFileSystem),
-                              path(other.path),
-                              parentPath(other.parentPath),
-                              extension(other.extension) {}
 
-                        ContextMenuSelectionItem(ContextMenuSelectionItem&& other) noexcept
-                            : pidl(std::move(other.pidl)),
-                              raw(pidl ? pidl.get() : other.raw),
-                              attributes(other.attributes),
-                              isFolder(other.isFolder),
-                              isFileSystem(other.isFileSystem),
-                              path(std::move(other.path)),
-                              parentPath(std::move(other.parentPath)),
-                              extension(std::move(other.extension)) {
-                                other.raw = other.pidl ? other.pidl.get() : nullptr;
-                        }
-
-                        ContextMenuSelectionItem& operator=(const ContextMenuSelectionItem& other) {
-                                if (this == &other) {
-                                        return *this;
-                                }
-
-                                pidl = other.pidl ? ClonePidl(other.raw) : nullptr;
-                                raw = pidl ? pidl.get() : other.raw;
-                                attributes = other.attributes;
-                                isFolder = other.isFolder;
-                                isFileSystem = other.isFileSystem;
-                                path = other.path;
-                                parentPath = other.parentPath;
-                                extension = other.extension;
-                                return *this;
-                        }
-
-                        ContextMenuSelectionItem& operator=(ContextMenuSelectionItem&& other) noexcept {
-                                if (this == &other) {
-                                        return *this;
-                                }
-
-                                pidl = std::move(other.pidl);
-                                raw = pidl ? pidl.get() : other.raw;
-                                attributes = other.attributes;
-                                isFolder = other.isFolder;
-                                isFileSystem = other.isFileSystem;
-                                path = std::move(other.path);
-                                parentPath = std::move(other.parentPath);
-                                extension = std::move(other.extension);
-
-                                other.raw = other.pidl ? other.pidl.get() : nullptr;
-                                return *this;
-                        }
-                };
-
-                struct ContextMenuSelectionSnapshot {
-                        std::vector<ContextMenuSelectionItem> items;
-                        size_t fileCount = 0;
-                        size_t folderCount = 0;
-
-                        void Clear() {
-                                items.clear();
-                                fileCount = 0;
-                                folderCount = 0;
-                        }
-                };
-
-                struct CustomDrawMonitor {
-                        ULONGLONG lastStageTick = 0;
-                        bool forced = false;
-                };
-
-                struct PreparedMenuItem {
-                        const ContextMenuItem* definition = nullptr;
-                        ContextMenuItemType type = ContextMenuItemType::kCommand;
-                        ContextMenuInsertionAnchor anchor = ContextMenuInsertionAnchor::kDefault;
-                        HMENU submenu = nullptr;
-                        UINT commandId = 0;
-                        HBITMAP bitmap = nullptr;
-                        bool enabled = true;
-                        std::wstring label;
-                };
 
                 void Disconnect();
                 HRESULT EnsureBandVisible();
@@ -213,7 +121,6 @@ struct ShellTabsOptions;
 		HWND FindBreadcrumbToolbarInWindow(HWND root) const;
                 HWND FindProgressWindow() const;
                 HWND FindAddressEditControl() const;
-                std::vector<HWND> FindExplorerEditControls() const;
                 HWND GetTopLevelExplorerWindow() const;
                 HWND GetShellTabsBandWindow() const;
                 bool PostTravelToolbarNavigationMessage(bool navigateBack) const;
@@ -241,10 +148,8 @@ struct ShellTabsOptions;
                 void RemoveProgressSubclass();
                 void UpdateAddressEditSubclass();
                 void RemoveAddressEditSubclass();
-                HWND FindStatusBar() const;
                 std::vector<HWND> FindAllStatusBars() const;
                 void UpdateStatusBarTheme();
-                void InstallStatusBarSubclass();
                 void RemoveStatusBarSubclass();
                 bool HandleStatusBarPaint(HWND hwnd);
                 bool HandleRebarPaint(HWND hwnd);
@@ -268,55 +173,10 @@ struct ShellTabsOptions;
                 std::wstring NormalizeBackgroundKey(const std::wstring& path) const;
                 bool EnsureFolderBackgroundBitmap(const std::wstring& key) const;
                 bool EnsureUniversalBackgroundBitmap() const;
-                Gdiplus::Bitmap* ResolveCurrentFolderBackground() const;
                 void UpdateCurrentFolderBackground();
                 void ApplyCurrentFolderViewRules(const ShellTabsOptions& options);
                 void InvalidateFolderBackgroundTargets() const;
-                std::wstring ResolveBackgroundCacheKey() const;
-                Microsoft::WRL::ComPtr<IVisualProperties> GetCurrentVisualProperties() const;
-                void HandleExplorerContextMenuInit(HWND hwnd, HMENU menu);
-                void PrepareContextMenuSelection(HWND sourceWindow, POINT screenPoint);
-                void HandleExplorerCommand(UINT commandId);
-                void HandleExplorerMenuDismiss(HMENU menu);
-                bool CollectSelectedFolderPaths(std::vector<std::wstring>& paths) const;
-                bool CollectContextMenuSelection(ContextMenuSelectionSnapshot& selection) const;
-                bool CollectContextSelectionFromShellView(ContextMenuSelectionSnapshot& selection) const;
-                bool CollectContextSelectionFromFolderView(ContextMenuSelectionSnapshot& selection) const;
-                bool CollectContextSelectionFromItemArray(IShellItemArray* items,
-                        ContextMenuSelectionSnapshot& selection) const;
-                bool AppendSelectionItemFromShellItem(IShellItem* item, ContextMenuSelectionSnapshot& selection) const;
-                bool AppendSelectionItemFromPidl(PCIDLIST_ABSOLUTE pidl,
-                        ContextMenuSelectionSnapshot& selection) const;
-                bool PopulateCustomContextMenus(HMENU menu, const ContextMenuSelectionSnapshot& selection,
-                        bool anchorFound, UINT anchorPosition);
-                bool PopulateCustomSubmenu(HMENU submenu, const std::vector<ContextMenuItem>& items,
-                        const ContextMenuSelectionSnapshot& selection);
-                std::optional<PreparedMenuItem> PrepareMenuItem(const ContextMenuItem& item,
-                        const ContextMenuSelectionSnapshot& selection, bool allowSubmenuAnchors);
-                bool ShouldDisplayMenuItem(const ContextMenuItem& item,
-                        const ContextMenuSelectionSnapshot& selection) const;
-                bool DoesSelectionMatchScope(const ContextMenuItemScope& scope,
-                        const ContextMenuSelectionSnapshot& selection) const;
-                bool IsSelectionCountAllowed(const ContextMenuSelectionRule& rule, size_t selectionCount) const;
-                UINT AllocateContextMenuCommandId(HMENU menu);
-                void TrackContextCommand(UINT commandId, const ContextMenuItem* item);
-                void ExecuteContextMenuCommand(const ContextMenuItem& item) const;
-                std::vector<std::wstring> BuildCommandLines(const ContextMenuItem& item) const;
-                std::wstring ExpandCommandTemplate(const std::wstring& commandTemplate,
-                        const ContextMenuSelectionItem* item) const;
-                std::wstring ExpandAggregateTokens(const std::wstring& commandTemplate) const;
-                bool ExecuteCommandLine(const std::wstring& commandLine) const;
-                HBITMAP CreateBitmapFromIcon(HICON icon, SIZE desiredSize) const;
-                void CleanupContextMenuResources();
-                bool AppendPathFromPidl(PCIDLIST_ABSOLUTE pidl, std::vector<std::wstring>& paths) const;
-                void DispatchOpenInNewTab(const std::vector<std::wstring>& paths);
-                void QueueOpenInNewTabRequests(const std::vector<std::wstring>& paths);
-                void TryDispatchQueuedOpenInNewTabRequests();
-                void HandleOpenInNewTabTimer(UINT_PTR timerId);
-                void ScheduleOpenInNewTabRetry();
-                void CancelOpenInNewTabRetry();
-                static void CALLBACK OpenInNewTabTimerProc(HWND hwnd, UINT msg, UINT_PTR timerId, DWORD tickCount);
-                void ClearPendingOpenInNewTabState();
+                void UpdateNameColorView();
                 void EnsureBreadcrumbHook();
                 void RemoveBreadcrumbHook();
                 bool IsBreadcrumbToolbarCandidate(HWND hwnd) const;
@@ -326,7 +186,6 @@ struct ShellTabsOptions;
                 bool HandleProgressPaint(HWND hwnd);
                 void PaintAddressEditOverlay(HWND hwnd, HDC dc, const RECT* clip = nullptr);
                 bool DrawAddressEditContent(HWND hwnd, HDC dc, GradientEditRenderOptions options = {});
-                static ULONGLONG CurrentTickCount();
 		enum class BreadcrumbDiscoveryStage {
 			None,
 			ServiceUnavailable,
@@ -398,6 +257,7 @@ struct ShellTabsOptions;
                 HWND m_explorerFrame = nullptr;
                 bool m_explorerFrameSubclassInstalled = false;
                 HWND m_directUIHwnd = nullptr;
+                std::unique_ptr<NameColorView> m_nameColorView;
                 bool m_directUISubclassInstalled = false;
 		bool m_useCustomProgressGradientColors = false;
 		COLORREF m_progressGradientStartColor = RGB(0, 120, 215);
@@ -449,31 +309,15 @@ struct ShellTabsOptions;
                 mutable std::unordered_set<std::wstring> m_failedBackgroundKeys;
                 std::wstring m_currentFolderKey;
                 HBITMAP m_currentBackgroundBitmap = nullptr;
-                HMENU m_trackedContextMenu = nullptr;
-                std::vector<std::wstring> m_pendingOpenInNewTabPaths;
-                std::vector<std::wstring> m_openInNewTabQueue;
                 std::unordered_map<HWND, BandEnsureState, HandleHasher> m_bandEnsureStates;
                 bool m_useExplorerAccentColors = true;
                 std::vector<ContextMenuItem> m_cachedContextMenuItems;
-                ContextMenuSelectionSnapshot m_contextMenuSelection;
-                std::unordered_map<UINT, const ContextMenuItem*> m_contextMenuCommandMap;
-                std::vector<IconCache::Reference> m_contextMenuIconRefs;
-                std::vector<HBITMAP> m_contextMenuBitmaps;
-                std::vector<HMENU> m_contextMenuSubmenus;
-                UINT m_nextContextCommandId = 0;
 
                 static std::mutex s_ensureTimerLock;
                 static std::unordered_map<UINT_PTR, CExplorerBHO*> s_ensureTimers;
-                static std::mutex s_openInNewTabTimerLock;
-                static std::unordered_map<UINT_PTR, CExplorerBHO*> s_openInNewTabTimers;
                 static std::mutex s_deferredBreadcrumbTimerLock;
                 static std::unordered_map<UINT_PTR, CExplorerBHO*> s_deferredBreadcrumbTimers;
-                UINT_PTR m_openInNewTabTimerId = 0;
-                bool m_openInNewTabRetryScheduled = false;
                 UINT_PTR m_deferredBreadcrumbTimerId = 0;
-                bool m_contextMenuInserted = false;
-                static constexpr UINT kOpenInNewTabCommandId = 0xE170;
-                static constexpr UINT kCustomCommandIdBase = 0xE200;
                 static constexpr ULONGLONG kCustomDrawTimeoutMs = 2000;
         };
 

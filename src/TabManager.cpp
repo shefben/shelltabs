@@ -249,21 +249,7 @@ size_t TabManager::ActiveWindowCount() {
     return s_windowMap.size();
 }
 
-std::shared_ptr<TabManager> TabManager::GetSharedThis() {
-    try {
-        return shared_from_this();
-    } catch (const std::bad_weak_ptr&) {
-        return nullptr;
-    }
-}
 
-std::weak_ptr<TabManager> TabManager::GetWeakThis() {
-    try {
-        return weak_from_this();
-    } catch (const std::bad_weak_ptr&) {
-        return std::weak_ptr<TabManager>{};
-    }
-}
 
 int TabManager::TotalTabCount() const noexcept {
     int total = 0;
@@ -1836,16 +1822,6 @@ std::vector<TabLocation> TabManager::ExpireFolderOperations(ULONGLONG now, ULONG
     return expired;
 }
 
-bool TabManager::HasActiveProgress() const {
-    for (const auto& group : m_groups) {
-        for (const auto& tab : group.tabs) {
-            if (tab.progress.active) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
 
 void TabManager::ToggleGroupCollapsed(int groupIndex) {
     auto* group = GetGroup(groupIndex);
@@ -2424,13 +2400,6 @@ bool TabManager::CanNavigateForward(TabLocation location) const {
     return tab->navigationHistory.CanGoForward();
 }
 
-void TabManager::ClearNavigationHistory(TabLocation location) {
-    TabInfo* tab = Get(location);
-    if (!tab) {
-        return;
-    }
-    tab->navigationHistory.Clear();
-}
 
 
 

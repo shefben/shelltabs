@@ -160,18 +160,14 @@ private:
                                                         HRESULT* openResult);
     void ReleaseSession(const SessionKey& key, const std::shared_ptr<FtpTransportSession>& session, bool keepAlive);
 
-    FtpTransportType DetermineTransport(const FtpConnectionOptions& options) const;
     std::vector<FtpTransportType> BuildTransportPriority(const FtpConnectionOptions& options) const;
 
     ExecuteResult ExecuteStateMachine(FtpTransportSession& session, FtpCommandStateMachine& machine,
                                       const FtpConnectionOptions& options, const FtpCredential& credentials,
                                       FtpOperationContext& context);
 
-    HRESULT MapInternetErrorToHresult(DWORD error, bool isSocketError) const;
 
-    void ClearExpiredSessions(const SessionKey& key, const FtpConnectionOptions& options);
 
-    std::wstring BuildCommandDescription(FtpOperationContext& context) const;
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

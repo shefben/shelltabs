@@ -14,16 +14,17 @@ bool AreThemeHooksActive() noexcept;
 
 void RegisterThemeSurface(HWND hwnd, ExplorerSurfaceKind kind, ExplorerGlowCoordinator* coordinator) noexcept;
 void UnregisterThemeSurface(HWND hwnd) noexcept;
-void RegisterDirectUiHost(HWND hwnd) noexcept;
-void UnregisterDirectUiHost(HWND hwnd) noexcept;
 void RegisterDirectUiRenderInterface(void* element, size_t drawIndex, HWND host,
                                      ExplorerGlowCoordinator* coordinator) noexcept;
-void InvalidateScrollbarMetrics(HWND hwnd) noexcept;
 
 // Callback invoked by FillRectDetour after the fill completes (excluding re-entrant calls).
 // Used by FolderBackgroundHooks to draw over the fill without needing its own FillRect hook.
 using FillRectPostCallback = void (*)(HDC dc, const RECT* rect) noexcept;
-void SetFillRectPostCallback(FillRectPostCallback cb) noexcept;
+
+// Optional filter for commands chosen from popup menus tracked with TPM_RETURNCMD. When it returns
+// true the command was handled by ShellTabs and TrackPopupMenu(Ex) reports "no selection" (0).
+using PopupMenuCommandFilter = bool (*)(UINT command);
+void SetPopupMenuCommandFilter(PopupMenuCommandFilter filter) noexcept;
 
 class ThemePaintOverrideGuard {
 public:

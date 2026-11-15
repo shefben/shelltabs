@@ -85,14 +85,11 @@ private:
 
     HRESULT EnsurePidl();
     bool ExtractRelativeSegments(PCUIDLIST_RELATIVE pidl, std::vector<std::wstring>* segments, bool* isDirectory) const;
-    std::wstring BuildRemotePath(const std::vector<std::wstring>& extra) const;
     HRESULT DownloadFileToStream(const std::vector<std::wstring>& segments, Microsoft::WRL::ComPtr<IStream>* stream) const;
     HRESULT BindToChild(const std::vector<std::wstring>& segments, REFIID riid, void** ppv) const;
     HRESULT EnumRootEntries(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList);
     HRESULT EnumRemoteDirectory(HWND hwnd, SHCONTF grfFlags, IEnumIDList** ppenumIDList);
 
-    // Static download queue keyed by host for parallel downloads
-    static HttpDownloadQueue* GetDownloadQueue(const std::wstring& host, int maxConcurrent, int speedLimitKBps);
 
     static std::mutex s_queueMutex;
     static std::unordered_map<std::wstring, std::unique_ptr<HttpDownloadQueue>> s_downloadQueues;

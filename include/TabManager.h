@@ -276,7 +276,6 @@ public:
     void GarbageCollectHibernatedTabs();
     bool WakeHibernatedTab(TabLocation location);
     void HandleShellChangeNotify(LONG wEventId, PCIDLIST_ABSOLUTE pidl1, PCIDLIST_ABSOLUTE pidl2);
-    bool HasActiveProgress() const;
 
     uint32_t GetLayoutVersion() const noexcept { return m_layoutVersion; }
 
@@ -308,7 +307,6 @@ public:
     std::optional<NavigationHistoryEntry> NavigateToHistory(TabLocation location, int targetIndex);
     bool CanNavigateBack(TabLocation location) const;
     bool CanNavigateForward(TabLocation location) const;
-    void ClearNavigationHistory(TabLocation location);
 
 private:
     struct ActivationEntry {
@@ -369,7 +367,6 @@ private:
     std::vector<TabGroup> m_groups;
     int m_selectedGroup = -1;
     int m_selectedTab = -1;
-    uint64_t m_previewRequestCounter = 1;
     
     struct ThrottledEvent {
         std::wstring path;
@@ -397,9 +394,6 @@ private:
     static std::mutex s_windowMutex;
     static std::unordered_map<ExplorerWindowId, std::weak_ptr<TabManager>, ExplorerWindowIdHash> s_windowMap;
 
-    // Enable shared_from_this for safe lifetime management
-    std::shared_ptr<TabManager> GetSharedThis();
-    std::weak_ptr<TabManager> GetWeakThis();
 };
 
 }  // namespace shelltabs

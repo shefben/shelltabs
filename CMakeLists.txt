@@ -64,6 +64,8 @@ add_library(ShellTabs SHARED
     src/CrashRecoveryLogger.cpp
     src/DirectoryWatcher.cpp
     src/GroupStore.cpp
+    src/NameColorStore.cpp
+    src/NameColorView.cpp
     src/OptionsStore.cpp
     src/OptionsDialog.cpp
     src/ShellTabsMessages.cpp
@@ -80,7 +82,6 @@ add_library(ShellTabs SHARED
     src/ThemeHooks.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
-    src/ComVTableHook.cpp
     src/TaskbarPreviewHook.cpp
     src/TaskbarTabListPopup.cpp
     src/ShellTabsTabProvider.cpp

@@ -551,8 +551,16 @@ IFACEMETHODIMP TabBand::SetSite(IUnknown* pUnkSite) {
 
             // If reuse-existing-window is enabled and another ShellTabs window
             // already exists, mark this window for redirect on first navigation.
-            if (m_options.reuseExistingWindow && TabManager::ActiveWindowCount() > 1) {
-                m_pendingWindowRedirect = true;
+            // Windows ShellTabs opens itself (detached tabs/islands) carry a pending seed and are
+            // never redirected. Other new windows (external "open in Explorer", etc.) are redirected
+            // on first navigation when another ShellTabs window exists in any explorer process.
+            // Only windows that have somewhere to go become redirect candidates; those skip
+            // session restore so their first navigation is the folder the app asked for.
+            if (m_options.reuseExistingWindow && !m_hadPendingSeed) {
+                HWND frame = GetFrameWindow();
+                if (frame && FindRedirectTargetBand(frame)) {
+                    m_pendingWindowRedirect = true;
+                }
             }
 
             LogMessage(LogLevel::Info, L"TabBand::SetSite completed successfully");
@@ -1182,16 +1190,6 @@ bool TabBand::CanReopenClosedTabs() const {
     return !m_closedTabHistory.empty();
 }
 
-std::wstring TabBand::GetReopenClosedLabel() const {
-    if (m_closedTabHistory.empty()) {
-        return L"Reopen Last Closed Tab or Island";
-    }
-    const auto& last = m_closedTabHistory.back();
-    if (last.groupRemoved && last.entries.size() > 1) {
-        return L"Reopen Last Closed Island (" + std::to_wstring(last.entries.size()) + L" tabs)";
-    }
-    return L"Reopen Last Closed Tab";
-}
 
 bool TabBand::CanNavigateBack() const {
     const TabLocation selected = m_tabs.SelectedLocation();
@@ -1920,6 +1918,29 @@ void TabBand::CloseFrameWindowAsync() {
     PostMessageW(frame, WM_CLOSE, 0, 0);
 }
 
+// Picks the top-most visible, non-minimized ShellTabs band in any explorer process (falling back
+// to a minimized one). FindWindowEx enumerates top-level windows in z-order.
+HWND TabBand::FindRedirectTargetBand(HWND ourFrame) {
+    HWND fallback = nullptr;
+    HWND search = nullptr;
+    while ((search = FindWindowExW(nullptr, search, L"CabinetWClass", nullptr)) != nullptr) {
+        if (search == ourFrame || !IsWindowVisible(search)) {
+            continue;
+        }
+        HWND band = FindShellTabsBandWindow(search, ourFrame);
+        if (!band || GetAncestor(band, GA_ROOT) != search) {
+            continue;
+        }
+        if (!IsIconic(search)) {
+            return band;
+        }
+        if (!fallback) {
+            fallback = band;
+        }
+    }
+    return fallback;
+}
+
 bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {
         return false;
@@ -1940,8 +1961,7 @@ bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
         return false;
     }
 
-    HWND candidate = FindShellTabsBandWindow(nullptr, ourFrame);
-
+    HWND candidate = FindRedirectTargetBand(ourFrame);
     if (!candidate) {
         return false;
     }
@@ -1949,15 +1969,23 @@ bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
     // Send the folder path via WM_COPYDATA using the existing protocol
     COPYDATASTRUCT cds{};
     cds.dwData = SHELLTABS_COPYDATA_OPEN_FOLDER;
-    cds.cbData = static_cast<DWORD>(path.size() * sizeof(wchar_t));
+    cds.cbData = static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t));
     cds.lpData = const_cast<wchar_t*>(path.c_str());
 
-    const LRESULT result = SendMessageW(candidate, WM_COPYDATA,
-        reinterpret_cast<WPARAM>(ourFrame), reinterpret_cast<LPARAM>(&cds));
-
-    if (!result) {
+    DWORD_PTR result = 0;
+    const LRESULT sent = SendMessageTimeoutW(candidate, WM_COPYDATA, reinterpret_cast<WPARAM>(ourFrame),
+                                             reinterpret_cast<LPARAM>(&cds), SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                                             3000, &result);
+    if (!sent || !result) {
+        LogMessage(LogLevel::Warning, L"TabBand::TryRedirectToExistingWindow target %p did not accept %ls",
+                   candidate, path.c_str());
         return false;
     }
+    LogMessage(LogLevel::Info, L"TabBand::TryRedirectToExistingWindow redirected %ls to %p", path.c_str(),
+               candidate);
+
+    // Hide immediately so the redirected window does not flash before it closes.
+    ShowWindow(ourFrame, SW_HIDE);
 
     // Bring the target window to the foreground
     HWND targetFrame = GetAncestor(candidate, GA_ROOT);
@@ -1968,11 +1996,11 @@ bool TabBand::TryRedirectToExistingWindow(PCIDLIST_ABSOLUTE pidl) {
         DWORD targetProcessId = 0;
         DWORD targetThread = GetWindowThreadProcessId(targetFrame, &targetProcessId);
         DWORD currentThread = GetCurrentThreadId();
-        
+
         if (targetProcessId != 0) {
             AllowSetForegroundWindow(targetProcessId);
         }
-        
+
         if (targetThread != currentThread) {
             AttachThreadInput(currentThread, targetThread, TRUE);
             SetForegroundWindow(targetFrame);
@@ -2281,15 +2309,7 @@ bool TabBand::RestoreCurrentTabScrollPosition() {
                 
                 // Clear existing selection
                 folderView2->SelectItem(-1, SVSI_DESELECTOTHERS);
-                
-                // Restore selection
-                for (const auto& selPidl : tab->selectedItems) {
-                    // Try to find the item index
-                    // int itemIndex = -1;
-                    // if (SUCCEEDED(folderView2->IndexOf(selPidl.get(), &itemIndex)) && itemIndex >= 0) {
-                    //     folderView2->SelectItem(itemIndex, SVSI_SELECT | SVSI_NOSTATECHANGE);
-                    // }
-                }
+
             }
         }
     }
@@ -2637,19 +2657,6 @@ void TabBand::EnsureSessionStore() {
     m_sessionStore = std::make_unique<SessionStore>();
 }
 
-bool TabBand::RestoreSession() {
-    if (!m_sessionStore) {
-        return false;
-    }
-
-    SessionData data;
-    if (!m_sessionStore->Load(data)) {
-        LogMessage(LogLevel::Warning, L"TabBand::RestoreSession load failed");
-        return false;
-    }
-
-    return RestoreSessionFromData(data);
-}
 
 bool TabBand::RestoreSessionFromData(const SessionData& data) {
     LogMessage(LogLevel::Info, L"TabBand::RestoreSession loaded %llu groups",
@@ -3728,6 +3735,87 @@ void TabBand::OnSaveFolderToGroup(TabLocation location) {
     SaveSession();
 }
 
+void TabBand::OnSaveIslandToGroup(int groupIndex) {
+    auto* group = m_tabs.GetGroup(groupIndex);
+    if (!group) {
+        return;
+    }
+
+    // Collect every tab path in the island, preserving the current tab order.
+    std::vector<std::wstring> paths;
+    paths.reserve(group->tabs.size());
+    for (int i = 0; i < static_cast<int>(group->tabs.size()); ++i) {
+        std::wstring path = GetTabPath(TabLocation{groupIndex, i});
+        if (!path.empty()) {
+            paths.push_back(std::move(path));
+        }
+    }
+
+    HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
+    if (paths.empty()) {
+        MessageBoxW(hwnd, L"This island has no tabs that can be saved.", L"ShellTabs", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    auto& store = GroupStore::Instance();
+    if (!LoadGroupStoreForContext(L"TabBand::OnSaveIslandToGroup failed to load saved groups", store)) {
+        MessageBoxW(hwnd, L"Unable to load saved groups.", L"ShellTabs", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    bool saved = false;
+    if (!group->savedGroupId.empty() && store.Find(group->savedGroupId)) {
+        // Island is already linked to a saved group: overwrite its paths and order.
+        saved = store.UpdateTabs(group->savedGroupId, paths);
+        if (saved && group->hasCustomOutline) {
+            store.UpdateColor(group->savedGroupId, group->outlineColor);
+        }
+    } else {
+        std::wstring name = group->name.empty() ? L"New Group" : group->name;
+        COLORREF color = group->hasCustomOutline ? group->outlineColor : RGB(0, 120, 215);
+        if (!PromptForTextInput(hwnd, L"Save Island", L"Group name:", &name, &color)) {
+            return;
+        }
+        name = TrimWhitespace(name);
+        if (name.empty() || name.find_first_of(L"|\r\n") != std::wstring::npos) {
+            MessageBoxW(hwnd, L"Enter a group name without | or line breaks.", L"ShellTabs", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (store.Find(name)) {
+            const int answer = MessageBoxW(hwnd,
+                                           L"A saved group with that name already exists.\n\n"
+                                           L"Replace its folders with the tabs in this island?",
+                                           L"ShellTabs", MB_YESNO | MB_ICONQUESTION);
+            if (answer != IDYES) {
+                return;
+            }
+        }
+        SavedGroup definition;
+        definition.name = name;
+        definition.color = color;
+        definition.outlineStyle = group->outlineStyle;
+        definition.tabPaths = paths;
+        saved = store.Upsert(std::move(definition));
+        if (saved) {
+            group->savedGroupId = name;
+            group->name = name;
+            group->hasCustomOutline = true;
+            group->outlineColor = color;
+        }
+    }
+
+    if (!saved) {
+        LogMessage(LogLevel::Warning, L"TabBand::OnSaveIslandToGroup failed to save island %d", groupIndex);
+        MessageBoxW(hwnd, L"Unable to save this island.", L"ShellTabs", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    LogMessage(LogLevel::Info, L"TabBand::OnSaveIslandToGroup saved %zu tabs to '%s'", paths.size(),
+               group->savedGroupId.c_str());
+    UpdateTabsUI();
+    SaveSession();
+}
+
 void TabBand::OnCreateSavedGroup(int afterGroup) {
     HWND hwnd = m_window ? m_window->GetHwnd() : nullptr;
     std::wstring name = L"New Group";
@@ -4191,8 +4279,13 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
 
     m_tabs.Clear();
 
+    // A window about to be redirected into an existing ShellTabs window must not restore a
+    // session: restoring navigates away from the folder the external app requested, and that
+    // restored folder would be what gets forwarded. Claimed data returns to the pending pool
+    // when this window unregisters.
+    const bool redirectCandidate = m_pendingWindowRedirect;
     bool restored = false;
-    if (result->shouldRestoreSession && result->hasSessionData) {
+    if (!redirectCandidate && result->shouldRestoreSession && result->hasSessionData) {
         restored = RestoreSessionFromData(result->sessionData);
     }
 
@@ -4203,7 +4296,7 @@ void TabBand::HandleInitializationResult(std::unique_ptr<InitializationResult> r
 
     // If we expected to restore but couldn't claim data (cooldown suppressed),
     // and pending data still exists, schedule a retry after the cooldown expires.
-    if (!restored && result->shouldRestoreSession && !result->hasSessionData &&
+    if (!redirectCandidate && !restored && result->shouldRestoreSession && !result->hasSessionData &&
         SessionCoordinator::Instance().HasPendingData() && m_window) {
         HWND hwnd = m_window->GetHwnd();
         if (hwnd) {

@@ -103,11 +103,8 @@ struct ContextMenuItem {
     ContextMenuItemScope scope;   // Legacy: file/folder scope
 };
 
-// Context Menu Helper Functions
-IconCache::Reference ResolveContextMenuIcon(const std::wstring& iconSource, UINT iconFlags);
 std::wstring NormalizeContextMenuIconSource(const std::wstring& iconSource);
 std::vector<std::wstring> NormalizeContextMenuPatterns(const std::vector<std::wstring>& patterns);
-std::wstring NormalizeContextMenuExtensions(const std::vector<std::wstring>& extensions); // Legacy support
 bool MatchesContextMenuPattern(const std::wstring& filename, const std::wstring& pattern);
 bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionCount,
                                      const std::vector<std::wstring>& selectedPaths,
@@ -116,7 +113,6 @@ bool ContextMenuItemMatchesSelection(const ContextMenuItem& item, int selectionC
 std::wstring ExpandContextMenuPlaceholders(const std::wstring& text,
                                           const std::vector<std::wstring>& selectedPaths);
 void ValidateContextMenuItem(const ContextMenuItem& item, std::vector<std::wstring>& errors);
-ContextMenuItem CreateContextMenuTemplate(const std::wstring& templateType);
 
 struct CachedImageMetadata {
     std::wstring cachedImagePath;
@@ -222,7 +218,12 @@ struct ShellTabsOptions {
     bool reopenOnCrash = true;
     // Retained for config compatibility; saved folders are now added explicitly.
     bool persistGroupPaths = false;
-    bool reuseExistingWindow = false;
+    // When true, folders opened by external apps become tabs in an existing window.
+    // Persisted inverted as "external_open_new_window".
+    bool reuseExistingWindow = true;
+    // Custom file/folder name colors. Requires the classic SysListView32 folder view, which
+    // ShellTabs requests from Explorer while this is enabled.
+    bool enableNameColors = true;
     bool enableBreadcrumbGradient = false;
     bool enableBreadcrumbFontGradient = false;
     int breadcrumbGradientTransparency = 45;  // percentage [0, 100]

@@ -87,10 +87,6 @@ public:
     SurfaceColorDescriptor* AcquireSurfaceDescriptor(HWND hwnd, ExplorerSurfaceKind kind);
     SurfaceColorDescriptor* LookupSurfaceDescriptor(HWND hwnd) const;
     void ReleaseSurfaceDescriptor(HWND hwnd);
-    void UpdateSurfaceDescriptor(HWND hwnd, const SurfaceColorDescriptor& descriptor);
-    void SetSurfaceForcedHooks(HWND hwnd, bool forced);
-    void SetSurfaceRole(HWND hwnd, SurfacePaintRole role);
-    void SetSurfaceAccessibilityOptOut(HWND hwnd, bool optOut);
 
 private:
     const GlowSurfaceOptions* ResolveSurfaceOptions(ExplorerSurfaceKind kind) const noexcept;
@@ -128,12 +124,9 @@ public:
 
     bool Attach(HWND hwnd);
     void Detach();
-    bool IsAttached() const noexcept;
 
     void RequestRepaint() const;
 
-    bool SupportsImmediatePainting() const noexcept;
-    bool PaintImmediately(HDC targetDc, const RECT& clipRect);
 
     virtual bool HandleNotify(const NMHDR& header, LRESULT* result);
 

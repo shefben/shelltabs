@@ -40,7 +40,6 @@
 namespace shelltabs {
 
 class TabBand;
-class ExplorerWindowHook;
 struct GlowColorSet;
 
 class TabBandWindow {
@@ -64,7 +63,6 @@ public:
 
     void SetPreferredDockMode(TabBandDockMode mode);
     TabBandDockMode GetCurrentDockMode() const noexcept { return m_currentDockMode; }
-    static uint32_t GetAvailableDockMask();
     static constexpr UINT_PTR SessionFlushTimerId() noexcept { return kSessionFlushTimerId; }
     static constexpr UINT_PTR SessionRetryTimerId() noexcept { return kSessionRetryTimerId; }
 
@@ -379,12 +377,12 @@ private:
     bool m_suppressNextNewTabCommand = false;
     COLORREF m_accentColor = RGB(0, 120, 215);
     ExternalDropState m_externalDrop;
+    HWND m_crossProcessHover = nullptr;
     ThemePalette m_themePalette;
     int m_toolbarGripWidth = 14;
     size_t m_hotCloseIndex = std::numeric_limits<size_t>::max();
     bool m_mouseTracking = false;
     int m_rebarBandIndex = -1;
-    bool m_rebarZOrderTop = false;
     Microsoft::WRL::ComPtr<IDropTarget> m_dropTarget;
     bool m_dropTargetRegistered = false;
     bool m_dropTargetRegistrationPending = false;
@@ -422,9 +420,7 @@ private:
         std::vector<EmptyIslandPlus> m_emptyIslandPlusButtons;
         RECT m_newTabBounds{};
 	// Site/browser for current Explorer window
-        Microsoft::WRL::ComPtr<IUnknown> m_siteUnknown;
         Microsoft::WRL::ComPtr<IServiceProvider> m_siteSp;
-        std::shared_ptr<ExplorerWindowHook> m_windowHook;
 
         HDC m_backBufferDC = nullptr;
         HBITMAP m_backBufferBitmap = nullptr;
@@ -582,6 +578,13 @@ private:
     void HandleExternalDragUpdate();
     void HandleExternalDragLeave();
     void HandleExternalDropExecute();
+    struct CrossProcessDropRequest;
+    bool TryCompleteCrossProcessDrop(const POINT& screenPt);
+    void UpdateCrossProcessHover(const POINT& screenPt);
+    void ClearCrossProcessHover();
+    LRESULT HandleCrossProcessCopyData(const COPYDATASTRUCT* data);
+    void HandleCrossProcessHover(const POINT& screenPt, bool group);
+    void ExecuteCrossProcessDrop(std::unique_ptr<CrossProcessDropRequest> request);
     void RequestSelection(const HitInfo& hit);
     HitInfo HitTest(const POINT& pt) const;
     void ShowContextMenu(const POINT& pt);
@@ -603,11 +606,9 @@ private:
     void InvalidateProgressForIndices(const std::vector<size_t>& indices);
     void InvalidateActiveProgress();
     COLORREF ResolveTabBackground(const TabViewItem& item) const;
-    COLORREF ResolveGroupBackground(const TabViewItem& item) const;
     COLORREF ResolveTextColor(COLORREF background) const;
     COLORREF ResolveTabTextColor(bool selected, COLORREF background) const;
     void ApplyOptionColorOverrides();
-    COLORREF ResolveGroupTextColor(const TabViewItem& item, COLORREF background) const;
     const std::vector<GroupOutline>& BuildGroupOutlines() const;
     void InvalidateGroupOutlineCache();
     void RebuildGroupOutlineCache() const;

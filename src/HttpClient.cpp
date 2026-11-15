@@ -394,15 +394,6 @@ void HttpDownloadQueue::Configure(int maxConcurrent, int speedLimitKBps) {
     m_speedLimitKBps = std::max(0, speedLimitKBps);
 }
 
-HRESULT HttpDownloadQueue::Enqueue(DownloadTask task) {
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_queue.push_back(std::move(task));
-    }
-    EnsureWorkers();
-    m_cv.notify_one();
-    return S_OK;
-}
 
 void HttpDownloadQueue::CancelAll() {
     {
@@ -419,77 +410,8 @@ void HttpDownloadQueue::CancelAll() {
     m_shutdown.store(false, std::memory_order_release);
 }
 
-size_t HttpDownloadQueue::PendingCount() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_mutex));
-    return m_queue.size();
-}
 
-void HttpDownloadQueue::EnsureWorkers() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (m_workersStarted) return;
-    m_workersStarted = true;
-    m_shutdown.store(false, std::memory_order_release);
-    int count = m_maxConcurrent;
-    for (int i = 0; i < count; ++i) {
-        m_workers.emplace_back([this]() { WorkerLoop(); });
-    }
-}
 
-void HttpDownloadQueue::WorkerLoop() {
-    HttpClient client;
-    while (true) {
-        DownloadTask task;
-        {
-            std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [this]() {
-                return m_shutdown.load(std::memory_order_acquire) || !m_queue.empty();
-            });
-            if (m_shutdown.load(std::memory_order_acquire) && m_queue.empty()) break;
-            if (m_queue.empty()) continue;
-            task = std::move(m_queue.front());
-            m_queue.pop_front();
-        }
 
-        // Wrap callback with throttling
-        HttpProgressCallback throttledCallback;
-        if (m_speedLimitKBps > 0 || task.callback) {
-            throttledCallback = [this, &task](ULONGLONG downloaded, ULONGLONG total) -> bool {
-                if (m_speedLimitKBps > 0) {
-                    ThrottleIfNeeded(static_cast<size_t>(downloaded));
-                }
-                if (task.callback) {
-                    return task.callback(downloaded, total);
-                }
-                return !m_shutdown.load(std::memory_order_acquire);
-            };
-        }
-
-        client.DownloadFile(task.options, task.remotePath, task.localPath, throttledCallback);
-    }
-}
-
-void HttpDownloadQueue::ThrottleIfNeeded(size_t bytesJustRead) {
-    if (m_speedLimitKBps <= 0) return;
-
-    std::lock_guard<std::mutex> lock(m_speedMutex);
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_windowStart);
-
-    if (elapsed >= std::chrono::seconds(1)) {
-        m_bytesThisSecond.store(0, std::memory_order_relaxed);
-        m_windowStart = now;
-    }
-
-    m_bytesThisSecond.fetch_add(bytesJustRead, std::memory_order_relaxed);
-    size_t limit = static_cast<size_t>(m_speedLimitKBps) * 1024;
-    if (m_bytesThisSecond.load(std::memory_order_relaxed) > limit) {
-        auto remaining = std::chrono::seconds(1) - elapsed;
-        if (remaining > std::chrono::milliseconds(0)) {
-            std::this_thread::sleep_for(remaining);
-            m_bytesThisSecond.store(0, std::memory_order_relaxed);
-            m_windowStart = std::chrono::steady_clock::now();
-        }
-    }
-}
 
 }  // namespace shelltabs::http

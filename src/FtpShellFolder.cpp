@@ -1130,9 +1130,6 @@ bool FtpShellFolder::ExtractRelativeSegments(PCUIDLIST_RELATIVE pidl, std::vecto
     return true;
 }
 
-std::wstring FtpShellFolder::BuildFolderPath(const std::vector<std::wstring>& extra) const {
-    return JoinSegments(pathSegments_, extra);
-}
 
 std::wstring FtpShellFolder::BuildFileName(const std::vector<std::wstring>& segments, std::wstring* directoryOut) const {
     if (segments.empty()) {

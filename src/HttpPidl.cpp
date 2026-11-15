@@ -392,12 +392,6 @@ UniquePidl CreatePidlFromHttpUrl(const HttpUrlParts& parts) {
     return builder.Finalize();
 }
 
-UniquePidl CloneRelativeHttpPidl(PCUIDLIST_RELATIVE pidl) {
-    if (!pidl) {
-        return nullptr;
-    }
-    return UniquePidl(ILClone(pidl));
-}
 
 std::vector<std::uint8_t> SerializeHttpPidl(PCIDLIST_ABSOLUTE pidl) {
     if (!pidl) {

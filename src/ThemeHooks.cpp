@@ -5,6 +5,7 @@
 #include <CommCtrl.h>
 #include <gdiplus.h>
 #include <optional>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -23,6 +24,7 @@
 #include "DpiUtils.h"
 #include "CompositionIntercept.h"
 #include "BreadcrumbGradient.h"
+#include "ExplorerThemeUtils.h"
 
 // Note: Some theme part constants may not be available in older Windows SDKs
 // They are conditionally included in the switch statement if defined
@@ -260,7 +262,6 @@ public:
         return *this;
     }
 
-    bool Active() const noexcept { return m_active; }
 
 private:
     PaintContextSnapshot m_previous{};
@@ -916,6 +917,19 @@ HRESULT STDMETHODCALLTYPE DirectUiDrawDetour(void* element, HDC dc, const RECT* 
     return original(element, dc, rect, state, data);
 }
 
+std::atomic<PopupMenuCommandFilter> g_popupMenuCommandFilter{nullptr};
+
+BOOL FilterPopupMenuResult(UINT flags, BOOL result) {
+    if (!(flags & TPM_RETURNCMD) || result <= 0) {
+        return result;
+    }
+    PopupMenuCommandFilter filter = g_popupMenuCommandFilter.load();
+    if (filter && filter(static_cast<UINT>(result))) {
+        return 0;
+    }
+    return result;
+}
+
 BOOL WINAPI TrackPopupMenuDetour(HMENU menu, UINT flags, int x, int y, int reserved, HWND hwnd, const RECT* rect) {
     PopupInvocationContext context = PreparePopupInvocation(hwnd);
     if (context.themingEnabled) {
@@ -925,6 +939,7 @@ BOOL WINAPI TrackPopupMenuDetour(HMENU menu, UINT flags, int x, int y, int reser
     BOOL result = g_originalTrackPopupMenu ?
                       g_originalTrackPopupMenu(menu, flags, x, y, reserved, hwnd, rect)
                       : FALSE;
+    result = FilterPopupMenuResult(flags, result);
 
     if (context.themingEnabled) {
         g_popupInvocationStack.pop_back();
@@ -941,6 +956,7 @@ BOOL WINAPI TrackPopupMenuExDetour(HMENU menu, UINT flags, int x, int y, HWND hw
     BOOL result = g_originalTrackPopupMenuEx ?
                       g_originalTrackPopupMenuEx(menu, flags, x, y, hwnd, params)
                       : FALSE;
+    result = FilterPopupMenuResult(flags, result);
 
     if (context.themingEnabled) {
         g_popupInvocationStack.pop_back();
@@ -979,8 +995,259 @@ HWND WINAPI CreateWindowExWDetour(DWORD exStyle, LPCWSTR className, LPCWSTR wind
     return hwnd;
 }
 
+// ---------------------------------------------------------------------------
+// Control Panel dark mode.
+//
+// Control Panel style pages (All Control Panel Items, Fonts, Programs and Features, ...) are
+// DirectUI views whose stylesheets pull their colors from the "ControlPanelStyle" and
+// "CommandModule" visual-style classes via DrawThemeBackground and GetThemeColor. Windows ships
+// no dark variant of those classes, so we track the theme handles opened for them and substitute
+// dark backgrounds / light text while the app dark mode preference is active.
+// ---------------------------------------------------------------------------
+enum class DarkThemeClass { kControlPanel, kCommandModule };
+
+using OpenThemeDataFn = HTHEME(WINAPI*)(HWND, LPCWSTR);
+using OpenThemeDataExFn = HTHEME(WINAPI*)(HWND, LPCWSTR, DWORD);
+using OpenThemeDataForDpiFn = HTHEME(WINAPI*)(HWND, LPCWSTR, UINT);
+using CloseThemeDataFn = HRESULT(WINAPI*)(HTHEME);
+using GetThemeColorFn = HRESULT(WINAPI*)(HTHEME, int, int, int, COLORREF*);
+
+OpenThemeDataFn g_originalOpenThemeData = nullptr;
+OpenThemeDataExFn g_originalOpenThemeDataEx = nullptr;
+OpenThemeDataForDpiFn g_originalOpenThemeDataForDpi = nullptr;
+CloseThemeDataFn g_originalCloseThemeData = nullptr;
+GetThemeColorFn g_originalGetThemeColor = nullptr;
+void* g_openThemeDataTarget = nullptr;
+void* g_openThemeDataExTarget = nullptr;
+void* g_openThemeDataForDpiTarget = nullptr;
+void* g_closeThemeDataTarget = nullptr;
+void* g_getThemeColorTarget = nullptr;
+
+std::mutex g_darkThemeMutex;
+std::unordered_map<HTHEME, DarkThemeClass> g_darkThemeHandles;
+
+constexpr COLORREF kCpDarkNavBackground = RGB(32, 32, 32);
+constexpr COLORREF kCpDarkContentBackground = RGB(25, 25, 25);
+constexpr COLORREF kCpDarkCommandBackground = RGB(43, 43, 43);
+constexpr COLORREF kCpDarkLine = RGB(64, 64, 64);
+constexpr COLORREF kCpDarkText = RGB(230, 230, 230);
+constexpr COLORREF kCpDarkSecondaryText = RGB(190, 190, 190);
+constexpr COLORREF kCpDarkLink = RGB(110, 175, 255);
+constexpr COLORREF kCpDarkLinkHot = RGB(160, 205, 255);
+
+bool IsHighContrastEnabled() {
+    HIGHCONTRASTW contrast{sizeof(contrast)};
+    return SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+           (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
+bool IsDarkModeActiveCached() {
+    // The preference lives in the registry; avoid querying it on every paint call.
+    static std::atomic<ULONGLONG> lastCheck{0};
+    static std::atomic<bool> cached{false};
+    const ULONGLONG now = GetTickCount64();
+    const ULONGLONG previous = lastCheck.load(std::memory_order_relaxed);
+    if (previous == 0 || now - previous > 1000) {
+        lastCheck.store(now, std::memory_order_relaxed);
+        cached.store(IsAppDarkModePreferred() && !IsHighContrastEnabled(), std::memory_order_relaxed);
+    }
+    return cached.load(std::memory_order_relaxed);
+}
+
+bool ClassListContains(LPCWSTR classList, const wchar_t* name) {
+    if (!classList) {
+        return false;
+    }
+    const size_t nameLength = wcslen(name);
+    const wchar_t* cursor = classList;
+    while (*cursor) {
+        const wchar_t* end = wcschr(cursor, L';');
+        const size_t length = end ? static_cast<size_t>(end - cursor) : wcslen(cursor);
+        // Entries may be prefixed with a subclass ("DarkMode::Explorer") - compare the tail.
+        if (length >= nameLength && _wcsnicmp(cursor + length - nameLength, name, nameLength) == 0 &&
+            (length == nameLength || cursor[length - nameLength - 1] == L':')) {
+            return true;
+        }
+        if (!end) {
+            break;
+        }
+        cursor = end + 1;
+    }
+    return false;
+}
+
+void TrackThemeHandle(HTHEME theme, LPCWSTR classList) {
+    if (!theme) {
+        return;
+    }
+    std::optional<DarkThemeClass> kind;
+    if (ClassListContains(classList, L"ControlPanelStyle") || ClassListContains(classList, L"ControlPanel")) {
+        kind = DarkThemeClass::kControlPanel;
+    } else if (ClassListContains(classList, L"CommandModule")) {
+        kind = DarkThemeClass::kCommandModule;
+    }
+    std::lock_guard<std::mutex> lock(g_darkThemeMutex);
+    if (kind) {
+        g_darkThemeHandles[theme] = *kind;
+    } else {
+        // Handle values can be recycled; make sure a stale entry never leaks onto another class.
+        g_darkThemeHandles.erase(theme);
+    }
+}
+
+std::optional<DarkThemeClass> LookupDarkThemeClass(HTHEME theme) {
+    if (!theme) {
+        return std::nullopt;
+    }
+    std::lock_guard<std::mutex> lock(g_darkThemeMutex);
+    auto it = g_darkThemeHandles.find(theme);
+    if (it == g_darkThemeHandles.end()) {
+        return std::nullopt;
+    }
+    return it->second;
+}
+
+HTHEME WINAPI OpenThemeDataDetour(HWND hwnd, LPCWSTR classList) {
+    HTHEME theme = g_originalOpenThemeData(hwnd, classList);
+    TrackThemeHandle(theme, classList);
+    return theme;
+}
+
+HTHEME WINAPI OpenThemeDataExDetour(HWND hwnd, LPCWSTR classList, DWORD flags) {
+    HTHEME theme = g_originalOpenThemeDataEx(hwnd, classList, flags);
+    TrackThemeHandle(theme, classList);
+    return theme;
+}
+
+HTHEME WINAPI OpenThemeDataForDpiDetour(HWND hwnd, LPCWSTR classList, UINT dpi) {
+    HTHEME theme = g_originalOpenThemeDataForDpi(hwnd, classList, dpi);
+    TrackThemeHandle(theme, classList);
+    return theme;
+}
+
+HRESULT WINAPI CloseThemeDataDetour(HTHEME theme) {
+    {
+        std::lock_guard<std::mutex> lock(g_darkThemeMutex);
+        g_darkThemeHandles.erase(theme);
+    }
+    return g_originalCloseThemeData(theme);
+}
+
+// Background color for a Control Panel / CommandModule part, or nullopt to leave it alone.
+std::optional<COLORREF> ResolveDarkPartBackground(DarkThemeClass kind, int partId) {
+    if (kind == DarkThemeClass::kCommandModule) {
+        // Part 1 is the command bar body; other parts are buttons/glyphs we leave to the theme.
+        return partId == 1 ? std::optional<COLORREF>(kCpDarkCommandBackground) : std::nullopt;
+    }
+    switch (partId) {
+        case CPANEL_NAVIGATIONPANE:
+            return kCpDarkNavBackground;
+        case CPANEL_CONTENTPANE:
+        case CPANEL_BANNERAREA:
+            return kCpDarkContentBackground;
+        case CPANEL_LARGECOMMANDAREA:
+        case CPANEL_SMALLCOMMANDAREA:
+            return kCpDarkCommandBackground;
+        case CPANEL_NAVIGATIONPANELINE:
+        case CPANEL_CONTENTPANELINE:
+            return kCpDarkLine;
+        default:
+            return std::nullopt;
+    }
+}
+
+COLORREF ResolveDarkPartText(DarkThemeClass kind, int partId, int stateId) {
+    if (kind == DarkThemeClass::kCommandModule) {
+        return kCpDarkText;
+    }
+    switch (partId) {
+        case CPANEL_HELPLINK:
+        case CPANEL_TASKLINK:
+        case CPANEL_CONTENTLINK:
+        case CPANEL_SECTIONTITLELINK:
+        case CPANEL_TITLE:
+        case CPANEL_BODYTITLE:
+            // Link state 2 is "hot" for all of the CPANEL link parts.
+            return stateId == 2 ? kCpDarkLinkHot : kCpDarkLink;
+        case CPANEL_GROUPTEXT:
+        case CPANEL_NAVIGATIONPANELABEL:
+        case CPANEL_CONTENTPANELABEL:
+            return kCpDarkSecondaryText;
+        default:
+            return kCpDarkText;
+    }
+}
+
+HRESULT WINAPI GetThemeColorDetour(HTHEME theme, int partId, int stateId, int propId, COLORREF* color) {
+    const HRESULT hr = g_originalGetThemeColor(theme, partId, stateId, propId, color);
+    if (!color || !IsDarkModeActiveCached()) {
+        return hr;
+    }
+    const auto kind = LookupDarkThemeClass(theme);
+    if (!kind) {
+        return hr;
+    }
+    switch (propId) {
+        case TMT_TEXTCOLOR:
+            *color = ResolveDarkPartText(*kind, partId, stateId);
+            return S_OK;
+        case TMT_FILLCOLOR:
+        case TMT_FILLCOLORHINT:
+            if (auto background = ResolveDarkPartBackground(*kind, partId)) {
+                *color = *background;
+                return S_OK;
+            }
+            if (*kind == DarkThemeClass::kControlPanel) {
+                *color = kCpDarkContentBackground;
+                return S_OK;
+            }
+            return hr;
+        case TMT_BORDERCOLOR:
+        case TMT_EDGEDKSHADOWCOLOR:
+        case TMT_EDGEFILLCOLOR:
+            if (SUCCEEDED(hr)) {
+                *color = kCpDarkLine;
+            }
+            return hr;
+        default:
+            return hr;
+    }
+}
+
+bool TryPaintDarkThemePart(HTHEME theme, HDC dc, int partId, const RECT* rect, const RECT* clipRect) {
+    if (!rect || !dc || !IsDarkModeActiveCached()) {
+        return false;
+    }
+    const auto kind = LookupDarkThemeClass(theme);
+    if (!kind) {
+        return false;
+    }
+    const auto background = ResolveDarkPartBackground(*kind, partId);
+    if (!background) {
+        return false;
+    }
+    RECT fill = *rect;
+    if (clipRect && !IntersectRect(&fill, rect, clipRect)) {
+        return true;  // nothing visible to paint
+    }
+    HBRUSH brush = CreateSolidBrush(*background);
+    if (!brush) {
+        return false;
+    }
+    if (g_originalFillRect) {
+        g_originalFillRect(dc, &fill, brush);
+    } else {
+        FillRect(dc, &fill, brush);
+    }
+    DeleteObject(brush);
+    return true;
+}
+
 HRESULT WINAPI DrawThemeBackgroundDetour(HTHEME theme, HDC dc, int partId, int stateId, const RECT* rect,
                                          const RECT* clipRect) {
+    if (TryPaintDarkThemePart(theme, dc, partId, rect, clipRect)) {
+        return S_OK;
+    }
     ReentrancyGuard guard(g_drawThemeBackgroundActive);
     if (!guard.Entered()) {
         return g_originalDrawThemeBackground(theme, dc, partId, stateId, rect, clipRect);
@@ -1834,32 +2101,7 @@ BOOL WINAPI PolylineToDetour(HDC dc, const POINT* points, DWORD count) {
     return g_originalPolylineTo(dc, points, count);
 }
 
-void RegisterDirectUiHostInternal(HWND hwnd) noexcept {
-    if (!hwnd) {
-        return;
-    }
-    std::lock_guard<std::mutex> guard(g_registryMutex);
-    g_directUiHosts.insert(hwnd);
-}
 
-void UnregisterDirectUiHostInternal(HWND hwnd) noexcept {
-    if (!hwnd) {
-        return;
-    }
-    {
-        std::lock_guard<std::mutex> guard(g_registryMutex);
-        g_directUiHosts.erase(hwnd);
-    }
-
-    std::lock_guard<std::mutex> detourGuard(g_directUiDetourMutex);
-    for (auto it = g_directUiElementInfo.begin(); it != g_directUiElementInfo.end();) {
-        if (it->second.host == hwnd) {
-            it = g_directUiElementInfo.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
 
 void RegisterDirectUiRenderInterfaceInternal(void* element, size_t drawIndex, HWND host,
                                              ExplorerGlowCoordinator* coordinator) noexcept {
@@ -1946,20 +2188,13 @@ void DisableHook(void* target, const wchar_t* name) {
 
 }  // namespace
 
-void RegisterDirectUiHost(HWND hwnd) noexcept {
-    RegisterDirectUiHostInternal(hwnd);
-}
 
-void UnregisterDirectUiHost(HWND hwnd) noexcept {
-    UnregisterDirectUiHostInternal(hwnd);
-}
 
 void RegisterDirectUiRenderInterface(void* element, size_t drawIndex, HWND host,
                                      ExplorerGlowCoordinator* coordinator) noexcept {
     RegisterDirectUiRenderInterfaceInternal(element, drawIndex, host, coordinator);
 }
 
-void InvalidateScrollbarMetrics(HWND hwnd) noexcept { InvalidateScrollbarMetricsInternal(hwnd); }
 
 bool InitializeThemeHooks() {
     std::lock_guard<std::mutex> guard(g_initializationMutex);
@@ -2149,6 +2384,34 @@ bool InitializeThemeHooks() {
     InstallHook(g_selectObjectTarget, reinterpret_cast<void*>(&SelectObjectDetour),
                 reinterpret_cast<void**>(&g_originalSelectObject), L"SelectObject");
 
+    // Control Panel dark mode hooks (optional).
+    g_openThemeDataTarget = uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "OpenThemeData")) : nullptr;
+    g_openThemeDataExTarget = uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "OpenThemeDataEx")) : nullptr;
+    g_openThemeDataForDpiTarget =
+        uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "OpenThemeDataForDpi")) : nullptr;
+    g_closeThemeDataTarget = uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "CloseThemeData")) : nullptr;
+    g_getThemeColorTarget = uxtheme ? reinterpret_cast<void*>(GetProcAddress(uxtheme, "GetThemeColor")) : nullptr;
+    if (g_closeThemeDataTarget &&
+        InstallHook(g_closeThemeDataTarget, reinterpret_cast<void*>(&CloseThemeDataDetour),
+                    reinterpret_cast<void**>(&g_originalCloseThemeData), L"CloseThemeData")) {
+        if (g_openThemeDataTarget) {
+            InstallHook(g_openThemeDataTarget, reinterpret_cast<void*>(&OpenThemeDataDetour),
+                        reinterpret_cast<void**>(&g_originalOpenThemeData), L"OpenThemeData");
+        }
+        if (g_openThemeDataExTarget) {
+            InstallHook(g_openThemeDataExTarget, reinterpret_cast<void*>(&OpenThemeDataExDetour),
+                        reinterpret_cast<void**>(&g_originalOpenThemeDataEx), L"OpenThemeDataEx");
+        }
+        if (g_openThemeDataForDpiTarget) {
+            InstallHook(g_openThemeDataForDpiTarget, reinterpret_cast<void*>(&OpenThemeDataForDpiDetour),
+                        reinterpret_cast<void**>(&g_originalOpenThemeDataForDpi), L"OpenThemeDataForDpi");
+        }
+        if (g_getThemeColorTarget) {
+            InstallHook(g_getThemeColorTarget, reinterpret_cast<void*>(&GetThemeColorDetour),
+                        reinterpret_cast<void**>(&g_originalGetThemeColor), L"GetThemeColor");
+        }
+    }
+
     g_hooksActive = true;
     LogMessage(LogLevel::Info, L"ThemeHooks: installed theme detours (including line drawing hooks)");
     return true;
@@ -2160,6 +2423,15 @@ void ShutdownThemeHooks() {
         return;
     }
 
+    DisableHook(g_getThemeColorTarget, L"GetThemeColor");
+    DisableHook(g_openThemeDataForDpiTarget, L"OpenThemeDataForDpi");
+    DisableHook(g_openThemeDataExTarget, L"OpenThemeDataEx");
+    DisableHook(g_openThemeDataTarget, L"OpenThemeData");
+    DisableHook(g_closeThemeDataTarget, L"CloseThemeData");
+    {
+        std::lock_guard<std::mutex> lock(g_darkThemeMutex);
+        g_darkThemeHandles.clear();
+    }
     DisableHook(g_selectObjectTarget, L"SelectObject");
     DisableHook(g_extCreatePenTarget, L"ExtCreatePen");
     DisableHook(g_createPenIndirectTarget, L"CreatePenIndirect");
@@ -2252,8 +2524,9 @@ void ShutdownThemeHooks() {
 
 bool AreThemeHooksActive() noexcept { return g_hooksActive; }
 
-void SetFillRectPostCallback(FillRectPostCallback cb) noexcept {
-    g_fillRectPostCallback = cb;
+
+void SetPopupMenuCommandFilter(PopupMenuCommandFilter filter) noexcept {
+    g_popupMenuCommandFilter.store(filter);
 }
 
 void RegisterThemeSurface(HWND hwnd, ExplorerSurfaceKind kind, ExplorerGlowCoordinator* coordinator) noexcept {
