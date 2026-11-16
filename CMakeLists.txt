@@ -80,6 +80,7 @@ add_library(ShellTabs SHARED
     src/CompositionIntercept.cpp
     src/FolderBackgroundHooks.cpp
     src/ThemeHooks.cpp
+    src/DoubleClickTuning.cpp
     src/ThemeNotifier.cpp
     src/ExplorerThemeUtils.cpp
     src/TaskbarPreviewHook.cpp

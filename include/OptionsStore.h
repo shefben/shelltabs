@@ -224,6 +224,9 @@ struct ShellTabsOptions {
     // Custom file/folder name colors. Requires the classic SysListView32 folder view, which
     // ShellTabs requests from Explorer while this is enabled.
     bool enableNameColors = true;
+    // Explorer-only double-click window in milliseconds. A second click on the same item within
+    // this time opens it instead of starting a rename. 0 keeps the Windows setting.
+    int doubleClickOpenMs = 1000;
     bool enableBreadcrumbGradient = false;
     bool enableBreadcrumbFontGradient = false;
     int breadcrumbGradientTransparency = 45;  // percentage [0, 100]

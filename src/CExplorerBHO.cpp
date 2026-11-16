@@ -58,6 +58,7 @@
 #include "IconCache.h"
 #include "DpiUtils.h"
 #include "EditGradientRenderer.h"
+#include "DoubleClickTuning.h"
 
 #ifndef TBSTATE_HOT
 #define TBSTATE_HOT 0x80
@@ -752,6 +753,10 @@ void CExplorerBHO::Disconnect() {
     LogMessage(LogLevel::Info, L"CExplorerBHO::Disconnect step 8b - RemoveExplorerFrameSubclass");
     RemoveExplorerFrameSubclass();
     RemoveDirectUISubclass();
+    if (m_doubleClickTuningAttached) {
+        DoubleClickTuning::DetachCurrentThread();
+        m_doubleClickTuningAttached = false;
+    }
     if (m_nameColorView) {
         m_nameColorView->Detach();
     }
@@ -1065,6 +1070,13 @@ IFACEMETHODIMP CExplorerBHO::SetSite(IUnknown* site) {
 
             if (!siteProvider && m_shellBrowser) {
                 m_shellBrowser.As(&siteProvider);
+            }
+
+            // Longer Explorer-only double-click window so slow double-clicks open instead of rename.
+            DoubleClickTuning::SetOpenWindowMs(OptionsStore::Instance().Get().doubleClickOpenMs);
+            if (!m_doubleClickTuningAttached) {
+                DoubleClickTuning::AttachCurrentThread();
+                m_doubleClickTuningAttached = true;
             }
 
             // Name colors need the classic list view; request it before the first view is created.
@@ -3167,6 +3179,7 @@ void CExplorerBHO::UpdateBreadcrumbSubclass() {
     const COLORREF previousBreadcrumbGradientStart = m_breadcrumbGradientStartColor;
     const COLORREF previousBreadcrumbGradientEnd = m_breadcrumbGradientEndColor;
     m_glowCoordinator.Configure(options);
+    DoubleClickTuning::SetOpenWindowMs(options.doubleClickOpenMs);
     m_breadcrumbGradientEnabled = options.enableBreadcrumbGradient;
     m_breadcrumbFontGradientEnabled = options.enableBreadcrumbFontGradient;
     m_breadcrumbGradientTransparency = std::clamp<int>(options.breadcrumbGradientTransparency, 0, 100);

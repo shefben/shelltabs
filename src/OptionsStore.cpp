@@ -28,6 +28,7 @@ constexpr wchar_t kPersistToken[] = L"persist_group_paths";
 constexpr wchar_t kReuseWindowToken[] = L"reuse_existing_window";  // legacy, ignored on load
 constexpr wchar_t kExternalNewWindowToken[] = L"external_open_new_window";
 constexpr wchar_t kNameColorsToken[] = L"name_colors";
+constexpr wchar_t kDoubleClickOpenMsToken[] = L"double_click_open_ms";
 constexpr wchar_t kNewTabTemplateToken[] = L"new_tab_template";
 constexpr wchar_t kNewTabCustomPathToken[] = L"new_tab_custom_path";
 constexpr wchar_t kNewTabSavedGroupToken[] = L"new_tab_saved_group";
@@ -1035,6 +1036,13 @@ bool OptionsStore::Load(std::wstring* errorContext) {
             return true;
         }
 
+        if (header == kDoubleClickOpenMsToken) {
+            if (tokens.size() >= 2) {
+                m_options.doubleClickOpenMs = ParseIntInRange(tokens[1], 0, 5000, m_options.doubleClickOpenMs);
+            }
+            return true;
+        }
+
         if (header == kExternalNewWindowToken) {
             if (tokens.size() >= 2) {
                 m_options.reuseExistingWindow = !ParseBool(tokens[1]);
@@ -1564,6 +1572,10 @@ bool OptionsStore::Save() const {
     content += L"|";
     content += options.enableNameColors ? L"1" : L"0";
     content += L"\n";
+    content += kDoubleClickOpenMsToken;
+    content += L"|";
+    content += std::to_wstring(std::clamp(options.doubleClickOpenMs, 0, 5000));
+    content += L"\n";
     content += kNewTabTemplateToken;
     content += L"|";
     content += NewTabTemplateToString(options.newTabTemplate);
@@ -1882,6 +1894,7 @@ bool operator==(const ShellTabsOptions& left, const ShellTabsOptions& right) noe
     return left.reopenOnCrash == right.reopenOnCrash && left.persistGroupPaths == right.persistGroupPaths &&
            left.reuseExistingWindow == right.reuseExistingWindow &&
            left.enableNameColors == right.enableNameColors &&
+           left.doubleClickOpenMs == right.doubleClickOpenMs &&
            left.enableBreadcrumbGradient == right.enableBreadcrumbGradient &&
            left.enableBreadcrumbFontGradient == right.enableBreadcrumbFontGradient &&
            left.breadcrumbGradientTransparency == right.breadcrumbGradientTransparency &&

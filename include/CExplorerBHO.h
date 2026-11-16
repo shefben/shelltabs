@@ -285,6 +285,7 @@ struct ShellTabsOptions;
                 bool m_addressEditCachedThemeActive = false;
                 HFONT m_addressEditCachedFont = nullptr;
                 bool m_breadcrumbHookRegistered = false;
+                bool m_doubleClickTuningAttached = false;
 		enum class BreadcrumbLogState {
 			Unknown,
 			Disabled,

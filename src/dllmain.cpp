@@ -17,6 +17,7 @@
 #include "Logging.h"
 #include "Module.h"
 #include "ThemeHooks.h"
+#include "DoubleClickTuning.h"
 #include "CompositionIntercept.h"
 #include "CrashRecoveryLogger.h"
 #include "TaskbarPreviewHook.h"
@@ -1058,6 +1059,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         shelltabs::TaskbarPreviewHook::Instance().Shutdown();
         ShutdownCompositionIntercept();
         shelltabs::ShutdownFolderBackgroundHooks();
+        shelltabs::DoubleClickTuning::Shutdown();
         ShutdownThemeHooks();
         ShutdownLogging();
     }

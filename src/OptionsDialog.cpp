@@ -86,6 +86,8 @@ enum ControlIds : int {
     IDC_GEN_REUSE_WINDOW = 6012,
     IDC_GEN_NAME_COLORS = 6013,
     IDC_GEN_EXTENSION_COLORS = 6014,
+    IDC_GEN_DBLCLICK_LABEL = 6015,
+    IDC_GEN_DBLCLICK_MS = 6016,
 
     // Appearance Page (6100-6199)
     IDC_APP_BREADCRUMB_GROUP = 6100,
@@ -963,6 +965,15 @@ DialogTemplatePtr CreateGeneralPageTemplate() {
         kPageWidth - kMargin - 95, y - 3, 95, kButtonHeight);
     y += kCheckHeight + kSpacing * 2;
 
+    // Explorer-only double-click window (slow double-clicks open instead of rename)
+    builder.AddStatic(IDC_GEN_DBLCLICK_LABEL,
+        L"Double-click opens within (ms, 0 = Windows setting):",
+        kMargin, y + 3, 190, kLabelHeight);
+    builder.AddEdit(IDC_GEN_DBLCLICK_MS, L"",
+        kMargin + 190, y, 40, kEditHeight,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_NUMBER);
+    y += kEditHeight + kSpacing * 2;
+
     // Dock mode
     builder.AddStatic(IDC_GEN_DOCK_LABEL,
         L"Tab band position:",
@@ -1011,6 +1022,8 @@ void InitGeneralPage(HWND page, OptionsDialogData* data) {
         data->workingOptions.reuseExistingWindow ? BST_UNCHECKED : BST_CHECKED);
     CheckDlgButton(page, IDC_GEN_NAME_COLORS,
         data->workingOptions.enableNameColors ? BST_CHECKED : BST_UNCHECKED);
+    SendDlgItemMessageW(page, IDC_GEN_DBLCLICK_MS, EM_LIMITTEXT, 4, 0);
+    SetDlgItemInt(page, IDC_GEN_DBLCLICK_MS, static_cast<UINT>(data->workingOptions.doubleClickOpenMs), FALSE);
 
     // Populate dock mode combo
     HWND dockCombo = GetDlgItem(page, IDC_GEN_DOCK_COMBO);
@@ -1105,6 +1118,15 @@ INT_PTR CALLBACK GeneralPageProc(HWND page, UINT msg, WPARAM wParam, LPARAM lPar
                 data->workingOptions.enableNameColors =
                     (IsDlgButtonChecked(page, IDC_GEN_NAME_COLORS) == BST_CHECKED);
                 PropSheet_Changed(GetParent(page), page);
+            }
+            else if (id == IDC_GEN_DBLCLICK_MS && code == EN_CHANGE) {
+                BOOL ok = FALSE;
+                const UINT value = GetDlgItemInt(page, IDC_GEN_DBLCLICK_MS, &ok, FALSE);
+                const int clamped = ok ? static_cast<int>(std::min<UINT>(value, 5000)) : 0;
+                if (clamped != data->workingOptions.doubleClickOpenMs) {
+                    data->workingOptions.doubleClickOpenMs = clamped;
+                    PropSheet_Changed(GetParent(page), page);
+                }
             }
             else if (id == IDC_GEN_REUSE_WINDOW && code == BN_CLICKED) {
                 data->workingOptions.reuseExistingWindow =
