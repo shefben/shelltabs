@@ -229,7 +229,11 @@ void NameColorView::ApplyListViewTheme() {
     // The classic list view does not follow Explorer's dark items view on its own.
     const bool dark = IsAppDarkModePreferred();
     m_darkMode = dark;
-    SetWindowTheme(m_listView, dark ? L"DarkMode_ItemsView" : L"ItemsView", nullptr);
+    // The list view's non-client scrollbars open the "ScrollBar" theme class under the same
+    // sub-app name. aero.msstyles has no DarkMode_ItemsView::ScrollBar, so that name falls back
+    // to light scrollbars; DarkMode_Explorer carries both ListView and dark ScrollBar parts,
+    // matching the navigation pane. The header keeps DarkMode_ItemsView (its own window theme).
+    SetWindowTheme(m_listView, dark ? L"DarkMode_Explorer" : L"ItemsView", nullptr);
     if (HWND header = ListView_GetHeader(m_listView)) {
         SetWindowTheme(header, dark ? L"DarkMode_ItemsView" : L"ItemsView", nullptr);
     }
